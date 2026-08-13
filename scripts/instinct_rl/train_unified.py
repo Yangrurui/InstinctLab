@@ -9,11 +9,14 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _parser_has_option(parser: argparse.ArgumentParser, option: str) -> bool:
+    return option in parser._option_string_actions
+
+
 def _base_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=("isaacsim", "mjlab", "mock"), required=True)
     parser.add_argument("--task", default="Instinct-Locomotion-Flat-G1-v0")
-    parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--num-envs", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-iterations", type=int, default=None)
@@ -30,6 +33,9 @@ def _parse_args():
     preliminary, _ = parser.parse_known_args()
     provider = BACKENDS.load(preliminary.backend)
     provider.add_cli_args(parser)
+    # Isaac Sim's AppLauncher already registers --device; other backends do not.
+    if not _parser_has_option(parser, "--device"):
+        parser.add_argument("--device", default="cuda:0")
     return parser.parse_args(), provider
 
 
@@ -38,6 +44,7 @@ def main() -> None:
     bootstrap_context = provider.bootstrap(args)
 
     import torch
+
     from instinct_rl.runners import OnPolicyRunner
 
     from instinctlab.envs import UnifiedManagerBasedRLEnv

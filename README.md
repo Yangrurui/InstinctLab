@@ -33,32 +33,51 @@ See [CONTRIBUTORS.md](CONTRIBUTORS.md) for a list of acknowledged contributors.
 
 ## Installation
 
-- Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html) and **Switch to 5.1.0 version**. We recommend using the conda installation as it simplifies calling Python scripts from the terminal. The IsaacLab commit we are using is `f73c331738` on origin/main (post-v2.3.2).
+Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project can pull **Isaac Lab** and **MJLab** in the same command.
 
-- Install Instinct-RL by following the [installation guide](https://github.com/project-instinct/instinct_rl/blob/main/README.md).
-    TL; DR;
+- Install [Isaac Sim 5.1.0](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html) if you need the Isaac Sim backend (`isaacsim[all,extscache]==5.1.0`).
+
+- Install Instinct-RL:
+
     ```bash
     git clone https://github.com/project-instinct/instinct_rl.git
     python -m pip install -e instinct_rl
     ```
 
-- Clone this repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
+- Clone this repository **outside** the Isaac Lab tree:
 
     ```bash
-    # Option 1: HTTPS
     git clone https://github.com/project-instinct/instinctlab.git
-
-    # Option 2: SSH
-    git clone git@github.com:project-instinct/instinctlab.git
+    cd instinctlab
     ```
 
-- Using a python interpreter that has Isaac Lab installed, install the library
+- Install InstinctLab **with both simulator backends** (recommended). This clones Isaac Lab (`f73c331738`) and MJLab (`v1.5.0`) next to this repo if they are missing, then `pip install -e` all three:
 
     ```bash
-    python -m pip install -e source/instinctlab
+    python scripts/install.py
     ```
 
-- To run with `instinct-rl`, you can use the following command after installing [instinct-rl](https://github.com/project-instinct/instinct_rl):
+    Equivalent pip-only extra (no sibling checkouts; Isaac Lab comes from git):
+
+    ```bash
+    python -m pip install -e "source/instinctlab[all]"
+    ```
+
+    Install a single backend extra if needed:
+
+    ```bash
+    python -m pip install -e "source/instinctlab[isaaclab]"
+    python -m pip install -e "source/instinctlab[mjlab]"
+    ```
+
+- Train the same locomotion task on either backend:
+
+    ```bash
+    python scripts/instinct_rl/train_unified.py --backend isaacsim --task Instinct-Locomotion-Flat-G1-v0 --headless
+    python scripts/instinct_rl/train_unified.py --backend mjlab --task Instinct-Locomotion-Flat-G1-v0
+    ```
+
+- Legacy Isaac-only tasks still use:
 
     ```bash
     python scripts/instinct_rl/train.py --task=Instinct-Shadowing-WholeBody-Plane-G1-Play-v0 --headless
