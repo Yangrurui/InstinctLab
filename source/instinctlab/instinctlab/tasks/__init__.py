@@ -1,16 +1,16 @@
-"""Package containing task implementations for various robotic environments."""
+"""Task registrations.
 
-import os
-import toml
+The unified registry is engine-neutral. Legacy Isaac Gym registrations can be
+loaded explicitly after ``AppLauncher`` has started.
+"""
 
-from isaaclab_tasks.utils import import_packages
-
-##
-# Register Gym environments.
-##
+from .registry import TASKS, TaskRegistration, TaskRegistry
 
 
-# The blacklist is used to prevent importing configs from sub-packages
-_BLACKLIST_PKGS = ["utils"]
-# Import all configs in this package
-import_packages(__name__, _BLACKLIST_PKGS)
+def register_legacy_isaac_tasks() -> None:
+    from isaaclab_tasks.utils import import_packages
+
+    import_packages(__name__, ["utils", "registry"])
+
+
+__all__ = ["TASKS", "TaskRegistration", "TaskRegistry", "register_legacy_isaac_tasks"]

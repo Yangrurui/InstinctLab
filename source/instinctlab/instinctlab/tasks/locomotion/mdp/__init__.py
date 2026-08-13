@@ -1,11 +1,25 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
+"""Engine-neutral locomotion MDP terms.
 
-"""This sub-module contains the functions that are specific to the locomotion environments."""
+Legacy Isaac-specific terms remain available through lazy attribute lookup.
+"""
 
-from isaaclab.envs.mdp import *  # noqa: F401, F403
+from . import unified
+from .unified import *
+from .unified import __all__ as _UNIFIED_EXPORTS
 
-from .curriculums import *  # noqa: F401, F403
-from .rewards import *  # noqa: F401, F403
+
+def __getattr__(name: str):
+    from importlib import import_module
+
+    for module_name in (
+        "instinctlab.tasks.locomotion.mdp.rewards",
+        "instinctlab.tasks.locomotion.mdp.curriculums",
+        "isaaclab.envs.mdp",
+    ):
+        module = import_module(module_name)
+        if hasattr(module, name):
+            return getattr(module, name)
+    raise AttributeError(name)
+
+
+__all__ = [*_UNIFIED_EXPORTS, "unified"]
