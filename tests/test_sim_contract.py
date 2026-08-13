@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import torch
+from dataclasses import replace
 
+import pytest
+
+from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
 from instinctlab.backends.mock import MockSimulatorBackend
 from instinctlab.sim.backend import CanonicalIndexMap, RuntimeRequirements, SensorReadPhase
 from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.rng import RngManager
-from instinctlab.sim.robot_spec import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
+from instinctlab.sim.robot_spec import BackendAsset
 from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec
 from instinctlab.sim.schema import locomotion_flat_schema
-
 
 ISAAC_BFS_JOINT_NAMES = (
     "left_shoulder_pitch_joint",
@@ -53,6 +56,138 @@ def test_canonical_index_map_round_trip() -> None:
     rebuilt = torch.zeros_like(native)
     mapping.copy_to_native(rebuilt, canonical)
     torch.testing.assert_close(rebuilt, native)
+
+
+def test_canonical_index_map_identity_avoids_reordering() -> None:
+    names = ("first", "second")
+    mapping = CanonicalIndexMap.build(names, names, device="cpu")
+    native = torch.arange(4, dtype=torch.float32).reshape(2, 2)
+
+    assert mapping.is_identity
+    assert mapping.to_canonical(native) is native
+
+
+def test_simulation_engine_options_are_backend_scoped() -> None:
+    spec = SimulationSpec(
+        engine_options={
+            "isaacsim": {"physx": {"solver_type": 1}},
+            "mjlab": {"iterations": 10},
+        }
+    )
+
+    spec.validate()
+    assert spec.engine_options_for("isaacsim") == {"physx": {"solver_type": 1}}
+    assert spec.engine_options_for("mjlab") == {"iterations": 10}
+    assert spec.engine_options_for("mock") == {}
+
+
+def test_simulation_engine_options_reject_unscoped_values() -> None:
+    spec = SimulationSpec(engine_options={"iterations": 10})  # type: ignore[dict-item]
+
+    with pytest.raises(ValueError, match="scoped by backend name"):
+        spec.validate()
+
+
+def test_scene_backend_options_are_backend_scoped() -> None:
+    robot = make_g1_29dof_robot_spec()
+    spec = SceneSpec(
+        num_envs=2,
+        env_spacing=1.0,
+        robot=robot,
+        backend_options={
+            "isaacsim": {"scene": {"lazy_sensor_update": True}},
+            "mjlab": {"unused": True},
+        },
+    )
+
+    spec.validate()
+    assert spec.backend_options_for("isaacsim") == {"scene": {"lazy_sensor_update": True}}
+    assert spec.backend_options_for("mock") == {}
+
+
+def test_scene_backend_options_reject_unscoped_values() -> None:
+    robot = make_g1_29dof_robot_spec()
+    spec = SceneSpec(
+        num_envs=2,
+        env_spacing=1.0,
+        robot=robot,
+        backend_options={"lazy_sensor_update": True},  # type: ignore[dict-item]
+    )
+
+    with pytest.raises(ValueError, match="scoped by backend name"):
+        spec.validate()
+
+
+def test_scene_rejects_contact_sensor_on_non_primary_entity() -> None:
+    robot = make_g1_29dof_robot_spec()
+    spec = SceneSpec(
+        num_envs=2,
+        env_spacing=1.0,
+        robot=robot,
+        contact_sensors=(
+            ContactSensorSpec(
+                name="contact_forces",
+                entity_name="other",
+                body_names=("torso_link",),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="primary_entity"):
+        spec.validate()
+
+
+def test_backend_asset_rejects_unknown_contact_aliases() -> None:
+    robot = make_g1_29dof_robot_spec()
+    bad = BackendAsset(
+        backend="mjlab",
+        path=robot.asset_for("mjlab").path,
+        contact_body_aliases={"not_a_body": "pelvis"},
+    )
+    with pytest.raises(ValueError, match="unknown canonical bodies"):
+        bad.validate_against(robot.body_names)
+
+
+def test_backend_asset_rejects_duplicate_native_aliases() -> None:
+    robot = make_g1_29dof_robot_spec()
+    bad = BackendAsset(
+        backend="mjlab",
+        path=robot.asset_for("mjlab").path,
+        contact_body_aliases={"LL_FOOT": "left_ankle_roll_link", "LR_FOOT": "left_ankle_roll_link"},
+    )
+    with pytest.raises(ValueError, match="same native name"):
+        bad.validate_against(robot.body_names)
+
+
+def test_backend_asset_rejects_unknown_load_mode() -> None:
+    robot = make_g1_29dof_robot_spec()
+    bad = BackendAsset(backend="mjlab", path=robot.asset_for("mjlab").path, load_mode="explode")
+    with pytest.raises(ValueError, match="unsupported load_mode"):
+        bad.validate_against(robot.body_names)
+
+
+def test_robot_spec_rejects_duplicate_backend_assets() -> None:
+    robot = make_g1_29dof_robot_spec()
+    duplicate = replace(robot, assets=(robot.assets[0], robot.assets[0]))
+    with pytest.raises(ValueError, match="at most one asset per backend"):
+        duplicate.validate()
+
+
+def test_g1_assets_declare_contact_aliases_and_load_mode() -> None:
+    robot = make_g1_29dof_robot_spec()
+    isaac = robot.asset_for("isaacsim")
+    mjlab = robot.asset_for("mjlab")
+
+    assert isaac.resolve_contact_body_names(("torso_link", "LL_FOOT", "LR_FOOT")) == (
+        "torso_link",
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+    )
+    assert isaac.import_options["fix_base"] is False
+    assert isaac.import_options["merge_fixed_joints"] is False
+    assert isaac.import_options["replace_cylinders_with_capsules"] is True
+    assert mjlab.load_mode == "strip_visual_meshes"
+    assert mjlab.contact_body_aliases == isaac.contact_body_aliases
 
 
 def test_g1_robot_spec_and_schema() -> None:

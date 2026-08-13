@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import torch
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
-
-import torch
 
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.rng import RngManager
@@ -46,7 +45,9 @@ def _vector(value: torch.Tensor, env: Any, *, context: str) -> torch.Tensor:
     if value.shape == (env.num_envs, 1):
         value = value[:, 0]
     if value.shape != (env.num_envs,):
-        raise ValueError(f"{context} must return shape ({env.num_envs},) or ({env.num_envs}, 1), got {tuple(value.shape)}")
+        raise ValueError(
+            f"{context} must return shape ({env.num_envs},) or ({env.num_envs}, 1), got {tuple(value.shape)}"
+        )
     return value
 
 
@@ -62,14 +63,14 @@ class UniformNoiseCfg:
 
 @dataclass(frozen=True)
 class ActionTermCfg:
-    class_type: type["ActionTerm"]
+    class_type: type[ActionTerm]
 
 
 @dataclass(frozen=True)
 class JointPositionActionCfg:
-    entity_name: str = "robot"
+    entity_name: str | None = None
     clip: tuple[float, float] | None = None
-    class_type: type["ActionTerm"] = field(default_factory=lambda: JointPositionAction, init=False)
+    class_type: type[ActionTerm] = field(default_factory=lambda: JointPositionAction, init=False)
 
 
 class ActionTerm(ABC):
@@ -105,6 +106,7 @@ class JointPositionAction(ActionTerm):
         values = robot.materialize(device=env.device)
         self._default_pos = values["default_pos"].unsqueeze(0)
         self._action_scale = values["action_scale"].unsqueeze(0)
+        self._entity_name = cfg.entity_name or env.cfg.scene.primary_entity
         self.raw_actions = torch.zeros((env.num_envs, len(robot.joint_names)), device=env.device)
         self.processed_actions = torch.zeros_like(self.raw_actions)
         self.control_target = JointControlTarget(
@@ -125,7 +127,7 @@ class JointPositionAction(ActionTerm):
         self.processed_actions.copy_(self._default_pos + self._action_scale * actions)
 
     def apply_actions(self) -> None:
-        self.env.backend.set_joint_control_target(self.cfg.entity_name, self.control_target)
+        self.env.backend.set_joint_control_target(self._entity_name, self.control_target)
 
     def reset(self, env_ids: torch.Tensor) -> None:
         self.raw_actions[env_ids] = 0.0
@@ -476,7 +478,7 @@ class EventManager:
 
 @dataclass(frozen=True)
 class CommandTermCfg:
-    class_type: type["CommandTerm"]
+    class_type: type[CommandTerm]
     params: Mapping[str, Any] = field(default_factory=dict)
 
 

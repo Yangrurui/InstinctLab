@@ -19,7 +19,7 @@ from .backend import (
 )
 from .capabilities import Capability, CapabilitySet
 from .control import ControlMode, ControlSemantics, JointControlTarget
-from .robot_spec import RobotSpec, make_g1_29dof_robot_spec
+from .robot_spec import BackendAsset, JointProperties, RobotSpec
 from .scene import ContactSensorSpec, SceneSpec, SceneView, SimulationSpec, TerrainSpec
 from .schema import CheckpointManifest, EnvSchema, locomotion_flat_schema
 from .state import ArticulationState, ContactState
@@ -38,6 +38,7 @@ def __getattr__(name: str):
 __all__ = [
     "BACKENDS",
     "ArticulationState",
+    "BackendAsset",
     "BackendMetadata",
     "CanonicalIndexMap",
     "Capability",
@@ -49,6 +50,7 @@ __all__ = [
     "ControlSemantics",
     "EnvSchema",
     "JointControlTarget",
+    "JointProperties",
     "MassProperties",
     "MaterialProperties",
     "RobotSpec",
@@ -60,5 +62,4 @@ __all__ = [
     "SimulatorBackend",
     "TerrainSpec",
     "locomotion_flat_schema",
-    "make_g1_29dof_robot_spec",
 ]

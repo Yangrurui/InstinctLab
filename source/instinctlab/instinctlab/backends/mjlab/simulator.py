@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import importlib.metadata
 import math
-import tomllib
+import torch
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
-import torch
+import tomllib
 
 from instinctlab.sim.backend import (
     BackendMetadata,
@@ -26,14 +26,6 @@ from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.scene import ArticulationView, SceneSpec, SceneView, SimulationSpec
 from instinctlab.sim.state import ArticulationState, ContactState
 
-
-_ROBOT_ENTITY_NAME = "robot"
-_CONTACT_BODY_ALIASES = {
-    # The formal MJCF keeps the collision popsicles on the ankle bodies and
-    # exposes fixed, inertial-only foot frames as LL_FOOT/LR_FOOT.
-    "LL_FOOT": "left_ankle_roll_link",
-    "LR_FOOT": "right_ankle_roll_link",
-}
 _MASS_MODEL_FIELDS = (
     "body_mass",
     "body_ipos",
@@ -67,29 +59,34 @@ class _ContactBinding:
     track_air_time: bool
 
 
-def _mjcf_without_visual_meshes(path: Path, mujoco: Any) -> Any:
-    """Load the formal MJCF, falling back to its collision-only representation.
+def _strip_visual_meshes_xml(xml: str) -> str:
+    """Remove mesh assets and mesh geoms from an MJCF document."""
 
-    The repository intentionally vendors the formal XML but not Unitree's mesh
-    archive.  Removing only mesh assets and mesh geoms preserves bodies,
-    inertials, joints, primitive collision geometry, sites, and contact excludes.
-    """
+    root = ET.fromstring(xml)
+    for asset in root.findall("asset"):
+        for mesh in tuple(asset.findall("mesh")):
+            asset.remove(mesh)
+    for parent in root.iter():
+        for geom in tuple(parent.findall("geom")):
+            if geom.get("type") == "mesh" or geom.get("mesh"):
+                parent.remove(geom)
+    compiler = root.find("compiler")
+    if compiler is not None:
+        compiler.attrib.pop("meshdir", None)
+    return ET.tostring(root, encoding="unicode")
 
-    try:
+
+def _load_mjcf(path: Path, mujoco: Any, load_mode: str) -> Any:
+    """Dispatch MJCF loading according to the asset's declared load mode."""
+
+    if load_mode == "default":
         return mujoco.MjSpec.from_file(str(path))
-    except (ValueError, OSError):
-        root = ET.parse(path).getroot()
-        for asset in root.findall("asset"):
-            for mesh in tuple(asset.findall("mesh")):
-                asset.remove(mesh)
-        for parent in root.iter():
-            for geom in tuple(parent.findall("geom")):
-                if geom.get("type") == "mesh" or geom.get("mesh"):
-                    parent.remove(geom)
-        compiler = root.find("compiler")
-        if compiler is not None:
-            compiler.attrib.pop("meshdir", None)
-        return mujoco.MjSpec.from_string(ET.tostring(root, encoding="unicode"))
+    if load_mode == "strip_visual_meshes":
+        try:
+            return mujoco.MjSpec.from_file(str(path))
+        except (ValueError, OSError):
+            return mujoco.MjSpec.from_string(_strip_visual_meshes_xml(path.read_text()))
+    raise ValueError(f"unsupported MJLab asset load_mode: {load_mode!r}")
 
 
 def _expanded_randomization_fields(requirements: RuntimeRequirements) -> tuple[str, ...]:
@@ -101,6 +98,13 @@ def _expanded_randomization_fields(requirements: RuntimeRequirements) -> tuple[s
     if Capability.BODY_MASS_PROPERTIES in requirements.capabilities:
         result.update(_MASS_MODEL_FIELDS)
     return tuple(sorted(result))
+
+
+def _enable_effort_actuator(
+    supports_effort_control: bool,
+    requirements: RuntimeRequirements,
+) -> bool:
+    return supports_effort_control and Capability.EFFORT_CONTROL in requirements.capabilities
 
 
 def _active_mjlab_version(mjlab: Any) -> str:
@@ -170,13 +174,24 @@ class MjlabBackend:
         self._mj_scene: Any = None
         self._sim: Any = None
         self._entity: Any = None
+        self._entity_name = "robot"
         self._joint_map: CanonicalIndexMap | None = None
         self._body_map: CanonicalIndexMap | None = None
         self._contact_bindings: dict[str, _ContactBinding] = {}
         self._geoms_by_native_body: dict[int, torch.Tensor] = {}
         self._effort_mode_mask: torch.Tensor | None = None
+        self._effort_mode_active = False
         self._supports_effort_control = True
+        self._effort_actuator_enabled = False
         self._last_joint_acc_native: torch.Tensor | None = None
+        self._previous_joint_velocity_native: torch.Tensor | None = None
+        self._all_env_ids: torch.Tensor | None = None
+        self._all_joint_ids: torch.Tensor | None = None
+        self._last_control_mode: ControlMode | None = None
+        self._last_control_value: torch.Tensor | None = None
+        self._last_control_value_version = -1
+        self._last_control_velocity: torch.Tensor | None = None
+        self._last_control_velocity_version = -1
         self._offscreen_renderer: Any = None
         self._human_viewer: Any = None
 
@@ -197,27 +212,33 @@ class MjlabBackend:
                 "non-zero terrain restitution is unsupported"
             )
         for sensor in scene_spec.contact_sensors:
-            if sensor.entity_name != _ROBOT_ENTITY_NAME:
+            if sensor.entity_name != scene_spec.primary_entity:
                 raise ValueError(
                     f"MJLab contact sensor {sensor.name!r} targets {sensor.entity_name!r}; "
-                    f"the single SceneSpec robot is named {_ROBOT_ENTITY_NAME!r}"
+                    f"the SceneSpec robot is named {scene_spec.primary_entity!r}"
                 )
 
         # Engine imports are intentionally delayed until initialize().
-        import mujoco
         import mjlab
+        import mujoco
         from mjlab.actuator import BuiltinMotorActuatorCfg
+
         try:
             from mjlab.actuator import BuiltinPdActuatorCfg as NativePdActuatorCfg
         except ImportError:
             # Compatibility with MJLab revisions before BuiltinPdActuatorCfg
             # was renamed from its position-actuator implementation.
             from mjlab.actuator import BuiltinPositionActuatorCfg as NativePdActuatorCfg
+
             self._supports_effort_control = False
             capabilities = set(self.capabilities.values)
             capabilities.discard(Capability.EFFORT_CONTROL)
             self.capabilities = CapabilitySet.of(capabilities)
         self.capabilities.require(requirements.capabilities, context="MJLab runtime")
+        self._effort_actuator_enabled = _enable_effort_actuator(
+            self._supports_effort_control,
+            requirements,
+        )
         from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
         from mjlab.scene import Scene, SceneCfg
         from mjlab.sensor import ContactMatch, ContactSensorCfg
@@ -225,12 +246,13 @@ class MjlabBackend:
         from mjlab.terrains import TerrainEntityCfg
 
         robot = scene_spec.robot
-        asset_path = Path(robot.asset_for("mjlab").path)
+        asset = robot.asset_for("mjlab")
+        asset_path = Path(asset.path)
         if not asset_path.is_file():
             raise FileNotFoundError(f"MJLab asset does not exist: {asset_path}")
 
         def load_robot_spec() -> Any:
-            return _mjcf_without_visual_meshes(asset_path, mujoco)
+            return _load_mjcf(asset_path, mujoco, asset.load_mode)
 
         actuator_cfgs: list[Any] = []
         for properties in robot.joint_properties:
@@ -243,7 +265,7 @@ class MjlabBackend:
                     armature=properties.armature,
                 )
             )
-        if self._supports_effort_control:
+        if self._effort_actuator_enabled:
             # A parallel native motor channel makes direct effort mode available.
             # In effort mode step() continuously nulls the PD error before applying
             # this channel, and MuJoCo's joint actfrcrange clamps their total.
@@ -259,10 +281,7 @@ class MjlabBackend:
             init_state=EntityCfg.InitialStateCfg(
                 pos=robot.default_root_pos,
                 rot=robot.default_root_quat_wxyz,
-                joint_pos={
-                    properties.name: properties.default_pos
-                    for properties in robot.joint_properties
-                },
+                joint_pos={properties.name: properties.default_pos for properties in robot.joint_properties},
                 joint_vel={".*": 0.0},
             ),
             spec_fn=load_robot_spec,
@@ -272,16 +291,17 @@ class MjlabBackend:
             ),
         )
 
+        entity_name = scene_spec.primary_entity
         native_sensor_cfgs = []
         for spec in scene_spec.contact_sensors:
-            native_bodies = tuple(_CONTACT_BODY_ALIASES.get(name, name) for name in spec.body_names)
+            native_bodies = asset.resolve_contact_body_names(spec.body_names)
             native_sensor_cfgs.append(
                 ContactSensorCfg(
                     name=spec.name,
                     primary=ContactMatch(
                         mode="body",
                         pattern=native_bodies,
-                        entity=_ROBOT_ENTITY_NAME,
+                        entity=entity_name,
                     ),
                     fields=("found", "force"),
                     reduce="netforce",
@@ -301,14 +321,12 @@ class MjlabBackend:
             num_envs=scene_spec.num_envs,
             env_spacing=scene_spec.env_spacing,
             terrain=TerrainEntityCfg(terrain_type="plane"),
-            entities={_ROBOT_ENTITY_NAME: entity_cfg},
+            entities={entity_name: entity_cfg},
             sensors=tuple(native_sensor_cfgs),
             spec_fn=configure_scene,
         )
         mj_scene = Scene(native_scene_cfg, device=str(self.device))
-        native_sim_cfg = self._make_simulation_cfg(
-            simulation_spec, MujocoCfg=MujocoCfg, SimulationCfg=SimulationCfg
-        )
+        native_sim_cfg = self._make_simulation_cfg(simulation_spec, MujocoCfg=MujocoCfg, SimulationCfg=SimulationCfg)
         if hasattr(mj_scene, "collect_variant_info"):
             sim = Simulation(
                 num_envs=scene_spec.num_envs,
@@ -337,20 +355,18 @@ class MjlabBackend:
         self._simulation_spec = simulation_spec
         self._mj_scene = mj_scene
         self._sim = sim
-        self._entity = mj_scene.entities[_ROBOT_ENTITY_NAME]
+        self._entity_name = entity_name
+        self._entity = mj_scene.entities[entity_name]
         self.num_envs = scene_spec.num_envs
         self.sim_dt = simulation_spec.sim_dt
 
-        self._joint_map = CanonicalIndexMap.build(
-            robot.joint_names, self._entity.joint_names, device=self.device
-        )
-        self._body_map = CanonicalIndexMap.build(
-            robot.body_names, self._entity.body_names, device=self.device
-        )
+        self._joint_map = CanonicalIndexMap.build(robot.joint_names, self._entity.joint_names, device=self.device)
+        self._all_env_ids = torch.arange(self.num_envs, dtype=torch.int64, device=self.device)
+        self._all_joint_ids = torch.arange(len(robot.joint_names), dtype=torch.int64, device=self.device)
+        self._body_map = CanonicalIndexMap.build(robot.body_names, self._entity.body_names, device=self.device)
         if self._entity.body_names[0] != robot.root_body:
             raise ValueError(
-                f"MJCF root body {self._entity.body_names[0]!r} does not match "
-                f"canonical root {robot.root_body!r}"
+                f"MJCF root body {self._entity.body_names[0]!r} does not match canonical root {robot.root_body!r}"
             )
 
         self._build_geom_body_map()
@@ -364,22 +380,16 @@ class MjlabBackend:
         state.default_joint_pos[:] = materialized["default_pos"]
         state.joint_velocity_limits[:] = materialized["velocity_limit"]
         state.joint_effort_limits[:] = materialized["effort_limit"]
-        state.soft_joint_pos_limits.copy_(
-            self._joint_map.to_canonical(self._entity.data.soft_joint_pos_limits, dim=1)
-        )
+        state.soft_joint_pos_limits.copy_(self._joint_map.to_canonical(self._entity.data.soft_joint_pos_limits, dim=1))
 
         sensors: dict[str, ContactState] = {}
         self._contact_bindings.clear()
         for spec in scene_spec.contact_sensors:
             native_sensor = mj_scene.sensors[spec.name]
-            requested_native_names = tuple(
-                _CONTACT_BODY_ALIASES.get(name, name) for name in spec.body_names
-            )
+            requested_native_names = asset.resolve_contact_body_names(spec.body_names)
             primary_names = getattr(native_sensor, "primary_names", None)
             if primary_names is None:
-                primary_names = tuple(
-                    dict.fromkeys(slot.primary_name for slot in native_sensor._slots)
-                )
+                primary_names = tuple(dict.fromkeys(slot.primary_name for slot in native_sensor._slots))
             sensor_map = CanonicalIndexMap.build(
                 requested_native_names,
                 tuple(primary_names),
@@ -399,30 +409,26 @@ class MjlabBackend:
             )
 
         articulation = ArticulationView(
-            name=_ROBOT_ENTITY_NAME,
+            name=entity_name,
             joint_names=robot.joint_names,
             body_names=robot.body_names,
             data=state,
         )
         self.scene = SceneView(
             env_origins=mj_scene.env_origins,
-            articulations={_ROBOT_ENTITY_NAME: articulation},
+            articulations={entity_name: articulation},
             sensors=sensors,
         )
         self._effort_mode_mask = torch.zeros(
             (self.num_envs, len(robot.joint_names)), dtype=torch.bool, device=self.device
         )
         self._last_joint_acc_native = torch.zeros_like(self._entity.data.joint_vel)
+        self._previous_joint_velocity_native = torch.zeros_like(self._entity.data.joint_vel)
 
-        all_env_ids = torch.arange(self.num_envs, dtype=torch.int64, device=self.device)
-        self._write_default_state(all_env_ids)
+        self._write_default_state(self._all_env_ids)
         self._entity.set_joint_position_target(self._entity.data.default_joint_pos)
-        self._entity.set_joint_velocity_target(
-            torch.zeros_like(self._entity.data.default_joint_vel)
-        )
-        self._entity.set_joint_effort_target(
-            torch.zeros_like(self._entity.data.default_joint_vel)
-        )
+        self._entity.set_joint_velocity_target(torch.zeros_like(self._entity.data.default_joint_vel))
+        self._entity.set_joint_effort_target(torch.zeros_like(self._entity.data.default_joint_vel))
 
         mjlab_version = _active_mjlab_version(mjlab)
         self.metadata = BackendMetadata(
@@ -441,8 +447,8 @@ class MjlabBackend:
                 "velocity_limit_enforcement": "not_native_equivalent",
                 "effort_control": (
                     "parallel_native_motor_v1"
-                    if self._supports_effort_control
-                    else "unsupported_by_mjlab_version"
+                    if self._effort_actuator_enabled
+                    else ("disabled_not_requested" if self._supports_effort_control else "unsupported_by_mjlab_version")
                 ),
                 "mass_properties": "full_inertia_tensor_v1",
                 "restitution": "unsupported_nonzero",
@@ -451,9 +457,7 @@ class MjlabBackend:
         self.synchronize(SensorReadPhase.POST_RESET)
 
     @staticmethod
-    def _make_simulation_cfg(
-        simulation_spec: SimulationSpec, *, MujocoCfg: Any, SimulationCfg: Any
-    ) -> Any:
+    def _make_simulation_cfg(simulation_spec: SimulationSpec, *, MujocoCfg: Any, SimulationCfg: Any) -> Any:
         mujoco_fields = {item.name for item in fields(MujocoCfg)}
         simulation_fields = {item.name for item in fields(SimulationCfg)}
         mujoco_kwargs: dict[str, Any] = {
@@ -461,14 +465,11 @@ class MjlabBackend:
             "gravity": simulation_spec.gravity,
         }
         simulation_kwargs: dict[str, Any] = {}
-        for name, value in simulation_spec.engine_options.items():
+        for name, value in simulation_spec.engine_options_for("mjlab").items():
             if name in {"timestep", "gravity"}:
                 expected = mujoco_kwargs[name]
                 if value != expected:
-                    raise ValueError(
-                        f"engine option {name!r} conflicts with SimulationSpec: "
-                        f"{value!r} != {expected!r}"
-                    )
+                    raise ValueError(f"engine option {name!r} conflicts with SimulationSpec: {value!r} != {expected!r}")
             elif name in mujoco_fields:
                 mujoco_kwargs[name] = value
             elif name in simulation_fields and name != "mujoco":
@@ -483,10 +484,8 @@ class MjlabBackend:
             raise RuntimeError("MJLab backend is not initialized")
 
     def _validate_entity(self, entity_name: str) -> None:
-        if entity_name != _ROBOT_ENTITY_NAME:
-            raise KeyError(
-                f"unknown MJLab articulation {entity_name!r}; available: {_ROBOT_ENTITY_NAME!r}"
-            )
+        if entity_name != self._entity_name:
+            raise KeyError(f"unknown MJLab articulation {entity_name!r}; available: {self._entity_name!r}")
 
     def _validate_env_ids(self, env_ids: torch.Tensor) -> None:
         if env_ids.dtype != torch.int64 or env_ids.ndim != 1:
@@ -503,9 +502,7 @@ class MjlabBackend:
             raise ValueError(f"{name} must be on {self.device}, received {value.device}")
 
     def _write_default_state(self, env_ids: torch.Tensor) -> None:
-        self._entity.write_root_state_to_sim(
-            self._entity.data.default_root_state[env_ids], env_ids=env_ids
-        )
+        self._entity.write_root_state_to_sim(self._entity.data.default_root_state[env_ids], env_ids=env_ids)
         self._entity.write_joint_state_to_sim(
             self._entity.data.default_joint_pos[env_ids],
             self._entity.data.default_joint_vel[env_ids],
@@ -515,9 +512,7 @@ class MjlabBackend:
     def _build_geom_body_map(self) -> None:
         global_body_ids = self._entity.indexing.body_ids.to(torch.int64)
         global_geom_ids = self._entity.indexing.geom_ids.to(torch.int64)
-        geom_body_ids = torch.as_tensor(
-            self._sim.mj_model.geom_bodyid, dtype=torch.int64, device=self.device
-        )
+        geom_body_ids = torch.as_tensor(self._sim.mj_model.geom_bodyid, dtype=torch.int64, device=self.device)
         self._geoms_by_native_body.clear()
         for local_body_id, global_body_id in enumerate(global_body_ids):
             mask = geom_body_ids[global_geom_ids] == global_body_id
@@ -536,11 +531,12 @@ class MjlabBackend:
         self._entity.data.joint_vel_target[env_ids] = native_zero
         self._entity.data.joint_effort_target[env_ids] = native_zero
         self._effort_mode_mask[env_ids] = False
+        if env_ids.numel() == self.num_envs:
+            self._effort_mode_active = False
         self._last_joint_acc_native[env_ids] = 0.0
+        self._invalidate_control_cache()
 
-    def write_root_state(
-        self, entity_name: str, state_wxyz: torch.Tensor, env_ids: torch.Tensor
-    ) -> None:
+    def write_root_state(self, entity_name: str, state_wxyz: torch.Tensor, env_ids: torch.Tensor) -> None:
         self._require_initialized()
         self._validate_entity(entity_name)
         self._validate_env_ids(env_ids)
@@ -585,9 +581,7 @@ class MjlabBackend:
                 f"{tuple(position.shape)} and {tuple(velocity.shape)}"
             )
         native_ids = self._joint_map.native_ids(canonical_ids)
-        self._entity.write_joint_state_to_sim(
-            position, velocity, joint_ids=native_ids, env_ids=env_ids
-        )
+        self._entity.write_joint_state_to_sim(position, velocity, joint_ids=native_ids, env_ids=env_ids)
 
     def set_joint_control_target(
         self,
@@ -607,44 +601,86 @@ class MjlabBackend:
             raise ValueError("velocity target must be on the backend device")
         if target.joint_ids is not None and target.joint_ids.device != self.device:
             raise ValueError("joint_ids must be on the backend device")
+        full_control_write = env_ids is None and target.joint_ids is None
+        if full_control_write and self._is_repeated_control_target(target):
+            return
         if env_ids is None:
-            env_ids = torch.arange(self.num_envs, dtype=torch.int64, device=self.device)
+            assert self._all_env_ids is not None
+            env_ids = self._all_env_ids
         else:
             self._validate_env_ids(env_ids)
 
         canonical_ids = target.joint_ids
         if canonical_ids is None:
-            canonical_ids = torch.arange(
-                len(self._joint_map.canonical_names), dtype=torch.int64, device=self.device
-            )
+            assert self._all_joint_ids is not None
+            canonical_ids = self._all_joint_ids
         native_ids = self._joint_map.native_ids(canonical_ids)
-        env_grid, joint_grid = torch.meshgrid(env_ids, native_ids, indexing="ij")
-        source = target.value[env_ids]
+        source = target.value if full_control_write else target.value[env_ids]
+        if full_control_write:
+            target_index = (slice(None), native_ids)
+        else:
+            env_grid, joint_grid = torch.meshgrid(env_ids, native_ids, indexing="ij")
+            target_index = (env_grid, joint_grid)
 
         if target.mode is ControlMode.POSITION:
             velocity = (
                 torch.zeros_like(source)
                 if target.velocity is None
-                else target.velocity[env_ids]
+                else (target.velocity if full_control_write else target.velocity[env_ids])
             )
-            self._entity.data.joint_pos_target[env_grid, joint_grid] = source
-            self._entity.data.joint_vel_target[env_grid, joint_grid] = velocity
-            self._entity.data.joint_effort_target[env_grid, joint_grid] = 0.0
-            self._effort_mode_mask[env_grid, joint_grid] = False
+            self._entity.data.joint_pos_target[target_index] = source
+            self._entity.data.joint_vel_target[target_index] = velocity
+            self._entity.data.joint_effort_target[target_index] = 0.0
+            self._effort_mode_mask[target_index] = False
+            if full_control_write:
+                self._effort_mode_active = False
         elif target.mode is ControlMode.EFFORT:
-            if not self._supports_effort_control:
+            if not self._effort_actuator_enabled:
                 raise NotImplementedError(
-                    "this MJLab version cannot combine native implicit PD and direct effort actuators"
+                    "MJLab effort control was not enabled for this runtime; "
+                    "declare Capability.EFFORT_CONTROL in RuntimeRequirements"
                 )
-            limits = self.scene.articulations[entity_name].data.joint_effort_limits[
-                env_grid, canonical_ids[None, :].expand_as(env_grid)
-            ]
+            if full_control_write:
+                limits = self.scene.articulations[entity_name].data.joint_effort_limits
+            else:
+                limits = self.scene.articulations[entity_name].data.joint_effort_limits[
+                    env_grid, canonical_ids[None, :].expand_as(env_grid)
+                ]
             if torch.any(torch.abs(source) > limits + 1.0e-6):
                 raise ValueError("effort target exceeds a canonical joint effort limit")
-            self._entity.data.joint_effort_target[env_grid, joint_grid] = source
-            self._effort_mode_mask[env_grid, joint_grid] = True
+            self._entity.data.joint_effort_target[target_index] = source
+            self._effort_mode_mask[target_index] = True
+            self._effort_mode_active = True
         else:
             raise NotImplementedError("MJLab adapter does not support velocity control")
+        if full_control_write:
+            self._cache_control_target(target)
+        else:
+            self._invalidate_control_cache()
+
+    def _is_repeated_control_target(self, target: JointControlTarget) -> bool:
+        velocity = target.velocity
+        return (
+            target.mode is self._last_control_mode
+            and target.value is self._last_control_value
+            and target.value._version == self._last_control_value_version
+            and velocity is self._last_control_velocity
+            and (velocity is None or velocity._version == self._last_control_velocity_version)
+        )
+
+    def _cache_control_target(self, target: JointControlTarget) -> None:
+        self._last_control_mode = target.mode
+        self._last_control_value = target.value
+        self._last_control_value_version = target.value._version
+        self._last_control_velocity = target.velocity
+        self._last_control_velocity_version = -1 if target.velocity is None else target.velocity._version
+
+    def _invalidate_control_cache(self) -> None:
+        self._last_control_mode = None
+        self._last_control_value = None
+        self._last_control_value_version = -1
+        self._last_control_velocity = None
+        self._last_control_velocity_version = -1
 
     def set_external_wrench(
         self,
@@ -669,9 +705,7 @@ class MjlabBackend:
         if tuple(force_w.shape) != expected or tuple(torque_w.shape) != expected:
             raise ValueError(f"external wrench tensors must have shape {expected}")
         native_ids = self._body_map.native_ids(body_ids).tolist()
-        self._entity.write_external_wrench_to_sim(
-            force_w, torque_w, env_ids=env_ids, body_ids=native_ids
-        )
+        self._entity.write_external_wrench_to_sim(force_w, torque_w, env_ids=env_ids, body_ids=native_ids)
 
     def set_body_material(self, values: MaterialProperties) -> None:
         self._require_initialized()
@@ -688,9 +722,7 @@ class MjlabBackend:
             if tuple(values.restitution.shape) != expected:
                 raise ValueError(f"restitution must have shape {expected}")
             if torch.any(torch.abs(values.restitution) > 1.0e-8):
-                raise NotImplementedError(
-                    "MJLab adapter cannot represent coefficient-of-restitution values"
-                )
+                raise NotImplementedError("MJLab adapter cannot represent coefficient-of-restitution values")
         self._ensure_model_fields(("geom_friction",))
         self._validate_body_ids(values.body_ids)
 
@@ -734,8 +766,7 @@ class MjlabBackend:
                 rotations[determinant < 0.0, :, 2] *= -1.0
         else:
             raise ValueError(
-                f"inertia must have shape {prefix + (3, 3)} (full tensor) or "
-                f"{prefix + (3,)} (principal moments)"
+                f"inertia must have shape {prefix + (3, 3)} (full tensor) or {prefix + (3,)} (principal moments)"
             )
         if torch.any(values.mass <= 0.0) or torch.any(principal <= 0.0):
             raise ValueError("mass and principal inertia moments must be positive")
@@ -773,30 +804,32 @@ class MjlabBackend:
 
     def step(self) -> None:
         self._require_initialized()
-        effort_mask = self._effort_mode_mask
-        if torch.any(effort_mask):
+        if self._effort_mode_active:
+            effort_mask = self._effort_mode_mask
+            assert effort_mask is not None
             # Null the implicit PD channel at the beginning of every substep.
             current_pos = self._entity.data.joint_pos
             current_vel = self._entity.data.joint_vel
             self._entity.data.joint_pos_target[effort_mask] = current_pos[effort_mask]
             self._entity.data.joint_vel_target[effort_mask] = current_vel[effort_mask]
 
-        previous_velocity = self._entity.data.joint_vel.clone()
+        previous_velocity = self._previous_joint_velocity_native
+        assert previous_velocity is not None
+        previous_velocity.copy_(self._entity.data.joint_vel)
         self._mj_scene.write_data_to_sim()
         self._sim.step()
         self._mj_scene.update(dt=self.sim_dt)
         current_velocity = self._entity.data.joint_vel
-        self._last_joint_acc_native.copy_(
-            (current_velocity - previous_velocity) / self.sim_dt
-        )
+        self._last_joint_acc_native.copy_((current_velocity - previous_velocity) / self.sim_dt)
 
     def synchronize(self, phase: SensorReadPhase) -> None:
         self._require_initialized()
         if not isinstance(phase, SensorReadPhase):
             raise ValueError(f"unknown sensor read phase: {phase!r}")
-        self._mj_scene.write_data_to_sim()
-        self._sim.forward()
-        state = self.scene.articulations[_ROBOT_ENTITY_NAME].data
+        if phase in {SensorReadPhase.POST_RESET, SensorReadPhase.POST_EVENT}:
+            self._mj_scene.write_data_to_sim()
+            self._sim.forward()
+        state = self.scene.articulations[self._entity_name].data
         native = self._entity.data
 
         root_pose = native.root_link_pose_w
@@ -814,12 +847,8 @@ class MjlabBackend:
         state.body_ang_vel_w.copy_(body_velocity[..., 3:6])
         state.joint_pos.copy_(self._joint_map.to_canonical(native.joint_pos, dim=1))
         state.joint_vel.copy_(self._joint_map.to_canonical(native.joint_vel, dim=1))
-        state.joint_acc.copy_(
-            self._joint_map.to_canonical(self._last_joint_acc_native, dim=1)
-        )
-        state.applied_joint_effort.copy_(
-            self._joint_map.to_canonical(native.qfrc_actuator, dim=1)
-        )
+        state.joint_acc.copy_(self._joint_map.to_canonical(self._last_joint_acc_native, dim=1))
+        state.applied_joint_effort.copy_(self._joint_map.to_canonical(native.qfrc_actuator, dim=1))
         self._refresh_contacts()
 
     def _refresh_contacts(self) -> None:
@@ -832,9 +861,7 @@ class MjlabBackend:
             canonical.net_forces_w.copy_(force)
             if canonical.history_length:
                 if data.force_history is None:
-                    raise RuntimeError(
-                        f"MJLab contact sensor {name!r} returned no force history"
-                    )
+                    raise RuntimeError(f"MJLab contact sensor {name!r} returned no force history")
                 history = binding.index_map.to_canonical(data.force_history, dim=1)
                 canonical.net_forces_w_history.copy_(history.permute(0, 2, 1, 3))
             canonical.update_active(binding.force_threshold)
@@ -847,12 +874,8 @@ class MjlabBackend:
                 ):
                     native_value = getattr(data, target_name)
                     if native_value is None:
-                        raise RuntimeError(
-                            f"MJLab contact sensor {name!r} did not track {target_name}"
-                        )
-                    getattr(canonical, target_name).copy_(
-                        binding.index_map.to_canonical(native_value, dim=1)
-                    )
+                        raise RuntimeError(f"MJLab contact sensor {name!r} did not track {target_name}")
+                    getattr(canonical, target_name).copy_(binding.index_map.to_canonical(native_value, dim=1))
 
     def render(self, mode: str) -> object | None:
         self._require_initialized()
@@ -864,7 +887,7 @@ class MjlabBackend:
 
                 cfg = ViewerConfig(
                     origin_type=ViewerConfig.OriginType.ASSET_ROOT,
-                    entity_name=_ROBOT_ENTITY_NAME,
+                    entity_name=self._entity_name,
                 )
                 self._offscreen_renderer = OffscreenRenderer(
                     self._sim.mj_model,
@@ -881,17 +904,13 @@ class MjlabBackend:
             import mujoco.viewer
 
             if self._human_viewer is None:
-                self._human_viewer = mujoco.viewer.launch_passive(
-                    self._sim.mj_model, self._sim.mj_data
-                )
+                self._human_viewer = mujoco.viewer.launch_passive(self._sim.mj_model, self._sim.mj_data)
             host_data = self._sim.mj_data
             host_data.qpos[:] = self._sim.data.qpos[0].detach().cpu().numpy()
             host_data.qvel[:] = self._sim.data.qvel[0].detach().cpu().numpy()
             if self._sim.mj_model.nmocap:
                 host_data.mocap_pos[:] = self._sim.data.mocap_pos[0].detach().cpu().numpy()
-                host_data.mocap_quat[:] = (
-                    self._sim.data.mocap_quat[0].detach().cpu().numpy()
-                )
+                host_data.mocap_quat[:] = self._sim.data.mocap_quat[0].detach().cpu().numpy()
             mujoco.mj_forward(self._sim.mj_model, host_data)
             self._human_viewer.sync()
             return None

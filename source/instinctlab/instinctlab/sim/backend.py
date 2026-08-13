@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import importlib
+import torch
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
-
-import torch
 
 from .capabilities import Capability, CapabilitySet
 from .control import JointControlTarget
@@ -63,6 +62,10 @@ class CanonicalIndexMap:
     canonical_names: tuple[str, ...]
     native_names: tuple[str, ...]
     native_ids_for_canonical: torch.Tensor
+    _is_identity: bool = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_is_identity", self.canonical_names == self.native_names)
 
     @classmethod
     def build(
@@ -71,7 +74,7 @@ class CanonicalIndexMap:
         native_names: Iterable[str],
         *,
         device: torch.device | str,
-    ) -> "CanonicalIndexMap":
+    ) -> CanonicalIndexMap:
         canonical = tuple(canonical_names)
         native = tuple(native_names)
         if len(set(canonical)) != len(canonical):
@@ -86,12 +89,11 @@ class CanonicalIndexMap:
 
     @property
     def is_identity(self) -> bool:
-        if len(self.canonical_names) != len(self.native_names):
-            return False
-        expected = torch.arange(len(self.canonical_names), device=self.native_ids_for_canonical.device)
-        return bool(torch.equal(self.native_ids_for_canonical, expected))
+        return self._is_identity
 
     def to_canonical(self, native_value: torch.Tensor, *, dim: int = -1) -> torch.Tensor:
+        if self._is_identity:
+            return native_value
         return torch.index_select(native_value, dim, self.native_ids_for_canonical)
 
     def native_ids(self, canonical_ids: torch.Tensor | None = None) -> torch.Tensor:

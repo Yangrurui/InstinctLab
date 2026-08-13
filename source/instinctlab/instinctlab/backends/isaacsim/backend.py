@@ -8,10 +8,10 @@ the Kit application.
 from __future__ import annotations
 
 import importlib.metadata
+import re
+import torch
 from collections.abc import Mapping
 from typing import Any
-
-import torch
 
 from instinctlab.sim.backend import (
     BackendMetadata,
@@ -25,7 +25,6 @@ from instinctlab.sim.capabilities import Capability, CapabilitySet
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.scene import ArticulationView, SceneSpec, SceneView, SimulationSpec
 from instinctlab.sim.state import ArticulationState, ContactState
-
 
 _BASE_CAPABILITIES = frozenset(
     {
@@ -59,6 +58,29 @@ _RESERVED_SCENE_NAMES = frozenset(
         "clone_in_fabric",
     }
 )
+_SCENE_FLAG_KEYS = (
+    "lazy_sensor_update",
+    "replicate_physics",
+    "filter_collisions",
+    "clone_in_fabric",
+)
+
+
+def _contact_prim_path(
+    body_names: tuple[str, ...],
+    *,
+    aliases: Mapping[str, str],
+    prim_path: str,
+) -> str:
+    native_names = tuple(aliases.get(name, name) for name in body_names)
+    leaf_pattern = "|".join(re.escape(name) for name in native_names)
+    return f"{prim_path}/({leaf_pattern})"
+
+
+def _typed_cfg(cfg_type: Any, value: Any) -> Any:
+    if value is None or not isinstance(value, Mapping):
+        return value
+    return cfg_type(**value)
 
 
 class IsaacSimBackend:
@@ -76,10 +98,9 @@ class IsaacSimBackend:
         capabilities = set(_BASE_CAPABILITIES)
         if self.device.type == "cuda":
             capabilities.add(Capability.GPU_SIMULATION)
-        if (
-            not bool(getattr(bootstrap_context, "_headless", False))
-            or int(getattr(bootstrap_context, "_livestream", 0)) in {1, 2}
-        ):
+        if not bool(getattr(bootstrap_context, "_headless", False)) or int(
+            getattr(bootstrap_context, "_livestream", 0)
+        ) in {1, 2}:
             capabilities.add(Capability.HUMAN_VIEWER)
         self.capabilities = CapabilitySet.of(capabilities)
         self.metadata = BackendMetadata(
@@ -103,12 +124,21 @@ class IsaacSimBackend:
         self._sim: Any | None = None
         self._native_scene: Any | None = None
         self._robot: Any | None = None
+        self._entity_name = "robot"
         self._scene_spec: SceneSpec | None = None
         self._joint_map: CanonicalIndexMap | None = None
         self._body_map: CanonicalIndexMap | None = None
         self._contact_maps: dict[str, CanonicalIndexMap] = {}
         self._shape_counts_by_native_body: tuple[int, ...] = ()
         self._joint_properties: dict[str, torch.Tensor] = {}
+        self._all_env_ids: torch.Tensor | None = None
+        self._all_joint_ids: torch.Tensor | None = None
+        self._global_control_mode: ControlMode | None = None
+        self._position_velocity_is_zero: bool | None = None
+        self._last_position_target: torch.Tensor | None = None
+        self._last_position_target_version = -1
+        self._last_position_velocity: torch.Tensor | None = None
+        self._last_position_velocity_version = -1
         self._closed = False
 
     @staticmethod
@@ -137,15 +167,8 @@ class IsaacSimBackend:
         if not 0.0 <= scene_spec.terrain.restitution <= 1.0:
             raise ValueError("plane restitution must be within [0, 1]")
         for sensor in scene_spec.contact_sensors:
-            if sensor.entity_name != "robot":
-                raise ValueError(
-                    f"Isaac Sim contact sensor {sensor.name!r} targets {sensor.entity_name!r}; "
-                    "the SceneSpec robot entity is named 'robot'"
-                )
             if sensor.name in _RESERVED_SCENE_NAMES:
-                raise ValueError(
-                    f"Isaac Sim contact sensor name {sensor.name!r} conflicts with a native scene field"
-                )
+                raise ValueError(f"Isaac Sim contact sensor name {sensor.name!r} conflicts with a native scene field")
         self.capabilities.require(requirements.capabilities, context="Isaac Sim runtime")
 
         # These imports must remain after AppLauncher construction.
@@ -161,15 +184,22 @@ class IsaacSimBackend:
             render_interval=simulation_spec.decimation,
             gravity=simulation_spec.gravity,
         )
-        self._apply_engine_options(sim_cfg, simulation_spec.engine_options)
+        self._apply_engine_options(
+            sim_cfg,
+            simulation_spec.engine_options_for("isaacsim"),
+        )
         self._sim = sim_utils.SimulationContext(sim_cfg)
 
+        isaac_options = scene_spec.backend_options_for("isaacsim")
+        scene_flags = {
+            key: isaac_options["scene"][key]
+            for key in _SCENE_FLAG_KEYS
+            if isinstance(isaac_options.get("scene"), Mapping) and key in isaac_options["scene"]
+        }
         native_scene_cfg = InteractiveSceneCfg(
             num_envs=scene_spec.num_envs,
             env_spacing=scene_spec.env_spacing,
-            lazy_sensor_update=False,
-            replicate_physics=True,
-            filter_collisions=True,
+            **scene_flags,
         )
         material_cfg = sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -184,18 +214,28 @@ class IsaacSimBackend:
             init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, scene_spec.terrain.height)),
             collision_group=-1,
         )
-        native_scene_cfg.robot = self._make_robot_cfg(
-            scene_spec,
-            sim_utils=sim_utils,
-            articulation_cfg_type=ArticulationCfg,
-            actuator_cfg_type=ImplicitActuatorCfg,
+        setattr(
+            native_scene_cfg,
+            scene_spec.primary_entity,
+            self._make_robot_cfg(
+                scene_spec,
+                sim_utils=sim_utils,
+                articulation_cfg_type=ArticulationCfg,
+                actuator_cfg_type=ImplicitActuatorCfg,
+            ),
         )
+        asset = scene_spec.robot.asset_for("isaacsim")
+        prim_path = str(asset.import_options.get("prim_path", "{ENV_REGEX_NS}/Robot"))
         for sensor_spec in scene_spec.contact_sensors:
             setattr(
                 native_scene_cfg,
                 sensor_spec.name,
                 ContactSensorCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/.*",
+                    prim_path=_contact_prim_path(
+                        sensor_spec.body_names,
+                        aliases=asset.contact_body_aliases,
+                        prim_path=prim_path,
+                    ),
                     update_period=simulation_spec.sim_dt,
                     history_length=sensor_spec.history_length,
                     track_air_time=sensor_spec.track_air_time,
@@ -208,9 +248,14 @@ class IsaacSimBackend:
         self._native_scene.update(simulation_spec.sim_dt)
 
         self._scene_spec = scene_spec
+        self._entity_name = scene_spec.primary_entity
         self.num_envs = scene_spec.num_envs
         self.sim_dt = simulation_spec.sim_dt
-        self._robot = self._native_scene.articulations["robot"]
+        self._robot = self._native_scene.articulations[self._entity_name]
+        # The articulation is configured with canonical position-control gains.
+        # Keep this mode cached so static gains are not rewritten every substep.
+        self._global_control_mode = ControlMode.POSITION
+        self._position_velocity_is_zero = True
         self._build_runtime_views(scene_spec)
         self.capabilities.require(requirements.capabilities, context="Isaac Sim runtime")
         self._update_metadata(simulation_spec)
@@ -228,46 +273,37 @@ class IsaacSimBackend:
         asset = robot.asset_for("isaacsim")
         properties = robot.materialize(device="cpu")
         by_name = {
-            field: {
-                name: float(properties[field][index])
-                for index, name in enumerate(robot.joint_names)
-            }
+            field: {name: float(properties[field][index]) for index, name in enumerate(robot.joint_names)}
             for field in ("stiffness", "damping", "armature", "effort_limit", "velocity_limit")
         }
-        default_joint_pos = {
-            item.name: float(item.default_pos)
-            for item in robot.joint_properties
-        }
-        return articulation_cfg_type(
-            prim_path="{ENV_REGEX_NS}/Robot",
-            spawn=sim_utils.UrdfFileCfg(
-                asset_path=asset.path,
-                fix_base=False,
-                merge_fixed_joints=False,
-                replace_cylinders_with_capsules=True,
-                self_collision=True,
-                activate_contact_sensors=True,
-                joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                    gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                        stiffness=None,
-                        damping=None,
-                    )
-                ),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                    disable_gravity=False,
-                    retain_accelerations=False,
-                    linear_damping=0.0,
-                    angular_damping=0.0,
-                    max_linear_velocity=1000.0,
-                    max_angular_velocity=1000.0,
-                    max_depenetration_velocity=1.0,
-                ),
-                articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                    enabled_self_collisions=True,
-                    solver_position_iteration_count=8,
-                    solver_velocity_iteration_count=4,
-                ),
+        default_joint_pos = {item.name: float(item.default_pos) for item in robot.joint_properties}
+        import_options = dict(asset.import_options)
+        prim_path = str(import_options.pop("prim_path", "{ENV_REGEX_NS}/Robot"))
+        spawn_profile = dict(scene_spec.backend_options_for("isaacsim").get("robot_spawn", {}))
+        rigid_props = spawn_profile.pop("rigid_props", None)
+        articulation_props = spawn_profile.pop("articulation_props", None)
+        spawn_kwargs: dict[str, Any] = {
+            "asset_path": asset.path,
+            "activate_contact_sensors": bool(scene_spec.contact_sensors),
+            **import_options,
+            **spawn_profile,
+            "joint_drive": sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=None,
+                    damping=None,
+                )
             ),
+        }
+        if rigid_props is not None:
+            spawn_kwargs["rigid_props"] = _typed_cfg(sim_utils.RigidBodyPropertiesCfg, rigid_props)
+        if articulation_props is not None:
+            spawn_kwargs["articulation_props"] = _typed_cfg(
+                sim_utils.ArticulationRootPropertiesCfg,
+                articulation_props,
+            )
+        return articulation_cfg_type(
+            prim_path=prim_path,
+            spawn=sim_utils.UrdfFileCfg(**spawn_kwargs),
             init_state=articulation_cfg_type.InitialStateCfg(
                 pos=robot.default_root_pos,
                 rot=robot.default_root_quat_wxyz,
@@ -319,6 +355,12 @@ class IsaacSimBackend:
             native_joint_names,
             device=self.device,
         )
+        self._all_env_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.int64)
+        self._all_joint_ids = torch.arange(
+            len(scene_spec.robot.joint_names),
+            device=self.device,
+            dtype=torch.int64,
+        )
         self._body_map = CanonicalIndexMap.build(
             scene_spec.robot.body_names,
             native_body_names,
@@ -334,27 +376,22 @@ class IsaacSimBackend:
         )
         native_data = self._robot.data
         state.default_joint_pos.copy_(self._joint_map.to_canonical(native_data.default_joint_pos, dim=1))
-        state.soft_joint_pos_limits.copy_(
-            self._joint_map.to_canonical(native_data.soft_joint_pos_limits, dim=1)
-        )
-        state.joint_velocity_limits.copy_(
-            self._joint_map.to_canonical(native_data.joint_vel_limits, dim=1)
-        )
-        state.joint_effort_limits.copy_(
-            self._joint_map.to_canonical(native_data.joint_effort_limits, dim=1)
-        )
+        state.soft_joint_pos_limits.copy_(self._joint_map.to_canonical(native_data.soft_joint_pos_limits, dim=1))
+        state.joint_velocity_limits.copy_(self._joint_map.to_canonical(native_data.joint_vel_limits, dim=1))
+        state.joint_effort_limits.copy_(self._joint_map.to_canonical(native_data.joint_effort_limits, dim=1))
         articulation = ArticulationView(
-            name="robot",
+            name=scene_spec.primary_entity,
             joint_names=scene_spec.robot.joint_names,
             body_names=scene_spec.robot.body_names,
             data=state,
         )
 
+        asset = scene_spec.robot.asset_for("isaacsim")
         sensors: dict[str, ContactState] = {}
         for sensor_spec in scene_spec.contact_sensors:
             native_sensor = self._native_scene.sensors[sensor_spec.name]
             contact_map = CanonicalIndexMap.build(
-                sensor_spec.body_names,
+                asset.resolve_contact_body_names(sensor_spec.body_names),
                 tuple(native_sensor.body_names),
                 device=self.device,
             )
@@ -368,7 +405,7 @@ class IsaacSimBackend:
 
         self.scene = SceneView(
             env_origins=self._native_scene.env_origins,
-            articulations={"robot": articulation},
+            articulations={scene_spec.primary_entity: articulation},
             sensors=sensors,
         )
         self._shape_counts_by_native_body = self._query_shape_counts()
@@ -387,8 +424,7 @@ class IsaacSimBackend:
         expected = int(self._robot.root_physx_view.max_shapes)
         if sum(counts) != expected:
             raise RuntimeError(
-                "failed to map Isaac collision shapes to bodies: "
-                f"resolved {sum(counts)} shapes, expected {expected}"
+                f"failed to map Isaac collision shapes to bodies: resolved {sum(counts)} shapes, expected {expected}"
             )
         return tuple(counts)
 
@@ -429,14 +465,13 @@ class IsaacSimBackend:
             native.default_joint_vel[env_ids],
             env_ids=env_ids,
         )
-        state = self.scene.articulations["robot"].data
+        state = self.scene.articulations[self._entity_name].data
         state.joint_acc[env_ids] = 0.0
         self.set_joint_control_target(
-            "robot",
+            self._entity_name,
             JointControlTarget(
                 mode=ControlMode.POSITION,
                 value=state.default_joint_pos,
-                velocity=torch.zeros_like(state.default_joint_pos),
             ),
             env_ids=env_ids,
         )
@@ -488,7 +523,8 @@ class IsaacSimBackend:
     ) -> None:
         robot = self._entity(entity_name)
         if env_ids is None:
-            selected_env_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.int64)
+            assert self._all_env_ids is not None
+            selected_env_ids = self._all_env_ids
             native_env_ids = None
         else:
             selected_env_ids = self._validate_ids("env_ids", env_ids, self.num_envs)
@@ -505,37 +541,120 @@ class IsaacSimBackend:
         canonical_ids = self._canonical_joint_ids(target.joint_ids)
         native_ids = self._joint_map.native_ids(canonical_ids)
         value = target.value[selected_env_ids]
-        zeros = torch.zeros_like(value)
+        mode_changed = target.mode is not self._global_control_mode
+        full_control_write = env_ids is None and target.joint_ids is None
 
         if target.mode is ControlMode.POSITION:
-            stiffness = self._joint_properties["stiffness"][canonical_ids]
-            damping = self._joint_properties["damping"][canonical_ids]
-            velocity = zeros if target.velocity is None else target.velocity[selected_env_ids]
-            self._write_drive_gains(robot, stiffness, damping, native_ids, selected_env_ids, native_env_ids)
-            robot.set_joint_position_target(value, joint_ids=native_ids, env_ids=native_env_ids)
-            robot.set_joint_velocity_target(velocity, joint_ids=native_ids, env_ids=native_env_ids)
-            robot.set_joint_effort_target(zeros, joint_ids=native_ids, env_ids=native_env_ids)
+            if mode_changed:
+                stiffness = self._joint_properties["stiffness"][canonical_ids]
+                damping = self._joint_properties["damping"][canonical_ids]
+                self._write_drive_gains(robot, stiffness, damping, native_ids, selected_env_ids, native_env_ids)
+                robot.set_joint_effort_target(
+                    torch.zeros_like(value),
+                    joint_ids=native_ids,
+                    env_ids=native_env_ids,
+                )
+            position_changed = (
+                mode_changed
+                or not full_control_write
+                or target.value is not self._last_position_target
+                or target.value._version != self._last_position_target_version
+            )
+            if position_changed:
+                robot.set_joint_position_target(
+                    value,
+                    joint_ids=native_ids,
+                    env_ids=native_env_ids,
+                )
+            if target.velocity is not None:
+                velocity_changed = (
+                    mode_changed
+                    or not full_control_write
+                    or target.velocity is not self._last_position_velocity
+                    or target.velocity._version != self._last_position_velocity_version
+                )
+                if velocity_changed:
+                    robot.set_joint_velocity_target(
+                        target.velocity[selected_env_ids],
+                        joint_ids=native_ids,
+                        env_ids=native_env_ids,
+                    )
+                self._position_velocity_is_zero = False if full_control_write else None
+            elif mode_changed or self._position_velocity_is_zero is not True:
+                robot.set_joint_velocity_target(
+                    torch.zeros_like(value),
+                    joint_ids=native_ids,
+                    env_ids=native_env_ids,
+                )
+                self._position_velocity_is_zero = True if full_control_write else None
+            if full_control_write:
+                self._last_position_target = target.value
+                self._last_position_target_version = target.value._version
+                self._last_position_velocity = target.velocity
+                self._last_position_velocity_version = -1 if target.velocity is None else target.velocity._version
+            else:
+                self._clear_position_target_cache()
         elif target.mode is ControlMode.VELOCITY:
+            self._clear_position_target_cache()
             damping = self._joint_properties["damping"][canonical_ids]
-            self._write_drive_gains(robot, torch.zeros_like(damping), damping, native_ids, selected_env_ids, native_env_ids)
+            if mode_changed:
+                self._write_drive_gains(
+                    robot,
+                    torch.zeros_like(damping),
+                    damping,
+                    native_ids,
+                    selected_env_ids,
+                    native_env_ids,
+                )
             current_position = robot.data.joint_pos[selected_env_ids[:, None], native_ids]
             robot.set_joint_position_target(current_position, joint_ids=native_ids, env_ids=native_env_ids)
             robot.set_joint_velocity_target(value, joint_ids=native_ids, env_ids=native_env_ids)
-            robot.set_joint_effort_target(zeros, joint_ids=native_ids, env_ids=native_env_ids)
+            self._position_velocity_is_zero = False if full_control_write else None
+            if mode_changed:
+                robot.set_joint_effort_target(
+                    torch.zeros_like(value),
+                    joint_ids=native_ids,
+                    env_ids=native_env_ids,
+                )
         elif target.mode is ControlMode.EFFORT:
+            self._clear_position_target_cache()
             limits = self.scene.articulations[entity_name].data.joint_effort_limits[
                 selected_env_ids[:, None], canonical_ids
             ]
             if torch.any(torch.abs(value) > limits + 1.0e-6):
                 raise ValueError("effort target exceeds a canonical joint effort limit")
-            zero_gain = torch.zeros(canonical_ids.numel(), device=self.device)
-            self._write_drive_gains(robot, zero_gain, zero_gain, native_ids, selected_env_ids, native_env_ids)
-            current_position = robot.data.joint_pos[selected_env_ids[:, None], native_ids]
-            robot.set_joint_position_target(current_position, joint_ids=native_ids, env_ids=native_env_ids)
-            robot.set_joint_velocity_target(zeros, joint_ids=native_ids, env_ids=native_env_ids)
+            if mode_changed:
+                zero_gain = torch.zeros(canonical_ids.numel(), device=self.device)
+                self._write_drive_gains(
+                    robot,
+                    zero_gain,
+                    zero_gain,
+                    native_ids,
+                    selected_env_ids,
+                    native_env_ids,
+                )
+                current_position = robot.data.joint_pos[selected_env_ids[:, None], native_ids]
+                robot.set_joint_position_target(current_position, joint_ids=native_ids, env_ids=native_env_ids)
+                robot.set_joint_velocity_target(
+                    torch.zeros_like(value),
+                    joint_ids=native_ids,
+                    env_ids=native_env_ids,
+                )
+                self._position_velocity_is_zero = True if full_control_write else None
             robot.set_joint_effort_target(value, joint_ids=native_ids, env_ids=native_env_ids)
         else:
             raise ValueError(f"unsupported control mode: {target.mode}")
+
+        if mode_changed:
+            # A full articulation write establishes one global mode. A partial
+            # mode switch makes the cache conservative until the next full write.
+            self._global_control_mode = target.mode if full_control_write else None
+
+    def _clear_position_target_cache(self) -> None:
+        self._last_position_target = None
+        self._last_position_target_version = -1
+        self._last_position_velocity = None
+        self._last_position_velocity_version = -1
 
     def _write_drive_gains(
         self,
@@ -598,9 +717,7 @@ class IsaacSimBackend:
         expected = (env_ids.numel(), body_ids.numel())
         self._validate_float_tensor("sliding friction", values.sliding_friction)
         if tuple(values.sliding_friction.shape) != expected:
-            raise ValueError(
-                f"sliding_friction has shape {tuple(values.sliding_friction.shape)}, expected {expected}"
-            )
+            raise ValueError(f"sliding_friction has shape {tuple(values.sliding_friction.shape)}, expected {expected}")
         if torch.any(values.sliding_friction < 0.0):
             raise ValueError("sliding friction must be non-negative")
         if values.restitution is not None:
@@ -646,8 +763,7 @@ class IsaacSimBackend:
             raise ValueError(f"mass has shape {tuple(values.mass.shape)}, expected {expected_prefix}")
         if tuple(values.center_of_mass.shape) != (*expected_prefix, 3):
             raise ValueError(
-                f"center_of_mass has shape {tuple(values.center_of_mass.shape)}, "
-                f"expected {(*expected_prefix, 3)}"
+                f"center_of_mass has shape {tuple(values.center_of_mass.shape)}, expected {(*expected_prefix, 3)}"
             )
         if tuple(values.inertia.shape) == (*expected_prefix, 3):
             inertia_matrix = torch.diag_embed(values.inertia)
@@ -690,7 +806,7 @@ class IsaacSimBackend:
             self._sim.forward()
 
         native = self._robot.data
-        state = self.scene.articulations["robot"].data
+        state = self.scene.articulations[self._entity_name].data
         root = native.root_link_state_w
         body = self._body_map.to_canonical(native.body_link_state_w, dim=1)
         state.root_pos_w.copy_(root[:, :3])
@@ -704,9 +820,7 @@ class IsaacSimBackend:
         state.joint_pos.copy_(self._joint_map.to_canonical(native.joint_pos, dim=1))
         state.joint_vel.copy_(self._joint_map.to_canonical(native.joint_vel, dim=1))
         state.joint_acc.copy_(self._joint_map.to_canonical(native.joint_acc, dim=1))
-        state.applied_joint_effort.copy_(
-            self._joint_map.to_canonical(native.applied_torque, dim=1)
-        )
+        state.applied_joint_effort.copy_(self._joint_map.to_canonical(native.applied_torque, dim=1))
 
         specs = {item.name: item for item in self._scene_spec.contact_sensors}
         for name, canonical in self.scene.sensors.items():
@@ -714,9 +828,7 @@ class IsaacSimBackend:
             native_sensor = self._native_scene.sensors[name]
             native_data = native_sensor.data
             contact_map = self._contact_maps[name]
-            canonical.net_forces_w.copy_(
-                contact_map.to_canonical(native_data.net_forces_w, dim=1)
-            )
+            canonical.net_forces_w.copy_(contact_map.to_canonical(native_data.net_forces_w, dim=1))
             if canonical.history_length:
                 canonical.net_forces_w_history.copy_(
                     contact_map.to_canonical(
@@ -725,18 +837,10 @@ class IsaacSimBackend:
                     )
                 )
             if sensor_spec.track_air_time:
-                canonical.current_air_time.copy_(
-                    contact_map.to_canonical(native_data.current_air_time, dim=1)
-                )
-                canonical.current_contact_time.copy_(
-                    contact_map.to_canonical(native_data.current_contact_time, dim=1)
-                )
-                canonical.last_air_time.copy_(
-                    contact_map.to_canonical(native_data.last_air_time, dim=1)
-                )
-                canonical.last_contact_time.copy_(
-                    contact_map.to_canonical(native_data.last_contact_time, dim=1)
-                )
+                canonical.current_air_time.copy_(contact_map.to_canonical(native_data.current_air_time, dim=1))
+                canonical.current_contact_time.copy_(contact_map.to_canonical(native_data.current_contact_time, dim=1))
+                canonical.last_air_time.copy_(contact_map.to_canonical(native_data.last_air_time, dim=1))
+                canonical.last_contact_time.copy_(contact_map.to_canonical(native_data.last_contact_time, dim=1))
             canonical.update_active(sensor_spec.force_threshold)
 
     def render(self, mode: str) -> object | None:
@@ -749,9 +853,7 @@ class IsaacSimBackend:
             self._sim.render()
             return None
         if mode == "rgb_array":
-            raise NotImplementedError(
-                "IsaacSimBackend does not create a camera and does not advertise RGB_ARRAY"
-            )
+            raise NotImplementedError("IsaacSimBackend does not create a camera and does not advertise RGB_ARRAY")
         raise ValueError(f"unsupported Isaac Sim render mode: {mode!r}")
 
     def close(self) -> None:
@@ -770,8 +872,8 @@ class IsaacSimBackend:
 
     def _entity(self, entity_name: str) -> Any:
         self._require_initialized()
-        if entity_name != "robot":
-            raise KeyError(f"unknown Isaac Sim articulation {entity_name!r}; available: 'robot'")
+        if entity_name != self._entity_name:
+            raise KeyError(f"unknown Isaac Sim articulation {entity_name!r}; available: {self._entity_name!r}")
         return self._robot
 
     def _require_initialized(self) -> None:
@@ -780,11 +882,8 @@ class IsaacSimBackend:
 
     def _canonical_joint_ids(self, joint_ids: torch.Tensor | None) -> torch.Tensor:
         if joint_ids is None:
-            return torch.arange(
-                len(self._joint_map.canonical_names),
-                device=self.device,
-                dtype=torch.int64,
-            )
+            assert self._all_joint_ids is not None
+            return self._all_joint_ids
         return self._validate_ids("joint_ids", joint_ids, len(self._joint_map.canonical_names))
 
     def _validate_ids(self, name: str, ids: torch.Tensor, upper_bound: int) -> torch.Tensor:
@@ -800,9 +899,7 @@ class IsaacSimBackend:
         if value.dtype != torch.float32:
             raise ValueError(f"{name} must use float32, received {value.dtype}")
         if value.device != self.device:
-            raise ValueError(
-                f"{name} must be on backend device {self.device}, received {value.device}"
-            )
+            raise ValueError(f"{name} must be on backend device {self.device}, received {value.device}")
 
 
 class IsaacSimBackendProvider:

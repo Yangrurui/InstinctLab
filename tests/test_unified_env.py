@@ -1,16 +1,12 @@
 from __future__ import annotations
 
+import torch
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from instinctlab.backends.mock import MockSimulatorBackend
-from instinctlab.envs.unified_manager_based_rl_env import (
-    UnifiedManagerBasedRLEnv,
-    UnifiedManagerBasedRLEnvCfg,
-)
+from instinctlab.envs.unified_manager_based_rl_env import UnifiedManagerBasedRLEnv, UnifiedManagerBasedRLEnvCfg
 from instinctlab.managers.unified import (
     EventTermCfg,
     JointPositionAction,
@@ -23,11 +19,12 @@ from instinctlab.managers.unified import (
     TerminationTermCfg,
     UniformNoiseCfg,
 )
+from instinctlab.rl.config import OnPolicyRunnerCfg
 from instinctlab.sim.backend import SensorReadPhase
 from instinctlab.sim.control import ControlMode
 from instinctlab.sim.robot_spec import JointProperties, RobotSpec
 from instinctlab.sim.scene import SceneSpec, SimulationSpec
-from instinctlab.tasks.locomotion.unified_flat_env_cfg import locomotion_flat_env_cfg
+from instinctlab.tasks.locomotion.unified_flat_env_cfg import locomotion_flat_agent_cfg, locomotion_flat_env_cfg
 
 
 class TrackingBackend(MockSimulatorBackend):
@@ -274,23 +271,123 @@ def test_new_unified_modules_do_not_import_engine_packages() -> None:
     paths = (
         root / "source/instinctlab/instinctlab/managers/unified.py",
         root / "source/instinctlab/instinctlab/envs/unified_manager_based_rl_env.py",
+        root / "source/instinctlab/instinctlab/sim/robot_spec.py",
+        root / "source/instinctlab/instinctlab/sim/scene.py",
+        root / "source/instinctlab/instinctlab/assets/unitree_g1.py",
     )
-    forbidden = ("isaac" + "lab", "mj" + "lab")
+    forbidden_imports = (
+        "import isaaclab",
+        "from isaaclab",
+        "import mjlab",
+        "from mjlab",
+    )
     for path in paths:
         source = path.read_text()
-        assert all(name not in source for name in forbidden)
+        for statement in forbidden_imports:
+            assert statement not in source, f"{path} contains {statement!r}"
+
+
+def test_backends_do_not_embed_robot_catalog_knowledge() -> None:
+    root = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab"
+    forbidden = ("LL_FOOT", "LR_FOOT", "Unitree", "G1")
+    for path in (
+        root / "backends/isaacsim/backend.py",
+        root / "backends/mjlab/simulator.py",
+        root / "sim/robot_spec.py",
+        root / "sim/scene.py",
+        root / "managers/unified.py",
+        root / "rl/config.py",
+    ):
+        source = path.read_text()
+        for token in forbidden:
+            assert token not in source, f"{path} contains {token!r}"
+
+
+def test_g1_catalog_lives_in_assets_unitree_g1() -> None:
+    import instinctlab.assets.unitree_g1 as g1
+
+    spec = g1.make_g1_29dof_robot_spec()
+    assert spec.name == "unitree_g1_29dof"
+    assert spec.asset_for("isaacsim").import_options["merge_fixed_joints"] is False
+
+
+def test_sim_package_does_not_export_g1_catalog() -> None:
+    import instinctlab.sim as sim
+
+    assert not hasattr(sim, "make_g1_29dof_robot_spec")
+    assert not hasattr(sim, "G1_29DOF_DFS_JOINT_NAMES")
+
+
+def test_shared_layers_do_not_import_robot_catalog() -> None:
+    root = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab"
+    forbidden = "assets.unitree_g1"
+    for path in (
+        root / "sim/robot_spec.py",
+        root / "sim/scene.py",
+        root / "sim/backend.py",
+        root / "managers/unified.py",
+        root / "rl/config.py",
+        root / "backends/isaacsim/backend.py",
+        root / "backends/mjlab/simulator.py",
+    ):
+        assert forbidden not in path.read_text(), f"{path} imports the robot catalog"
+
+
+def test_runner_defaults_are_task_neutral() -> None:
+    assert OnPolicyRunnerCfg().experiment_name == "instinctlab"
+    assert locomotion_flat_agent_cfg().experiment_name == "g1_locomotion_flat"
+
+
+def test_unified_locomotion_matches_g1_flat_task() -> None:
+    cfg = locomotion_flat_env_cfg(num_envs=2)
+    rewards = cfg.rewards["default"].terms
+    commands = cfg.commands["base_velocity"].params
+    sensor = cfg.scene.contact_sensors[0]
+
+    assert rewards["termination_penalty"].weight == -200.0
+    assert rewards["feet_air_time"].weight == 1.0
+    assert rewards["feet_air_time"].params["threshold"] == 0.5
+    assert rewards["feet_air_time"].params["body_names"] == (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+    )
+    assert rewards["feet_slide"].weight == -0.1
+    assert rewards["stand_still"].weight == -0.8
+    assert rewards["lin_vel_z"].weight == -0.1
+    assert rewards["action_rate"].weight == -0.05
+    assert rewards["knee_deviation"].weight == -0.05
+    assert "ang_vel_xy" not in rewards
+    assert commands["rel_standing_envs"] == 0.2
+    assert commands["rel_heading_envs"] == 0.5
+    assert commands["ranges"]["lin_vel_x"] == (-0.5, 1.0)
+    assert commands["ranges"]["ang_vel_z"] == (-1.5, 1.5)
+    assert "torso_link" in sensor.body_names
+    assert "left_ankle_roll_link" in sensor.body_names
+    assert cfg.events["reset_joints"].params["position_range"] == (0.8, 1.2)
 
 
 def test_locomotion_flat_configuration_runs_with_mock_backend() -> None:
+    cfg = locomotion_flat_env_cfg(num_envs=2)
+    assert cfg.simulation.engine_options_for("mjlab") == {
+        "njmax": 300,
+        "iterations": 10,
+        "ls_iterations": 20,
+    }
+    isaac_options = cfg.scene.backend_options_for("isaacsim")
+    assert isaac_options["scene"]["lazy_sensor_update"] is True
+    assert isaac_options["robot_spawn"]["self_collision"] is True
+    assert isaac_options["robot_spawn"]["articulation_props"]["solver_position_iteration_count"] == 8
+    assert cfg.simulation.engine_options_for("isaacsim") == {}
     env = UnifiedManagerBasedRLEnv(
-        locomotion_flat_env_cfg(num_envs=2),
+        cfg,
         MockSimulatorBackend(device="cpu"),
     )
 
-    observations, rewards, terminated, truncated, _ = env.step(torch.zeros((2, 29)))
+    num_joints = len(cfg.scene.robot.joint_names)
+    observations, rewards, terminated, truncated, _ = env.step(torch.zeros((2, num_joints)))
 
-    assert observations["policy"].shape == (2, 96)
-    assert observations["critic"].shape == (2, 99)
+    assert observations["policy"].shape == (2, 3 + 3 + 3 + num_joints * 3)
+    assert observations["critic"].shape == (2, 3 + 3 + 3 + 3 + num_joints * 3)
     assert rewards.shape == (2, 1)
     assert terminated.shape == truncated.shape == (2,)
     env.close()

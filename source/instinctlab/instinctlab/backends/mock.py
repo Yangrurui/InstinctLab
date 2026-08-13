@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import torch
+from typing import Any
 
 from instinctlab.sim.backend import (
     BackendMetadata,
@@ -55,6 +54,7 @@ class MockSimulatorBackend:
         self.num_envs = scene_spec.num_envs
         self.sim_dt = simulation_spec.sim_dt
         robot = scene_spec.robot
+        entity_name = scene_spec.primary_entity
         state = ArticulationState.allocate(
             num_envs=self.num_envs,
             num_joints=len(robot.joint_names),
@@ -71,7 +71,7 @@ class MockSimulatorBackend:
         state.soft_joint_pos_limits[..., 0] = -torch.pi
         state.soft_joint_pos_limits[..., 1] = torch.pi
         articulation = ArticulationView(
-            name="robot",
+            name=entity_name,
             joint_names=robot.joint_names,
             body_names=robot.body_names,
             data=state,
@@ -90,11 +90,19 @@ class MockSimulatorBackend:
             )
             for spec in scene_spec.contact_sensors
         }
-        self.scene = SceneView(env_origins=env_origins, articulations={"robot": articulation}, sensors=sensors)
+        self.scene = SceneView(
+            env_origins=env_origins,
+            articulations={entity_name: articulation},
+            sensors=sensors,
+        )
         self.synchronize(SensorReadPhase.POST_RESET)
 
+    def _primary(self) -> ArticulationView:
+        assert self._scene_spec is not None
+        return self.scene.articulations[self._scene_spec.primary_entity]
+
     def reset(self, env_ids: torch.Tensor) -> None:
-        state = self.scene.articulations["robot"].data
+        state = self._primary().data
         state.joint_pos[env_ids] = state.default_joint_pos[env_ids]
         state.joint_vel[env_ids] = 0.0
         state.joint_acc[env_ids] = 0.0
@@ -136,7 +144,7 @@ class MockSimulatorBackend:
         del entity_name, env_ids
         target.validate(
             num_envs=self.num_envs,
-            num_joints=self.scene.articulations["robot"].data.num_joints,
+            num_joints=self._primary().data.num_joints,
         )
         self._control_target = target
 
@@ -149,7 +157,7 @@ class MockSimulatorBackend:
         env_ids: torch.Tensor,
     ) -> None:
         del entity_name, body_ids, torque_w
-        self.scene.articulations["robot"].data.root_lin_vel_w[env_ids] += force_w.sum(dim=1) * self.sim_dt
+        self._primary().data.root_lin_vel_w[env_ids] += force_w.sum(dim=1) * self.sim_dt
 
     def set_body_material(self, values: MaterialProperties) -> None:
         self.material_properties = values
@@ -158,7 +166,7 @@ class MockSimulatorBackend:
         self.mass_properties = values
 
     def step(self) -> None:
-        state = self.scene.articulations["robot"].data
+        state = self._primary().data
         previous_velocity = state.joint_vel.clone()
         if self._control_target is not None:
             target = self._control_target
@@ -169,9 +177,8 @@ class MockSimulatorBackend:
                 velocity_target = 0.0 if target.velocity is None else target.velocity
                 properties = self._scene_spec.robot.materialize(device=self.device)  # type: ignore[union-attr]
                 error = target.value - state.joint_pos[:, joint_ids]
-                effort = (
-                    properties["stiffness"][joint_ids] * error
-                    + properties["damping"][joint_ids] * (velocity_target - state.joint_vel[:, joint_ids])
+                effort = properties["stiffness"][joint_ids] * error + properties["damping"][joint_ids] * (
+                    velocity_target - state.joint_vel[:, joint_ids]
                 )
                 limit = properties["effort_limit"][joint_ids]
                 effort = effort.clamp(-limit, limit)
@@ -193,7 +200,7 @@ class MockSimulatorBackend:
 
     def synchronize(self, phase: SensorReadPhase) -> None:
         del phase
-        state = self.scene.articulations["robot"].data
+        state = self._primary().data
         state.body_pos_w[:] = state.root_pos_w[:, None, :]
         state.body_quat_w[:] = state.root_quat_w[:, None, :]
         state.body_lin_vel_w[:] = state.root_lin_vel_w[:, None, :]

@@ -1,7 +1,8 @@
-"""Engine-neutral G1 locomotion-flat task configuration."""
+"""Unified G1 locomotion-flat task, ported from ``config/g1/flat_env_cfg.py``."""
 
 from __future__ import annotations
 
+from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_BODY_NAMES, make_g1_29dof_robot_spec
 from instinctlab.envs import UnifiedManagerBasedRLEnvCfg
 from instinctlab.managers import (
     CommandTermCfg,
@@ -18,12 +19,11 @@ from instinctlab.managers import (
 from instinctlab.rl import OnPolicyRunnerCfg
 from instinctlab.sim.backend import RuntimeRequirements
 from instinctlab.sim.capabilities import Capability
-from instinctlab.sim.robot_spec import G1_29DOF_DFS_BODY_NAMES, make_g1_29dof_robot_spec
 from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec, TerrainSpec
 from instinctlab.tasks.locomotion import commands
 from instinctlab.tasks.locomotion.mdp import unified as mdp
 
-_FEET = ("LL_FOOT", "LR_FOOT")
+_FEET = ("left_ankle_roll_link", "right_ankle_roll_link")
 _ANKLE_JOINTS = (
     "left_ankle_pitch_joint",
     "left_ankle_roll_joint",
@@ -36,6 +36,18 @@ _HIP_ROLL_YAW_JOINTS = (
     "right_hip_roll_joint",
     "right_hip_yaw_joint",
 )
+_HIP_AND_KNEE_JOINTS = (
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_joint",
+)
+_KNEE_JOINTS = ("left_knee_joint", "right_knee_joint")
+_WAIST_JOINTS = ("waist_pitch_joint", "waist_roll_joint", "waist_yaw_joint")
 _ARM_JOINTS = (
     "left_shoulder_pitch_joint",
     "left_shoulder_roll_joint",
@@ -52,13 +64,39 @@ _ARM_JOINTS = (
     "right_wrist_pitch_joint",
     "right_wrist_yaw_joint",
 )
+_ILLEGAL_CONTACT_BODIES = (
+    "torso_link",
+    "left_shoulder_pitch_link",
+    "left_shoulder_roll_link",
+    "left_shoulder_yaw_link",
+    "left_elbow_link",
+    "left_wrist_roll_link",
+    "left_wrist_pitch_link",
+    "left_wrist_yaw_link",
+    "right_shoulder_pitch_link",
+    "right_shoulder_roll_link",
+    "right_shoulder_yaw_link",
+    "right_elbow_link",
+    "right_wrist_roll_link",
+    "right_wrist_pitch_link",
+    "right_wrist_yaw_link",
+    "left_hip_pitch_link",
+    "left_hip_roll_link",
+    "left_hip_yaw_link",
+    "left_knee_link",
+    "right_hip_pitch_link",
+    "right_hip_roll_link",
+    "right_hip_yaw_link",
+    "right_knee_link",
+)
 
 
 def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnvCfg:
     robot = make_g1_29dof_robot_spec()
+    num_joints = len(robot.joint_names)
     policy_terms = {
         "base_ang_vel": ObservationTermCfg(
-            mdp.base_ang_vel, noise=UniformNoiseCfg(-0.2, 0.2), scale=0.25, shape=(3,), semantic="rad/s"
+            mdp.base_ang_vel, noise=UniformNoiseCfg(-0.2, 0.2), shape=(3,), semantic="rad/s"
         ),
         "projected_gravity": ObservationTermCfg(
             mdp.projected_gravity, noise=UniformNoiseCfg(-0.05, 0.05), shape=(3,), semantic="unit_vector"
@@ -67,12 +105,12 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
             mdp.velocity_commands, params={"command_name": "base_velocity"}, shape=(3,), semantic="m/s,m/s,rad/s"
         ),
         "joint_pos": ObservationTermCfg(
-            mdp.joint_pos_rel, noise=UniformNoiseCfg(-0.01, 0.01), shape=(29,), semantic="rad_dfs_v1"
+            mdp.joint_pos_rel, noise=UniformNoiseCfg(-0.01, 0.01), shape=(num_joints,), semantic="rad_dfs_v1"
         ),
         "joint_vel": ObservationTermCfg(
-            mdp.joint_vel, noise=UniformNoiseCfg(-1.5, 1.5), scale=0.05, shape=(29,), semantic="rad/s_dfs_v1"
+            mdp.joint_vel, noise=UniformNoiseCfg(-1.5, 1.5), shape=(num_joints,), semantic="rad/s_dfs_v1"
         ),
-        "actions": ObservationTermCfg(mdp.last_action, shape=(29,), semantic="joint_position_action_dfs_v1"),
+        "actions": ObservationTermCfg(mdp.last_action, shape=(num_joints,), semantic="joint_position_action_dfs_v1"),
     }
     policy_order = (
         "base_ang_vel",
@@ -98,14 +136,50 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 ContactSensorSpec(
                     name="contact_forces",
                     entity_name="robot",
-                    body_names=("torso_link", *_FEET),
+                    body_names=(*_ILLEGAL_CONTACT_BODIES, *_FEET),
                     history_length=3,
                     force_threshold=1.0,
                     track_air_time=True,
                 ),
             ),
+            backend_options={
+                "isaacsim": {
+                    "scene": {
+                        "lazy_sensor_update": True,
+                        "replicate_physics": True,
+                        "filter_collisions": True,
+                    },
+                    "robot_spawn": {
+                        "self_collision": True,
+                        "rigid_props": {
+                            "disable_gravity": False,
+                            "retain_accelerations": False,
+                            "linear_damping": 0.0,
+                            "angular_damping": 0.0,
+                            "max_linear_velocity": 1000.0,
+                            "max_angular_velocity": 1000.0,
+                            "max_depenetration_velocity": 1.0,
+                        },
+                        "articulation_props": {
+                            "enabled_self_collisions": True,
+                            "solver_position_iteration_count": 8,
+                            "solver_velocity_iteration_count": 4,
+                        },
+                    },
+                }
+            },
         ),
-        simulation=SimulationSpec(sim_dt=0.005, decimation=4),
+        simulation=SimulationSpec(
+            sim_dt=0.005,
+            decimation=4,
+            engine_options={
+                "mjlab": {
+                    "njmax": 300,
+                    "iterations": 10,
+                    "ls_iterations": 20,
+                }
+            },
+        ),
         actions={"joint_pos": JointPositionActionCfg()},
         observations={
             "policy": ObservationGroupCfg(policy_terms, policy_order, enable_corruption=True),
@@ -114,6 +188,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
         rewards={
             "default": RewardGroupCfg(
                 terms={
+                    "termination_penalty": RewardTermCfg(mdp.is_terminated, weight=-200.0),
                     "track_lin_vel_xy": RewardTermCfg(
                         mdp.track_lin_vel_xy_yaw_frame_exp,
                         weight=1.0,
@@ -129,36 +204,22 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                         weight=1.0,
                         params={
                             "command_name": "base_velocity",
-                            "threshold": 0.4,
+                            "threshold": 0.5,
                             "sensor_name": "contact_forces",
                             "body_names": _FEET,
                         },
                     ),
                     "feet_slide": RewardTermCfg(
                         mdp.contact_slide,
-                        weight=-0.25,
+                        weight=-0.1,
                         params={"sensor_name": "contact_forces", "body_names": _FEET},
                     ),
-                    "lin_vel_z": RewardTermCfg(mdp.lin_vel_z_l2, weight=-2.0),
-                    "ang_vel_xy": RewardTermCfg(
-                        lambda env: mdp.base_ang_vel(env)[:, :2].square().sum(dim=1), weight=-0.05
-                    ),
                     "flat_orientation": RewardTermCfg(mdp.flat_orientation_l2, weight=-1.0),
-                    "action_rate": RewardTermCfg(mdp.action_rate_l2, weight=-0.01),
-                    "joint_acc": RewardTermCfg(
-                        mdp.joint_acc_l2, weight=-2.5e-7, params={"joint_names": robot.joint_names}
-                    ),
-                    "joint_torques": RewardTermCfg(
-                        mdp.joint_torques_l2, weight=-2.0e-6, params={"joint_names": robot.joint_names}
+                    "stand_still": RewardTermCfg(
+                        mdp.stand_still, weight=-0.8, params={"command_name": "base_velocity"}
                     ),
                     "joint_pos_limits": RewardTermCfg(
-                        mdp.joint_pos_limits, weight=-1.0, params={"joint_names": robot.joint_names}
-                    ),
-                    "stand_still": RewardTermCfg(
-                        mdp.stand_still, weight=-1.0, params={"command_name": "base_velocity"}
-                    ),
-                    "ankle_deviation": RewardTermCfg(
-                        mdp.joint_deviation_l1, weight=-0.1, params={"joint_names": _ANKLE_JOINTS}
+                        mdp.joint_pos_limits, weight=-1.0, params={"joint_names": _ANKLE_JOINTS}
                     ),
                     "hip_deviation": RewardTermCfg(
                         mdp.joint_deviation_l1, weight=-0.1, params={"joint_names": _HIP_ROLL_YAW_JOINTS}
@@ -166,23 +227,38 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                     "arm_deviation": RewardTermCfg(
                         mdp.joint_deviation_l1, weight=-0.1, params={"joint_names": _ARM_JOINTS}
                     ),
+                    "torso_deviation": RewardTermCfg(
+                        mdp.joint_deviation_l1, weight=-0.1, params={"joint_names": _WAIST_JOINTS}
+                    ),
+                    "knee_deviation": RewardTermCfg(
+                        mdp.joint_deviation_l1, weight=-0.05, params={"joint_names": _KNEE_JOINTS}
+                    ),
+                    "lin_vel_z": RewardTermCfg(mdp.lin_vel_z_l2, weight=-0.1),
+                    "action_rate": RewardTermCfg(mdp.action_rate_l2, weight=-0.05),
+                    "joint_acc": RewardTermCfg(
+                        mdp.joint_acc_l2, weight=-2.0e-7, params={"joint_names": _HIP_AND_KNEE_JOINTS}
+                    ),
+                    "joint_torques": RewardTermCfg(
+                        mdp.joint_torques_l2, weight=-4.0e-6, params={"joint_names": _HIP_AND_KNEE_JOINTS}
+                    ),
                 },
                 term_order=(
+                    "termination_penalty",
                     "track_lin_vel_xy",
                     "track_ang_vel_z",
                     "feet_air_time",
                     "feet_slide",
-                    "lin_vel_z",
-                    "ang_vel_xy",
                     "flat_orientation",
+                    "stand_still",
+                    "joint_pos_limits",
+                    "hip_deviation",
+                    "arm_deviation",
+                    "torso_deviation",
+                    "knee_deviation",
+                    "lin_vel_z",
                     "action_rate",
                     "joint_acc",
                     "joint_torques",
-                    "joint_pos_limits",
-                    "stand_still",
-                    "ankle_deviation",
-                    "hip_deviation",
-                    "arm_deviation",
                 ),
             )
         },
@@ -191,7 +267,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 "time_out": TerminationTermCfg(mdp.time_out, time_out=True),
                 "base_contact": TerminationTermCfg(
                     mdp.illegal_contact,
-                    params={"sensor_name": "contact_forces", "body_names": ("torso_link",)},
+                    params={"sensor_name": "contact_forces", "body_names": _ILLEGAL_CONTACT_BODIES},
                 ),
             },
             term_order=("time_out", "base_contact"),
@@ -202,7 +278,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 mode="startup",
                 params={
                     "body_names": G1_29DOF_DFS_BODY_NAMES,
-                    "friction_range": (0.2, 1.25),
+                    "friction_range": (0.25, 0.8),
                 },
             ),
             "reset_root": EventTermCfg(
@@ -214,7 +290,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                     "velocity_range": {
                         "x": (-0.5, 0.5),
                         "y": (-0.5, 0.5),
-                        "z": (-0.5, 0.5),
+                        "z": (-0.1, 0.1),
                         "roll": (-0.5, 0.5),
                         "pitch": (-0.5, 0.5),
                         "yaw": (-0.5, 0.5),
@@ -225,7 +301,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 mdp.reset_joints_by_scale,
                 mode="reset",
                 writes_state=True,
-                params={"position_range": (0.5, 1.5), "velocity_range": (0.0, 0.0)},
+                params={"position_range": (0.8, 1.2), "velocity_range": (-1.0, 1.0)},
             ),
             "push": EventTermCfg(
                 mdp.push_by_setting_velocity,
@@ -240,13 +316,13 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 commands.UniformVelocityCommand,
                 params={
                     "resampling_time_range": (10.0, 10.0),
-                    "rel_standing_envs": 0.02,
-                    "rel_heading_envs": 1.0,
+                    "rel_standing_envs": 0.2,
+                    "rel_heading_envs": 0.5,
                     "heading_control_stiffness": 0.5,
                     "ranges": {
-                        "lin_vel_x": (-1.0, 1.0),
+                        "lin_vel_x": (-0.5, 1.0),
                         "lin_vel_y": (-0.5, 0.5),
-                        "ang_vel_z": (-1.0, 1.0),
+                        "ang_vel_z": (-1.5, 1.5),
                         "heading": (-3.14, 3.14),
                     },
                 },
@@ -282,7 +358,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
 
 
 def locomotion_flat_agent_cfg(**overrides) -> OnPolicyRunnerCfg:
-    cfg = OnPolicyRunnerCfg()
+    cfg = OnPolicyRunnerCfg(experiment_name="g1_locomotion_flat")
     for name, value in overrides.items():
         if not hasattr(cfg, name):
             raise TypeError(f"unknown runner configuration field {name!r}")

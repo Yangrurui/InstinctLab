@@ -53,7 +53,7 @@ class OnPolicyRunnerCfg:
     )
     save_interval: int = 1000
     log_interval: int = 10
-    experiment_name: str = "g1_locomotion_flat"
+    experiment_name: str = "instinctlab"
     run_name: str = ""
     resume: bool = False
     load_run: str = ".*"

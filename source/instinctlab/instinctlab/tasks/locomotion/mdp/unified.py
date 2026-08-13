@@ -3,17 +3,31 @@
 from __future__ import annotations
 
 import torch
+from functools import lru_cache
 
 from instinctlab.sim.backend import MaterialProperties
 from instinctlab.sim.math import quat_apply_inverse, yaw_quaternion
 
 
 def _robot(env):
-    return env.scene.articulations["robot"]
+    return env.scene.articulations[env.cfg.scene.primary_entity]
+
+
+def _entity_name(env) -> str:
+    return env.cfg.scene.primary_entity
+
+
+@lru_cache(maxsize=None)
+def _cached_ids(
+    names: tuple[str, ...],
+    selected: tuple[str, ...],
+    device: str,
+) -> torch.Tensor:
+    return torch.tensor([names.index(name) for name in selected], device=device, dtype=torch.int64)
 
 
 def _ids(names: tuple[str, ...], selected: tuple[str, ...], device: torch.device) -> torch.Tensor:
-    return torch.tensor([names.index(name) for name in selected], device=device, dtype=torch.int64)
+    return _cached_ids(names, selected, str(device))
 
 
 # Observations.
@@ -192,7 +206,7 @@ def reset_root_state_uniform(
         ],
         dim=1,
     )
-    env.backend.write_root_state("robot", torch.cat((position, quaternion, velocity), dim=1), env_ids)
+    env.backend.write_root_state(_entity_name(env), torch.cat((position, quaternion, velocity), dim=1), env_ids)
     return True
 
 
@@ -213,10 +227,11 @@ def reset_joints_by_scale(
         data.soft_joint_pos_limits[env_ids, :, 0],
     )
     # Existing Isaac/MJLab ``reset_joints_by_scale`` scales the nominal joint
-    # velocity (zero for G1); keep that behavior instead of sampling absolute velocity.
+    # velocity (typically zero at default pose); keep that behavior instead of
+    # sampling absolute velocity.
     velocity_scale = env.rng.uniform("reset.joints.velocity", *velocity_range, (count, data.num_joints))
     velocity = torch.zeros_like(position) * velocity_scale
-    env.backend.write_joint_state("robot", position, velocity, env_ids)
+    env.backend.write_joint_state(_entity_name(env), position, velocity, env_ids)
     return True
 
 
@@ -236,7 +251,7 @@ def randomize_sliding_friction(
     )
     env.backend.set_body_material(
         MaterialProperties(
-            entity_name="robot",
+            entity_name=_entity_name(env),
             body_ids=body_ids,
             env_ids=env_ids,
             sliding_friction=values,
@@ -264,10 +279,8 @@ def push_by_setting_velocity(
     ).clone()
     for index, axis in enumerate(("x", "y", "z")):
         if axis in velocity_range:
-            state[:, 7 + index] += env.rng.uniform(
-                f"event.push.{axis}", *velocity_range[axis], (int(env_ids.numel()),)
-            )
-    env.backend.write_root_state("robot", state, env_ids)
+            state[:, 7 + index] += env.rng.uniform(f"event.push.{axis}", *velocity_range[axis], (int(env_ids.numel()),))
+    env.backend.write_root_state(_entity_name(env), state, env_ids)
     return True
 
 
