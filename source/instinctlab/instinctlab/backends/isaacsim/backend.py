@@ -158,6 +158,7 @@ class IsaacSimBackend:
             raise RuntimeError("IsaacSimBackend is already initialized")
         scene_spec.validate()
         simulation_spec.validate()
+        scene_spec.robot.verify_assets("isaacsim")
         if scene_spec.terrain.terrain_type != "plane":
             raise ValueError(
                 f"IsaacSimBackend currently supports only plane terrain, got {scene_spec.terrain.terrain_type!r}"

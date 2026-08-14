@@ -18,6 +18,7 @@ class TaskRegistration:
     env_cfg_entry_point: str
     agent_cfg_entry_point: str
     supported_backends: frozenset[str]
+    schema_entry_point: str | None = None
 
     def make_env_cfg(self, **kwargs: Any) -> Any:
         factory: Callable[..., Any] = _load(self.env_cfg_entry_point)
@@ -25,6 +26,12 @@ class TaskRegistration:
 
     def make_agent_cfg(self, **kwargs: Any) -> Any:
         factory: Callable[..., Any] = _load(self.agent_cfg_entry_point)
+        return factory(**kwargs)
+
+    def make_schema(self, **kwargs: Any) -> Any:
+        if self.schema_entry_point is None:
+            raise ValueError(f"task {self.task_id!r} does not declare a schema_entry_point")
+        factory: Callable[..., Any] = _load(self.schema_entry_point)
         return factory(**kwargs)
 
 
@@ -55,6 +62,7 @@ TASKS.register(
         env_cfg_entry_point="instinctlab.tasks.locomotion.unified_flat_env_cfg:locomotion_flat_env_cfg",
         agent_cfg_entry_point="instinctlab.tasks.locomotion.unified_flat_env_cfg:locomotion_flat_agent_cfg",
         supported_backends=frozenset({"mock", "isaacsim", "mjlab"}),
+        schema_entry_point="instinctlab.tasks.locomotion.unified_flat_env_cfg:locomotion_flat_env_schema",
     )
 )
 

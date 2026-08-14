@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import torch
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 _ALLOWED_LOAD_MODES = frozenset({"default", "strip_visual_meshes"})
+_CHECKSUM_CHUNK = 1 << 20
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,33 @@ class BackendAsset:
 
     def resolve_contact_body_names(self, body_names: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(self.contact_body_aliases.get(name, name) for name in body_names)
+
+    def compute_checksum(self) -> str:
+        """SHA-256 hex digest of the asset file on disk."""
+        digest = hashlib.sha256()
+        with open(self.path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(_CHECKSUM_CHUNK), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def verify(self) -> None:
+        """Fail fast when a declared ``checksum`` does not match the asset file.
+
+        No-op when ``checksum`` is ``None`` (the asset is unpinned). Raises
+        :class:`FileNotFoundError` if a pinned asset is missing and
+        :class:`ValueError` on a digest mismatch so a stale or swapped asset
+        cannot silently poison cross-engine training.
+        """
+        if self.checksum is None:
+            return
+        if not Path(self.path).is_file():
+            raise FileNotFoundError(f"BackendAsset {self.backend!r} asset does not exist: {self.path}")
+        actual = self.compute_checksum()
+        if actual != self.checksum:
+            raise ValueError(
+                f"BackendAsset {self.backend!r} checksum mismatch for {self.path}: "
+                f"expected {self.checksum[:12]}, got {actual[:12]}"
+            )
 
     def validate_against(self, body_names: tuple[str, ...]) -> None:
         if self.load_mode not in _ALLOWED_LOAD_MODES:
@@ -92,6 +122,12 @@ class RobotSpec:
             if asset.backend == backend:
                 return asset
         raise KeyError(f"RobotSpec {self.name!r} has no asset for backend {backend!r}")
+
+    def verify_assets(self, backend: str | None = None) -> None:
+        """Verify pinned asset checksums for one backend or all backends."""
+        assets = self.assets if backend is None else (self.asset_for(backend),)
+        for asset in assets:
+            asset.verify()
 
     def joint_index(self, name: str) -> int:
         return self.joint_names.index(name)

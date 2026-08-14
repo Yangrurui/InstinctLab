@@ -91,6 +91,29 @@ class CheckpointManifest:
         if self.asset_id != robot.asset_id:
             raise ValueError(f"checkpoint asset {self.asset_id!r} does not match runtime asset {robot.asset_id!r}")
 
+    @staticmethod
+    def validate_payload(payload: dict[str, Any], *, schema: EnvSchema, robot: RobotSpec) -> None:
+        """Validate a serialized manifest against the runtime schema and robot.
+
+        The simulator backend is intentionally *not* compared: reusing an
+        Isaac-trained policy on MJLab (or vice versa) is the whole point of the
+        canonical contract. Only the observation/action schema and the robot's
+        canonical indexing must match for a checkpoint to be loadable.
+        """
+        checkpoint_hash = payload.get("schema_hash")
+        if checkpoint_hash != schema.hash:
+            raise ValueError(
+                f"checkpoint schema mismatch: checkpoint={str(checkpoint_hash)[:12]}, runtime={schema.hash[:12]}"
+            )
+        if tuple(payload.get("joint_names", ())) != robot.joint_names:
+            raise ValueError("checkpoint canonical joint names do not match the runtime RobotSpec")
+        if tuple(payload.get("body_names", ())) != robot.body_names:
+            raise ValueError("checkpoint canonical body names do not match the runtime RobotSpec")
+        if payload.get("asset_id") != robot.asset_id:
+            raise ValueError(
+                f"checkpoint asset {payload.get('asset_id')!r} does not match runtime asset {robot.asset_id!r}"
+            )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "task": self.task,

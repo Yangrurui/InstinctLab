@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_BODY_NAMES, make_g1_29dof_robot_spec
+from instinctlab.assets import ASSETS
+from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_BODY_NAMES, G1_29DOF_DFS_JOINT_NAMES
 from instinctlab.envs import UnifiedManagerBasedRLEnvCfg
 from instinctlab.managers import (
     CommandTermCfg,
@@ -20,6 +21,7 @@ from instinctlab.rl import OnPolicyRunnerCfg
 from instinctlab.sim.backend import RuntimeRequirements
 from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec, TerrainSpec
+from instinctlab.sim.schema import EnvSchema, locomotion_flat_schema
 from instinctlab.tasks.locomotion import commands
 from instinctlab.tasks.locomotion.mdp import unified as mdp
 
@@ -92,7 +94,7 @@ _ILLEGAL_CONTACT_BODIES = (
 
 
 def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnvCfg:
-    robot = make_g1_29dof_robot_spec()
+    robot = ASSETS.make("unitree_g1_29dof")
     num_joints = len(robot.joint_names)
     policy_terms = {
         "base_ang_vel": ObservationTermCfg(
@@ -366,4 +368,9 @@ def locomotion_flat_agent_cfg(**overrides) -> OnPolicyRunnerCfg:
     return cfg
 
 
-__all__ = ["locomotion_flat_agent_cfg", "locomotion_flat_env_cfg"]
+def locomotion_flat_env_schema() -> EnvSchema:
+    """Stable observation/action/reward schema for checkpoint compatibility."""
+    return locomotion_flat_schema(len(G1_29DOF_DFS_JOINT_NAMES))
+
+
+__all__ = ["locomotion_flat_agent_cfg", "locomotion_flat_env_cfg", "locomotion_flat_env_schema"]

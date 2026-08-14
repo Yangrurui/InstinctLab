@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+
+_MANIFEST_FILENAME = "checkpoint_manifest.json"
 
 
 def _parser_has_option(parser: argparse.ArgumentParser, option: str) -> bool:
@@ -39,6 +42,34 @@ def _parse_args():
     return parser.parse_args(), provider
 
 
+def _write_manifest(run_dir, *, task_id, schema, robot, backend, seed) -> None:
+    from instinctlab.sim.schema import CheckpointManifest
+
+    manifest = CheckpointManifest(
+        task=task_id,
+        schema=schema,
+        joint_names=robot.joint_names,
+        body_names=robot.body_names,
+        asset_id=robot.asset_id,
+        backend=backend.metadata.name,
+        backend_version=backend.metadata.engine_version,
+        seed=seed,
+        metadata={"schema_version": schema.version},
+    )
+    (run_dir / _MANIFEST_FILENAME).write_text(json.dumps(manifest.as_dict(), indent=2, sort_keys=True))
+
+
+def _validate_resume_manifest(resume: Path, *, schema, robot) -> None:
+    from instinctlab.sim.schema import CheckpointManifest
+
+    manifest_path = resume.expanduser().resolve().parent / _MANIFEST_FILENAME
+    if not manifest_path.is_file():
+        # Older checkpoints predate manifests; nothing to validate against.
+        return
+    payload = json.loads(manifest_path.read_text())
+    CheckpointManifest.validate_payload(payload, schema=schema, robot=robot)
+
+
 def main() -> None:
     args, provider = _parse_args()
     bootstrap_context = provider.bootstrap(args)
@@ -63,6 +94,11 @@ def main() -> None:
     if args.max_iterations is not None:
         agent_cfg.max_iterations = args.max_iterations
 
+    schema = task.make_schema()
+    robot = env_cfg.scene.robot
+    if args.resume is not None:
+        _validate_resume_manifest(args.resume, schema=schema, robot=robot)
+
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     run_dir = (
@@ -76,6 +112,14 @@ def main() -> None:
         UnifiedManagerBasedRLEnv(env_cfg, backend),
         policy_group=agent_cfg.policy_observation_group,
         critic_group=agent_cfg.critic_observation_group,
+    )
+    _write_manifest(
+        run_dir,
+        task_id=args.task,
+        schema=schema,
+        robot=robot,
+        backend=backend,
+        seed=args.seed,
     )
     try:
         runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=str(run_dir), device=agent_cfg.device)
