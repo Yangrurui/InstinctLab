@@ -69,6 +69,34 @@ def test_canonical_index_map_identity_avoids_reordering() -> None:
     assert mapping.to_canonical(native) is native
 
 
+def test_canonical_index_map_copy_to_canonical_is_in_place() -> None:
+    mapping = CanonicalIndexMap.build(G1_29DOF_DFS_JOINT_NAMES, ISAAC_BFS_JOINT_NAMES, device="cpu")
+    native = torch.arange(29, dtype=torch.float32).repeat(2, 1)
+    out = torch.zeros_like(native)
+    mapping.copy_to_canonical(native, out)
+    torch.testing.assert_close(out, mapping.to_canonical(native))
+    rebuilt = torch.zeros_like(native)
+    mapping.copy_to_native(rebuilt, out)
+    torch.testing.assert_close(rebuilt, native)
+
+
+def test_canonical_index_map_copy_to_canonical_rank3() -> None:
+    mapping = CanonicalIndexMap.build(("a", "c"), ("a", "b", "c"), device="cpu")
+    native = torch.arange(12, dtype=torch.float32).reshape(2, 3, 2)
+    out = torch.zeros(2, 2, 2)
+    mapping.copy_to_canonical(native, out, dim=1)
+    torch.testing.assert_close(out, native[:, (0, 2)])
+
+
+def test_canonical_index_map_copy_to_canonical_identity() -> None:
+    names = ("first", "second")
+    mapping = CanonicalIndexMap.build(names, names, device="cpu")
+    native = torch.arange(4, dtype=torch.float32).reshape(2, 2)
+    out = torch.zeros_like(native)
+    mapping.copy_to_canonical(native, out)
+    torch.testing.assert_close(out, native)
+
+
 def test_simulation_engine_options_are_backend_scoped() -> None:
     spec = SimulationSpec(
         engine_options={

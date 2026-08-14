@@ -246,6 +246,8 @@ def _make_runtime_backend() -> tuple[MjlabBackend, _FakeSimulation, _FakeScene]:
     backend._previous_joint_velocity_native = torch.zeros((1, 1))
     backend._effort_mode_mask = torch.zeros((1, 1), dtype=torch.bool)
     backend._effort_mode_active = False
+    backend._sync_fast_path = False
+    backend._alias_native_views = False
     backend.sim_dt = 0.005
     backend.scene = SimpleNamespace(
         articulations={"robot": SimpleNamespace(data=state)},

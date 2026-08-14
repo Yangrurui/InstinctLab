@@ -16,6 +16,7 @@ from .backend import (
     RuntimeRequirements,
     SensorReadPhase,
     SimulatorBackend,
+    contiguous_index_range,
 )
 from .capabilities import Capability, CapabilitySet
 from .control import ControlMode, ControlSemantics, JointControlTarget
@@ -43,6 +44,7 @@ __all__ = [
     "CanonicalIndexMap",
     "Capability",
     "CapabilitySet",
+    "contiguous_index_range",
     "CheckpointManifest",
     "ContactSensorSpec",
     "ContactState",

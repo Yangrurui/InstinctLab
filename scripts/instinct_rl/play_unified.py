@@ -38,6 +38,14 @@ def _base_parser() -> argparse.ArgumentParser:
         help="Pinned base-velocity command as vx,vy,wz. Empty string keeps the task sampler.",
     )
     parser.add_argument(
+        "--command-schedule",
+        default="",
+        help=(
+            "Video schedule as seconds:vx,vy,wz;... e.g. 10:0.8,0,0;10:-0.5,0,0. Overrides --command and"
+            " --video-length."
+        ),
+    )
+    parser.add_argument(
         "--viewer",
         choices=("auto", "native", "viser"),
         default="auto",
@@ -82,6 +90,23 @@ def _parse_command(raw: str) -> tuple[float, float, float] | None:
     return float(parts[0]), float(parts[1]), float(parts[2])
 
 
+def _parse_command_schedule(raw: str) -> list[tuple[float, tuple[float, float, float]]]:
+    text = raw.strip()
+    if not text:
+        return []
+    segments: list[tuple[float, tuple[float, float, float]]] = []
+    for part in text.split(";"):
+        duration_text, command_text = part.split(":", 1)
+        duration_s = float(duration_text)
+        if duration_s <= 0.0:
+            raise ValueError("command-schedule durations must be positive")
+        command = _parse_command(command_text)
+        if command is None:
+            raise ValueError("command-schedule segments must include vx,vy,wz")
+        segments.append((duration_s, command))
+    return segments
+
+
 def _prepare_play_cfg(env_cfg, *, pin_command: bool):
     events = dict(env_cfg.events)
     if "push" in events:
@@ -113,7 +138,7 @@ def _prepare_play_cfg(env_cfg, *, pin_command: bool):
         params["rel_heading_envs"] = 0.0
         params["resampling_time_range"] = (1.0e9, 1.0e9)
         commands["base_velocity"] = replace(commands["base_velocity"], params=params)
-    return replace(env_cfg, events=events, commands=commands)
+    return replace(env_cfg, events=events, commands=commands, episode_length_s=1.0e9)
 
 
 def _velocity_command(env):
@@ -138,13 +163,25 @@ def _pin_command(env, command: tuple[float, float, float]) -> None:
     term._command[:, 2] = command[2]
 
 
-def _write_video(env, policy, *, output: Path, length: int, command: tuple[float, float, float] | None) -> None:
+def _write_video(
+    env,
+    policy,
+    *,
+    output: Path,
+    length: int,
+    command: tuple[float, float, float] | None,
+    schedule: list[tuple[float, tuple[float, float, float]]] | None = None,
+) -> None:
     import torch
 
     import imageio.v2 as imageio
 
     output.parent.mkdir(parents=True, exist_ok=True)
     fps = max(1, int(round(1.0 / env.unwrapped.step_dt)))
+    if schedule:
+        segments = [(max(1, int(round(seconds * fps))), cmd) for seconds, cmd in schedule]
+    else:
+        segments = [(length, command)]
     writer = imageio.get_writer(
         str(output),
         fps=fps,
@@ -154,18 +191,19 @@ def _write_video(env, policy, *, output: Path, length: int, command: tuple[float
     )
     try:
         obs, _ = env.get_observations()
-        if command is not None:
-            _pin_command(env, command)
-        for _ in range(length):
-            with torch.inference_mode():
-                actions = policy(obs)
-                obs, _, dones, _ = env.step(actions)
-            if command is not None and bool(dones.any()):
-                _pin_command(env, command)
-            frame = env.unwrapped.render("rgb_array")
-            if frame is None:
-                raise RuntimeError("backend returned no rgb_array frame")
-            writer.append_data(frame)
+        for steps, segment_command in segments:
+            if segment_command is not None:
+                _pin_command(env, segment_command)
+            for _ in range(steps):
+                with torch.inference_mode():
+                    actions = policy(obs)
+                    obs, _, dones, _ = env.step(actions)
+                if segment_command is not None and bool(dones.any()):
+                    _pin_command(env, segment_command)
+                frame = env.unwrapped.render("rgb_array")
+                if frame is None:
+                    raise RuntimeError("backend returned no rgb_array frame")
+                writer.append_data(frame)
     finally:
         writer.close()
 
@@ -175,7 +213,8 @@ def main() -> None:
     checkpoint = args.checkpoint.expanduser().resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(f"checkpoint not found: {checkpoint}")
-    command = _parse_command(args.command)
+    schedule = _parse_command_schedule(args.command_schedule)
+    command = None if schedule else _parse_command(args.command)
     bootstrap_context = provider.bootstrap(args)
 
     import torch
@@ -192,7 +231,10 @@ def main() -> None:
         raise RuntimeError(f"task {args.task!r} does not support {args.backend!r}; supported: {supported}")
 
     backend = provider.create(device=args.device, bootstrap_context=bootstrap_context)
-    env_cfg = _prepare_play_cfg(task.make_env_cfg(num_envs=args.num_envs), pin_command=command is not None)
+    env_cfg = _prepare_play_cfg(
+        task.make_env_cfg(num_envs=args.num_envs),
+        pin_command=command is not None or bool(schedule),
+    )
     env_cfg = replace(env_cfg, seed=args.seed)
     agent_cfg = task.make_agent_cfg(seed=args.seed, device=args.device)
     _validate_resume_manifest(checkpoint, schema=task.make_schema(), robot=env_cfg.scene.robot)
@@ -217,7 +259,14 @@ def main() -> None:
             else:
                 output = output.expanduser().resolve()
             print(f"[INFO] Recording {args.video_length} steps to {output}")
-            _write_video(env, policy, output=output, length=args.video_length, command=command)
+            _write_video(
+                env,
+                policy,
+                output=output,
+                length=args.video_length,
+                command=command,
+                schedule=schedule or None,
+            )
             print(f"[INFO] Video saved: {output}")
             return
 

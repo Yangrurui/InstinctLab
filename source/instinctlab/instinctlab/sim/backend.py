@@ -57,6 +57,31 @@ class BackendMetadata:
     physics: Mapping[str, Any] = field(default_factory=dict)
 
 
+def contiguous_index_range(
+    ids: torch.Tensor,
+    *,
+    expected_count: int | None = None,
+    require_positive_start: bool = False,
+) -> tuple[int, int] | None:
+    """Return ``(start, count)`` when ``ids`` is a contiguous arithmetic range.
+
+    Body ids must use ``require_positive_start=True`` so world body 0 cannot be
+    sliced in. Joint q/v addresses may start at 0 on fixed-base robots.
+    """
+    if ids.ndim != 1 or ids.numel() == 0:
+        return None
+    count = int(ids.numel())
+    if expected_count is not None and count != expected_count:
+        return None
+    start = int(ids[0].item())
+    if require_positive_start and start <= 0:
+        return None
+    expected = torch.arange(start, start + count, device=ids.device, dtype=ids.dtype)
+    if not torch.equal(ids, expected):
+        return None
+    return start, count
+
+
 @dataclass(frozen=True)
 class CanonicalIndexMap:
     """Map a frozen canonical name list onto one backend's native list."""
@@ -97,6 +122,24 @@ class CanonicalIndexMap:
         if self._is_identity:
             return native_value
         return torch.index_select(native_value, dim, self.native_ids_for_canonical)
+
+    def copy_to_canonical(
+        self,
+        native_value: torch.Tensor,
+        out: torch.Tensor,
+        *,
+        dim: int = -1,
+    ) -> None:
+        """Gather native columns into a preallocated canonical buffer.
+
+        Read direction is ``out[i] = native[index[i]]``. Do not use
+        ``index_copy_`` here; that primitive scatters into native order.
+        """
+        if self._is_identity:
+            out.copy_(native_value)
+            return
+        resolved_dim = dim if dim >= 0 else native_value.ndim + dim
+        torch.index_select(native_value, resolved_dim, self.native_ids_for_canonical, out=out)
 
     def native_ids(self, canonical_ids: torch.Tensor | None = None) -> torch.Tensor:
         if canonical_ids is None:
@@ -229,6 +272,7 @@ __all__ = [
     "BackendProvider",
     "BackendRegistry",
     "CanonicalIndexMap",
+    "contiguous_index_range",
     "MassProperties",
     "MaterialProperties",
     "RuntimeRequirements",

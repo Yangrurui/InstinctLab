@@ -842,20 +842,22 @@ class IsaacSimBackend:
 
         native = self._robot.data
         state = self.scene.articulations[self._entity_name].data
-        root = native.root_link_state_w
-        body = self._body_map.to_canonical(native.body_link_state_w, dim=1)
-        state.root_pos_w.copy_(root[:, :3])
-        state.root_quat_w.copy_(root[:, 3:7])
-        state.root_lin_vel_w.copy_(root[:, 7:10])
-        state.root_ang_vel_w.copy_(root[:, 10:13])
-        state.body_pos_w.copy_(body[..., :3])
-        state.body_quat_w.copy_(body[..., 3:7])
-        state.body_lin_vel_w.copy_(body[..., 7:10])
-        state.body_ang_vel_w.copy_(body[..., 10:13])
-        state.joint_pos.copy_(self._joint_map.to_canonical(native.joint_pos, dim=1))
-        state.joint_vel.copy_(self._joint_map.to_canonical(native.joint_vel, dim=1))
-        state.joint_acc.copy_(self._joint_map.to_canonical(native.joint_acc, dim=1))
-        state.applied_joint_effort.copy_(self._joint_map.to_canonical(native.applied_torque, dim=1))
+        root_pose = native.root_link_pose_w
+        root_vel = native.root_link_vel_w
+        body_pose = native.body_link_pose_w
+        body_vel = native.body_link_vel_w
+        state.root_pos_w.copy_(root_pose[:, :3])
+        state.root_quat_w.copy_(root_pose[:, 3:7])
+        state.root_lin_vel_w.copy_(root_vel[:, :3])
+        state.root_ang_vel_w.copy_(root_vel[:, 3:6])
+        self._body_map.copy_to_canonical(body_pose[..., :3], state.body_pos_w, dim=1)
+        self._body_map.copy_to_canonical(body_pose[..., 3:7], state.body_quat_w, dim=1)
+        self._body_map.copy_to_canonical(body_vel[..., :3], state.body_lin_vel_w, dim=1)
+        self._body_map.copy_to_canonical(body_vel[..., 3:6], state.body_ang_vel_w, dim=1)
+        self._joint_map.copy_to_canonical(native.joint_pos, state.joint_pos, dim=1)
+        self._joint_map.copy_to_canonical(native.joint_vel, state.joint_vel, dim=1)
+        self._joint_map.copy_to_canonical(native.joint_acc, state.joint_acc, dim=1)
+        self._joint_map.copy_to_canonical(native.applied_torque, state.applied_joint_effort, dim=1)
 
         specs = {item.name: item for item in self._scene_spec.contact_sensors}
         for name, canonical in self.scene.sensors.items():
@@ -863,19 +865,18 @@ class IsaacSimBackend:
             native_sensor = self._native_scene.sensors[name]
             native_data = native_sensor.data
             contact_map = self._contact_maps[name]
-            canonical.net_forces_w.copy_(contact_map.to_canonical(native_data.net_forces_w, dim=1))
+            contact_map.copy_to_canonical(native_data.net_forces_w, canonical.net_forces_w, dim=1)
             if canonical.history_length:
-                canonical.net_forces_w_history.copy_(
-                    contact_map.to_canonical(
-                        native_data.net_forces_w_history[:, : canonical.history_length],
-                        dim=2,
-                    )
+                contact_map.copy_to_canonical(
+                    native_data.net_forces_w_history[:, : canonical.history_length],
+                    canonical.net_forces_w_history,
+                    dim=2,
                 )
             if sensor_spec.track_air_time:
-                canonical.current_air_time.copy_(contact_map.to_canonical(native_data.current_air_time, dim=1))
-                canonical.current_contact_time.copy_(contact_map.to_canonical(native_data.current_contact_time, dim=1))
-                canonical.last_air_time.copy_(contact_map.to_canonical(native_data.last_air_time, dim=1))
-                canonical.last_contact_time.copy_(contact_map.to_canonical(native_data.last_contact_time, dim=1))
+                contact_map.copy_to_canonical(native_data.current_air_time, canonical.current_air_time, dim=1)
+                contact_map.copy_to_canonical(native_data.current_contact_time, canonical.current_contact_time, dim=1)
+                contact_map.copy_to_canonical(native_data.last_air_time, canonical.last_air_time, dim=1)
+                contact_map.copy_to_canonical(native_data.last_contact_time, canonical.last_contact_time, dim=1)
             canonical.update_active(sensor_spec.force_threshold)
 
     def render(self, mode: str) -> object | None:

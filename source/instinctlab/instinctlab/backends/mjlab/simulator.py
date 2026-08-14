@@ -20,6 +20,7 @@ from instinctlab.sim.backend import (
     MaterialProperties,
     RuntimeRequirements,
     SensorReadPhase,
+    contiguous_index_range,
 )
 from instinctlab.sim.capabilities import Capability, CapabilitySet
 from instinctlab.sim.control import ControlMode, JointControlTarget
@@ -121,6 +122,26 @@ def _enable_effort_actuator(
     return supports_effort_control and Capability.EFFORT_CONTROL in requirements.capabilities
 
 
+def _write_cvel_link_velocity(
+    pos: torch.Tensor,
+    subtree_com: torch.Tensor,
+    cvel: torch.Tensor,
+    lin_out: torch.Tensor,
+    ang_out: torch.Tensor,
+    offset: torch.Tensor,
+) -> None:
+    """Write ``compute_velocity_from_cvel`` into preallocated buffers."""
+    if subtree_com.shape != pos.shape:
+        offset.copy_(subtree_com.unsqueeze(1).expand_as(pos))
+    else:
+        offset.copy_(subtree_com)
+    offset.sub_(pos)
+    ang_out.copy_(cvel[..., :3])
+    torch.cross(ang_out, offset, dim=-1, out=lin_out)
+    lin_out.neg_()
+    lin_out.add_(cvel[..., 3:6])
+
+
 def _active_mjlab_version(mjlab: Any) -> str:
     """Prefer the active source tree version over an unrelated installed wheel."""
 
@@ -208,6 +229,14 @@ class MjlabBackend:
         self._last_control_velocity_version = -1
         self._offscreen_renderer: Any = None
         self._human_viewer: Any = None
+        self._body_slice: tuple[int, int] | None = None
+        self._joint_q_slice: tuple[int, int] | None = None
+        self._joint_v_slice: tuple[int, int] | None = None
+        self._sync_fast_path = False
+        self._alias_native_views = False
+        self._native_ptrs: dict[str, int] | None = None
+        self._tmp_body_offset: torch.Tensor | None = None
+        self._tmp_root_offset: torch.Tensor | None = None
 
     def initialize(
         self,
@@ -383,6 +412,7 @@ class MjlabBackend:
             raise ValueError(
                 f"MJCF root body {self._entity.body_names[0]!r} does not match canonical root {robot.root_body!r}"
             )
+        self._configure_sync_fast_path(robot)
 
         self._build_geom_body_map()
         state = ArticulationState.allocate(
@@ -434,6 +464,8 @@ class MjlabBackend:
             articulations={entity_name: articulation},
             sensors=sensors,
         )
+        if self._sync_fast_path and scene_spec.backend_options_for("mjlab").get("alias_native_views", True):
+            self._bind_native_views(state)
         self._effort_mode_mask = torch.zeros(
             (self.num_envs, len(robot.joint_names)), dtype=torch.bool, device=self.device
         )
@@ -888,16 +920,96 @@ class MjlabBackend:
         if phase in {SensorReadPhase.POST_RESET, SensorReadPhase.POST_EVENT}:
             self._mj_scene.write_data_to_sim()
             self._sim.forward()
+        if self._alias_native_views and not self._native_views_still_valid():
+            self._detach_native_views()
+        if self._sync_fast_path:
+            self._synchronize_articulation_fast()
+        else:
+            self._synchronize_articulation_properties()
+        self._refresh_contacts()
+
+    def _configure_sync_fast_path(self, robot) -> None:
+        indexing = self._entity.indexing
+        num_bodies = len(self._body_map.canonical_names)
+        num_joints = len(self._joint_map.canonical_names)
+        self._body_slice = contiguous_index_range(
+            indexing.body_ids.to(dtype=torch.int64),
+            expected_count=num_bodies,
+            require_positive_start=True,
+        )
+        self._joint_q_slice = contiguous_index_range(
+            indexing.joint_q_adr.to(dtype=torch.int64),
+            expected_count=num_joints,
+        )
+        self._joint_v_slice = contiguous_index_range(
+            indexing.joint_v_adr.to(dtype=torch.int64),
+            expected_count=num_joints,
+        )
+        self._sync_fast_path = bool(
+            self._body_slice
+            and self._joint_q_slice
+            and self._joint_v_slice
+            and self._body_map.is_identity
+            and self._joint_map.is_identity
+        )
+        if self._sync_fast_path:
+            self._tmp_body_offset = torch.zeros((self.num_envs, num_bodies, 3), device=self.device, dtype=torch.float32)
+            self._tmp_root_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
+
+    def _snapshot_native_ptrs(self) -> dict[str, int]:
+        data = self._entity.data.data
+        return {
+            "qpos": int(data.qpos.data_ptr()),
+            "qvel": int(data.qvel.data_ptr()),
+            "xpos": int(data.xpos.data_ptr()),
+            "xquat": int(data.xquat.data_ptr()),
+            "cvel": int(data.cvel.data_ptr()),
+        }
+
+    def _native_views_still_valid(self) -> bool:
+        if self._native_ptrs is None:
+            return False
+        return self._snapshot_native_ptrs() == self._native_ptrs
+
+    def _bind_native_views(self, state: ArticulationState) -> None:
+        assert self._body_slice is not None
+        assert self._joint_q_slice is not None
+        assert self._joint_v_slice is not None
+        data = self._entity.data.data
+        body_start, body_count = self._body_slice
+        q_start, q_count = self._joint_q_slice
+        v_start, v_count = self._joint_v_slice
+        root_id = int(self._entity.indexing.root_body_id)
+        state.joint_pos = data.qpos[:, q_start : q_start + q_count]
+        state.joint_vel = data.qvel[:, v_start : v_start + v_count]
+        state.body_pos_w = data.xpos[:, body_start : body_start + body_count]
+        state.body_quat_w = data.xquat[:, body_start : body_start + body_count]
+        state.root_pos_w = data.xpos[:, root_id]
+        state.root_quat_w = data.xquat[:, root_id]
+        self._native_ptrs = self._snapshot_native_ptrs()
+        self._alias_native_views = True
+        state.validate()
+
+    def _detach_native_views(self) -> None:
+        state = self.scene.articulations[self._entity_name].data
+        state.joint_pos = state.joint_pos.clone()
+        state.joint_vel = state.joint_vel.clone()
+        state.body_pos_w = state.body_pos_w.clone()
+        state.body_quat_w = state.body_quat_w.clone()
+        state.root_pos_w = state.root_pos_w.clone()
+        state.root_quat_w = state.root_quat_w.clone()
+        self._alias_native_views = False
+        self._native_ptrs = None
+
+    def _synchronize_articulation_properties(self) -> None:
         state = self.scene.articulations[self._entity_name].data
         native = self._entity.data
-
         root_pose = native.root_link_pose_w
         root_velocity = native.root_link_vel_w
         state.root_pos_w.copy_(root_pose[:, :3])
         state.root_quat_w.copy_(root_pose[:, 3:7])
         state.root_lin_vel_w.copy_(root_velocity[:, :3])
         state.root_ang_vel_w.copy_(root_velocity[:, 3:6])
-
         body_pose = self._body_map.to_canonical(native.body_link_pose_w, dim=1)
         body_velocity = self._body_map.to_canonical(native.body_link_vel_w, dim=1)
         state.body_pos_w.copy_(body_pose[..., :3])
@@ -908,7 +1020,53 @@ class MjlabBackend:
         state.joint_vel.copy_(self._joint_map.to_canonical(native.joint_vel, dim=1))
         state.joint_acc.copy_(self._joint_map.to_canonical(self._last_joint_acc_native, dim=1))
         state.applied_joint_effort.copy_(self._joint_map.to_canonical(native.qfrc_actuator, dim=1))
-        self._refresh_contacts()
+
+    def _synchronize_articulation_fast(self) -> None:
+        assert self._body_slice is not None
+        assert self._joint_q_slice is not None
+        assert self._joint_v_slice is not None
+        assert self._tmp_body_offset is not None
+        assert self._tmp_root_offset is not None
+        state = self.scene.articulations[self._entity_name].data
+        native = self._entity.data
+        data = native.data
+        indexing = self._entity.indexing
+        body_start, body_count = self._body_slice
+        q_start, q_count = self._joint_q_slice
+        v_start, v_count = self._joint_v_slice
+        root_id = int(indexing.root_body_id)
+        body_pos = data.xpos[:, body_start : body_start + body_count]
+        body_quat = data.xquat[:, body_start : body_start + body_count]
+        body_cvel = data.cvel[:, body_start : body_start + body_count]
+        root_pos = data.xpos[:, root_id]
+        root_quat = data.xquat[:, root_id]
+        root_cvel = data.cvel[:, root_id]
+        subtree_com = data.subtree_com[:, root_id]
+        if not self._alias_native_views:
+            state.root_pos_w.copy_(root_pos)
+            state.root_quat_w.copy_(root_quat)
+            state.body_pos_w.copy_(body_pos)
+            state.body_quat_w.copy_(body_quat)
+            state.joint_pos.copy_(data.qpos[:, q_start : q_start + q_count])
+            state.joint_vel.copy_(data.qvel[:, v_start : v_start + v_count])
+        _write_cvel_link_velocity(
+            root_pos,
+            subtree_com,
+            root_cvel,
+            state.root_lin_vel_w,
+            state.root_ang_vel_w,
+            self._tmp_root_offset,
+        )
+        _write_cvel_link_velocity(
+            body_pos,
+            subtree_com,
+            body_cvel,
+            state.body_lin_vel_w,
+            state.body_ang_vel_w,
+            self._tmp_body_offset,
+        )
+        state.joint_acc.copy_(self._last_joint_acc_native)
+        state.applied_joint_effort.copy_(native.qfrc_actuator)
 
     def _refresh_contacts(self) -> None:
         for name, binding in self._contact_bindings.items():
