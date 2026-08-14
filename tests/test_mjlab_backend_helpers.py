@@ -11,7 +11,9 @@ from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
 from instinctlab.backends.mjlab.simulator import (
     MjlabBackend,
     _enable_effort_actuator,
+    _expanded_randomization_fields,
     _load_mjcf,
+    _solref_dampratio_from_restitution,
     _strip_visual_meshes_xml,
 )
 from instinctlab.sim.backend import CanonicalIndexMap, RuntimeRequirements, SensorReadPhase
@@ -27,6 +29,7 @@ class _MujocoCfg:
     gravity: tuple[float, float, float] = (0.0, 0.0, -9.81)
     iterations: int = 100
     ls_iterations: int = 50
+    ccd_iterations: int = 50
 
 
 @dataclass
@@ -47,13 +50,14 @@ def test_mjlab_backend_preserves_native_simulation_defaults() -> None:
     assert cfg.njmax is None
     assert cfg.mujoco.iterations == 100
     assert cfg.mujoco.ls_iterations == 50
+    assert cfg.mujoco.ccd_iterations == 50
 
 
 def test_mjlab_engine_options_override_training_defaults() -> None:
     cfg = MjlabBackend._make_simulation_cfg(
         SimulationSpec(
             engine_options={
-                "mjlab": {"njmax": 512, "iterations": 7},
+                "mjlab": {"njmax": 512, "iterations": 7, "ccd_iterations": 500},
                 "isaacsim": {"not_a_mjlab_option": True},
             }
         ),
@@ -63,6 +67,7 @@ def test_mjlab_engine_options_override_training_defaults() -> None:
 
     assert cfg.njmax == 512
     assert cfg.mujoco.iterations == 7
+    assert cfg.mujoco.ccd_iterations == 500
 
 
 def test_mjlab_contact_aliases_come_from_robot_asset() -> None:
@@ -138,6 +143,22 @@ def test_mjlab_strip_visual_meshes_falls_back_only_when_from_file_fails(tmp_path
 
     stripped = _load_mjcf(xml_path, _FakeMujoco, "strip_visual_meshes")
     assert "mesh" not in stripped
+
+
+def test_mjlab_restitution_maps_to_solref_dampratio() -> None:
+    restitution = torch.tensor([0.0, 0.4, 1.0])
+    torch.testing.assert_close(_solref_dampratio_from_restitution(restitution), torch.tensor([1.0, 0.6, 0.0]))
+
+
+def test_mjlab_expands_solref_when_restitution_dr_is_declared() -> None:
+    fields = _expanded_randomization_fields(
+        RuntimeRequirements(
+            capabilities=frozenset({Capability.DR_RESTITUTION}),
+            randomization_fields=frozenset({"restitution"}),
+        )
+    )
+    assert "geom_solref" in fields
+    assert "geom_friction" not in fields
 
 
 def test_mjlab_effort_actuator_is_enabled_only_when_requested() -> None:

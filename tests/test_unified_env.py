@@ -21,6 +21,7 @@ from instinctlab.managers.unified import (
 )
 from instinctlab.rl.config import OnPolicyRunnerCfg
 from instinctlab.sim.backend import SensorReadPhase
+from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.control import ControlMode
 from instinctlab.sim.robot_spec import JointProperties, RobotSpec
 from instinctlab.sim.scene import SceneSpec, SimulationSpec
@@ -342,15 +343,17 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
     cfg = locomotion_flat_env_cfg(num_envs=2)
     rewards = cfg.rewards["default"].terms
     commands = cfg.commands["base_velocity"].params
-    sensor = cfg.scene.contact_sensors[0]
+    feet_sensor, base_sensor = cfg.scene.contact_sensors
 
     assert rewards["termination_penalty"].weight == -200.0
     assert rewards["feet_air_time"].weight == 1.0
     assert rewards["feet_air_time"].params["threshold"] == 0.5
+    assert rewards["feet_air_time"].params["sensor_name"] == "feet_contact_forces"
     assert rewards["feet_air_time"].params["body_names"] == (
         "left_ankle_roll_link",
         "right_ankle_roll_link",
     )
+    assert rewards["feet_slide"].params["sensor_name"] == "feet_contact_forces"
     assert rewards["feet_slide"].weight == -0.1
     assert rewards["stand_still"].weight == -0.8
     assert rewards["lin_vel_z"].weight == -0.1
@@ -361,27 +364,70 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
     assert commands["rel_heading_envs"] == 0.5
     assert commands["ranges"]["lin_vel_x"] == (-0.5, 1.0)
     assert commands["ranges"]["ang_vel_z"] == (-1.5, 1.5)
-    assert "torso_link" in sensor.body_names
-    assert "left_ankle_roll_link" in sensor.body_names
+    assert feet_sensor.name == "feet_contact_forces"
+    assert feet_sensor.body_names == (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+    )
+    assert feet_sensor.track_air_time is True
+    assert base_sensor.name == "base_contact_forces"
+    assert "torso_link" in base_sensor.body_names
+    assert "left_ankle_roll_link" not in base_sensor.body_names
+    assert base_sensor.track_air_time is False
+    assert cfg.terminations.terms["base_contact"].params["sensor_name"] == "base_contact_forces"
     assert cfg.events["reset_joints"].params["position_range"] == (0.8, 1.2)
+    material = cfg.events["randomize_material"].params["backend_params"]
+    assert material["mjlab"]["shared_random"] is True
+    assert material["mjlab"]["separate_dynamic_friction"] is False
+    assert material["mjlab"]["restitution_range"] is None
+    assert material["isaacsim"]["shared_random"] is False
+    assert material["isaacsim"]["separate_dynamic_friction"] is True
+    assert material["isaacsim"]["restitution_range"] == (0.0, 0.8)
+    assert material["isaacsim"]["static_friction_range"] == (0.25, 0.8)
+    assert material["isaacsim"]["dynamic_friction_range"] == (0.2, 0.6)
+    assert Capability.DR_RESTITUTION in cfg.requirements.optional_capabilities
+    assert Capability.DR_RESTITUTION not in cfg.requirements.capabilities
+    assert cfg.events["add_base_mass"].params == {
+        "body_names": ("torso_link",),
+        "mass_range": (-5.0, 5.0),
+        "operation": "add",
+    }
+    assert cfg.event_order[:2] == ("randomize_material", "add_base_mass")
 
 
 def test_locomotion_flat_configuration_runs_with_mock_backend() -> None:
     cfg = locomotion_flat_env_cfg(num_envs=2)
     assert cfg.simulation.engine_options_for("mjlab") == {
         "njmax": 300,
+        "solver": "newton",
         "iterations": 10,
         "ls_iterations": 20,
+        "ccd_iterations": 500,
     }
     isaac_options = cfg.scene.backend_options_for("isaacsim")
     assert isaac_options["scene"]["lazy_sensor_update"] is True
     assert isaac_options["robot_spawn"]["self_collision"] is True
     assert isaac_options["robot_spawn"]["articulation_props"]["solver_position_iteration_count"] == 8
     assert cfg.simulation.engine_options_for("isaacsim") == {}
-    env = UnifiedManagerBasedRLEnv(
-        cfg,
-        MockSimulatorBackend(device="cpu"),
-    )
+    backend = MockSimulatorBackend(device="cpu")
+    env = UnifiedManagerBasedRLEnv(cfg, backend)
+    assert backend.mass_properties is not None
+    assert tuple(backend.mass_properties.mass.shape) == (2, 1)
+    assert torch.all(backend.mass_properties.mass > 0.0)
+    assert backend.material_properties is not None
+    friction = backend.material_properties.sliding_friction
+    dynamic = backend.material_properties.dynamic_friction
+    assert tuple(friction.shape) == (2, len(cfg.scene.robot.body_names))
+    assert dynamic is not None
+    assert tuple(dynamic.shape) == friction.shape
+    assert torch.all(friction >= 0.25)
+    assert torch.all(friction <= 0.8)
+    assert torch.all(dynamic >= 0.2)
+    assert torch.all(dynamic <= 0.6)
+    assert backend.material_properties.restitution is not None
+    restitution = backend.material_properties.restitution
+    assert torch.all(restitution >= 0.0)
+    assert torch.all(restitution <= 0.8)
 
     num_joints = len(cfg.scene.robot.joint_names)
     observations, rewards, terminated, truncated, _ = env.step(torch.zeros((2, num_joints)))

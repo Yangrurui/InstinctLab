@@ -15,7 +15,7 @@ import torch
 from instinctlab.backends.mock import MockSimulatorBackend
 from instinctlab.envs.unified_manager_based_rl_env import UnifiedManagerBasedRLEnv
 from instinctlab.sim.backend import MassProperties, MaterialProperties
-from instinctlab.sim.capabilities import Capability
+from instinctlab.sim.capabilities import Capability, CapabilitySet
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.tasks.locomotion.unified_flat_env_cfg import locomotion_flat_env_cfg
 
@@ -82,7 +82,7 @@ def test_locomotion_flat_declares_every_exercised_capability() -> None:
     finally:
         env.close()
 
-    declared = cfg.requirements.capabilities
+    declared = cfg.requirements.capabilities | cfg.requirements.optional_capabilities
     undeclared = backend.observed - declared
     assert not undeclared, (
         "task exercises capabilities that are not declared in RuntimeRequirements: "
@@ -90,8 +90,25 @@ def test_locomotion_flat_declares_every_exercised_capability() -> None:
     )
 
 
+def test_restitution_dr_is_skipped_when_backend_lacks_capability() -> None:
+    class NoRestitutionBackend(MockSimulatorBackend):
+        capabilities = CapabilitySet.of(cap for cap in Capability if cap is not Capability.DR_RESTITUTION)
+
+    cfg = locomotion_flat_env_cfg(num_envs=2)
+    backend = NoRestitutionBackend(device="cpu")
+    env = UnifiedManagerBasedRLEnv(cfg, backend)
+    try:
+        assert backend.material_properties is not None
+        assert backend.material_properties.restitution is None
+    finally:
+        env.close()
+
+
 def test_locomotion_flat_requirements_supported_by_mock() -> None:
     cfg = locomotion_flat_env_cfg(num_envs=4)
     # The mock backend advertises every capability, so the declared set must
     # be a valid subset (this also exercises RuntimeRequirements construction).
-    MockSimulatorBackend().capabilities.require(cfg.requirements.capabilities, context="capability contract test")
+    MockSimulatorBackend().capabilities.require(
+        cfg.requirements.capabilities | cfg.requirements.optional_capabilities,
+        context="capability contract test",
+    )

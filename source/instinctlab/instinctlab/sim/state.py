@@ -6,9 +6,8 @@ frames, and a leading environment dimension.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import torch
+from dataclasses import dataclass
 
 
 def _check_shape(name: str, value: torch.Tensor, expected: tuple[int, ...]) -> None:
@@ -46,7 +45,7 @@ class ArticulationState:
         num_bodies: int,
         device: torch.device | str,
         dtype: torch.dtype = torch.float32,
-    ) -> "ArticulationState":
+    ) -> ArticulationState:
         device = torch.device(device)
 
         def zeros(*shape: int) -> torch.Tensor:
@@ -147,7 +146,7 @@ class ContactState:
         body_names: tuple[str, ...],
         history_length: int,
         device: torch.device | str,
-    ) -> "ContactState":
+    ) -> ContactState:
         b = len(body_names)
         device = torch.device(device)
         return cls(
@@ -172,6 +171,34 @@ class ContactState:
             self.contact_active_history.copy_(
                 torch.linalg.vector_norm(self.net_forces_w_history, dim=-1) > force_threshold
             )
+
+    def update_air_time(self, is_contact: torch.Tensor, dt: float) -> None:
+        """Advance air/contact timers with force-threshold contact semantics.
+
+        ``is_contact`` must already apply the same threshold used by
+        :meth:`update_active`. Call once per physics substep; a policy-step
+        ``dt`` would miss first-contact edges inside decimation.
+        """
+        expected = tuple(self.contact_active.shape)
+        if tuple(is_contact.shape) != expected:
+            raise ValueError(f"is_contact has shape {tuple(is_contact.shape)}, expected {expected}")
+        if is_contact.dtype != torch.bool:
+            raise ValueError("is_contact must be a boolean tensor")
+        if dt <= 0.0:
+            raise ValueError("air-time dt must be positive")
+
+        is_first_contact = (self.current_air_time > 0.0) & is_contact
+        is_first_detached = (self.current_contact_time > 0.0) & ~is_contact
+        self.last_air_time.copy_(torch.where(is_first_contact, self.current_air_time + dt, self.last_air_time))
+        self.current_air_time.copy_(
+            torch.where(~is_contact, self.current_air_time + dt, torch.zeros_like(self.current_air_time))
+        )
+        self.last_contact_time.copy_(
+            torch.where(is_first_detached, self.current_contact_time + dt, self.last_contact_time)
+        )
+        self.current_contact_time.copy_(
+            torch.where(is_contact, self.current_contact_time + dt, torch.zeros_like(self.current_contact_time))
+        )
 
     def reset(self, env_ids: torch.Tensor | slice) -> None:
         for value in vars(self).values():

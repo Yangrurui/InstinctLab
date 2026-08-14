@@ -721,6 +721,14 @@ class IsaacSimBackend:
             raise ValueError(f"sliding_friction has shape {tuple(values.sliding_friction.shape)}, expected {expected}")
         if torch.any(values.sliding_friction < 0.0):
             raise ValueError("sliding friction must be non-negative")
+        if values.dynamic_friction is not None:
+            self._validate_float_tensor("dynamic friction", values.dynamic_friction)
+            if tuple(values.dynamic_friction.shape) != expected:
+                raise ValueError(
+                    f"dynamic_friction has shape {tuple(values.dynamic_friction.shape)}, expected {expected}"
+                )
+            if torch.any(values.dynamic_friction < 0.0):
+                raise ValueError("dynamic friction must be non-negative")
         if values.restitution is not None:
             self._validate_float_tensor("restitution", values.restitution)
             if tuple(values.restitution.shape) != expected:
@@ -734,6 +742,7 @@ class IsaacSimBackend:
         cpu_env_ids = env_ids.cpu()
         native_body_ids = self._body_map.native_ids(body_ids).cpu()
         friction = values.sliding_friction.detach().cpu()
+        dynamic = friction if values.dynamic_friction is None else values.dynamic_friction.detach().cpu()
         restitution = None if values.restitution is None else values.restitution.detach().cpu()
         for column, native_body_id in enumerate(native_body_ids.tolist()):
             start = sum(self._shape_counts_by_native_body[:native_body_id])
@@ -744,7 +753,7 @@ class IsaacSimBackend:
                 # is semantically a no-op for those links.
                 continue
             materials[cpu_env_ids, start:stop, 0] = friction[:, column, None]
-            materials[cpu_env_ids, start:stop, 1] = friction[:, column, None]
+            materials[cpu_env_ids, start:stop, 1] = dynamic[:, column, None]
             if restitution is not None:
                 materials[cpu_env_ids, start:stop, 2] = restitution[:, column, None]
         robot.root_physx_view.set_material_properties(materials, cpu_env_ids)
@@ -792,6 +801,31 @@ class IsaacSimBackend:
         robot.root_physx_view.set_masses(masses, cpu_env_ids)
         robot.root_physx_view.set_inertias(inertias, cpu_env_ids)
         robot.root_physx_view.set_coms(coms, cpu_env_ids)
+
+    def get_body_mass_properties(
+        self,
+        entity_name: str,
+        env_ids: torch.Tensor,
+        body_ids: torch.Tensor,
+    ) -> MassProperties:
+        robot = self._entity(entity_name)
+        env_ids = self._validate_ids("env_ids", env_ids, self.num_envs)
+        body_ids = self._validate_ids("body_ids", body_ids, len(self._body_map.canonical_names))
+        cpu_env_ids = env_ids.cpu()
+        native_body_ids = self._body_map.native_ids(body_ids).cpu()
+        row_ids = cpu_env_ids[:, None]
+        prefix = (env_ids.numel(), body_ids.numel())
+        masses = robot.root_physx_view.get_masses()[row_ids, native_body_ids]
+        inertias = robot.root_physx_view.get_inertias()[row_ids, native_body_ids]
+        coms = robot.root_physx_view.get_coms()[row_ids, native_body_ids, :3]
+        return MassProperties(
+            entity_name=entity_name,
+            body_ids=body_ids,
+            env_ids=env_ids,
+            mass=masses.to(device=self.device, dtype=torch.float32),
+            inertia=inertias.to(device=self.device, dtype=torch.float32).reshape(*prefix, 3, 3),
+            center_of_mass=coms.to(device=self.device, dtype=torch.float32),
+        )
 
     def step(self) -> None:
         self._require_initialized()

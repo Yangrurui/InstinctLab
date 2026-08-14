@@ -23,6 +23,7 @@ class SensorReadPhase(str, Enum):
 @dataclass(frozen=True)
 class RuntimeRequirements:
     capabilities: frozenset[Capability]
+    optional_capabilities: frozenset[Capability] = frozenset()
     randomization_fields: frozenset[str] = frozenset()
 
 
@@ -32,6 +33,7 @@ class MaterialProperties:
     body_ids: torch.Tensor
     env_ids: torch.Tensor
     sliding_friction: torch.Tensor
+    dynamic_friction: torch.Tensor | None = None
     restitution: torch.Tensor | None = None
 
 
@@ -159,6 +161,13 @@ class SimulatorBackend(Protocol):
     def set_body_material(self, values: MaterialProperties) -> None: ...
 
     def set_body_mass_properties(self, values: MassProperties) -> None: ...
+
+    def get_body_mass_properties(
+        self,
+        entity_name: str,
+        env_ids: torch.Tensor,
+        body_ids: torch.Tensor,
+    ) -> MassProperties: ...
 
     def step(self) -> None: ...
 

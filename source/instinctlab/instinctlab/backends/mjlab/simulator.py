@@ -40,6 +40,7 @@ _MASS_MODEL_FIELDS = (
 )
 _RANDOMIZATION_FIELD_ALIASES = {
     "sliding_friction": ("geom_friction",),
+    "restitution": ("geom_solref",),
     "mass": ("body_mass",),
     "center_of_mass": ("body_ipos",),
     "inertia": ("body_inertia", "body_iquat"),
@@ -93,11 +94,24 @@ def _expanded_randomization_fields(requirements: RuntimeRequirements) -> tuple[s
     result: set[str] = set()
     for field_name in requirements.randomization_fields:
         result.update(_RANDOMIZATION_FIELD_ALIASES.get(field_name, (field_name,)))
-    if Capability.DR_SLIDING_FRICTION in requirements.capabilities:
+    requested = requirements.capabilities | requirements.optional_capabilities
+    if Capability.DR_SLIDING_FRICTION in requested:
         result.add("geom_friction")
-    if Capability.BODY_MASS_PROPERTIES in requirements.capabilities:
+    if Capability.DR_RESTITUTION in requested:
+        result.add("geom_solref")
+    if Capability.BODY_MASS_PROPERTIES in requested:
         result.update(_MASS_MODEL_FIELDS)
     return tuple(sorted(result))
+
+
+def _solref_dampratio_from_restitution(restitution: torch.Tensor) -> torch.Tensor:
+    """Map a PhysX-style coefficient of restitution onto MuJoCo ``solref[1]``.
+
+    ``e = 0`` keeps the default critically-damped contact; ``e → 1`` removes
+    damping so the constraint can ring. The time constant ``solref[0]`` is
+    left unchanged by the caller.
+    """
+    return 1.0 - restitution
 
 
 def _enable_effort_actuator(
@@ -159,7 +173,7 @@ class MjlabBackend:
             "canonical_order": "dfs_v1",
             "quaternion_order": "wxyz",
             "joint_acc_source": "fd_v1",
-            "restitution": "unsupported_nonzero",
+            "restitution": "solref_dampratio_v1",
         },
     )
 
@@ -452,7 +466,7 @@ class MjlabBackend:
                     else ("disabled_not_requested" if self._supports_effort_control else "unsupported_by_mjlab_version")
                 ),
                 "mass_properties": "full_inertia_tensor_v1",
-                "restitution": "unsupported_nonzero",
+                "restitution": "solref_dampratio_v1",
             },
         )
         self.synchronize(SensorReadPhase.POST_RESET)
@@ -479,6 +493,12 @@ class MjlabBackend:
                 raise ValueError(f"unsupported MJLab engine option: {name!r}")
         simulation_kwargs["mujoco"] = MujocoCfg(**mujoco_kwargs)
         return SimulationCfg(**simulation_kwargs)
+
+    @property
+    def native_sim(self) -> Any:
+        """Return the underlying MJLab ``Simulation`` after ``initialize()``."""
+        self._require_initialized()
+        return self._sim
 
     def _require_initialized(self) -> None:
         if self._sim is None or self._entity is None:
@@ -718,13 +738,20 @@ class MjlabBackend:
             raise ValueError(f"sliding_friction must have shape {expected}")
         if torch.any(values.sliding_friction < 0.0):
             raise ValueError("sliding friction must be non-negative")
+        if values.dynamic_friction is not None:
+            raise NotImplementedError(
+                "MJLab adapter has a single slide-friction coefficient and cannot store dynamic friction"
+            )
         if values.restitution is not None:
             self._validate_float_tensor("restitution", values.restitution)
             if tuple(values.restitution.shape) != expected:
                 raise ValueError(f"restitution must have shape {expected}")
-            if torch.any(torch.abs(values.restitution) > 1.0e-8):
-                raise NotImplementedError("MJLab adapter cannot represent coefficient-of-restitution values")
-        self._ensure_model_fields(("geom_friction",))
+            if torch.any(values.restitution < 0.0) or torch.any(values.restitution > 1.0):
+                raise ValueError("restitution must be within [0, 1]")
+        required_fields = ["geom_friction"]
+        if values.restitution is not None:
+            required_fields.append("geom_solref")
+        self._ensure_model_fields(required_fields)
         self._validate_body_ids(values.body_ids)
 
         for column in range(values.body_ids.numel()):
@@ -736,6 +763,11 @@ class MjlabBackend:
             env_grid, geom_grid = torch.meshgrid(values.env_ids, geom_ids, indexing="ij")
             friction = values.sliding_friction[:, column, None].expand(-1, geom_ids.numel())
             self._sim.model.geom_friction[env_grid, geom_grid, 0] = friction
+            if values.restitution is not None:
+                dampratio = _solref_dampratio_from_restitution(
+                    values.restitution[:, column, None].expand(-1, geom_ids.numel())
+                )
+                self._sim.model.geom_solref[env_grid, geom_grid, 1] = dampratio
 
     def set_body_mass_properties(self, values: MassProperties) -> None:
         self._require_initialized()
@@ -785,6 +817,28 @@ class MjlabBackend:
         self._sim.model.body_iquat[env_grid, body_grid] = quat_from_matrix(rotations)
         self._sim.recompute_constants(RecomputeLevel.set_const)
 
+    def get_body_mass_properties(
+        self,
+        entity_name: str,
+        env_ids: torch.Tensor,
+        body_ids: torch.Tensor,
+    ) -> MassProperties:
+        self._require_initialized()
+        self._validate_entity(entity_name)
+        self._validate_env_ids(env_ids)
+        self._validate_body_ids(body_ids)
+        native_local_ids = self._body_map.native_ids(body_ids)
+        global_body_ids = self._entity.indexing.body_ids[native_local_ids].to(torch.int64)
+        env_grid, body_grid = torch.meshgrid(env_ids, global_body_ids, indexing="ij")
+        return MassProperties(
+            entity_name=entity_name,
+            body_ids=body_ids,
+            env_ids=env_ids,
+            mass=self._sim.model.body_mass[env_grid, body_grid].to(dtype=torch.float32).clone(),
+            inertia=self._sim.model.body_inertia[env_grid, body_grid].to(dtype=torch.float32).clone(),
+            center_of_mass=self._sim.model.body_ipos[env_grid, body_grid].to(dtype=torch.float32).clone(),
+        )
+
     def _validate_body_ids(self, body_ids: torch.Tensor) -> None:
         if body_ids.dtype != torch.int64 or body_ids.ndim != 1:
             raise ValueError("body_ids must be a one-dimensional int64 tensor")
@@ -822,6 +876,7 @@ class MjlabBackend:
         self._mj_scene.update(dt=self.sim_dt)
         current_velocity = self._entity.data.joint_vel
         self._last_joint_acc_native.copy_((current_velocity - previous_velocity) / self.sim_dt)
+        self._advance_force_threshold_air_time()
 
     def synchronize(self, phase: SensorReadPhase) -> None:
         self._require_initialized()
@@ -866,17 +921,24 @@ class MjlabBackend:
                 history = binding.index_map.to_canonical(data.force_history, dim=1)
                 canonical.net_forces_w_history.copy_(history.permute(0, 2, 1, 3))
             canonical.update_active(binding.force_threshold)
-            if binding.track_air_time:
-                for target_name in (
-                    "current_air_time",
-                    "current_contact_time",
-                    "last_air_time",
-                    "last_contact_time",
-                ):
-                    native_value = getattr(data, target_name)
-                    if native_value is None:
-                        raise RuntimeError(f"MJLab contact sensor {name!r} did not track {target_name}")
-                    getattr(canonical, target_name).copy_(binding.index_map.to_canonical(native_value, dim=1))
+
+    def _advance_force_threshold_air_time(self) -> None:
+        """Advance air-time from net force, not MuJoCo ``found > 0`` contacts.
+
+        Native MJLab air-time treats any solver contact as stance. Light
+        grazing then counts for ``feet_air_time`` while ``feet_slide`` and
+        ``illegal_contact`` still use the 1 N threshold. InstinctMJ uses the
+        force threshold for both; keep that here on every physics substep.
+        """
+        for name, binding in self._contact_bindings.items():
+            if not binding.track_air_time:
+                continue
+            data = binding.native_sensor.data
+            if data.force is None:
+                raise RuntimeError(f"MJLab contact sensor {name!r} returned no force data")
+            force = binding.index_map.to_canonical(data.force, dim=1)
+            is_contact = torch.linalg.vector_norm(force, dim=-1) > binding.force_threshold
+            self.scene.sensors[name].update_air_time(is_contact, self.sim_dt)
 
     def render(self, mode: str) -> object | None:
         self._require_initialized()
@@ -889,6 +951,12 @@ class MjlabBackend:
                 cfg = ViewerConfig(
                     origin_type=ViewerConfig.OriginType.ASSET_ROOT,
                     entity_name=self._entity_name,
+                    width=1280,
+                    height=720,
+                    distance=2.8,
+                    elevation=-18.0,
+                    azimuth=140.0,
+                    max_extra_envs=0,
                 )
                 self._offscreen_renderer = OffscreenRenderer(
                     self._sim.mj_model,

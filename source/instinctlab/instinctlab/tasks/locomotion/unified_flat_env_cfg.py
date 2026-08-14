@@ -136,12 +136,20 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
             terrain=TerrainSpec(terrain_type="plane", sliding_friction=1.0, restitution=0.0),
             contact_sensors=(
                 ContactSensorSpec(
-                    name="contact_forces",
+                    name="feet_contact_forces",
                     entity_name="robot",
-                    body_names=(*_ILLEGAL_CONTACT_BODIES, *_FEET),
+                    body_names=_FEET,
                     history_length=3,
                     force_threshold=1.0,
                     track_air_time=True,
+                ),
+                ContactSensorSpec(
+                    name="base_contact_forces",
+                    entity_name="robot",
+                    body_names=_ILLEGAL_CONTACT_BODIES,
+                    history_length=3,
+                    force_threshold=1.0,
+                    track_air_time=False,
                 ),
             ),
             backend_options={
@@ -177,8 +185,10 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
             engine_options={
                 "mjlab": {
                     "njmax": 300,
+                    "solver": "newton",
                     "iterations": 10,
                     "ls_iterations": 20,
+                    "ccd_iterations": 500,
                 }
             },
         ),
@@ -207,14 +217,14 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                         params={
                             "command_name": "base_velocity",
                             "threshold": 0.5,
-                            "sensor_name": "contact_forces",
+                            "sensor_name": "feet_contact_forces",
                             "body_names": _FEET,
                         },
                     ),
                     "feet_slide": RewardTermCfg(
                         mdp.contact_slide,
                         weight=-0.1,
-                        params={"sensor_name": "contact_forces", "body_names": _FEET},
+                        params={"sensor_name": "feet_contact_forces", "body_names": _FEET},
                     ),
                     "flat_orientation": RewardTermCfg(mdp.flat_orientation_l2, weight=-1.0),
                     "stand_still": RewardTermCfg(
@@ -269,7 +279,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 "time_out": TerminationTermCfg(mdp.time_out, time_out=True),
                 "base_contact": TerminationTermCfg(
                     mdp.illegal_contact,
-                    params={"sensor_name": "contact_forces", "body_names": _ILLEGAL_CONTACT_BODIES},
+                    params={"sensor_name": "base_contact_forces", "body_names": _ILLEGAL_CONTACT_BODIES},
                 ),
             },
             term_order=("time_out", "base_contact"),
@@ -280,7 +290,38 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 mode="startup",
                 params={
                     "body_names": G1_29DOF_DFS_BODY_NAMES,
-                    "friction_range": (0.25, 0.8),
+                    "backend_params": {
+                        "default": {
+                            "static_friction_range": (0.25, 0.8),
+                            "dynamic_friction_range": (0.2, 0.6),
+                            "restitution_range": (0.0, 0.8),
+                            "shared_random": False,
+                            "separate_dynamic_friction": True,
+                        },
+                        "mjlab": {
+                            "static_friction_range": (0.25, 0.8),
+                            "dynamic_friction_range": (0.2, 0.6),
+                            "restitution_range": None,
+                            "shared_random": True,
+                            "separate_dynamic_friction": False,
+                        },
+                        "isaacsim": {
+                            "static_friction_range": (0.25, 0.8),
+                            "dynamic_friction_range": (0.2, 0.6),
+                            "restitution_range": (0.0, 0.8),
+                            "shared_random": False,
+                            "separate_dynamic_friction": True,
+                        },
+                    },
+                },
+            ),
+            "add_base_mass": EventTermCfg(
+                mdp.randomize_body_mass,
+                mode="startup",
+                params={
+                    "body_names": ("torso_link",),
+                    "mass_range": (-5.0, 5.0),
+                    "operation": "add",
                 },
             ),
             "reset_root": EventTermCfg(
@@ -344,17 +385,19 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                     Capability.CONTACT_AIR_TIME,
                     Capability.CONTACT_FORCE_VECTOR,
                     Capability.DR_SLIDING_FRICTION,
+                    Capability.BODY_MASS_PROPERTIES,
                     Capability.ROOT_VELOCITY_WRITE,
                 }
             ),
-            randomization_fields=frozenset({"sliding_friction", "root_pose", "root_velocity", "joint_state"}),
+            optional_capabilities=frozenset({Capability.DR_RESTITUTION}),
+            randomization_fields=frozenset({"sliding_friction", "mass", "root_pose", "root_velocity", "joint_state"}),
         ),
         episode_length_s=20.0,
         is_finite_horizon=False,
         action_order=("joint_pos",),
         observation_group_order=("policy", "critic"),
         reward_group_order=("default",),
-        event_order=("randomize_material", "reset_root", "reset_joints", "push"),
+        event_order=("randomize_material", "add_base_mass", "reset_root", "reset_joints", "push"),
         command_order=("base_velocity",),
     )
 

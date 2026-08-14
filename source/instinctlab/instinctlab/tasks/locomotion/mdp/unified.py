@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import torch
+from collections.abc import Mapping
 from functools import lru_cache
+from typing import Any
 
-from instinctlab.sim.backend import MaterialProperties
+from instinctlab.sim.backend import MassProperties, MaterialProperties
+from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.math import quat_apply_inverse, yaw_quaternion
 
 
@@ -235,27 +238,181 @@ def reset_joints_by_scale(
     return True
 
 
+def _default_mass_properties(env, body_ids: torch.Tensor) -> MassProperties:
+    cache = env.__dict__.setdefault("_default_body_mass_cache", {})
+    key = (_entity_name(env), tuple(int(index) for index in body_ids.tolist()))
+    stored = cache.get(key)
+    if stored is None:
+        all_envs = torch.arange(env.num_envs, device=env.device, dtype=torch.int64)
+        stored = env.backend.get_body_mass_properties(_entity_name(env), all_envs, body_ids)
+        cache[key] = stored
+    return stored
+
+
+def randomize_body_mass(
+    env,
+    env_ids: torch.Tensor,
+    *,
+    body_names: tuple[str, ...],
+    mass_range: tuple[float, float],
+    operation: str = "add",
+) -> bool:
+    robot = _robot(env)
+    body_ids = _ids(robot.body_names, body_names, env.device)
+    defaults = _default_mass_properties(env, body_ids)
+    samples = env.rng.uniform("event.mass", *mass_range, (int(env_ids.numel()), int(body_ids.numel())))
+    default_mass = defaults.mass[env_ids]
+    if operation == "add":
+        new_mass = default_mass + samples
+    elif operation == "scale":
+        new_mass = default_mass * samples
+    else:
+        raise ValueError(f"unsupported mass randomization operation: {operation!r}")
+    if torch.any(new_mass <= 0.0):
+        raise ValueError("randomized mass must stay positive")
+    scale = new_mass / default_mass
+    while scale.ndim < defaults.inertia.ndim:
+        scale = scale.unsqueeze(-1)
+    env.backend.set_body_mass_properties(
+        MassProperties(
+            entity_name=_entity_name(env),
+            body_ids=body_ids,
+            env_ids=env_ids,
+            mass=new_mass,
+            inertia=defaults.inertia[env_ids] * scale,
+            center_of_mass=defaults.center_of_mass[env_ids],
+        )
+    )
+    return False
+
+
+def _slide_friction_range(
+    friction_range: tuple[float, float] | None,
+    static_friction_range: tuple[float, float] | None,
+    dynamic_friction_range: tuple[float, float] | None,
+) -> tuple[float, float]:
+    if friction_range is not None:
+        if static_friction_range is not None or dynamic_friction_range is not None:
+            raise ValueError("pass either friction_range or static/dynamic ranges, not both")
+        return friction_range
+    if static_friction_range is None or dynamic_friction_range is None:
+        raise ValueError("material randomization requires friction_range or both static and dynamic ranges")
+    return (
+        min(static_friction_range[0], dynamic_friction_range[0]),
+        max(static_friction_range[1], dynamic_friction_range[1]),
+    )
+
+
+def _material_params_for_backend(
+    backend_name: str,
+    backend_params: Mapping[str, Mapping[str, Any]] | None,
+    **shared: Any,
+) -> dict[str, Any]:
+    resolved = dict(shared)
+    if backend_params is None:
+        return resolved
+    resolved.update(backend_params.get("default") or {})
+    resolved.update(backend_params.get(backend_name) or {})
+    return resolved
+
+
+def _sample_material_field(
+    env,
+    key: str,
+    value_range: tuple[float, float],
+    *,
+    count: int,
+    n_bodies: int,
+    shared_random: bool,
+) -> torch.Tensor:
+    sample_shape = (count, 1) if shared_random else (count, n_bodies)
+    values = env.rng.uniform(key, *value_range, sample_shape)
+    if shared_random:
+        values = values.expand(count, n_bodies).clone()
+    return values
+
+
 def randomize_sliding_friction(
     env,
     env_ids: torch.Tensor,
     *,
     body_names: tuple[str, ...],
-    friction_range: tuple[float, float],
+    backend_params: Mapping[str, Mapping[str, Any]] | None = None,
+    friction_range: tuple[float, float] | None = None,
+    static_friction_range: tuple[float, float] | None = None,
+    dynamic_friction_range: tuple[float, float] | None = None,
+    restitution_range: tuple[float, float] | None = None,
+    shared_random: bool = True,
+    separate_dynamic_friction: bool = False,
 ) -> bool:
+    params = _material_params_for_backend(
+        env.backend.metadata.name,
+        backend_params,
+        friction_range=friction_range,
+        static_friction_range=static_friction_range,
+        dynamic_friction_range=dynamic_friction_range,
+        restitution_range=restitution_range,
+        shared_random=shared_random,
+        separate_dynamic_friction=separate_dynamic_friction,
+    )
     robot = _robot(env)
     body_ids = _ids(robot.body_names, body_names, env.device)
-    values = env.rng.uniform(
-        "event.material.sliding_friction",
-        *friction_range,
-        (int(env_ids.numel()), int(body_ids.numel())),
-    )
+    count = int(env_ids.numel())
+    n_bodies = int(body_ids.numel())
+    shared = bool(params["shared_random"])
+    if params["separate_dynamic_friction"]:
+        if params["static_friction_range"] is None or params["dynamic_friction_range"] is None:
+            raise ValueError("separate_dynamic_friction requires static_friction_range and dynamic_friction_range")
+        sliding = _sample_material_field(
+            env,
+            "event.material.sliding_friction",
+            params["static_friction_range"],
+            count=count,
+            n_bodies=n_bodies,
+            shared_random=shared,
+        )
+        dynamic = _sample_material_field(
+            env,
+            "event.material.dynamic_friction",
+            params["dynamic_friction_range"],
+            count=count,
+            n_bodies=n_bodies,
+            shared_random=shared,
+        )
+    else:
+        slide_range = _slide_friction_range(
+            params["friction_range"],
+            params["static_friction_range"],
+            params["dynamic_friction_range"],
+        )
+        sliding = _sample_material_field(
+            env,
+            "event.material.sliding_friction",
+            slide_range,
+            count=count,
+            n_bodies=n_bodies,
+            shared_random=shared,
+        )
+        dynamic = None
+    restitution = None
+    restitution_range = params["restitution_range"]
+    if restitution_range is not None and env.backend.capabilities.supports(Capability.DR_RESTITUTION):
+        restitution = _sample_material_field(
+            env,
+            "event.material.restitution",
+            restitution_range,
+            count=count,
+            n_bodies=n_bodies,
+            shared_random=shared,
+        )
     env.backend.set_body_material(
         MaterialProperties(
             entity_name=_entity_name(env),
             body_ids=body_ids,
             env_ids=env_ids,
-            sliding_friction=values,
-            restitution=None,
+            sliding_friction=sliding,
+            dynamic_friction=dynamic,
+            restitution=restitution,
         )
     )
     return False
@@ -303,6 +460,7 @@ __all__ = [
     "lin_vel_z_l2",
     "projected_gravity",
     "push_by_setting_velocity",
+    "randomize_body_mass",
     "randomize_sliding_friction",
     "reset_joints_by_scale",
     "reset_root_state_uniform",

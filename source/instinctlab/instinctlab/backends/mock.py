@@ -40,6 +40,9 @@ class MockSimulatorBackend:
         self._step_count = 0
         self.material_properties: MaterialProperties | None = None
         self.mass_properties: MassProperties | None = None
+        self._body_mass: torch.Tensor | None = None
+        self._body_inertia: torch.Tensor | None = None
+        self._body_com: torch.Tensor | None = None
 
     def initialize(
         self,
@@ -95,6 +98,10 @@ class MockSimulatorBackend:
             articulations={entity_name: articulation},
             sensors=sensors,
         )
+        num_bodies = len(robot.body_names)
+        self._body_mass = torch.full((self.num_envs, num_bodies), 10.0, device=self.device)
+        self._body_inertia = torch.ones((self.num_envs, num_bodies, 3), device=self.device)
+        self._body_com = torch.zeros((self.num_envs, num_bodies, 3), device=self.device)
         self.synchronize(SensorReadPhase.POST_RESET)
 
     def _primary(self) -> ArticulationView:
@@ -164,6 +171,34 @@ class MockSimulatorBackend:
 
     def set_body_mass_properties(self, values: MassProperties) -> None:
         self.mass_properties = values
+        if self._body_mass is None or self._body_inertia is None or self._body_com is None:
+            return
+        rows = values.env_ids[:, None]
+        cols = values.body_ids
+        self._body_mass[rows, cols] = values.mass
+        if values.inertia.ndim == 3:
+            self._body_inertia[rows, cols] = values.inertia
+        else:
+            self._body_inertia[rows, cols] = torch.diagonal(values.inertia, dim1=-2, dim2=-1)
+        self._body_com[rows, cols] = values.center_of_mass
+
+    def get_body_mass_properties(
+        self,
+        entity_name: str,
+        env_ids: torch.Tensor,
+        body_ids: torch.Tensor,
+    ) -> MassProperties:
+        del entity_name
+        if self._body_mass is None or self._body_inertia is None or self._body_com is None:
+            raise RuntimeError("mock backend is not initialized")
+        return MassProperties(
+            entity_name=self._scene_spec.primary_entity if self._scene_spec is not None else "robot",
+            body_ids=body_ids,
+            env_ids=env_ids,
+            mass=self._body_mass[env_ids][:, body_ids].clone(),
+            inertia=self._body_inertia[env_ids][:, body_ids].clone(),
+            center_of_mass=self._body_com[env_ids][:, body_ids].clone(),
+        )
 
     def step(self) -> None:
         state = self._primary().data
