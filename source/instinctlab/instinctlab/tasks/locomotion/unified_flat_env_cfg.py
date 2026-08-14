@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from instinctlab.assets import ASSETS
-from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_BODY_NAMES, G1_29DOF_DFS_JOINT_NAMES
+from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_JOINT_NAMES
 from instinctlab.envs import UnifiedManagerBasedRLEnvCfg
 from instinctlab.managers import (
     CommandTermCfg,
@@ -289,7 +289,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 mdp.randomize_sliding_friction,
                 mode="startup",
                 params={
-                    "body_names": G1_29DOF_DFS_BODY_NAMES,
+                    "body_names": robot.material_body_names,
                     "backend_params": {
                         "default": {
                             "static_friction_range": (0.25, 0.8),

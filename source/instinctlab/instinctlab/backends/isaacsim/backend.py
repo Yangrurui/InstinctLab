@@ -170,7 +170,6 @@ class IsaacSimBackend:
         for sensor in scene_spec.contact_sensors:
             if sensor.name in _RESERVED_SCENE_NAMES:
                 raise ValueError(f"Isaac Sim contact sensor name {sensor.name!r} conflicts with a native scene field")
-        self.capabilities.require(requirements.capabilities, context="Isaac Sim runtime")
 
         # These imports must remain after AppLauncher construction.
         import isaaclab.sim as sim_utils
@@ -748,10 +747,11 @@ class IsaacSimBackend:
             start = sum(self._shape_counts_by_native_body[:native_body_id])
             stop = start + self._shape_counts_by_native_body[native_body_id]
             if start == stop:
-                # Fixed visual/sensor links can be part of the canonical body
-                # order without owning a collision shape. Material assignment
-                # is semantically a no-op for those links.
-                continue
+                canonical_name = self._body_map.canonical_names[int(body_ids[column])]
+                raise ValueError(
+                    f"Isaac Sim body {canonical_name!r} has no collision shapes; "
+                    "material writes must target RobotSpec.material_body_names"
+                )
             materials[cpu_env_ids, start:stop, 0] = friction[:, column, None]
             materials[cpu_env_ids, start:stop, 1] = dynamic[:, column, None]
             if restitution is not None:

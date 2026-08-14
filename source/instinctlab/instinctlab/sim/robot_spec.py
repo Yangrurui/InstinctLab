@@ -100,6 +100,19 @@ class RobotSpec:
     default_root_pos: tuple[float, float, float]
     default_root_quat_wxyz: tuple[float, float, float, float]
     soft_joint_pos_limit_factor: float
+    frame_names: tuple[str, ...] = field(default_factory=tuple)
+    collision_body_names: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def physical_body_names(self) -> tuple[str, ...]:
+        """Canonical bodies that are not declared sensor/visual frames."""
+        frames = frozenset(self.frame_names)
+        return tuple(name for name in self.body_names if name not in frames)
+
+    @property
+    def material_body_names(self) -> tuple[str, ...]:
+        """Bodies that own collision geometry and may receive material writes."""
+        return self.collision_body_names or self.physical_body_names
 
     def validate(self) -> None:
         if not self.joint_names or len(set(self.joint_names)) != len(self.joint_names):
@@ -108,6 +121,20 @@ class RobotSpec:
             raise ValueError("RobotSpec body_names must be non-empty and unique")
         if self.root_body != self.body_names[0]:
             raise ValueError("RobotSpec root_body must be the first canonical body")
+        if len(set(self.frame_names)) != len(self.frame_names):
+            raise ValueError("RobotSpec frame_names must be unique")
+        unknown_frames = set(self.frame_names).difference(self.body_names)
+        if unknown_frames:
+            raise ValueError(f"RobotSpec frame_names are not in body_names: {sorted(unknown_frames)}")
+        if self.root_body in self.frame_names:
+            raise ValueError("RobotSpec root_body cannot be a frame")
+        if len(set(self.collision_body_names)) != len(self.collision_body_names):
+            raise ValueError("RobotSpec collision_body_names must be unique")
+        unknown_collision = set(self.collision_body_names).difference(self.physical_body_names)
+        if unknown_collision:
+            raise ValueError(
+                f"RobotSpec collision_body_names must be physical bodies, not frames: {sorted(unknown_collision)}"
+            )
         property_names = tuple(item.name for item in self.joint_properties)
         if property_names != self.joint_names:
             raise ValueError("joint_properties must exactly follow canonical joint_names")

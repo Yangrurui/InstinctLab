@@ -104,6 +104,31 @@ G1_29DOF_DFS_BODY_NAMES = (
     "right_wrist_yaw_link",
     "right_rubber_hand",
 )
+G1_29DOF_DFS_FRAME_NAMES = (
+    "pelvis_contour_link",
+    "LL_FOOT",
+    "LR_FOOT",
+    "imu_in_pelvis",
+    "logo_link",
+    "imu_in_torso",
+    "mid360_link",
+)
+G1_29DOF_DFS_COLLISION_BODY_NAMES = (
+    "torso_link",
+    "pelvis",
+    "left_hip_roll_link",
+    "left_knee_link",
+    "left_ankle_roll_link",
+    "right_hip_roll_link",
+    "right_knee_link",
+    "right_ankle_roll_link",
+    "left_shoulder_yaw_link",
+    "left_elbow_link",
+    "left_wrist_yaw_link",
+    "right_shoulder_yaw_link",
+    "right_elbow_link",
+    "right_wrist_yaw_link",
+)
 
 _G1_CONTACT_BODY_ALIASES = {
     "LL_FOOT": "left_ankle_roll_link",
@@ -174,11 +199,14 @@ def make_g1_29dof_robot_spec() -> RobotSpec:
         root_body="torso_link",
         joint_names=G1_29DOF_DFS_JOINT_NAMES,
         body_names=G1_29DOF_DFS_BODY_NAMES,
+        frame_names=G1_29DOF_DFS_FRAME_NAMES,
+        collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
         joint_properties=tuple(_g1_joint_properties(name) for name in G1_29DOF_DFS_JOINT_NAMES),
         assets=(
             BackendAsset(
                 backend="isaacsim",
                 path=str(resource_root / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
+                checksum="5e99d930af64f3f0bfd34235239e288cc380ba62c8b01fcfcf8cc9f0996e7fa4",
                 contact_body_aliases=_G1_CONTACT_BODY_ALIASES,
                 import_options={
                     "prim_path": "{ENV_REGEX_NS}/Robot",
@@ -190,6 +218,7 @@ def make_g1_29dof_robot_spec() -> RobotSpec:
             BackendAsset(
                 backend="mjlab",
                 path=str(resource_root / "xml" / "g1_29dof_torsobase_popsicle.xml"),
+                checksum="3dae19dcdc17fbb2d37db29e3dd58894cb150e9edc96696f31a34387178ee18b",
                 contact_body_aliases=_G1_CONTACT_BODY_ALIASES,
                 load_mode="strip_visual_meshes",
             ),
@@ -225,6 +254,8 @@ __all__ = [
     "DAMPING_7520_22",
     "DAMPING_RATIO",
     "G1_29DOF_DFS_BODY_NAMES",
+    "G1_29DOF_DFS_COLLISION_BODY_NAMES",
+    "G1_29DOF_DFS_FRAME_NAMES",
     "G1_29DOF_DFS_JOINT_NAMES",
     "G1_29DOF_LINKS",
     "G1_29DOF_TORSOBASE_CFG",

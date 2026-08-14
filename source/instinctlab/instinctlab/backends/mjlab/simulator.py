@@ -758,8 +758,11 @@ class MjlabBackend:
             native_local_id = int(self._body_map.native_ids(values.body_ids[column : column + 1])[0])
             geom_ids = self._geoms_by_native_body[native_local_id]
             if geom_ids.numel() == 0:
-                # Fixed visual/sensor frames legitimately have no material.
-                continue
+                canonical_name = self._body_map.canonical_names[int(values.body_ids[column])]
+                raise ValueError(
+                    f"MJLab body {canonical_name!r} has no collision geoms; "
+                    "material writes must target RobotSpec.material_body_names"
+                )
             env_grid, geom_grid = torch.meshgrid(values.env_ids, geom_ids, indexing="ij")
             friction = values.sliding_friction[:, column, None].expand(-1, geom_ids.numel())
             self._sim.model.geom_friction[env_grid, geom_grid, 0] = friction

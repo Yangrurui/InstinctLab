@@ -356,6 +356,9 @@ def randomize_sliding_friction(
         separate_dynamic_friction=separate_dynamic_friction,
     )
     robot = _robot(env)
+    frames = set(body_names).intersection(env.cfg.scene.robot.frame_names)
+    if frames:
+        raise ValueError(f"material randomization cannot target frames: {sorted(frames)}")
     body_ids = _ids(robot.body_names, body_names, env.device)
     count = int(env_ids.numel())
     n_bodies = int(body_ids.numel())

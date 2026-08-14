@@ -175,6 +175,13 @@ def test_robot_spec_rejects_duplicate_backend_assets() -> None:
         duplicate.validate()
 
 
+def test_robot_spec_rejects_frame_as_collision_body() -> None:
+    robot = make_g1_29dof_robot_spec()
+    bad = replace(robot, collision_body_names=robot.collision_body_names + ("LL_FOOT",))
+    with pytest.raises(ValueError, match="physical bodies"):
+        bad.validate()
+
+
 def test_g1_assets_declare_contact_aliases_and_load_mode() -> None:
     robot = make_g1_29dof_robot_spec()
     isaac = robot.asset_for("isaacsim")
@@ -197,10 +204,24 @@ def test_g1_robot_spec_and_schema() -> None:
     assert robot.root_body == "torso_link"
     assert robot.joint_names == G1_29DOF_DFS_JOINT_NAMES
     assert robot.joint_properties[robot.joint_index("right_shoulder_pitch_joint")].default_pos == 0.2
+    assert "LL_FOOT" in robot.frame_names
+    assert "imu_in_pelvis" in robot.frame_names
+    assert "torso_link" in robot.collision_body_names
+    assert "LL_FOOT" not in robot.physical_body_names
+    assert robot.material_body_names == robot.collision_body_names
     schema = locomotion_flat_schema(len(robot.joint_names))
     assert schema.observation_group("policy").flat_dim == 96
     assert schema.observation_group("critic").flat_dim == 99
     assert len(schema.hash) == 64
+
+
+def test_g1_assets_are_pinned_and_verify() -> None:
+    robot = make_g1_29dof_robot_spec()
+    isaac = robot.asset_for("isaacsim")
+    mjlab = robot.asset_for("mjlab")
+    assert isaac.checksum is not None
+    assert mjlab.checksum is not None
+    robot.verify_assets()
 
 
 def test_material_params_are_backend_scoped() -> None:

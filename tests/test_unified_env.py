@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -376,15 +377,17 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
     assert base_sensor.track_air_time is False
     assert cfg.terminations.terms["base_contact"].params["sensor_name"] == "base_contact_forces"
     assert cfg.events["reset_joints"].params["position_range"] == (0.8, 1.2)
-    material = cfg.events["randomize_material"].params["backend_params"]
-    assert material["mjlab"]["shared_random"] is True
-    assert material["mjlab"]["separate_dynamic_friction"] is False
-    assert material["mjlab"]["restitution_range"] is None
-    assert material["isaacsim"]["shared_random"] is False
-    assert material["isaacsim"]["separate_dynamic_friction"] is True
-    assert material["isaacsim"]["restitution_range"] == (0.0, 0.8)
-    assert material["isaacsim"]["static_friction_range"] == (0.25, 0.8)
-    assert material["isaacsim"]["dynamic_friction_range"] == (0.2, 0.6)
+    material = cfg.events["randomize_material"].params
+    assert material["body_names"] == cfg.scene.robot.material_body_names
+    backend_params = material["backend_params"]
+    assert backend_params["mjlab"]["shared_random"] is True
+    assert backend_params["mjlab"]["separate_dynamic_friction"] is False
+    assert backend_params["mjlab"]["restitution_range"] is None
+    assert backend_params["isaacsim"]["shared_random"] is False
+    assert backend_params["isaacsim"]["separate_dynamic_friction"] is True
+    assert backend_params["isaacsim"]["restitution_range"] == (0.0, 0.8)
+    assert backend_params["isaacsim"]["static_friction_range"] == (0.25, 0.8)
+    assert backend_params["isaacsim"]["dynamic_friction_range"] == (0.2, 0.6)
     assert Capability.DR_RESTITUTION in cfg.requirements.optional_capabilities
     assert Capability.DR_RESTITUTION not in cfg.requirements.capabilities
     assert cfg.events["add_base_mass"].params == {
@@ -417,7 +420,7 @@ def test_locomotion_flat_configuration_runs_with_mock_backend() -> None:
     assert backend.material_properties is not None
     friction = backend.material_properties.sliding_friction
     dynamic = backend.material_properties.dynamic_friction
-    assert tuple(friction.shape) == (2, len(cfg.scene.robot.body_names))
+    assert tuple(friction.shape) == (2, len(cfg.scene.robot.material_body_names))
     assert dynamic is not None
     assert tuple(dynamic.shape) == friction.shape
     assert torch.all(friction >= 0.25)
@@ -437,3 +440,54 @@ def test_locomotion_flat_configuration_runs_with_mock_backend() -> None:
     assert rewards.shape == (2, 1)
     assert terminated.shape == truncated.shape == (2,)
     env.close()
+
+
+def test_material_dr_follows_backend_specific_policy() -> None:
+    cfg = locomotion_flat_env_cfg(num_envs=4)
+    isaac = MockSimulatorBackend(device="cpu")
+    isaac.metadata = replace(isaac.metadata, name="isaacsim")
+    mjlab = MockSimulatorBackend(device="cpu")
+    mjlab.metadata = replace(mjlab.metadata, name="mjlab")
+    env_isaac = UnifiedManagerBasedRLEnv(replace(cfg, seed=7), isaac)
+    env_mjlab = UnifiedManagerBasedRLEnv(replace(cfg, seed=7), mjlab)
+    try:
+        assert isaac.material_properties is not None
+        assert mjlab.material_properties is not None
+        assert isaac.material_properties.dynamic_friction is not None
+        assert isaac.material_properties.restitution is not None
+        assert mjlab.material_properties.dynamic_friction is None
+        assert mjlab.material_properties.restitution is None
+        torch.testing.assert_close(
+            mjlab.material_properties.sliding_friction,
+            mjlab.material_properties.sliding_friction[:, :1].expand_as(mjlab.material_properties.sliding_friction),
+        )
+        assert not torch.equal(
+            isaac.material_properties.sliding_friction,
+            mjlab.material_properties.sliding_friction,
+        )
+    finally:
+        env_isaac.close()
+        env_mjlab.close()
+
+
+def test_material_dr_rejects_frames() -> None:
+    cfg = locomotion_flat_env_cfg(num_envs=2)
+    event = cfg.events["randomize_material"]
+    cfg = replace(
+        cfg,
+        events={
+            **cfg.events,
+            "randomize_material": replace(
+                event,
+                params={**event.params, "body_names": ("torso_link", "LL_FOOT")},
+            ),
+        },
+    )
+    backend = MockSimulatorBackend(device="cpu")
+    try:
+        UnifiedManagerBasedRLEnv(cfg, backend)
+    except ValueError as error:
+        assert "frames" in str(error)
+    else:
+        raise AssertionError("expected material DR to reject frames")
+    backend.close()
