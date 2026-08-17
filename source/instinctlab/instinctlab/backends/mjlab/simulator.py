@@ -24,7 +24,7 @@ from instinctlab.sim.backend import (
 )
 from instinctlab.sim.capabilities import Capability, CapabilitySet
 from instinctlab.sim.control import ControlMode, JointControlTarget
-from instinctlab.sim.scene import ArticulationView, SceneSpec, SceneView, SimulationSpec
+from instinctlab.sim.scene import ArticulationView, ContactSensorSpec, SceneSpec, SceneView, SimulationSpec
 from instinctlab.sim.state import ArticulationState, ContactState
 
 _MASS_MODEL_FIELDS = (
@@ -59,6 +59,39 @@ class _ContactBinding:
     index_map: CanonicalIndexMap
     force_threshold: float
     track_air_time: bool
+
+
+def _native_contact_sensor_cfg(
+    spec: ContactSensorSpec,
+    native_bodies: tuple[str, ...],
+    entity_name: str,
+) -> Any:
+    """Build a native MJLab contact sensor that never requests ``found``.
+
+    Feet sensors use force-threshold air-time. Other sensors keep force and
+    history only. Air-time is advanced in ``scene.update``; synchronize copies
+    the buffers into canonical ``ContactState``.
+    """
+    from mjlab.sensor import ContactMatch, ContactSensorCfg
+
+    from instinctlab.backends.mjlab.contact_sensor import ForceThresholdContactSensorCfg
+
+    kwargs = {
+        "name": spec.name,
+        "primary": ContactMatch(
+            mode="body",
+            pattern=native_bodies,
+            entity=entity_name,
+        ),
+        "fields": ("force",),
+        "reduce": "netforce",
+        "num_slots": 1,
+        "track_air_time": spec.track_air_time,
+        "history_length": spec.history_length,
+    }
+    if spec.track_air_time:
+        return ForceThresholdContactSensorCfg(**kwargs, force_threshold=spec.force_threshold)
+    return ContactSensorCfg(**kwargs)
 
 
 def _strip_visual_meshes_xml(xml: str) -> str:
@@ -193,7 +226,7 @@ class MjlabBackend:
         physics={
             "canonical_order": "dfs_v1",
             "quaternion_order": "wxyz",
-            "joint_acc_source": "fd_v1",
+            "joint_acc_source": "qacc_v1",
             "restitution": "solref_dampratio_v1",
         },
     )
@@ -218,8 +251,6 @@ class MjlabBackend:
         self._effort_mode_active = False
         self._supports_effort_control = True
         self._effort_actuator_enabled = False
-        self._last_joint_acc_native: torch.Tensor | None = None
-        self._previous_joint_velocity_native: torch.Tensor | None = None
         self._all_env_ids: torch.Tensor | None = None
         self._all_joint_ids: torch.Tensor | None = None
         self._last_control_mode: ControlMode | None = None
@@ -284,7 +315,6 @@ class MjlabBackend:
         )
         from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
         from mjlab.scene import Scene, SceneCfg
-        from mjlab.sensor import ContactMatch, ContactSensorCfg
         from mjlab.sim import MujocoCfg, Simulation, SimulationCfg
         from mjlab.terrains import TerrainEntityCfg
 
@@ -339,21 +369,7 @@ class MjlabBackend:
         native_sensor_cfgs = []
         for spec in scene_spec.contact_sensors:
             native_bodies = asset.resolve_contact_body_names(spec.body_names)
-            native_sensor_cfgs.append(
-                ContactSensorCfg(
-                    name=spec.name,
-                    primary=ContactMatch(
-                        mode="body",
-                        pattern=native_bodies,
-                        entity=entity_name,
-                    ),
-                    fields=("found", "force"),
-                    reduce="netforce",
-                    num_slots=1,
-                    track_air_time=spec.track_air_time,
-                    history_length=spec.history_length,
-                )
-            )
+            native_sensor_cfgs.append(_native_contact_sensor_cfg(spec, native_bodies, entity_name))
 
         def configure_scene(spec: Any) -> None:
             terrain_body = spec.body("terrain")
@@ -469,9 +485,6 @@ class MjlabBackend:
         self._effort_mode_mask = torch.zeros(
             (self.num_envs, len(robot.joint_names)), dtype=torch.bool, device=self.device
         )
-        self._last_joint_acc_native = torch.zeros_like(self._entity.data.joint_vel)
-        self._previous_joint_velocity_native = torch.zeros_like(self._entity.data.joint_vel)
-
         self._write_default_state(self._all_env_ids)
         self._entity.set_joint_position_target(self._entity.data.default_joint_pos)
         self._entity.set_joint_velocity_target(torch.zeros_like(self._entity.data.default_joint_vel))
@@ -490,7 +503,7 @@ class MjlabBackend:
                 "iterations": native_sim_cfg.mujoco.iterations,
                 "canonical_order": robot.schema_version,
                 "quaternion_order": "wxyz",
-                "joint_acc_source": "fd_v1",
+                "joint_acc_source": "qacc_v1",
                 "velocity_limit_enforcement": "not_native_equivalent",
                 "effort_control": (
                     "parallel_native_motor_v1"
@@ -586,7 +599,6 @@ class MjlabBackend:
         self._effort_mode_mask[env_ids] = False
         if env_ids.numel() == self.num_envs:
             self._effort_mode_active = False
-        self._last_joint_acc_native[env_ids] = 0.0
         self._invalidate_control_cache()
 
     def write_root_state(self, entity_name: str, state_wxyz: torch.Tensor, env_ids: torch.Tensor) -> None:
@@ -903,15 +915,9 @@ class MjlabBackend:
             self._entity.data.joint_pos_target[effort_mask] = current_pos[effort_mask]
             self._entity.data.joint_vel_target[effort_mask] = current_vel[effort_mask]
 
-        previous_velocity = self._previous_joint_velocity_native
-        assert previous_velocity is not None
-        previous_velocity.copy_(self._entity.data.joint_vel)
         self._mj_scene.write_data_to_sim()
         self._sim.step()
         self._mj_scene.update(dt=self.sim_dt)
-        current_velocity = self._entity.data.joint_vel
-        self._last_joint_acc_native.copy_((current_velocity - previous_velocity) / self.sim_dt)
-        self._advance_force_threshold_air_time()
 
     def synchronize(self, phase: SensorReadPhase) -> None:
         self._require_initialized()
@@ -961,6 +967,7 @@ class MjlabBackend:
         return {
             "qpos": int(data.qpos.data_ptr()),
             "qvel": int(data.qvel.data_ptr()),
+            "qacc": int(data.qacc.data_ptr()),
             "xpos": int(data.xpos.data_ptr()),
             "xquat": int(data.xquat.data_ptr()),
             "cvel": int(data.cvel.data_ptr()),
@@ -982,6 +989,7 @@ class MjlabBackend:
         root_id = int(self._entity.indexing.root_body_id)
         state.joint_pos = data.qpos[:, q_start : q_start + q_count]
         state.joint_vel = data.qvel[:, v_start : v_start + v_count]
+        state.joint_acc = data.qacc[:, v_start : v_start + v_count]
         state.body_pos_w = data.xpos[:, body_start : body_start + body_count]
         state.body_quat_w = data.xquat[:, body_start : body_start + body_count]
         state.root_pos_w = data.xpos[:, root_id]
@@ -994,6 +1002,7 @@ class MjlabBackend:
         state = self.scene.articulations[self._entity_name].data
         state.joint_pos = state.joint_pos.clone()
         state.joint_vel = state.joint_vel.clone()
+        state.joint_acc = state.joint_acc.clone()
         state.body_pos_w = state.body_pos_w.clone()
         state.body_quat_w = state.body_quat_w.clone()
         state.root_pos_w = state.root_pos_w.clone()
@@ -1018,7 +1027,7 @@ class MjlabBackend:
         state.body_ang_vel_w.copy_(body_velocity[..., 3:6])
         state.joint_pos.copy_(self._joint_map.to_canonical(native.joint_pos, dim=1))
         state.joint_vel.copy_(self._joint_map.to_canonical(native.joint_vel, dim=1))
-        state.joint_acc.copy_(self._joint_map.to_canonical(self._last_joint_acc_native, dim=1))
+        state.joint_acc.copy_(self._joint_map.to_canonical(native.joint_acc, dim=1))
         state.applied_joint_effort.copy_(self._joint_map.to_canonical(native.qfrc_actuator, dim=1))
 
     def _synchronize_articulation_fast(self) -> None:
@@ -1049,6 +1058,7 @@ class MjlabBackend:
             state.body_quat_w.copy_(body_quat)
             state.joint_pos.copy_(data.qpos[:, q_start : q_start + q_count])
             state.joint_vel.copy_(data.qvel[:, v_start : v_start + v_count])
+            state.joint_acc.copy_(data.qacc[:, v_start : v_start + v_count])
         _write_cvel_link_velocity(
             root_pos,
             subtree_com,
@@ -1065,7 +1075,6 @@ class MjlabBackend:
             state.body_ang_vel_w,
             self._tmp_body_offset,
         )
-        state.joint_acc.copy_(self._last_joint_acc_native)
         state.applied_joint_effort.copy_(native.qfrc_actuator)
 
     def _refresh_contacts(self) -> None:
@@ -1074,32 +1083,20 @@ class MjlabBackend:
             data = binding.native_sensor.data
             if data.force is None:
                 raise RuntimeError(f"MJLab contact sensor {name!r} returned no force data")
-            force = binding.index_map.to_canonical(data.force, dim=1)
-            canonical.net_forces_w.copy_(force)
+            binding.index_map.copy_to_canonical(data.force, canonical.net_forces_w, dim=1)
             if canonical.history_length:
                 if data.force_history is None:
                     raise RuntimeError(f"MJLab contact sensor {name!r} returned no force history")
                 history = binding.index_map.to_canonical(data.force_history, dim=1)
                 canonical.net_forces_w_history.copy_(history.permute(0, 2, 1, 3))
+            if binding.track_air_time:
+                if data.current_air_time is None:
+                    raise RuntimeError(f"MJLab contact sensor {name!r} returned no air-time data")
+                binding.index_map.copy_to_canonical(data.current_air_time, canonical.current_air_time, dim=1)
+                binding.index_map.copy_to_canonical(data.current_contact_time, canonical.current_contact_time, dim=1)
+                binding.index_map.copy_to_canonical(data.last_air_time, canonical.last_air_time, dim=1)
+                binding.index_map.copy_to_canonical(data.last_contact_time, canonical.last_contact_time, dim=1)
             canonical.update_active(binding.force_threshold)
-
-    def _advance_force_threshold_air_time(self) -> None:
-        """Advance air-time from net force, not MuJoCo ``found > 0`` contacts.
-
-        Native MJLab air-time treats any solver contact as stance. Light
-        grazing then counts for ``feet_air_time`` while ``feet_slide`` and
-        ``illegal_contact`` still use the 1 N threshold. InstinctMJ uses the
-        force threshold for both; keep that here on every physics substep.
-        """
-        for name, binding in self._contact_bindings.items():
-            if not binding.track_air_time:
-                continue
-            data = binding.native_sensor.data
-            if data.force is None:
-                raise RuntimeError(f"MJLab contact sensor {name!r} returned no force data")
-            force = binding.index_map.to_canonical(data.force, dim=1)
-            is_contact = torch.linalg.vector_norm(force, dim=-1) > binding.force_threshold
-            self.scene.sensors[name].update_air_time(is_contact, self.sim_dt)
 
     def render(self, mode: str) -> object | None:
         self._require_initialized()

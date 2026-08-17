@@ -1,0 +1,28 @@
+---
+description: 跨引擎训练选型与 InstinctLab 约束。评估/接入新仿真引擎、对比 HumanoidVerse/ProtoMotions/RoboVerse/Isaac Lab 3、或扩展 SimulatorBackend 时使用。完整简报见 MULTI_ENGINE_TRAINING.md。
+globs: source/instinctlab/instinctlab/sim/**/*.py, source/instinctlab/instinctlab/backends/**/*.py, source/instinctlab/instinctlab/envs/unified_manager_based_rl_env.py, scripts/instinct_rl/train_unified.py, scripts/instinct_rl/play_unified.py, UNIFIED_ENGINE_PLAN.md, MULTI_ENGINE_TRAINING.md
+alwaysApply: false
+---
+
+# 跨引擎训练约束
+
+完整简报：[`MULTI_ENGINE_TRAINING.md`](../../MULTI_ENGINE_TRAINING.md)。实现契约：[`UNIFIED_ENGINE_PLAN.md`](../../UNIFIED_ENGINE_PLAN.md)。
+
+## 既定立场
+
+本仓库走 Simulator Adapter：一份 Task / Manager / MDP，Isaac Sim 与 MJLab 只实现 `SimulatorBackend`。已注册 `isaacsim`、`mjlab`、`mock`。统一入口是 `scripts/instinct_rl/train_unified.py --backend ...`，首个统一任务是 `Instinct-Locomotion-Flat-G1-v0`。
+
+## 硬约束
+
+- Env / Reward / Obs / Algo / Manager 禁止 import 引擎 SDK，禁止 `if backend == ...`。
+- 关节/body 顺序以 `RobotSpec` 冻结 DFS 名为唯一真值；用 `CanonicalIndexMap` 按名称映射。
+- 不支持的 Capability 启动即失败，禁止静默降级。
+- 新引擎 = 新 provider + adapter + `asset_for` + 测试。禁止复制第二份 Task。
+- 训练契约与 `instinct_onboard` 部署分开。
+- 不要用 Gymnasium 当 sim2sim 对齐层；不要把 Isaac Lab 3 的 Articulation 工厂抄进公共层。
+
+## 选型（不要改立场）
+
+- 本仓库训同一任务：扩展 `BACKENDS`，不要引入 HumanoidVerse Hydra 或 MetaSim 训练热路径。
+- 只要官方 PhysX ↔ MJWarp：那是 Isaac Lab 3 `physics=`，不是本仓库统一任务的迁移方向。
+- 抄 HumanoidVerse 只抄“任务不 import SDK、adapter 对齐张量”；不要抄任务内 `simulator.name` 分支。

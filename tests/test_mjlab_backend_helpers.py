@@ -13,13 +13,14 @@ from instinctlab.backends.mjlab.simulator import (
     _enable_effort_actuator,
     _expanded_randomization_fields,
     _load_mjcf,
+    _native_contact_sensor_cfg,
     _solref_dampratio_from_restitution,
     _strip_visual_meshes_xml,
 )
 from instinctlab.sim.backend import CanonicalIndexMap, RuntimeRequirements, SensorReadPhase
 from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.control import ControlMode, JointControlTarget
-from instinctlab.sim.scene import SimulationSpec
+from instinctlab.sim.scene import ContactSensorSpec, SimulationSpec
 from instinctlab.sim.state import ArticulationState
 
 
@@ -68,6 +69,37 @@ def test_mjlab_engine_options_override_training_defaults() -> None:
     assert cfg.njmax == 512
     assert cfg.mujoco.iterations == 7
     assert cfg.mujoco.ccd_iterations == 500
+
+
+def test_mjlab_native_contact_cfg_uses_force_only() -> None:
+    feet = ContactSensorSpec(
+        name="feet_contact_forces",
+        entity_name="robot",
+        body_names=("left_ankle_roll_link", "right_ankle_roll_link"),
+        force_threshold=1.0,
+        track_air_time=True,
+    )
+    base = ContactSensorSpec(
+        name="base_contact_forces",
+        entity_name="robot",
+        body_names=("torso_link",),
+        force_threshold=1.0,
+        track_air_time=False,
+    )
+    from instinctlab.backends.mjlab.contact_sensor import ForceThresholdContactSensorCfg
+
+    feet_cfg = _native_contact_sensor_cfg(feet, feet.body_names, "robot")
+    base_cfg = _native_contact_sensor_cfg(base, base.body_names, "robot")
+
+    assert feet_cfg.fields == ("force",)
+    assert "found" not in feet_cfg.fields
+    assert feet_cfg.track_air_time is True
+    assert isinstance(feet_cfg, ForceThresholdContactSensorCfg)
+    assert feet_cfg.force_threshold == 1.0
+    assert base_cfg.fields == ("force",)
+    assert "found" not in base_cfg.fields
+    assert base_cfg.track_air_time is False
+    assert not isinstance(base_cfg, ForceThresholdContactSensorCfg)
 
 
 def test_mjlab_contact_aliases_come_from_robot_asset() -> None:
@@ -226,6 +258,7 @@ def _make_runtime_backend() -> tuple[MjlabBackend, _FakeSimulation, _FakeScene]:
         body_link_vel_w=torch.zeros((1, 1, 6)),
         joint_pos=torch.zeros((1, 1)),
         joint_vel=torch.zeros((1, 1)),
+        joint_acc=torch.zeros((1, 1)),
         qfrc_actuator=torch.zeros((1, 1)),
     )
     state = ArticulationState.allocate(
@@ -242,8 +275,6 @@ def _make_runtime_backend() -> tuple[MjlabBackend, _FakeSimulation, _FakeScene]:
     backend._joint_map = mapping
     backend._body_map = mapping
     backend._contact_bindings = {}
-    backend._last_joint_acc_native = torch.zeros((1, 1))
-    backend._previous_joint_velocity_native = torch.zeros((1, 1))
     backend._effort_mode_mask = torch.zeros((1, 1), dtype=torch.bool)
     backend._effort_mode_active = False
     backend._sync_fast_path = False

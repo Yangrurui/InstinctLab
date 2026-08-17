@@ -3,9 +3,9 @@ from __future__ import annotations
 import torch
 from types import SimpleNamespace
 
-from instinctlab.backends.mjlab.simulator import MjlabBackend, _write_cvel_link_velocity
+from instinctlab.backends.mjlab.simulator import MjlabBackend, _ContactBinding, _write_cvel_link_velocity
 from instinctlab.sim.backend import CanonicalIndexMap, SensorReadPhase, contiguous_index_range
-from instinctlab.sim.state import ArticulationState
+from instinctlab.sim.state import ArticulationState, ContactState
 
 
 def _reference_cvel_velocity(pos: torch.Tensor, subtree_com: torch.Tensor, cvel: torch.Tensor) -> torch.Tensor:
@@ -64,12 +64,14 @@ def _make_fast_backend(*, alias: bool = False) -> tuple[MjlabBackend, Articulati
         subtree_com=torch.randn(num_envs, nbody, 3),
         qpos=torch.randn(num_envs, nqpos),
         qvel=torch.randn(num_envs, nqvel),
+        qacc=torch.randn(num_envs, nqvel),
     )
     native = SimpleNamespace(
         data=data,
         qfrc_actuator=torch.randn(num_envs, num_joints),
         joint_pos=data.qpos[:, q_start : q_start + num_joints],
         joint_vel=data.qvel[:, v_start : v_start + num_joints],
+        joint_acc=data.qacc[:, v_start : v_start + num_joints],
         body_link_pose_w=torch.cat(
             [data.xpos[:, body_start : body_start + num_bodies], data.xquat[:, body_start : body_start + num_bodies]],
             dim=-1,
@@ -115,7 +117,6 @@ def _make_fast_backend(*, alias: bool = False) -> tuple[MjlabBackend, Articulati
     backend._native_ptrs = None
     backend._tmp_body_offset = torch.zeros(num_envs, num_bodies, 3)
     backend._tmp_root_offset = torch.zeros(num_envs, 3)
-    backend._last_joint_acc_native = torch.randn(num_envs, num_joints)
     backend._contact_bindings = {}
     backend.scene = SimpleNamespace(articulations={"robot": SimpleNamespace(data=state)}, sensors={})
     if alias:
@@ -162,13 +163,16 @@ def test_mjlab_fast_sync_does_not_reuse_qpos_slice_for_qvel() -> None:
     backend._synchronize_articulation_fast()
     assert torch.equal(state.joint_pos, native.data.qpos[:, 7:9])
     assert torch.equal(state.joint_vel, native.data.qvel[:, 6:8])
+    assert torch.equal(state.joint_acc, native.data.qacc[:, 6:8])
     assert not torch.equal(state.joint_vel, native.data.qvel[:, 7:9])
+    assert not torch.equal(state.joint_acc, native.data.qacc[:, 7:9])
 
 
 def test_mjlab_native_view_alias_and_detach() -> None:
     backend, state = _make_fast_backend(alias=True)
     assert backend._alias_native_views
     assert state.joint_pos.data_ptr() == backend._entity.data.data.qpos[:, 7:9].data_ptr()
+    assert state.joint_acc.data_ptr() == backend._entity.data.data.qacc[:, 6:8].data_ptr()
     backend._entity.data.data.qpos[:, 7:9] = 1.5
     assert torch.all(state.joint_pos == 1.5)
     backend._entity.data.data.qpos = backend._entity.data.data.qpos.clone()
@@ -177,6 +181,45 @@ def test_mjlab_native_view_alias_and_detach() -> None:
     assert not backend._alias_native_views
     backend._synchronize_articulation_fast()
     assert torch.equal(state.joint_pos, backend._entity.data.data.qpos[:, 7:9])
+
+
+def test_mjlab_refresh_contacts_copies_native_air_time() -> None:
+    bodies = ("left_foot", "right_foot")
+    force = torch.tensor([[[2.0, 0.0, 0.0], [0.0, 0.0, 0.0]], [[0.5, 0.0, 0.0], [3.0, 0.0, 0.0]]])
+    history = torch.zeros(2, 2, 3, 3)
+    history[:, :, 0] = force
+    current_air_time = torch.tensor([[0.01, 0.02], [0.03, 0.04]])
+    current_contact_time = torch.tensor([[0.05, 0.06], [0.07, 0.08]])
+    last_air_time = torch.tensor([[0.11, 0.12], [0.13, 0.14]])
+    last_contact_time = torch.tensor([[0.15, 0.16], [0.17, 0.18]])
+    canonical = ContactState.allocate(num_envs=2, body_names=bodies, history_length=3, device="cpu")
+    backend = object.__new__(MjlabBackend)
+    backend._contact_bindings = {
+        "feet": _ContactBinding(
+            native_sensor=SimpleNamespace(
+                data=SimpleNamespace(
+                    force=force,
+                    force_history=history,
+                    current_air_time=current_air_time,
+                    current_contact_time=current_contact_time,
+                    last_air_time=last_air_time,
+                    last_contact_time=last_contact_time,
+                )
+            ),
+            index_map=CanonicalIndexMap.build(bodies, bodies, device="cpu"),
+            force_threshold=1.0,
+            track_air_time=True,
+        )
+    }
+    backend.scene = SimpleNamespace(sensors={"feet": canonical})
+    backend._refresh_contacts()
+    assert torch.equal(canonical.net_forces_w, force)
+    assert torch.equal(canonical.net_forces_w_history, history.permute(0, 2, 1, 3))
+    torch.testing.assert_close(canonical.current_air_time, current_air_time)
+    torch.testing.assert_close(canonical.current_contact_time, current_contact_time)
+    torch.testing.assert_close(canonical.last_air_time, last_air_time)
+    torch.testing.assert_close(canonical.last_contact_time, last_contact_time)
+    assert torch.equal(canonical.contact_active, torch.tensor([[True, False], [False, True]]))
 
 
 def test_mjlab_synchronize_uses_fast_path_without_forward() -> None:
