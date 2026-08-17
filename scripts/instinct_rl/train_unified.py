@@ -17,8 +17,10 @@ def _parser_has_option(parser: argparse.ArgumentParser, option: str) -> bool:
 
 
 def _base_parser() -> argparse.ArgumentParser:
+    from instinctlab.sim.backend import BACKENDS
+
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("isaacsim", "mjlab", "mock"), required=True)
+    parser.add_argument("--backend", choices=BACKENDS.names(), required=True)
     parser.add_argument("--task", default="Instinct-Locomotion-Flat-G1-v0")
     parser.add_argument("--num-envs", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=42)

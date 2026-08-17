@@ -28,6 +28,7 @@ class MockSimulatorBackend:
         engine_version="tensor",
         control_semantics="native_implicit_v1",
         contact_force_semantics="net_resultant_v1",
+        joint_acc_source="fd_v1",
     )
 
     def __init__(self, *, device: str = "cpu") -> None:
@@ -165,6 +166,14 @@ class MockSimulatorBackend:
     ) -> None:
         del entity_name, body_ids, torque_w
         self._primary().data.root_lin_vel_w[env_ids] += force_w.sum(dim=1) * self.sim_dt
+
+    def material_shape_counts(self, entity_name: str, body_ids: torch.Tensor) -> torch.Tensor:
+        del entity_name
+        if self._scene_spec is None:
+            raise RuntimeError("mock backend is not initialized")
+        frames = frozenset(self._scene_spec.robot.frame_names)
+        counts = [0 if self._scene_spec.robot.body_names[int(index)] in frames else 1 for index in body_ids.tolist()]
+        return torch.tensor(counts, device=body_ids.device, dtype=torch.int64)
 
     def set_body_material(self, values: MaterialProperties) -> None:
         self.material_properties = values

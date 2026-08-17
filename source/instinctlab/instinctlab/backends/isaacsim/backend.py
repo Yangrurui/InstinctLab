@@ -11,9 +11,11 @@ import importlib.metadata
 import re
 import torch
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from instinctlab.sim.backend import (
+    MATERIAL_LAYOUTS,
     BackendMetadata,
     CanonicalIndexMap,
     MassProperties,
@@ -109,6 +111,7 @@ class IsaacSimBackend:
             engine_version="uninitialized",
             control_semantics="native_implicit_v1",
             contact_force_semantics="physx_net_normal_resultant_v1",
+            joint_acc_source="isaaclab_lazy_fd_v1",
             physics={
                 "canonical_order": "dfs_v1",
                 "quaternion_order": "wxyz",
@@ -442,12 +445,9 @@ class IsaacSimBackend:
                 "joint_effort_observation": "isaaclab_implicit_pd_estimate_clipped_v1",
             }
         )
-        self.metadata = BackendMetadata(
-            name="isaacsim",
-            version=self.metadata.version,
+        self.metadata = replace(
+            self.metadata,
             engine_version=engine_version,
-            control_semantics=self.metadata.control_semantics,
-            contact_force_semantics=self.metadata.contact_force_semantics,
             physics=physics,
         )
 
@@ -710,11 +710,25 @@ class IsaacSimBackend:
             is_global=True,
         )
 
+    def material_shape_counts(self, entity_name: str, body_ids: torch.Tensor) -> torch.Tensor:
+        self._entity(entity_name)
+        body_ids = self._validate_ids("body_ids", body_ids, len(self._body_map.canonical_names))
+        native_ids = self._body_map.native_ids(body_ids)
+        counts = torch.tensor(self._shape_counts_by_native_body, device=body_ids.device, dtype=torch.int64)
+        return counts[native_ids]
+
     def set_body_material(self, values: MaterialProperties) -> None:
         robot = self._entity(values.entity_name)
         env_ids = self._validate_ids("env_ids", values.env_ids, self.num_envs)
         body_ids = self._validate_ids("body_ids", values.body_ids, len(self._body_map.canonical_names))
-        expected = (env_ids.numel(), body_ids.numel())
+        if values.layout not in MATERIAL_LAYOUTS:
+            raise ValueError(f"unsupported material layout: {values.layout!r}")
+        n_columns = (
+            int(body_ids.numel())
+            if values.layout == "body"
+            else int(self.material_shape_counts(values.entity_name, body_ids).sum().item())
+        )
+        expected = (env_ids.numel(), n_columns)
         self._validate_float_tensor("sliding friction", values.sliding_friction)
         if tuple(values.sliding_friction.shape) != expected:
             raise ValueError(f"sliding_friction has shape {tuple(values.sliding_friction.shape)}, expected {expected}")
@@ -743,19 +757,31 @@ class IsaacSimBackend:
         friction = values.sliding_friction.detach().cpu()
         dynamic = friction if values.dynamic_friction is None else values.dynamic_friction.detach().cpu()
         restitution = None if values.restitution is None else values.restitution.detach().cpu()
+        shape_offset = 0
         for column, native_body_id in enumerate(native_body_ids.tolist()):
             start = sum(self._shape_counts_by_native_body[:native_body_id])
             stop = start + self._shape_counts_by_native_body[native_body_id]
-            if start == stop:
+            n_shapes = stop - start
+            if n_shapes == 0:
                 canonical_name = self._body_map.canonical_names[int(body_ids[column])]
                 raise ValueError(
                     f"Isaac Sim body {canonical_name!r} has no collision shapes; "
                     "material writes must target RobotSpec.material_body_names"
                 )
-            materials[cpu_env_ids, start:stop, 0] = friction[:, column, None]
-            materials[cpu_env_ids, start:stop, 1] = dynamic[:, column, None]
-            if restitution is not None:
-                materials[cpu_env_ids, start:stop, 2] = restitution[:, column, None]
+            if values.layout == "body":
+                static_vals = friction[:, column, None]
+                dynamic_vals = dynamic[:, column, None]
+                restitution_vals = None if restitution is None else restitution[:, column, None]
+            else:
+                sl = slice(shape_offset, shape_offset + n_shapes)
+                static_vals = friction[:, sl]
+                dynamic_vals = dynamic[:, sl]
+                restitution_vals = None if restitution is None else restitution[:, sl]
+                shape_offset += n_shapes
+            materials[cpu_env_ids, start:stop, 0] = static_vals
+            materials[cpu_env_ids, start:stop, 1] = dynamic_vals
+            if restitution_vals is not None:
+                materials[cpu_env_ids, start:stop, 2] = restitution_vals
         robot.root_physx_view.set_material_properties(materials, cpu_env_ids)
 
     def set_body_mass_properties(self, values: MassProperties) -> None:
@@ -892,7 +918,7 @@ class IsaacSimBackend:
             raise NotImplementedError("IsaacSimBackend does not create a camera and does not advertise RGB_ARRAY")
         raise ValueError(f"unsupported Isaac Sim render mode: {mode!r}")
 
-    def close(self) -> None:
+    def close(self, *, shutdown_app: bool = True) -> None:
         if self._closed:
             return
         self._closed = True
@@ -902,9 +928,12 @@ class IsaacSimBackend:
             self._sim.clear_all_callbacks()
             self._sim.clear_instance()
             self._sim = None
-        app = getattr(self._launcher, "app", None)
-        if app is not None:
-            app.close()
+        # Kit's SimulationApp.close() terminates the process. Live pytest
+        # cells must pass shutdown_app=False so the runner can emit results.
+        if shutdown_app:
+            app = getattr(self._launcher, "app", None)
+            if app is not None:
+                app.close()
 
     def _entity(self, entity_name: str) -> Any:
         self._require_initialized()

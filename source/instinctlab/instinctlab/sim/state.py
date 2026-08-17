@@ -2,6 +2,12 @@
 
 All tensors exposed to tasks use WXYZ quaternions, DFS entity ordering, link
 frames, and a leading environment dimension.
+
+Alias into native sim buffers is an adapter-internal optimization. Manager and
+MDP code must treat kinematic fields as read-only and write state only through
+``backend.write_*``. Assigning ``data.joint_pos[...] = ...`` is an implicit
+backend fork: on MJLab it mutates ``qpos``, on Isaac it writes an owned copy
+that the next synchronize overwrites.
 """
 
 from __future__ import annotations
@@ -9,15 +15,57 @@ from __future__ import annotations
 import torch
 from dataclasses import dataclass
 
+KINEMATIC_FIELD_NAMES = frozenset(
+    {
+        "root_pos_w",
+        "root_quat_w",
+        "root_lin_vel_w",
+        "root_ang_vel_w",
+        "body_pos_w",
+        "body_quat_w",
+        "body_lin_vel_w",
+        "body_ang_vel_w",
+        "joint_pos",
+        "joint_vel",
+        "joint_acc",
+    }
+)
+
 
 def _check_shape(name: str, value: torch.Tensor, expected: tuple[int, ...]) -> None:
     if tuple(value.shape) != expected:
         raise ValueError(f"{name} has shape {tuple(value.shape)}, expected {expected}")
 
 
+class _KinematicWriteBarrier(torch.Tensor):
+    """Tensor subclass that rejects item assignment. Used by tests and debug."""
+
+    def __setitem__(self, key, value):  # type: ignore[override]
+        raise RuntimeError("Manager/MDP must not assign ArticulationState kinematic fields; use backend.write_*")
+
+
+def freeze_kinematic_fields(state: ArticulationState) -> ArticulationState:
+    """Wrap kinematic tensors so ``data.joint_pos[...] =`` raises.
+
+    Adapter code that owns the state should not call this. It is a debug /
+    test probe, not a change to the training contract.
+    """
+    for name in KINEMATIC_FIELD_NAMES:
+        tensor = getattr(state, name)
+        if not isinstance(tensor, torch.Tensor):
+            continue
+        setattr(state, name, tensor.as_subclass(_KinematicWriteBarrier))
+    return state
+
+
 @dataclass
 class ArticulationState:
-    """Mutable, backend-owned canonical articulation state."""
+    """Backend-owned canonical articulation state.
+
+    Kinematic fields are writable by the adapter (including view aliasing).
+    Manager / MDP must only read them and must call ``backend.write_*`` to
+    change pose or velocity.
+    """
 
     root_pos_w: torch.Tensor
     root_quat_w: torch.Tensor
@@ -218,4 +266,9 @@ class ContactState:
             raise ValueError("contact body_names must be unique and match the body dimension")
 
 
-__all__ = ["ArticulationState", "ContactState"]
+__all__ = [
+    "ArticulationState",
+    "ContactState",
+    "KINEMATIC_FIELD_NAMES",
+    "freeze_kinematic_fields",
+]

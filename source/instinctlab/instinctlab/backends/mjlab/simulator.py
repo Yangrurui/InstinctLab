@@ -14,6 +14,7 @@ from typing import Any
 import tomllib
 
 from instinctlab.sim.backend import (
+    MATERIAL_LAYOUTS,
     BackendMetadata,
     CanonicalIndexMap,
     MassProperties,
@@ -223,10 +224,10 @@ class MjlabBackend:
         engine_version="uninitialized",
         control_semantics="native_implicit_v1",
         contact_force_semantics="net_resultant_world_v1",
+        joint_acc_source="qacc_v1",
         physics={
             "canonical_order": "dfs_v1",
             "quaternion_order": "wxyz",
-            "joint_acc_source": "qacc_v1",
             "restitution": "solref_dampratio_v1",
         },
     )
@@ -497,13 +498,13 @@ class MjlabBackend:
             engine_version=f"mjlab={mjlab_version}; mujoco={mujoco.__version__}",
             control_semantics="native_implicit_v1",
             contact_force_semantics="net_resultant_world_v1",
+            joint_acc_source="qacc_v1",
             physics={
                 "integrator": native_sim_cfg.mujoco.integrator,
                 "solver": native_sim_cfg.mujoco.solver,
                 "iterations": native_sim_cfg.mujoco.iterations,
                 "canonical_order": robot.schema_version,
                 "quaternion_order": "wxyz",
-                "joint_acc_source": "qacc_v1",
                 "velocity_limit_enforcement": "not_native_equivalent",
                 "effort_control": (
                     "parallel_native_motor_v1"
@@ -772,12 +773,30 @@ class MjlabBackend:
         native_ids = self._body_map.native_ids(body_ids).tolist()
         self._entity.write_external_wrench_to_sim(force_w, torque_w, env_ids=env_ids, body_ids=native_ids)
 
+    def material_shape_counts(self, entity_name: str, body_ids: torch.Tensor) -> torch.Tensor:
+        self._require_initialized()
+        self._validate_entity(entity_name)
+        self._validate_body_ids(body_ids)
+        counts = torch.empty(body_ids.numel(), device=body_ids.device, dtype=torch.int64)
+        for column in range(body_ids.numel()):
+            native_local_id = int(self._body_map.native_ids(body_ids[column : column + 1])[0])
+            counts[column] = int(self._geoms_by_native_body[native_local_id].numel())
+        return counts
+
     def set_body_material(self, values: MaterialProperties) -> None:
         self._require_initialized()
         self._validate_entity(values.entity_name)
         self._validate_env_ids(values.env_ids)
+        self._validate_body_ids(values.body_ids)
+        if values.layout not in MATERIAL_LAYOUTS:
+            raise ValueError(f"unsupported material layout: {values.layout!r}")
+        n_columns = (
+            int(values.body_ids.numel())
+            if values.layout == "body"
+            else int(self.material_shape_counts(values.entity_name, values.body_ids).sum().item())
+        )
+        expected = (values.env_ids.numel(), n_columns)
         self._validate_float_tensor("sliding friction", values.sliding_friction)
-        expected = (values.env_ids.numel(), values.body_ids.numel())
         if tuple(values.sliding_friction.shape) != expected:
             raise ValueError(f"sliding_friction must have shape {expected}")
         if torch.any(values.sliding_friction < 0.0):
@@ -796,25 +815,32 @@ class MjlabBackend:
         if values.restitution is not None:
             required_fields.append("geom_solref")
         self._ensure_model_fields(required_fields)
-        self._validate_body_ids(values.body_ids)
 
+        shape_offset = 0
         for column in range(values.body_ids.numel()):
             native_local_id = int(self._body_map.native_ids(values.body_ids[column : column + 1])[0])
             geom_ids = self._geoms_by_native_body[native_local_id]
-            if geom_ids.numel() == 0:
+            n_geoms = int(geom_ids.numel())
+            if n_geoms == 0:
                 canonical_name = self._body_map.canonical_names[int(values.body_ids[column])]
                 raise ValueError(
                     f"MJLab body {canonical_name!r} has no collision geoms; "
                     "material writes must target RobotSpec.material_body_names"
                 )
             env_grid, geom_grid = torch.meshgrid(values.env_ids, geom_ids, indexing="ij")
-            friction = values.sliding_friction[:, column, None].expand(-1, geom_ids.numel())
-            self._sim.model.geom_friction[env_grid, geom_grid, 0] = friction
-            if values.restitution is not None:
-                dampratio = _solref_dampratio_from_restitution(
-                    values.restitution[:, column, None].expand(-1, geom_ids.numel())
+            if values.layout == "body":
+                friction = values.sliding_friction[:, column, None].expand(-1, n_geoms)
+                restitution = (
+                    None if values.restitution is None else values.restitution[:, column, None].expand(-1, n_geoms)
                 )
-                self._sim.model.geom_solref[env_grid, geom_grid, 1] = dampratio
+            else:
+                sl = slice(shape_offset, shape_offset + n_geoms)
+                friction = values.sliding_friction[:, sl]
+                restitution = None if values.restitution is None else values.restitution[:, sl]
+                shape_offset += n_geoms
+            self._sim.model.geom_friction[env_grid, geom_grid, 0] = friction
+            if restitution is not None:
+                self._sim.model.geom_solref[env_grid, geom_grid, 1] = _solref_dampratio_from_restitution(restitution)
 
     def set_body_mass_properties(self, values: MassProperties) -> None:
         self._require_initialized()
@@ -1142,6 +1168,109 @@ class MjlabBackend:
             self._human_viewer.sync()
             return None
         raise ValueError(f"unsupported MJLab render mode: {mode!r}")
+
+    def profile_field_groups(self) -> dict[str, float]:
+        """Time one synchronize split by field group. Training never calls this.
+
+        Used by ``scripts/profile_backend.py``. A 4096-env run put contact /
+        cvel / effort well under 1% of the policy step; do not change the
+        training copies from these numbers alone.
+        """
+        import time
+
+        self._require_initialized()
+        times: dict[str, float] = {}
+
+        def _ms(fn) -> float:
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            begin = time.perf_counter()
+            fn()
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            return (time.perf_counter() - begin) * 1000.0
+
+        def _copy_joints() -> None:
+            state = self.scene.articulations[self._entity_name].data
+            if not self._alias_native_views:
+                if self._sync_fast_path:
+                    assert self._joint_q_slice is not None
+                    assert self._joint_v_slice is not None
+                    data = self._entity.data.data
+                    q_start, q_count = self._joint_q_slice
+                    v_start, v_count = self._joint_v_slice
+                    state.joint_pos.copy_(data.qpos[:, q_start : q_start + q_count])
+                    state.joint_vel.copy_(data.qvel[:, v_start : v_start + v_count])
+                    state.joint_acc.copy_(data.qacc[:, v_start : v_start + v_count])
+                else:
+                    native = self._entity.data
+                    state.joint_pos.copy_(self._joint_map.to_canonical(native.joint_pos, dim=1))
+                    state.joint_vel.copy_(self._joint_map.to_canonical(native.joint_vel, dim=1))
+                    state.joint_acc.copy_(self._joint_map.to_canonical(native.joint_acc, dim=1))
+            state.applied_joint_effort.copy_(self._joint_map.to_canonical(self._entity.data.qfrc_actuator, dim=1))
+
+        def _copy_body_pose() -> None:
+            state = self.scene.articulations[self._entity_name].data
+            if self._alias_native_views:
+                return
+            if self._sync_fast_path:
+                assert self._body_slice is not None
+                data = self._entity.data.data
+                body_start, body_count = self._body_slice
+                root_id = int(self._entity.indexing.root_body_id)
+                state.root_pos_w.copy_(data.xpos[:, root_id])
+                state.root_quat_w.copy_(data.xquat[:, root_id])
+                state.body_pos_w.copy_(data.xpos[:, body_start : body_start + body_count])
+                state.body_quat_w.copy_(data.xquat[:, body_start : body_start + body_count])
+                return
+            native = self._entity.data
+            root_pose = native.root_link_pose_w
+            state.root_pos_w.copy_(root_pose[:, :3])
+            state.root_quat_w.copy_(root_pose[:, 3:7])
+            body_pose = self._body_map.to_canonical(native.body_link_pose_w, dim=1)
+            state.body_pos_w.copy_(body_pose[..., :3])
+            state.body_quat_w.copy_(body_pose[..., 3:7])
+
+        def _copy_body_cvel() -> None:
+            state = self.scene.articulations[self._entity_name].data
+            if self._sync_fast_path:
+                assert self._body_slice is not None
+                assert self._tmp_body_offset is not None
+                assert self._tmp_root_offset is not None
+                data = self._entity.data.data
+                body_start, body_count = self._body_slice
+                root_id = int(self._entity.indexing.root_body_id)
+                subtree_com = data.subtree_com[:, root_id]
+                _write_cvel_link_velocity(
+                    data.xpos[:, root_id],
+                    subtree_com,
+                    data.cvel[:, root_id],
+                    state.root_lin_vel_w,
+                    state.root_ang_vel_w,
+                    self._tmp_root_offset,
+                )
+                _write_cvel_link_velocity(
+                    data.xpos[:, body_start : body_start + body_count],
+                    subtree_com,
+                    data.cvel[:, body_start : body_start + body_count],
+                    state.body_lin_vel_w,
+                    state.body_ang_vel_w,
+                    self._tmp_body_offset,
+                )
+                return
+            native = self._entity.data
+            root_velocity = native.root_link_vel_w
+            state.root_lin_vel_w.copy_(root_velocity[:, :3])
+            state.root_ang_vel_w.copy_(root_velocity[:, 3:6])
+            body_velocity = self._body_map.to_canonical(native.body_link_vel_w, dim=1)
+            state.body_lin_vel_w.copy_(body_velocity[..., :3])
+            state.body_ang_vel_w.copy_(body_velocity[..., 3:6])
+
+        times["joint_*"] = _ms(_copy_joints)
+        times["body_pose"] = _ms(_copy_body_pose)
+        times["body_cvel"] = _ms(_copy_body_cvel)
+        times["contact_*"] = _ms(self._refresh_contacts)
+        return times
 
     def close(self) -> None:
         if self._offscreen_renderer is not None:

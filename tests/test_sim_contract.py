@@ -297,6 +297,10 @@ def test_named_rng_streams_are_isolated() -> None:
         first.uniform("reset.root", -1.0, 1.0, (4, 3)),
         second.uniform("reset.root", -1.0, 1.0, (4, 3)),
     )
+    torch.testing.assert_close(
+        first.integers("event.material.bucket_ids", 0, 64, (4, 8)),
+        second.integers("event.material.bucket_ids", 0, 64, (4, 8)),
+    )
 
 
 def test_mock_backend_contract() -> None:

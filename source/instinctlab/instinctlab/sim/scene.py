@@ -185,7 +185,13 @@ class ArticulationView:
 
 
 class SceneView(Mapping[str, ArticulationView | ContactState]):
-    """Backend-independent runtime scene mapping."""
+    """Read-only canonical scene for Manager / MDP.
+
+    Articulation and contact tensors are owned by the backend. Tasks must not
+    assign kinematic fields on ``ArticulationState``; writes go through
+    ``backend.write_*``. Native-buffer aliasing is an adapter optimization and
+    does not mean ``canonical is sim buffer``.
+    """
 
     def __init__(
         self,

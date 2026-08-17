@@ -26,7 +26,11 @@ from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.control import ControlMode
 from instinctlab.sim.robot_spec import JointProperties, RobotSpec
 from instinctlab.sim.scene import SceneSpec, SimulationSpec
-from instinctlab.tasks.locomotion.unified_flat_env_cfg import locomotion_flat_agent_cfg, locomotion_flat_env_cfg
+from instinctlab.tasks.locomotion.unified_flat_env_cfg import (
+    LOCOMOTION_MATERIAL_BACKEND_PARAMS,
+    locomotion_flat_agent_cfg,
+    locomotion_flat_env_cfg,
+)
 
 
 class TrackingBackend(MockSimulatorBackend):
@@ -379,7 +383,8 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
     assert cfg.events["reset_joints"].params["position_range"] == (0.8, 1.2)
     material = cfg.events["randomize_material"].params
     assert material["body_names"] == cfg.scene.robot.material_body_names
-    backend_params = material["backend_params"]
+    assert material["backend_params"] is LOCOMOTION_MATERIAL_BACKEND_PARAMS
+    backend_params = LOCOMOTION_MATERIAL_BACKEND_PARAMS
     assert backend_params["mjlab"]["shared_random"] is True
     assert backend_params["mjlab"]["separate_dynamic_friction"] is False
     assert backend_params["mjlab"]["restitution_range"] is None
@@ -388,6 +393,8 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
     assert backend_params["isaacsim"]["restitution_range"] == (0.0, 0.8)
     assert backend_params["isaacsim"]["static_friction_range"] == (0.25, 0.8)
     assert backend_params["isaacsim"]["dynamic_friction_range"] == (0.2, 0.6)
+    assert backend_params["isaacsim"]["num_buckets"] == 64
+    assert backend_params["isaacsim"]["assign_per_shape"] is True
     assert Capability.DR_RESTITUTION in cfg.requirements.optional_capabilities
     assert Capability.DR_RESTITUTION not in cfg.requirements.capabilities
     assert cfg.events["add_base_mass"].params == {
@@ -455,8 +462,10 @@ def test_material_dr_follows_backend_specific_policy() -> None:
         assert mjlab.material_properties is not None
         assert isaac.material_properties.dynamic_friction is not None
         assert isaac.material_properties.restitution is not None
+        assert isaac.material_properties.layout == "shape"
         assert mjlab.material_properties.dynamic_friction is None
         assert mjlab.material_properties.restitution is None
+        assert mjlab.material_properties.layout == "body"
         torch.testing.assert_close(
             mjlab.material_properties.sliding_friction,
             mjlab.material_properties.sliding_friction[:, :1].expand_as(mjlab.material_properties.sliding_friction),
@@ -465,9 +474,80 @@ def test_material_dr_follows_backend_specific_policy() -> None:
             isaac.material_properties.sliding_friction,
             mjlab.material_properties.sliding_friction,
         )
+        triples = torch.stack(
+            (
+                isaac.material_properties.sliding_friction,
+                isaac.material_properties.dynamic_friction,
+                isaac.material_properties.restitution,
+            ),
+            dim=-1,
+        ).reshape(-1, 3)
+        assert int(torch.unique(triples, dim=0).shape[0]) <= 64
     finally:
         env_isaac.close()
         env_mjlab.close()
+
+
+def test_same_seed_mock_mass_and_material_samples_match() -> None:
+    cfg = locomotion_flat_env_cfg(num_envs=4)
+    first = MockSimulatorBackend(device="cpu")
+    second = MockSimulatorBackend(device="cpu")
+    env_first = UnifiedManagerBasedRLEnv(replace(cfg, seed=11), first)
+    env_second = UnifiedManagerBasedRLEnv(replace(cfg, seed=11), second)
+    try:
+        assert first.mass_properties is not None
+        assert second.mass_properties is not None
+        assert first.material_properties is not None
+        assert second.material_properties is not None
+        torch.testing.assert_close(first.mass_properties.mass, second.mass_properties.mass)
+        torch.testing.assert_close(
+            first.material_properties.sliding_friction,
+            second.material_properties.sliding_friction,
+        )
+        assert first.material_properties.dynamic_friction is not None
+        assert second.material_properties.dynamic_friction is not None
+        torch.testing.assert_close(
+            first.material_properties.dynamic_friction,
+            second.material_properties.dynamic_friction,
+        )
+        assert first.material_properties.restitution is not None
+        assert second.material_properties.restitution is not None
+        torch.testing.assert_close(
+            first.material_properties.restitution,
+            second.material_properties.restitution,
+        )
+    finally:
+        env_first.close()
+        env_second.close()
+
+
+def test_isaacsim_material_dr_samples_per_shape_buckets() -> None:
+    class MultiShapeMock(MockSimulatorBackend):
+        def material_shape_counts(self, entity_name, body_ids):
+            del entity_name
+            return torch.full((body_ids.numel(),), 3, device=body_ids.device, dtype=torch.int64)
+
+    cfg = locomotion_flat_env_cfg(num_envs=4)
+    backend = MultiShapeMock(device="cpu")
+    backend.metadata = replace(backend.metadata, name="isaacsim")
+    env = UnifiedManagerBasedRLEnv(replace(cfg, seed=7), backend)
+    try:
+        assert backend.material_properties is not None
+        n_shapes = 3 * len(cfg.scene.robot.material_body_names)
+        assert backend.material_properties.layout == "shape"
+        assert tuple(backend.material_properties.sliding_friction.shape) == (4, n_shapes)
+        assert backend.material_properties.dynamic_friction is not None
+        assert backend.material_properties.restitution is not None
+        static = backend.material_properties.sliding_friction
+        dynamic = backend.material_properties.dynamic_friction
+        assert not torch.equal(static[0], static[0, :1].expand_as(static[0]))
+        triples = torch.stack(
+            (static, dynamic, backend.material_properties.restitution),
+            dim=-1,
+        ).reshape(-1, 3)
+        assert int(torch.unique(triples, dim=0).shape[0]) <= 64
+    finally:
+        env.close()
 
 
 def test_material_dr_rejects_frames() -> None:

@@ -9,6 +9,7 @@ not require Isaac Sim in an MJLab process.
 
 from .backend import (
     BACKENDS,
+    JOINT_ACC_SOURCES,
     BackendMetadata,
     CanonicalIndexMap,
     MassProperties,
@@ -51,6 +52,7 @@ __all__ = [
     "ControlMode",
     "ControlSemantics",
     "EnvSchema",
+    "JOINT_ACC_SOURCES",
     "JointControlTarget",
     "JointProperties",
     "MassProperties",

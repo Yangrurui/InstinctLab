@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import math
+import torch
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
-
-import torch
 
 from instinctlab.managers.unified import (
     ActionManager,
@@ -40,15 +39,11 @@ class UnifiedManagerBasedRLEnvCfg:
     actions: Mapping[str, ActionTermCfg | JointPositionActionCfg]
     observations: Mapping[str, ObservationGroupCfg]
     rewards: Mapping[str, RewardGroupCfg]
-    terminations: TerminationGroupCfg = field(
-        default_factory=lambda: TerminationGroupCfg(terms={}, term_order=())
-    )
+    terminations: TerminationGroupCfg = field(default_factory=lambda: TerminationGroupCfg(terms={}, term_order=()))
     events: Mapping[str, EventTermCfg] = field(default_factory=dict)
     commands: Mapping[str, CommandTermCfg | CommandTerm] = field(default_factory=dict)
     simulation: SimulationSpec = field(default_factory=SimulationSpec)
-    requirements: RuntimeRequirements = field(
-        default_factory=lambda: RuntimeRequirements(capabilities=frozenset())
-    )
+    requirements: RuntimeRequirements = field(default_factory=lambda: RuntimeRequirements(capabilities=frozenset()))
     episode_length_s: float = 20.0
     is_finite_horizon: bool = False
     seed: int = 0
@@ -74,6 +69,7 @@ class UnifiedManagerBasedRLEnv:
         self.cfg = cfg
         self.backend = backend
         self.backend.initialize(cfg.scene, cfg.simulation, cfg.requirements)
+        self.cfg.requirements.validate_backend_metadata(self.backend.metadata)
 
         self.num_envs = backend.num_envs
         self.device = backend.device

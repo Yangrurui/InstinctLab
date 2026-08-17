@@ -20,11 +20,28 @@ class SensorReadPhase(str, Enum):
     POST_EVENT = "post_event"
 
 
+JOINT_ACC_SOURCES = frozenset({"qacc_v1", "isaaclab_lazy_fd_v1", "fd_v1"})
+
+
 @dataclass(frozen=True)
 class RuntimeRequirements:
     capabilities: frozenset[Capability]
     optional_capabilities: frozenset[Capability] = frozenset()
     randomization_fields: frozenset[str] = frozenset()
+    accepted_joint_acc_sources: frozenset[str] = frozenset()
+
+    def validate_backend_metadata(self, metadata: BackendMetadata) -> None:
+        if not self.accepted_joint_acc_sources:
+            return
+        if metadata.joint_acc_source not in self.accepted_joint_acc_sources:
+            allowed = ", ".join(sorted(self.accepted_joint_acc_sources))
+            raise RuntimeError(
+                f"backend {metadata.name!r} joint_acc_source {metadata.joint_acc_source!r} "
+                f"is not in accepted_joint_acc_sources: {allowed}"
+            )
+
+
+MATERIAL_LAYOUTS = frozenset({"body", "shape"})
 
 
 @dataclass
@@ -35,6 +52,9 @@ class MaterialProperties:
     sliding_friction: torch.Tensor
     dynamic_friction: torch.Tensor | None = None
     restitution: torch.Tensor | None = None
+    # "body": (N, n_bodies), broadcast onto every shape of that body.
+    # "shape": (N, n_shapes), columns follow body_ids then native shapes on each body.
+    layout: str = "body"
 
 
 @dataclass
@@ -54,6 +74,7 @@ class BackendMetadata:
     engine_version: str
     control_semantics: str
     contact_force_semantics: str
+    joint_acc_source: str
     physics: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -203,6 +224,8 @@ class SimulatorBackend(Protocol):
 
     def set_body_material(self, values: MaterialProperties) -> None: ...
 
+    def material_shape_counts(self, entity_name: str, body_ids: torch.Tensor) -> torch.Tensor: ...
+
     def set_body_mass_properties(self, values: MassProperties) -> None: ...
 
     def get_body_mass_properties(
@@ -273,6 +296,8 @@ __all__ = [
     "BackendRegistry",
     "CanonicalIndexMap",
     "contiguous_index_range",
+    "JOINT_ACC_SOURCES",
+    "MATERIAL_LAYOUTS",
     "MassProperties",
     "MaterialProperties",
     "RuntimeRequirements",

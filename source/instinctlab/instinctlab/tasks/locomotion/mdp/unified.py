@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
 
-from instinctlab.sim.backend import MassProperties, MaterialProperties
+from instinctlab.sim.backend import MATERIAL_LAYOUTS, MassProperties, MaterialProperties
 from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.math import quat_apply_inverse, yaw_quaternion
 
@@ -322,14 +322,57 @@ def _sample_material_field(
     value_range: tuple[float, float],
     *,
     count: int,
-    n_bodies: int,
+    n_targets: int,
     shared_random: bool,
 ) -> torch.Tensor:
-    sample_shape = (count, 1) if shared_random else (count, n_bodies)
+    sample_shape = (count, 1) if shared_random else (count, n_targets)
     values = env.rng.uniform(key, *value_range, sample_shape)
     if shared_random:
-        values = values.expand(count, n_bodies).clone()
+        values = values.expand(count, n_targets).clone()
     return values
+
+
+def _sample_material_buckets(
+    env,
+    *,
+    count: int,
+    n_targets: int,
+    num_buckets: int,
+    static_range: tuple[float, float],
+    dynamic_range: tuple[float, float],
+    restitution_range: tuple[float, float] | None,
+    shared_random: bool,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    if num_buckets < 1:
+        raise ValueError(f"num_buckets must be positive, received {num_buckets}")
+    static_table = env.rng.uniform("event.material.buckets.static", *static_range, (num_buckets,))
+    dynamic_table = env.rng.uniform("event.material.buckets.dynamic", *dynamic_range, (num_buckets,))
+    assignment_shape = (count, 1) if shared_random else (count, n_targets)
+    bucket_ids = env.rng.integers("event.material.bucket_ids", 0, num_buckets, assignment_shape)
+    if shared_random:
+        bucket_ids = bucket_ids.expand(count, n_targets).clone()
+    sliding = static_table[bucket_ids]
+    dynamic = dynamic_table[bucket_ids]
+    restitution = None
+    if restitution_range is not None:
+        restitution_table = env.rng.uniform(
+            "event.material.buckets.restitution",
+            *restitution_range,
+            (num_buckets,),
+        )
+        restitution = restitution_table[bucket_ids]
+    return sliding, dynamic, restitution
+
+
+def _material_target_count(env, body_ids: torch.Tensor, *, assign_per_shape: bool) -> tuple[int, str]:
+    if not assign_per_shape:
+        return int(body_ids.numel()), "body"
+    counts = env.backend.material_shape_counts(_entity_name(env), body_ids)
+    if counts.dtype != torch.int64 or counts.ndim != 1 or int(counts.numel()) != int(body_ids.numel()):
+        raise ValueError("material_shape_counts must return an int64 vector with one count per targeted body")
+    if torch.any(counts <= 0):
+        raise ValueError("assign_per_shape requires a positive shape count for every targeted body")
+    return int(counts.sum().item()), "shape"
 
 
 def randomize_sliding_friction(
@@ -344,6 +387,8 @@ def randomize_sliding_friction(
     restitution_range: tuple[float, float] | None = None,
     shared_random: bool = True,
     separate_dynamic_friction: bool = False,
+    num_buckets: int | None = None,
+    assign_per_shape: bool = False,
 ) -> bool:
     params = _material_params_for_backend(
         env.backend.metadata.name,
@@ -354,6 +399,8 @@ def randomize_sliding_friction(
         restitution_range=restitution_range,
         shared_random=shared_random,
         separate_dynamic_friction=separate_dynamic_friction,
+        num_buckets=num_buckets,
+        assign_per_shape=assign_per_shape,
     )
     robot = _robot(env)
     frames = set(body_names).intersection(env.cfg.scene.robot.frame_names)
@@ -361,9 +408,39 @@ def randomize_sliding_friction(
         raise ValueError(f"material randomization cannot target frames: {sorted(frames)}")
     body_ids = _ids(robot.body_names, body_names, env.device)
     count = int(env_ids.numel())
-    n_bodies = int(body_ids.numel())
+    n_targets, layout = _material_target_count(env, body_ids, assign_per_shape=bool(params["assign_per_shape"]))
+    if layout not in MATERIAL_LAYOUTS:
+        raise ValueError(f"unsupported material layout: {layout!r}")
     shared = bool(params["shared_random"])
-    if params["separate_dynamic_friction"]:
+    bucket_count = params["num_buckets"]
+    restitution_range = params["restitution_range"]
+    if restitution_range is not None and not env.backend.capabilities.supports(Capability.DR_RESTITUTION):
+        restitution_range = None
+    if bucket_count is not None:
+        if params["separate_dynamic_friction"]:
+            if params["static_friction_range"] is None or params["dynamic_friction_range"] is None:
+                raise ValueError("bucketed material DR requires static_friction_range and dynamic_friction_range")
+            static_range = params["static_friction_range"]
+            dynamic_range = params["dynamic_friction_range"]
+        else:
+            slide_range = _slide_friction_range(
+                params["friction_range"],
+                params["static_friction_range"],
+                params["dynamic_friction_range"],
+            )
+            static_range = slide_range
+            dynamic_range = slide_range
+        sliding, dynamic, restitution = _sample_material_buckets(
+            env,
+            count=count,
+            n_targets=n_targets,
+            num_buckets=int(bucket_count),
+            static_range=static_range,
+            dynamic_range=dynamic_range,
+            restitution_range=restitution_range,
+            shared_random=shared,
+        )
+    elif params["separate_dynamic_friction"]:
         if params["static_friction_range"] is None or params["dynamic_friction_range"] is None:
             raise ValueError("separate_dynamic_friction requires static_friction_range and dynamic_friction_range")
         sliding = _sample_material_field(
@@ -371,7 +448,7 @@ def randomize_sliding_friction(
             "event.material.sliding_friction",
             params["static_friction_range"],
             count=count,
-            n_bodies=n_bodies,
+            n_targets=n_targets,
             shared_random=shared,
         )
         dynamic = _sample_material_field(
@@ -379,9 +456,19 @@ def randomize_sliding_friction(
             "event.material.dynamic_friction",
             params["dynamic_friction_range"],
             count=count,
-            n_bodies=n_bodies,
+            n_targets=n_targets,
             shared_random=shared,
         )
+        restitution = None
+        if restitution_range is not None:
+            restitution = _sample_material_field(
+                env,
+                "event.material.restitution",
+                restitution_range,
+                count=count,
+                n_targets=n_targets,
+                shared_random=shared,
+            )
     else:
         slide_range = _slide_friction_range(
             params["friction_range"],
@@ -393,21 +480,20 @@ def randomize_sliding_friction(
             "event.material.sliding_friction",
             slide_range,
             count=count,
-            n_bodies=n_bodies,
+            n_targets=n_targets,
             shared_random=shared,
         )
         dynamic = None
-    restitution = None
-    restitution_range = params["restitution_range"]
-    if restitution_range is not None and env.backend.capabilities.supports(Capability.DR_RESTITUTION):
-        restitution = _sample_material_field(
-            env,
-            "event.material.restitution",
-            restitution_range,
-            count=count,
-            n_bodies=n_bodies,
-            shared_random=shared,
-        )
+        restitution = None
+        if restitution_range is not None:
+            restitution = _sample_material_field(
+                env,
+                "event.material.restitution",
+                restitution_range,
+                count=count,
+                n_targets=n_targets,
+                shared_random=shared,
+            )
     env.backend.set_body_material(
         MaterialProperties(
             entity_name=_entity_name(env),
@@ -416,6 +502,7 @@ def randomize_sliding_friction(
             sliding_friction=sliding,
             dynamic_friction=dynamic,
             restitution=restitution,
+            layout=layout,
         )
     )
     return False

@@ -173,14 +173,19 @@ def test_mjlab_native_view_alias_and_detach() -> None:
     assert backend._alias_native_views
     assert state.joint_pos.data_ptr() == backend._entity.data.data.qpos[:, 7:9].data_ptr()
     assert state.joint_acc.data_ptr() == backend._entity.data.data.qacc[:, 6:8].data_ptr()
+    assert state.body_pos_w.data_ptr() == backend._entity.data.data.xpos[:, 2:5].data_ptr()
     backend._entity.data.data.qpos[:, 7:9] = 1.5
     assert torch.all(state.joint_pos == 1.5)
+    backend._entity.data.data.xpos[:, 2:5] = 2.5
+    assert torch.all(state.body_pos_w == 2.5)
     backend._entity.data.data.qpos = backend._entity.data.data.qpos.clone()
+    backend._entity.data.data.xpos = backend._entity.data.data.xpos.clone()
     assert not backend._native_views_still_valid()
     backend._detach_native_views()
     assert not backend._alias_native_views
     backend._synchronize_articulation_fast()
     assert torch.equal(state.joint_pos, backend._entity.data.data.qpos[:, 7:9])
+    assert torch.equal(state.body_pos_w, backend._entity.data.data.xpos[:, 2:5])
 
 
 def test_mjlab_refresh_contacts_copies_native_air_time() -> None:

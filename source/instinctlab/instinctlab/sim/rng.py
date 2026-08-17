@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
-
 import torch
+from dataclasses import dataclass, field
 
 
 def _derive_seed(base_seed: int, stream: str) -> int:
-    digest = hashlib.blake2b(f"{base_seed}:{stream}".encode("utf-8"), digest_size=8).digest()
+    digest = hashlib.blake2b(f"{base_seed}:{stream}".encode(), digest_size=8).digest()
     return int.from_bytes(digest, "little") & 0x7FFF_FFFF_FFFF_FFFF
 
 
@@ -47,6 +46,26 @@ class RngManager:
             raise ValueError(f"uniform bounds are reversed: ({low}, {high})")
         result = torch.rand(shape, generator=self.generator(stream), device=self.device, dtype=dtype)
         return result.mul_(high - low).add_(low)
+
+    def integers(
+        self,
+        stream: str,
+        low: int,
+        high: int,
+        shape: tuple[int, ...],
+        *,
+        dtype: torch.dtype = torch.int64,
+    ) -> torch.Tensor:
+        if high <= low:
+            raise ValueError(f"integer bounds are empty: [{low}, {high})")
+        return torch.randint(
+            low,
+            high,
+            shape,
+            generator=self.generator(stream),
+            device=self.device,
+            dtype=dtype,
+        )
 
     def normal(
         self,

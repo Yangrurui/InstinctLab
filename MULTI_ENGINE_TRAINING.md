@@ -79,7 +79,41 @@ SimulatorBackend 契约
 | Isaac 适配 | `source/instinctlab/instinctlab/backends/isaacsim/` |
 | MJLab 适配 | `source/instinctlab/instinctlab/backends/mjlab/` |
 | 训练入口 | `scripts/instinct_rl/train_unified.py` |
+| 真引擎三格 | `tests/simulators/`：`reset-root-vel` / `air-time-advance` / `material-write-scope` |
 | 实现计划 | `UNIFIED_ENGINE_PLAN.md` |
+
+默认 `pytest tests/` 不启真引擎（`pytest.ini` 排除 `mjlab` / `isaacsim`）。Isaac 与 MJLab 不能同进程。Isaac 必须先 `AppLauncher` 再 import `torch`，且 Kit 会读 `sys.argv`，所以只能指定该文件跑：
+
+```bash
+pytest -o addopts= -m mjlab tests/simulators/test_mjlab_behavior.py
+pytest -o addopts= -m isaacsim tests/simulators/test_isaacsim_behavior.py
+```
+
+### 2.5 吞吐：先量再砍
+
+`scripts/profile_backend.py` 拆 `policy_step`。零动作会摔倒并 reset，数字会被 reset 污染；稳态用 `--no-reset`。aten profiler 用 `--aten-ops`，默认关掉（会灌高 `policy_step`）。
+
+4096 env、`cuda:1`、20 step、`--no-reset`（2026-08-17）：
+
+| 项 | ms / policy step | 能否动 |
+|---|---|---|
+| `policy_step` | 29.0 | |
+| `write_data_to_sim`（mjlab 隐式 PD，4 子步） | 11.5 | 否，控制律 |
+| `sim_step`（MuJoCo Warp，4 子步） | 9.9 | 否，求解器 |
+| `scene_update`（含 air-time） | 1.5 | 否 |
+| obs / reward | 各约 2.2 | 否，公式 |
+| `synchronize` + contact/cvel/effort | 0.40 + 0.23 | 否，占比太小 |
+| `apply_action` / `process_action` | 0.13 / 0.05 | 已有 control cache |
+
+零动作、允许 reset 时，`reset` 约 16 ms、`event` 约 10 ms（reset 事件套在 `_reset_idx` 里，有重叠）。这是摔倒重开，不是 bridge。走路后 collection 变慢应先看 `sim_step` 接触变多，不在 synchronize。
+
+结论：**adapter 热路径和 MDP 公式都不要为吞吐去改。** Isaac adapter 继续零行。再抠拷贝或重写 reward 都违反 2.3，也补不回求解器/PD 的时间。
+
+复现：
+
+```bash
+python scripts/profile_backend.py --backend mjlab --device cuda:1 --num-envs 4096 --warmup 8 --steps 20 --no-reset
+```
 
 ## 3. 先分清两件事
 

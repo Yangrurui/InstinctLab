@@ -18,7 +18,7 @@ from instinctlab.managers import (
     UniformNoiseCfg,
 )
 from instinctlab.rl import OnPolicyRunnerCfg
-from instinctlab.sim.backend import RuntimeRequirements
+from instinctlab.sim.backend import JOINT_ACC_SOURCES, RuntimeRequirements
 from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec, TerrainSpec
 from instinctlab.sim.schema import EnvSchema, locomotion_flat_schema
@@ -66,6 +66,32 @@ _ARM_JOINTS = (
     "right_wrist_pitch_joint",
     "right_wrist_yaw_joint",
 )
+LOCOMOTION_MATERIAL_BACKEND_PARAMS = {
+    "default": {
+        "static_friction_range": (0.25, 0.8),
+        "dynamic_friction_range": (0.2, 0.6),
+        "restitution_range": (0.0, 0.8),
+        "shared_random": False,
+        "separate_dynamic_friction": True,
+    },
+    "mjlab": {
+        "static_friction_range": (0.25, 0.8),
+        "dynamic_friction_range": (0.2, 0.6),
+        "restitution_range": None,
+        "shared_random": True,
+        "separate_dynamic_friction": False,
+    },
+    "isaacsim": {
+        "static_friction_range": (0.25, 0.8),
+        "dynamic_friction_range": (0.2, 0.6),
+        "restitution_range": (0.0, 0.8),
+        "shared_random": False,
+        "separate_dynamic_friction": True,
+        "num_buckets": 64,
+        "assign_per_shape": True,
+    },
+}
+
 _ILLEGAL_CONTACT_BODIES = (
     "torso_link",
     "left_shoulder_pitch_link",
@@ -290,29 +316,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 mode="startup",
                 params={
                     "body_names": robot.material_body_names,
-                    "backend_params": {
-                        "default": {
-                            "static_friction_range": (0.25, 0.8),
-                            "dynamic_friction_range": (0.2, 0.6),
-                            "restitution_range": (0.0, 0.8),
-                            "shared_random": False,
-                            "separate_dynamic_friction": True,
-                        },
-                        "mjlab": {
-                            "static_friction_range": (0.25, 0.8),
-                            "dynamic_friction_range": (0.2, 0.6),
-                            "restitution_range": None,
-                            "shared_random": True,
-                            "separate_dynamic_friction": False,
-                        },
-                        "isaacsim": {
-                            "static_friction_range": (0.25, 0.8),
-                            "dynamic_friction_range": (0.2, 0.6),
-                            "restitution_range": (0.0, 0.8),
-                            "shared_random": False,
-                            "separate_dynamic_friction": True,
-                        },
-                    },
+                    "backend_params": LOCOMOTION_MATERIAL_BACKEND_PARAMS,
                 },
             ),
             "add_base_mass": EventTermCfg(
@@ -391,6 +395,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
             ),
             optional_capabilities=frozenset({Capability.DR_RESTITUTION}),
             randomization_fields=frozenset({"sliding_friction", "mass", "root_pose", "root_velocity", "joint_state"}),
+            accepted_joint_acc_sources=JOINT_ACC_SOURCES,
         ),
         episode_length_s=20.0,
         is_finite_horizon=False,
@@ -416,4 +421,9 @@ def locomotion_flat_env_schema() -> EnvSchema:
     return locomotion_flat_schema(len(G1_29DOF_DFS_JOINT_NAMES))
 
 
-__all__ = ["locomotion_flat_agent_cfg", "locomotion_flat_env_cfg", "locomotion_flat_env_schema"]
+__all__ = [
+    "LOCOMOTION_MATERIAL_BACKEND_PARAMS",
+    "locomotion_flat_agent_cfg",
+    "locomotion_flat_env_cfg",
+    "locomotion_flat_env_schema",
+]
