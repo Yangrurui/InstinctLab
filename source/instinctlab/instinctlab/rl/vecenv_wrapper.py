@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import torch
 from typing import Any
 
-import torch
 from instinct_rl.env import VecEnv
 
 
@@ -18,10 +18,12 @@ class InstinctRlVecEnvWrapper(VecEnv):
         self.max_episode_length = env.max_episode_length
         self.num_actions = env.action_manager.total_action_dim
         self.num_rewards = env.num_rewards
+        self._log_defaults: dict[str, torch.Tensor] = {}
+        # instinct_rl does not reset before rollout. Observation schemas (and
+        # therefore num_obs) are filled on the first compute(), which reset() does.
+        self.env.reset()
         self.num_obs = self._group_flat_dim(self.policy_group)
         self.num_critic_obs = self._group_flat_dim(self.critic_group) if self.critic_group else None
-        self._log_defaults: dict[str, torch.Tensor] = {}
-        self.env.reset()
 
     @property
     def unwrapped(self) -> Any:
@@ -67,7 +69,9 @@ class InstinctRlVecEnvWrapper(VecEnv):
         return packed["policy"], rewards, dones, extras
 
     def get_obs_segments(self, group_name: str = "policy") -> dict[str, tuple[int, ...]]:
-        source = self.policy_group if group_name == "policy" else self.critic_group if group_name == "critic" else group_name
+        source = (
+            self.policy_group if group_name == "policy" else self.critic_group if group_name == "critic" else group_name
+        )
         if source is None:
             return {}
         names = self.env.observation_manager.active_terms[source]

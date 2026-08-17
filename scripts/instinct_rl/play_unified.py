@@ -159,6 +159,8 @@ def _pin_command(env, command: tuple[float, float, float]) -> None:
     term = _velocity_command(env)
     term._standing[:] = False
     term._heading[:] = False
+    term._world[:] = False
+    term._forward[:] = False
     term._time_left[:] = 1.0e9
     term._command[:, 0] = command[0]
     term._command[:, 1] = command[1]

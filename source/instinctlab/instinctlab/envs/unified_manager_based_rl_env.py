@@ -68,11 +68,12 @@ class UnifiedManagerBasedRLEnv:
     def __init__(self, cfg: UnifiedManagerBasedRLEnvCfg, backend: SimulatorBackend) -> None:
         self.cfg = cfg
         self.backend = backend
+        self.device = backend.device
+        self.rng_manager = RngManager(cfg.seed, self.device)
         self.backend.initialize(cfg.scene, cfg.simulation, cfg.requirements)
         self.cfg.requirements.validate_backend_metadata(self.backend.metadata)
 
         self.num_envs = backend.num_envs
-        self.device = backend.device
         self.step_dt = cfg.simulation.policy_dt
         self.max_episode_length = math.ceil(cfg.episode_length_s / self.step_dt)
         self.episode_length_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.int64)
@@ -84,7 +85,6 @@ class UnifiedManagerBasedRLEnv:
             "observations": {},
             "time_outs": torch.zeros(self.num_envs, device=self.device, dtype=torch.bool),
         }
-        self.rng_manager = RngManager(cfg.seed, self.device)
 
         self.action_manager = ActionManager(
             cfg.actions,
@@ -119,7 +119,9 @@ class UnifiedManagerBasedRLEnv:
 
         if self.event_manager.apply("startup"):
             self.backend.synchronize(SensorReadPhase.POST_EVENT)
-        self.reset()
+        # InstinctMJ / Isaac Lab leave the first episode reset to the caller
+        # (InstinctRlVecEnvWrapper, because instinct_rl never calls reset).
+        # Resetting here as well would consume a second round of reset RNG.
 
     @property
     def scene(self) -> Any:
@@ -205,11 +207,14 @@ class UnifiedManagerBasedRLEnv:
         if done_ids.numel():
             self.curriculum_manager.compute(done_ids)
             self._reset_idx(done_ids)
+        else:
+            self.backend.synchronize(SensorReadPhase.PRE_OBSERVATION)
 
         self.command_manager.compute(self.step_dt)
         events_wrote_state = self.event_manager.apply("interval", dt=self.step_dt)
         if events_wrote_state:
-            self.backend.synchronize(SensorReadPhase.POST_EVENT)
+            # InstinctMJ and Isaac Lab do not forward after interval push.
+            self.backend.synchronize(SensorReadPhase.POST_INTERVAL)
 
         self.extras["step"].update(self.monitor_manager.update(self.step_dt))
         self.extras["time_outs"] = time_outs

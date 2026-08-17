@@ -288,19 +288,22 @@ def test_contact_state_air_time_uses_force_threshold_edges() -> None:
     torch.testing.assert_close(sensor.current_contact_time, torch.tensor([[0.005, 0.0]]))
 
 
-def test_named_rng_streams_are_isolated() -> None:
+def test_global_rng_same_seed_and_order_match() -> None:
     first = RngManager(42, "cpu")
+    first_uniform = first.uniform("reset.root", -1.0, 1.0, (4, 3))
+    first_ids = first.integers("event.material.bucket_ids", 0, 64, (4, 8))
     second = RngManager(42, "cpu")
-    ignored = first.uniform("backend_should_not_use", 0.0, 1.0, (100,))
-    del ignored
-    torch.testing.assert_close(
-        first.uniform("reset.root", -1.0, 1.0, (4, 3)),
-        second.uniform("reset.root", -1.0, 1.0, (4, 3)),
-    )
-    torch.testing.assert_close(
-        first.integers("event.material.bucket_ids", 0, 64, (4, 8)),
-        second.integers("event.material.bucket_ids", 0, 64, (4, 8)),
-    )
+    torch.testing.assert_close(second.uniform("reset.root", -1.0, 1.0, (4, 3)), first_uniform)
+    torch.testing.assert_close(second.integers("event.material.bucket_ids", 0, 64, (4, 8)), first_ids)
+
+
+def test_global_rng_call_order_changes_later_draws() -> None:
+    first = RngManager(42, "cpu")
+    first.uniform("other", 0.0, 1.0, (8,))
+    advanced = first.uniform("reset.root", -1.0, 1.0, (4, 3))
+    second = RngManager(42, "cpu")
+    fresh = second.uniform("reset.root", -1.0, 1.0, (4, 3))
+    assert not torch.equal(advanced, fresh)
 
 
 def test_mock_backend_contract() -> None:

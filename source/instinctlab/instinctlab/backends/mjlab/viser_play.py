@@ -69,6 +69,8 @@ class _ViserCommandBridge:
             idx = int(get_env_idx())
             term._standing[idx] = False
             term._heading[idx] = False
+            term._world[idx] = False
+            term._forward[idx] = False
             term._time_left[idx] = 1.0e9
             term._command[idx, 0] = float(sliders[0].value)
             term._command[idx, 1] = float(sliders[1].value)
@@ -163,6 +165,8 @@ class MjlabViserPlayEnv:
         term = dict(self.env.unwrapped.command_manager._terms)["base_velocity"]
         term._standing[:] = False
         term._heading[:] = False
+        term._world[:] = False
+        term._forward[:] = False
         term._time_left[:] = 1.0e9
         term._command[:, 0] = self.command[0]
         term._command[:, 1] = self.command[1]

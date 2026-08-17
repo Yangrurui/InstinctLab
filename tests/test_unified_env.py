@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import math
 import torch
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from instinctlab.backends.mock import MockSimulatorBackend
 from instinctlab.envs.unified_manager_based_rl_env import UnifiedManagerBasedRLEnv, UnifiedManagerBasedRLEnvCfg
 from instinctlab.managers.unified import (
+    CommandTerm,
+    CommandTermCfg,
     EventTermCfg,
     JointPositionAction,
     JointPositionActionCfg,
@@ -21,11 +25,15 @@ from instinctlab.managers.unified import (
     UniformNoiseCfg,
 )
 from instinctlab.rl.config import OnPolicyRunnerCfg
+from instinctlab.rl.vecenv_wrapper import InstinctRlVecEnvWrapper
 from instinctlab.sim.backend import SensorReadPhase
 from instinctlab.sim.capabilities import Capability
 from instinctlab.sim.control import ControlMode
 from instinctlab.sim.robot_spec import JointProperties, RobotSpec
 from instinctlab.sim.scene import SceneSpec, SimulationSpec
+from instinctlab.sim.state import ContactState
+from instinctlab.tasks.locomotion.commands import UniformVelocityCommand
+from instinctlab.tasks.locomotion.mdp.unified import contact_slide
 from instinctlab.tasks.locomotion.unified_flat_env_cfg import (
     LOCOMOTION_MATERIAL_BACKEND_PARAMS,
     locomotion_flat_agent_cfg,
@@ -39,10 +47,15 @@ class TrackingBackend(MockSimulatorBackend):
         self.phases: list[SensorReadPhase] = []
         self.targets: list[torch.Tensor] = []
         self.step_calls = 0
+        self.reset_calls = 0
 
     def set_joint_control_target(self, entity_name: str, target: Any, env_ids: torch.Tensor | None = None) -> None:
         super().set_joint_control_target(entity_name, target, env_ids)
         self.targets.append(target.value.clone())
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        self.reset_calls += 1
+        super().reset(env_ids)
 
     def step(self) -> None:
         self.step_calls += 1
@@ -144,7 +157,127 @@ def test_joint_position_action_and_synchronized_step_lifecycle() -> None:
     assert isinstance(target, JointPositionAction)
     assert target.control_target.mode is ControlMode.POSITION
     torch.testing.assert_close(target.control_target.velocity, torch.zeros_like(expected))
-    assert backend.phases == [SensorReadPhase.POST_PHYSICS, SensorReadPhase.POST_EVENT]
+    assert backend.phases == [
+        SensorReadPhase.POST_PHYSICS,
+        SensorReadPhase.PRE_OBSERVATION,
+        SensorReadPhase.POST_INTERVAL,
+    ]
+
+
+def test_step_without_reset_or_event_refreshes_before_observation() -> None:
+    backend = TrackingBackend()
+    env = UnifiedManagerBasedRLEnv(make_cfg(), backend)
+    assert backend.reset_calls == 0
+    env.reset()
+    assert backend.reset_calls == 1
+    backend.phases.clear()
+
+    env.step(torch.zeros((2, 2)))
+
+    assert backend.phases == [SensorReadPhase.POST_PHYSICS, SensorReadPhase.PRE_OBSERVATION]
+
+
+def test_velocity_command_resample_follows_instinctmj_order() -> None:
+    cfg = replace(
+        make_cfg(),
+        commands={
+            "base_velocity": CommandTermCfg(
+                UniformVelocityCommand,
+                params={
+                    "resampling_time_range": (10.0, 10.0),
+                    "rel_standing_envs": 0.2,
+                    "rel_heading_envs": 0.5,
+                    "rel_world_envs": 0.0,
+                    "rel_forward_envs": 0.0,
+                    "init_velocity_prob": 0.0,
+                    "heading_command": True,
+                    "heading_control_stiffness": 0.5,
+                    "ranges": {
+                        "lin_vel_x": (-0.5, 1.0),
+                        "lin_vel_y": (-0.5, 0.5),
+                        "ang_vel_z": (-1.5, 1.5),
+                        "heading": (-math.pi, math.pi),
+                    },
+                },
+            )
+        },
+        command_order=("base_velocity",),
+    )
+    env = UnifiedManagerBasedRLEnv(cfg, TrackingBackend())
+    streams: list[str] = []
+    original = env.rng.uniform
+
+    def _trace(stream: str, low: float, high: float, shape: tuple[int, ...], **kwargs):
+        streams.append(stream)
+        return original(stream, low, high, shape, **kwargs)
+
+    env.rng.uniform = _trace  # type: ignore[method-assign]
+    env.reset()
+    command_streams = [name for name in streams if name.startswith("command.base_velocity.")]
+    assert command_streams == [
+        "command.base_velocity.resampling_time",
+        "command.base_velocity.lin_x",
+        "command.base_velocity.lin_y",
+        "command.base_velocity.ang_z",
+        "command.base_velocity.heading",
+        "command.base_velocity.heading_mask",
+        "command.base_velocity.standing_mask",
+        "command.base_velocity.world_mask",
+        "command.base_velocity.forward_mask",
+        "command.base_velocity.init_velocity_mask",
+    ]
+    term = dict(env.command_manager._terms)["base_velocity"]
+    assert not bool(term._world.any())
+    assert not bool(term._forward.any())
+    env.close()
+
+
+def test_vecenv_wrapper_resets_once_and_fills_obs_dims() -> None:
+    backend = TrackingBackend()
+    env = UnifiedManagerBasedRLEnv(make_cfg(), backend)
+    assert backend.reset_calls == 0
+    wrapped = InstinctRlVecEnvWrapper(env)
+    assert backend.reset_calls == 1
+    assert wrapped.num_obs == 2
+    assert wrapped.num_critic_obs is None
+    env.close()
+
+
+def test_step_refreshes_kinematics_before_command() -> None:
+    seen: list[torch.Tensor] = []
+
+    class RecordingCommand(CommandTerm):
+        def reset(self, env_ids: torch.Tensor) -> None:
+            del env_ids
+
+        def compute(self, dt: float) -> None:
+            del dt
+            seen.append(self.env.scene.articulations["robot"].data.root_quat_w[0].clone())
+
+        @property
+        def command(self) -> torch.Tensor:
+            return torch.zeros((self.env.num_envs, 3), device=self.env.device)
+
+    class RefreshOnPreObservation(TrackingBackend):
+        def synchronize(self, phase: SensorReadPhase) -> None:
+            super().synchronize(phase)
+            if phase is SensorReadPhase.PRE_OBSERVATION:
+                self.scene.articulations["robot"].data.root_quat_w[:] = torch.tensor([0.0, 1.0, 0.0, 0.0])
+
+    backend = RefreshOnPreObservation()
+    env = UnifiedManagerBasedRLEnv(
+        replace(
+            make_cfg(),
+            commands={"base_velocity": CommandTermCfg(RecordingCommand)},
+            command_order=("base_velocity",),
+        ),
+        backend,
+    )
+    seen.clear()
+    env.step(torch.zeros((2, 2)))
+
+    assert seen
+    torch.testing.assert_close(seen[-1], torch.tensor([0.0, 1.0, 0.0, 0.0]))
 
 
 def test_reward_dt_termination_order_and_observation_frozen_schema() -> None:
@@ -202,6 +335,37 @@ def test_reward_dt_termination_order_and_observation_frozen_schema() -> None:
     )
 
 
+def test_observation_manager_reuses_shared_term_cfg() -> None:
+    calls = {"count": 0}
+
+    def shared_term(env: UnifiedManagerBasedRLEnv) -> torch.Tensor:
+        calls["count"] += 1
+        return torch.full((env.num_envs, 2), 0.5, device=env.device)
+
+    shared = ObservationTermCfg(func=shared_term, noise=UniformNoiseCfg(-0.1, 0.1), shape=(2,))
+    extra = ObservationTermCfg(func=lambda env: torch.zeros((env.num_envs, 1), device=env.device), shape=(1,))
+    env = UnifiedManagerBasedRLEnv(
+        make_cfg(
+            observations={
+                "policy": ObservationGroupCfg({"shared": shared}, ("shared",), enable_corruption=True),
+                "critic": ObservationGroupCfg(
+                    {"extra": extra, "shared": shared},
+                    ("extra", "shared"),
+                    enable_corruption=False,
+                ),
+            }
+        ),
+        TrackingBackend(),
+    )
+    calls["count"] = 0
+    observations = env.observation_manager.compute()
+
+    assert calls["count"] == 1
+    assert observations["critic"].shape == (2, 3)
+    torch.testing.assert_close(observations["critic"][:, 1:], torch.full((2, 2), 0.5))
+    assert torch.all(observations["policy"].abs() <= 0.6)
+
+
 def test_termination_timeout_and_post_reset_observation() -> None:
     reset_count = 0
 
@@ -237,7 +401,7 @@ def test_termination_timeout_and_post_reset_observation() -> None:
     assert truncated.tolist() == [False, True]
     assert extras["time_outs"].tolist() == [False, True]
     assert env.episode_length_buf.tolist() == [0, 0]
-    torch.testing.assert_close(obs["policy"], torch.full((2, 2), 2.0))
+    torch.testing.assert_close(obs["policy"], torch.full((2, 2), 1.0))
     assert backend.phases == [SensorReadPhase.POST_PHYSICS, SensorReadPhase.POST_RESET]
 
 
@@ -258,13 +422,14 @@ def test_max_episode_length_truncates_and_uniform_noise_is_seeded() -> None:
         make_cfg(observations=observations, episode_length_s=0.02, seed=11),
         TrackingBackend(),
     )
+    first_obs, _, _, first_truncated, _ = first.step(torch.zeros((2, 2)))
+    first.close()
     second = UnifiedManagerBasedRLEnv(
         make_cfg(observations=observations, episode_length_s=0.02, seed=11),
         TrackingBackend(),
     )
-
-    first_obs, _, _, first_truncated, _ = first.step(torch.zeros((2, 2)))
     second_obs, _, _, second_truncated, _ = second.step(torch.zeros((2, 2)))
+    second.close()
 
     assert first.max_episode_length == 1
     assert first_truncated.all() and second_truncated.all()
@@ -359,6 +524,7 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
         "right_ankle_roll_link",
     )
     assert rewards["feet_slide"].params["sensor_name"] == "feet_contact_forces"
+    assert rewards["feet_slide"].params["threshold"] == 0.1
     assert rewards["feet_slide"].weight == -0.1
     assert rewards["stand_still"].weight == -0.8
     assert rewards["lin_vel_z"].weight == -0.1
@@ -367,8 +533,13 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
     assert "ang_vel_xy" not in rewards
     assert commands["rel_standing_envs"] == 0.2
     assert commands["rel_heading_envs"] == 0.5
+    assert commands["rel_world_envs"] == 0.0
+    assert commands["rel_forward_envs"] == 0.0
+    assert commands["init_velocity_prob"] == 0.0
+    assert commands["heading_command"] is True
     assert commands["ranges"]["lin_vel_x"] == (-0.5, 1.0)
     assert commands["ranges"]["ang_vel_z"] == (-1.5, 1.5)
+    assert commands["ranges"]["heading"] == (-math.pi, math.pi)
     assert feet_sensor.name == "feet_contact_forces"
     assert feet_sensor.body_names == (
         "left_ankle_roll_link",
@@ -382,7 +553,7 @@ def test_unified_locomotion_matches_g1_flat_task() -> None:
     assert cfg.terminations.terms["base_contact"].params["sensor_name"] == "base_contact_forces"
     assert cfg.events["reset_joints"].params["position_range"] == (0.8, 1.2)
     material = cfg.events["randomize_material"].params
-    assert material["body_names"] == cfg.scene.robot.material_body_names
+    assert material["body_names"] == (".*",)
     assert material["backend_params"] is LOCOMOTION_MATERIAL_BACKEND_PARAMS
     backend_params = LOCOMOTION_MATERIAL_BACKEND_PARAMS
     assert backend_params["mjlab"]["shared_random"] is True
@@ -427,7 +598,10 @@ def test_locomotion_flat_configuration_runs_with_mock_backend() -> None:
     assert backend.material_properties is not None
     friction = backend.material_properties.sliding_friction
     dynamic = backend.material_properties.dynamic_friction
-    assert tuple(friction.shape) == (2, len(cfg.scene.robot.material_body_names))
+    written = tuple(cfg.scene.robot.body_names[int(index)] for index in backend.material_properties.body_ids.tolist())
+    assert written == cfg.scene.robot.physical_body_names
+    assert "LL_FOOT" not in written
+    assert tuple(friction.shape) == (2, len(cfg.scene.robot.physical_body_names))
     assert dynamic is not None
     assert tuple(dynamic.shape) == friction.shape
     assert torch.all(friction >= 0.25)
@@ -533,7 +707,7 @@ def test_isaacsim_material_dr_samples_per_shape_buckets() -> None:
     env = UnifiedManagerBasedRLEnv(replace(cfg, seed=7), backend)
     try:
         assert backend.material_properties is not None
-        n_shapes = 3 * len(cfg.scene.robot.material_body_names)
+        n_shapes = 3 * len(cfg.scene.robot.physical_body_names)
         assert backend.material_properties.layout == "shape"
         assert tuple(backend.material_properties.sliding_friction.shape) == (4, n_shapes)
         assert backend.material_properties.dynamic_friction is not None
@@ -571,3 +745,32 @@ def test_material_dr_rejects_frames() -> None:
     else:
         raise AssertionError("expected material DR to reject frames")
     backend.close()
+
+
+def test_contact_slide_uses_three_frame_force_history() -> None:
+    feet = ("left_ankle_roll_link", "right_ankle_roll_link")
+    sensor = ContactState.allocate(num_envs=2, body_names=feet, history_length=3, device="cpu")
+    # Newest sample is history index 0. Env 0 only has 0.5 N on an older frame.
+    sensor.net_forces_w_history[0, 2, 0] = torch.tensor([0.5, 0.0, 0.0])
+    # Env 1 stays below the 0.1 N gate on every frame.
+    sensor.net_forces_w_history[1, 0, 0] = torch.tensor([0.05, 0.0, 0.0])
+    robot = SimpleNamespace(
+        body_names=("torso_link", *feet),
+        data=SimpleNamespace(
+            body_lin_vel_w=torch.tensor(
+                [
+                    [[0.0, 0.0, 0.0], [3.0, 4.0, 0.0], [0.0, 0.0, 0.0]],
+                    [[0.0, 0.0, 0.0], [3.0, 4.0, 0.0], [0.0, 0.0, 0.0]],
+                ]
+            )
+        ),
+    )
+    env = SimpleNamespace(
+        device=torch.device("cpu"),
+        cfg=SimpleNamespace(scene=SimpleNamespace(primary_entity="robot")),
+        scene=SimpleNamespace(articulations={"robot": robot}, sensors={"feet_contact_forces": sensor}),
+    )
+
+    reward = contact_slide(env, "feet_contact_forces", feet, threshold=0.1)
+
+    torch.testing.assert_close(reward, torch.tensor([5.0, 0.0]))

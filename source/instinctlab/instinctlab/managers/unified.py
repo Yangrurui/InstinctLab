@@ -203,6 +203,14 @@ class ObservationGroupCfg:
         _frozen_items(self.terms, self.term_order, context="observation group")
 
 
+@dataclass
+class _PreparedObservationTerm:
+    name: str
+    cfg: ObservationTermCfg
+    scale: torch.Tensor | float | None
+    apply_noise: bool
+
+
 class ObservationManager:
     def __init__(
         self,
@@ -220,6 +228,25 @@ class ObservationManager:
         self.group_term_names = {name: group.term_order for name, group in self._groups}
         self.group_obs_dim: dict[str, int] = {}
         self.group_schemas: dict[str, ObservationGroupSchema] = {}
+        self._prepared: tuple[tuple[str, ObservationGroupCfg, tuple[_PreparedObservationTerm, ...]], ...] = tuple(
+            (
+                group_name,
+                group_cfg,
+                tuple(
+                    _PreparedObservationTerm(
+                        name=term_name,
+                        cfg=term_cfg,
+                        scale=_cached_observation_scale(term_cfg.scale, env.device),
+                        apply_noise=group_cfg.enable_corruption and term_cfg.noise is not None,
+                    )
+                    for term_name, term_cfg in _frozen_items(
+                        group_cfg.terms, group_cfg.term_order, context=f"observation group {group_name!r}"
+                    )
+                ),
+            )
+            for group_name, group_cfg in self._groups
+        )
+        self._raw_cache: dict[int, torch.Tensor] = {}
 
     @property
     def active_terms(self) -> dict[str, tuple[str, ...]]:
@@ -235,42 +262,53 @@ class ObservationManager:
 
     def compute(self) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         observations: dict[str, torch.Tensor | dict[str, torch.Tensor]] = {}
-        for group_name, group_cfg in self._groups:
+        raw_cache = self._raw_cache
+        raw_cache.clear()
+        device = self.env.device
+        num_envs = self.env.num_envs
+        for group_name, group_cfg, terms in self._prepared:
             term_values: dict[str, torch.Tensor] = {}
             segments: list[TensorSegment] = []
-            for term_name, term_cfg in _frozen_items(
-                group_cfg.terms, group_cfg.term_order, context=f"observation group {group_name!r}"
-            ):
-                value = torch.as_tensor(term_cfg.func(self.env, **term_cfg.params), device=self.env.device)
-                if value.ndim < 2 or value.shape[0] != self.env.num_envs:
-                    raise ValueError(
-                        f"observation {group_name}.{term_name} must have leading shape ({self.env.num_envs}, ...)"
-                    )
-                value = value * torch.as_tensor(term_cfg.scale, device=self.env.device)
-                if group_cfg.enable_corruption and term_cfg.noise is not None:
-                    noise = self.rng.uniform(
-                        f"observation_noise.{group_name}.{term_name}",
+            for term in terms:
+                term_cfg = term.cfg
+                raw = raw_cache.get(id(term_cfg))
+                if raw is None:
+                    raw = term_cfg.func(self.env, **term_cfg.params)
+                    if not isinstance(raw, torch.Tensor):
+                        raw = torch.as_tensor(raw, device=device)
+                    elif raw.device != device:
+                        raw = raw.to(device=device)
+                    if raw.ndim < 2 or raw.shape[0] != num_envs:
+                        raise ValueError(
+                            f"observation {group_name}.{term.name} must have leading shape ({num_envs}, ...)"
+                        )
+                    raw_cache[id(term_cfg)] = raw
+                value = raw if term.scale is None else raw * term.scale
+                if term.apply_noise:
+                    assert term_cfg.noise is not None
+                    value = value + self.rng.uniform(
+                        f"observation_noise.{group_name}.{term.name}",
                         term_cfg.noise.low,
                         term_cfg.noise.high,
                         tuple(value.shape),
                         dtype=value.dtype,
                     )
-                    value = value + noise
                 if term_cfg.clip is not None:
                     value = value.clamp(*term_cfg.clip)
                 actual_shape = tuple(value.shape[1:])
                 if term_cfg.shape is not None and actual_shape != term_cfg.shape:
                     raise ValueError(
-                        f"observation {group_name}.{term_name} has shape {actual_shape}, expected {term_cfg.shape}"
+                        f"observation {group_name}.{term.name} has shape {actual_shape}, expected {term_cfg.shape}"
                     )
-                term_values[term_name] = value
-                segments.append(TensorSegment(term_name, actual_shape, term_cfg.semantic))
-            schema = ObservationGroupSchema(group_name, tuple(segments))
-            self.group_schemas[group_name] = schema
-            self.group_obs_dim[group_name] = schema.flat_dim
+                term_values[term.name] = value
+                segments.append(TensorSegment(term.name, actual_shape, term_cfg.semantic))
+            if group_name not in self.group_schemas:
+                schema = ObservationGroupSchema(group_name, tuple(segments))
+                self.group_schemas[group_name] = schema
+                self.group_obs_dim[group_name] = schema.flat_dim
             if group_cfg.concatenate_terms:
                 observations[group_name] = torch.cat(
-                    [term_values[name].reshape(self.env.num_envs, -1) for name in group_cfg.term_order], dim=-1
+                    [term_values[name].reshape(num_envs, -1) for name in group_cfg.term_order], dim=-1
                 )
             else:
                 observations[group_name] = term_values
@@ -278,6 +316,14 @@ class ObservationManager:
 
     def reset(self, env_ids: torch.Tensor | Sequence[int] | None = None) -> None:
         del env_ids
+
+
+def _cached_observation_scale(scale: float | torch.Tensor, device: torch.device) -> torch.Tensor | float | None:
+    if isinstance(scale, torch.Tensor):
+        return scale.to(device=device)
+    if scale == 1.0:
+        return None
+    return float(scale)
 
 
 @dataclass(frozen=True)

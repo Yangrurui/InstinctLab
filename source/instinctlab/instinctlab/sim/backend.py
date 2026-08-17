@@ -15,9 +15,30 @@ from .scene import SceneSpec, SceneView, SimulationSpec
 
 
 class SensorReadPhase(str, Enum):
+    """When canonical views are refreshed.
+
+    ``POST_PHYSICS`` copies the buffers left by the last ``step()``. On MJLab
+    those derived fields (``xpos`` / ``xquat`` / ``cvel``) lag ``qpos`` /
+    ``qvel`` by one physics substep; reward and termination read that view.
+
+    ``PRE_OBSERVATION`` is the InstinctMJ-equivalent refresh: MJLab runs
+    ``sim.forward()`` and recopies so heading commands and policy / critic IMU
+    terms match current ``qpos``. Isaac already has current poses after
+    ``step()``, so it only recopies. Skip this call when ``POST_RESET`` already
+    forwarded the batch in the same env step.
+
+    After an interval write, ``POST_INTERVAL`` recopies without ``forward()``.
+    InstinctMJ and Isaac Lab also leave derived quantities as the engine left
+    them: MJLab ``cvel`` can still be pre-push, Isaac buffers already hold the
+    written velocity. ``POST_EVENT`` still forwards, for write-then-read helpers
+    that need kinematics to catch up.
+    """
+
     POST_PHYSICS = "post_physics"
     POST_RESET = "post_reset"
     POST_EVENT = "post_event"
+    POST_INTERVAL = "post_interval"
+    PRE_OBSERVATION = "pre_observation"
 
 
 JOINT_ACC_SOURCES = frozenset({"qacc_v1", "isaaclab_lazy_fd_v1", "fd_v1"})

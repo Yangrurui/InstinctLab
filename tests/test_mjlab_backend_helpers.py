@@ -12,6 +12,7 @@ from instinctlab.backends.mjlab.simulator import (
     MjlabBackend,
     _enable_effort_actuator,
     _expanded_randomization_fields,
+    _group_equal_pd_joints,
     _load_mjcf,
     _native_contact_sensor_cfg,
     _solref_dampratio_from_restitution,
@@ -202,6 +203,24 @@ def test_mjlab_effort_actuator_is_enabled_only_when_requested() -> None:
     assert not _enable_effort_actuator(False, effort_required)
 
 
+def test_g1_pd_actuators_group_by_equal_gains() -> None:
+    robot = make_g1_29dof_robot_spec()
+    grouped = _group_equal_pd_joints(robot.joint_properties)
+    names = [name for group_names, _ in grouped for name in group_names]
+
+    assert len(names) == len(robot.joint_properties)
+    assert set(names) == {item.name for item in robot.joint_properties}
+    assert len(grouped) == 5
+    for group_names, properties in grouped:
+        assert len(group_names) >= 1
+        for name in group_names:
+            item = robot.joint_properties[robot.joint_index(name)]
+            assert item.stiffness == properties.stiffness
+            assert item.damping == properties.damping
+            assert item.effort_limit == properties.effort_limit
+            assert item.armature == properties.armature
+
+
 def test_mjlab_control_cache_tracks_in_place_updates() -> None:
     backend = object.__new__(MjlabBackend)
     backend._last_control_mode = None
@@ -297,6 +316,18 @@ def test_mjlab_post_physics_sync_does_not_forward_again() -> None:
     backend.synchronize(SensorReadPhase.POST_EVENT)
     assert simulation.forward_calls == 1
     assert native_scene.write_calls == 1
+
+    backend.synchronize(SensorReadPhase.POST_INTERVAL)
+    assert simulation.forward_calls == 1
+    assert native_scene.write_calls == 1
+
+
+def test_mjlab_pre_observation_sync_forwards_without_write() -> None:
+    backend, simulation, native_scene = _make_runtime_backend()
+
+    backend.synchronize(SensorReadPhase.PRE_OBSERVATION)
+    assert simulation.forward_calls == 1
+    assert native_scene.write_calls == 0
 
 
 def test_mjlab_position_step_has_no_effort_mask_host_sync(monkeypatch) -> None:

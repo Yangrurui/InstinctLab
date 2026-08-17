@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from instinctlab.assets import ASSETS
 from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_JOINT_NAMES
 from instinctlab.envs import UnifiedManagerBasedRLEnvCfg
@@ -250,7 +252,11 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                     "feet_slide": RewardTermCfg(
                         mdp.contact_slide,
                         weight=-0.1,
-                        params={"sensor_name": "feet_contact_forces", "body_names": _FEET},
+                        params={
+                            "sensor_name": "feet_contact_forces",
+                            "body_names": _FEET,
+                            "threshold": 0.1,
+                        },
                     ),
                     "flat_orientation": RewardTermCfg(mdp.flat_orientation_l2, weight=-1.0),
                     "stand_still": RewardTermCfg(
@@ -315,7 +321,7 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                 mdp.randomize_sliding_friction,
                 mode="startup",
                 params={
-                    "body_names": robot.material_body_names,
+                    "body_names": (".*",),
                     "backend_params": LOCOMOTION_MATERIAL_BACKEND_PARAMS,
                 },
             ),
@@ -365,12 +371,16 @@ def locomotion_flat_env_cfg(*, num_envs: int = 4096) -> UnifiedManagerBasedRLEnv
                     "resampling_time_range": (10.0, 10.0),
                     "rel_standing_envs": 0.2,
                     "rel_heading_envs": 0.5,
+                    "rel_world_envs": 0.0,
+                    "rel_forward_envs": 0.0,
+                    "init_velocity_prob": 0.0,
+                    "heading_command": True,
                     "heading_control_stiffness": 0.5,
                     "ranges": {
                         "lin_vel_x": (-0.5, 1.0),
                         "lin_vel_y": (-0.5, 0.5),
                         "ang_vel_z": (-1.5, 1.5),
-                        "heading": (-3.14, 3.14),
+                        "heading": (-math.pi, math.pi),
                     },
                 },
             )

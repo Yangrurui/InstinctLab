@@ -123,6 +123,7 @@ def main() -> None:
     env_cfg = task.make_env_cfg(num_envs=args.num_envs)
     env_cfg = replace(env_cfg, seed=args.seed)
     env = UnifiedManagerBasedRLEnv(env_cfg, backend)
+    env.reset()
     device = env.device
     action = torch.zeros(env.num_envs, env.action_manager.total_action_dim, device=device)
 
@@ -239,6 +240,12 @@ def main() -> None:
         samples = [profile_fields() for _ in range(max(1, args.steps))]
         keys = samples[0]
         field_ms = {name: sum(sample[name] for sample in samples) / len(samples) for name in keys}
+    sync_ops_ms = {}
+    profile_ops = getattr(env.backend, "profile_sync_ops", None)
+    if callable(profile_ops):
+        samples = [profile_ops() for _ in range(max(1, args.steps))]
+        keys = samples[0]
+        sync_ops_ms = {name: sum(sample[name] for sample in samples) / len(samples) for name in keys}
     report = {
         "backend": args.backend,
         "num_envs": args.num_envs,
@@ -247,6 +254,7 @@ def main() -> None:
         "device": str(device),
         "ms": {name: value / args.steps for name, value in buckets.items()},
         "field_ms": field_ms,
+        "sync_ops_ms": sync_ops_ms,
         "bridge_ratio": bridge_ratio,
         "fps": fps,
         "ops": _summarize_profiler(prof) if prof is not None else {},

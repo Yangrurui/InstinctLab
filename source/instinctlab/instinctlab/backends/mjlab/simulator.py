@@ -156,6 +156,26 @@ def _enable_effort_actuator(
     return supports_effort_control and Capability.EFFORT_CONTROL in requirements.capabilities
 
 
+def _group_equal_pd_joints(properties: Iterable[Any]) -> tuple[tuple[tuple[str, ...], Any], ...]:
+    """Collapse joints that share implicit-PD gains into one native actuator cfg.
+
+    ``BuiltinPdActuator`` is not fused by mjlab's ``BuiltinActuatorGroup``, so one
+    cfg per joint is four times as many CUDA ctrl writes as InstinctMJ's motor
+    groups. Gains stay per-joint identical; only the write batching changes.
+    """
+    groups: dict[tuple[float, float, float, float], list[str]] = {}
+    heads: dict[tuple[float, float, float, float], Any] = {}
+    order: list[tuple[float, float, float, float]] = []
+    for item in properties:
+        key = (float(item.stiffness), float(item.damping), float(item.effort_limit), float(item.armature))
+        if key not in groups:
+            groups[key] = []
+            heads[key] = item
+            order.append(key)
+        groups[key].append(item.name)
+    return tuple((tuple(groups[key]), heads[key]) for key in order)
+
+
 def _write_cvel_link_velocity(
     pos: torch.Tensor,
     subtree_com: torch.Tensor,
@@ -330,10 +350,10 @@ class MjlabBackend:
             return _load_mjcf(asset_path, mujoco, asset.load_mode)
 
         actuator_cfgs: list[Any] = []
-        for properties in robot.joint_properties:
+        for names, properties in _group_equal_pd_joints(robot.joint_properties):
             actuator_cfgs.append(
                 NativePdActuatorCfg(
-                    target_names_expr=(properties.name,),
+                    target_names_expr=names,
                     stiffness=properties.stiffness,
                     damping=properties.damping,
                     effort_limit=properties.effort_limit,
@@ -344,11 +364,19 @@ class MjlabBackend:
             # A parallel native motor channel makes direct effort mode available.
             # In effort mode step() continuously nulls the PD error before applying
             # this channel, and MuJoCo's joint actfrcrange clamps their total.
+            effort_groups: dict[float, list[str]] = {}
+            effort_order: list[float] = []
             for properties in robot.joint_properties:
+                key = float(properties.effort_limit)
+                if key not in effort_groups:
+                    effort_groups[key] = []
+                    effort_order.append(key)
+                effort_groups[key].append(properties.name)
+            for key in effort_order:
                 actuator_cfgs.append(
                     BuiltinMotorActuatorCfg(
-                        target_names_expr=(properties.name,),
-                        effort_limit=properties.effort_limit,
+                        target_names_expr=tuple(effort_groups[key]),
+                        effort_limit=key,
                     )
                 )
 
@@ -952,6 +980,8 @@ class MjlabBackend:
         if phase in {SensorReadPhase.POST_RESET, SensorReadPhase.POST_EVENT}:
             self._mj_scene.write_data_to_sim()
             self._sim.forward()
+        elif phase is SensorReadPhase.PRE_OBSERVATION:
+            self._sim.forward()
         if self._alias_native_views and not self._native_views_still_valid():
             self._detach_native_views()
         if self._sync_fast_path:
@@ -1085,6 +1115,26 @@ class MjlabBackend:
             state.joint_pos.copy_(data.qpos[:, q_start : q_start + q_count])
             state.joint_vel.copy_(data.qvel[:, v_start : v_start + v_count])
             state.joint_acc.copy_(data.qacc[:, v_start : v_start + v_count])
+        self._sync_cvel(
+            root_pos,
+            root_cvel,
+            body_pos,
+            body_cvel,
+            subtree_com,
+        )
+        state.applied_joint_effort.copy_(native.qfrc_actuator)
+
+    def _sync_cvel(
+        self,
+        root_pos: torch.Tensor,
+        root_cvel: torch.Tensor,
+        body_pos: torch.Tensor,
+        body_cvel: torch.Tensor,
+        subtree_com: torch.Tensor,
+    ) -> None:
+        assert self._tmp_body_offset is not None
+        assert self._tmp_root_offset is not None
+        state = self.scene.articulations[self._entity_name].data
         _write_cvel_link_velocity(
             root_pos,
             subtree_com,
@@ -1101,28 +1151,35 @@ class MjlabBackend:
             state.body_ang_vel_w,
             self._tmp_body_offset,
         )
-        state.applied_joint_effort.copy_(native.qfrc_actuator)
+
+    def _refresh_contact_force_history(self, name: str) -> None:
+        binding = self._contact_bindings[name]
+        canonical = self.scene.sensors[name]
+        data = binding.native_sensor.data
+        if data.force is None:
+            raise RuntimeError(f"MJLab contact sensor {name!r} returned no force data")
+        binding.index_map.copy_to_canonical(data.force, canonical.net_forces_w, dim=1)
+        if canonical.history_length:
+            if data.force_history is None:
+                raise RuntimeError(f"MJLab contact sensor {name!r} returned no force history")
+            history = binding.index_map.to_canonical(data.force_history, dim=1)
+            canonical.net_forces_w_history.copy_(history.permute(0, 2, 1, 3))
+        if binding.track_air_time:
+            if data.current_air_time is None:
+                raise RuntimeError(f"MJLab contact sensor {name!r} returned no air-time data")
+            binding.index_map.copy_to_canonical(data.current_air_time, canonical.current_air_time, dim=1)
+            binding.index_map.copy_to_canonical(data.current_contact_time, canonical.current_contact_time, dim=1)
+            binding.index_map.copy_to_canonical(data.last_air_time, canonical.last_air_time, dim=1)
+            binding.index_map.copy_to_canonical(data.last_contact_time, canonical.last_contact_time, dim=1)
+
+    def _refresh_contact_active(self, name: str) -> None:
+        binding = self._contact_bindings[name]
+        self.scene.sensors[name].update_active(binding.force_threshold)
 
     def _refresh_contacts(self) -> None:
-        for name, binding in self._contact_bindings.items():
-            canonical = self.scene.sensors[name]
-            data = binding.native_sensor.data
-            if data.force is None:
-                raise RuntimeError(f"MJLab contact sensor {name!r} returned no force data")
-            binding.index_map.copy_to_canonical(data.force, canonical.net_forces_w, dim=1)
-            if canonical.history_length:
-                if data.force_history is None:
-                    raise RuntimeError(f"MJLab contact sensor {name!r} returned no force history")
-                history = binding.index_map.to_canonical(data.force_history, dim=1)
-                canonical.net_forces_w_history.copy_(history.permute(0, 2, 1, 3))
-            if binding.track_air_time:
-                if data.current_air_time is None:
-                    raise RuntimeError(f"MJLab contact sensor {name!r} returned no air-time data")
-                binding.index_map.copy_to_canonical(data.current_air_time, canonical.current_air_time, dim=1)
-                binding.index_map.copy_to_canonical(data.current_contact_time, canonical.current_contact_time, dim=1)
-                binding.index_map.copy_to_canonical(data.last_air_time, canonical.last_air_time, dim=1)
-                binding.index_map.copy_to_canonical(data.last_contact_time, canonical.last_contact_time, dim=1)
-            canonical.update_active(binding.force_threshold)
+        for name in self._contact_bindings:
+            self._refresh_contact_force_history(name)
+            self._refresh_contact_active(name)
 
     def render(self, mode: str) -> object | None:
         self._require_initialized()
@@ -1268,8 +1325,127 @@ class MjlabBackend:
 
         times["joint_*"] = _ms(_copy_joints)
         times["body_pose"] = _ms(_copy_body_pose)
-        times["body_cvel"] = _ms(_copy_body_cvel)
-        times["contact_*"] = _ms(self._refresh_contacts)
+        times["cvel"] = _ms(_copy_body_cvel)
+        for name in self._contact_bindings:
+            times[f"contact.{name}.force_history"] = _ms(
+                lambda sensor=name: self._refresh_contact_force_history(sensor)
+            )
+            times[f"contact.{name}.update_active"] = _ms(lambda sensor=name: self._refresh_contact_active(sensor))
+        times["contact_*"] = sum(value for key, value in times.items() if key.startswith("contact."))
+        return times
+
+    def profile_sync_ops(self) -> dict[str, float]:
+        """Kernel-level split of cvel / contact history / update_active.
+
+        Training never calls this. Used by ``scripts/profile_backend.py``.
+        """
+        import time
+
+        self._require_initialized()
+        assert self._body_slice is not None
+        assert self._tmp_body_offset is not None
+        assert self._tmp_root_offset is not None
+        times: dict[str, float] = {}
+
+        def _ms(fn) -> float:
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            begin = time.perf_counter()
+            fn()
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            return (time.perf_counter() - begin) * 1000.0
+
+        state = self.scene.articulations[self._entity_name].data
+        data = self._entity.data.data
+        body_start, body_count = self._body_slice
+        root_id = int(self._entity.indexing.root_body_id)
+        root_pos = data.xpos[:, root_id]
+        body_pos = data.xpos[:, body_start : body_start + body_count]
+        root_cvel = data.cvel[:, root_id]
+        body_cvel = data.cvel[:, body_start : body_start + body_count]
+        subtree_com = data.subtree_com[:, root_id]
+
+        def _cvel_offset() -> None:
+            offset = self._tmp_body_offset
+            assert offset is not None
+            offset.copy_(subtree_com.unsqueeze(1).expand_as(body_pos))
+            offset.sub_(body_pos)
+
+        def _cvel_ang() -> None:
+            state.body_ang_vel_w.copy_(body_cvel[..., :3])
+
+        def _cvel_cross() -> None:
+            torch.cross(state.body_ang_vel_w, self._tmp_body_offset, dim=-1, out=state.body_lin_vel_w)
+            state.body_lin_vel_w.neg_()
+            state.body_lin_vel_w.add_(body_cvel[..., 3:6])
+
+        def _cvel_root() -> None:
+            _write_cvel_link_velocity(
+                root_pos,
+                subtree_com,
+                root_cvel,
+                state.root_lin_vel_w,
+                state.root_ang_vel_w,
+                self._tmp_root_offset,
+            )
+
+        def _effort() -> None:
+            state.applied_joint_effort.copy_(self._entity.data.qfrc_actuator)
+
+        def _alias_check() -> None:
+            if self._alias_native_views:
+                self._native_views_still_valid()
+
+        times["sync.alias_check"] = _ms(_alias_check)
+        times["sync.effort_copy"] = _ms(_effort)
+        times["cvel.root"] = _ms(_cvel_root)
+        times["cvel.body.offset"] = _ms(_cvel_offset)
+        times["cvel.body.ang_copy"] = _ms(_cvel_ang)
+        times["cvel.body.cross_add"] = _ms(_cvel_cross)
+
+        for name, binding in self._contact_bindings.items():
+            canonical = self.scene.sensors[name]
+            sensor = binding.native_sensor.data
+            prefix = f"contact.{name}"
+
+            def _force(sensor=sensor, binding=binding, canonical=canonical, name=name) -> None:
+                if sensor.force is None:
+                    raise RuntimeError(f"MJLab contact sensor {name!r} returned no force data")
+                binding.index_map.copy_to_canonical(sensor.force, canonical.net_forces_w, dim=1)
+
+            def _history(sensor=sensor, binding=binding, canonical=canonical, name=name) -> None:
+                if sensor.force_history is None:
+                    raise RuntimeError(f"MJLab contact sensor {name!r} returned no force history")
+                history = binding.index_map.to_canonical(sensor.force_history, dim=1)
+                canonical.net_forces_w_history.copy_(history.permute(0, 2, 1, 3))
+
+            def _air(sensor=sensor, binding=binding, canonical=canonical, name=name) -> None:
+                if sensor.current_air_time is None:
+                    raise RuntimeError(f"MJLab contact sensor {name!r} returned no air-time data")
+                binding.index_map.copy_to_canonical(sensor.current_air_time, canonical.current_air_time, dim=1)
+                binding.index_map.copy_to_canonical(sensor.current_contact_time, canonical.current_contact_time, dim=1)
+                binding.index_map.copy_to_canonical(sensor.last_air_time, canonical.last_air_time, dim=1)
+                binding.index_map.copy_to_canonical(sensor.last_contact_time, canonical.last_contact_time, dim=1)
+
+            def _active_now(canonical=canonical, binding=binding) -> None:
+                canonical.contact_active.copy_(
+                    torch.linalg.vector_norm(canonical.net_forces_w, dim=-1) > binding.force_threshold
+                )
+
+            def _active_hist(canonical=canonical, binding=binding) -> None:
+                canonical.contact_active_history.copy_(
+                    torch.linalg.vector_norm(canonical.net_forces_w_history, dim=-1) > binding.force_threshold
+                )
+
+            times[f"{prefix}.force_copy"] = _ms(_force)
+            times[f"{prefix}.history_permute_copy"] = _ms(_history)
+            if binding.track_air_time:
+                times[f"{prefix}.air_time_copy"] = _ms(_air)
+            times[f"{prefix}.update_active.current"] = _ms(_active_now)
+            times[f"{prefix}.update_active.history"] = _ms(_active_hist)
+
+        times["sync.python_forward"] = _ms(lambda: None)
         return times
 
     def close(self) -> None:

@@ -108,12 +108,20 @@ def feet_air_time_positive_biped(
     return reward * (torch.linalg.vector_norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1)
 
 
-def contact_slide(env, sensor_name: str, body_names: tuple[str, ...]) -> torch.Tensor:
+def contact_slide(
+    env,
+    sensor_name: str,
+    body_names: tuple[str, ...],
+    threshold: float = 0.1,
+) -> torch.Tensor:
     robot = _robot(env)
     sensor = env.scene.sensors[sensor_name]
     sensor_ids = _ids(sensor.body_names, body_names, env.device)
     body_ids = _ids(robot.body_names, body_names, env.device)
-    contact = sensor.contact_active[:, sensor_ids]
+    if sensor.history_length < 1:
+        raise ValueError("contact_slide requires contact force history")
+    force_norm = torch.linalg.vector_norm(sensor.net_forces_w_history[:, :, sensor_ids, :], dim=-1)
+    contact = force_norm.max(dim=1).values > threshold
     speed = torch.linalg.vector_norm(robot.data.body_lin_vel_w[:, body_ids, :2], dim=-1)
     return torch.sum(contact * speed, dim=1)
 
@@ -364,6 +372,31 @@ def _sample_material_buckets(
     return sliding, dynamic, restitution
 
 
+_ALL_BODIES_PATTERN = ".*"
+
+
+def _resolve_material_body_names(env, body_names: tuple[str, ...]) -> tuple[str, ...]:
+    robot = env.cfg.scene.robot
+    if body_names == (_ALL_BODIES_PATTERN,):
+        return robot.physical_body_names
+    if _ALL_BODIES_PATTERN in body_names:
+        raise ValueError("material body_names can use '.*' only as the sole pattern")
+    frames = set(body_names).intersection(robot.frame_names)
+    if frames:
+        raise ValueError(f"material randomization cannot target frames: {sorted(frames)}")
+    return body_names
+
+
+def _bodies_with_collision_shapes(env, body_ids: torch.Tensor) -> torch.Tensor:
+    counts = env.backend.material_shape_counts(_entity_name(env), body_ids)
+    if counts.dtype != torch.int64 or counts.ndim != 1 or int(counts.numel()) != int(body_ids.numel()):
+        raise ValueError("material_shape_counts must return an int64 vector with one count per targeted body")
+    keep = counts > 0
+    if not bool(torch.any(keep)):
+        raise ValueError("material randomization found no collision shapes for the requested bodies")
+    return body_ids[keep]
+
+
 def _material_target_count(env, body_ids: torch.Tensor, *, assign_per_shape: bool) -> tuple[int, str]:
     if not assign_per_shape:
         return int(body_ids.numel()), "body"
@@ -403,10 +436,8 @@ def randomize_sliding_friction(
         assign_per_shape=assign_per_shape,
     )
     robot = _robot(env)
-    frames = set(body_names).intersection(env.cfg.scene.robot.frame_names)
-    if frames:
-        raise ValueError(f"material randomization cannot target frames: {sorted(frames)}")
-    body_ids = _ids(robot.body_names, body_names, env.device)
+    resolved = _resolve_material_body_names(env, body_names)
+    body_ids = _bodies_with_collision_shapes(env, _ids(robot.body_names, resolved, env.device))
     count = int(env_ids.numel())
     n_targets, layout = _material_target_count(env, body_ids, assign_per_shape=bool(params["assign_per_shape"]))
     if layout not in MATERIAL_LAYOUTS:
