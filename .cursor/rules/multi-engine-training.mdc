@@ -32,16 +32,19 @@ alwaysApply: false
 
 不要因为「Isaac Lab 与 mjlab 的 mdp 库 0% 签名一致」就给每个 term 写两份实现——那个数字比较的是两个独立库，不是本仓库的实现路径。
 
-## compat denylist：6 个同名不同义的陷阱
+## compat denylist（已实现，`instinctlab/compat/denylist.py`）
 
-误用必须报错或强制显式选择，禁止默认放行：
+5 个同名不同义的陷阱，误用必须报错，禁止默认放行：
 
 1. `joint_acc`：Isaac 有限差分 vs mjlab `qacc`
-2. 关节力矩：Isaac `applied_torque` ↔ mjlab **`qfrc_actuator`**，不是 `actuator_force`（后者 nu 维执行器空间）
-3. `default_root_state` / `write_root_state` 速度：Isaac COM 系 vs mjlab link 系
-4. 非根 body 的 `body_link_vel_w`：Isaac per-body COM 偏移 vs mjlab root `subtree_com`
-5. `gravity_vec_w`：Isaac 从 sim 重力归一化 vs mjlab 硬编码 `[0,0,-1]`
-6. Isaac legacy 别名 `root_lin_vel_w` / `root_vel_w` 指向 **COM** 速度——codemod 必须改写为 `root_com_lin_vel_w`，不是 `root_link_lin_vel_w`
+2. `applied_torque`：Isaac 关节空间 (nv)；mjlab **无同名属性**，等价物是 `qfrc_actuator` (nv)，**不是** `actuator_force`（nu 维执行器空间，假朋友）
+3. `default_root_state` 速度行：Isaac COM 系 vs mjlab link 系
+4. 非根 body 的 `body_link_lin_vel_w`：Isaac per-body COM 偏移 vs mjlab root `subtree_com`。中枢**不提供任何 per-body 速度**；根部用 `root_link_lin_vel_w`
+5. 重力向量：Isaac 叫 **`GRAVITY_VEC_W`（大写）**、从 live sim 重力归一化；mjlab 叫 `gravity_vec_w`、硬编码 `[0,0,-1]`。可移植 term 一律改用 `projected_gravity_b`
+
+**Isaac legacy 别名共 19 个**（13 个指向 COM、6 个指向 link），改写表见 `LEGACY_COM_ALIASES` / `LEGACY_LINK_ALIASES`。最危险的是 **`root_lin_vel_b`**：读起来像 link 量，实际是 `root_com_lin_vel_b`；按直觉改写成 `root_link_lin_vel_b` 就换了物理量，而 mjlab 没有这些别名，下游不会报错。
+
+探测属性是否存在时，`hasattr(EntityData, name)` 会漏掉 mjlab 用 dataclass 注解声明、无类级默认值的字段（`gravity_vec_w`、`default_root_state`、`soft_joint_pos_limits`）。必须同时查 `__annotations__`。
 
 ## 三个已定决策
 

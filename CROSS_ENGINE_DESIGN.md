@@ -437,7 +437,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | 阶段 | 内容 | 完成判据 |
 |---|---|---|
 | P0 | 把 main 的 `G1FlatEnvCfg` 结构化 dump 成唯一 golden；建立差异白名单文件 | golden 与白名单入库，dump 可复现 |
-| P1 | `compat/`：属性映射表 + denylist + `EntityView` 两实现 + `SensorRef` + 纯 torch math | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错 |
+| P1 | `compat/`：署名词汇表 + denylist（**已完成**）→ `EntityView` 两实现 + `SensorRef` + 纯 torch math | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表断言由测试对着已安装引擎复核 |
 | P2 | `spec/` + `EngineAdapter` + `TermRegistry` + 三级 Requirement；spec 层 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 可编译 |
 | P3 | `mdp/`：移植 locomotion 所需的可移植 term（先做 flat G1 的 16 reward + 6 obs + 2 done） | 每个 term 有两引擎下的数值一致性测试 |
 | P4 | isaacsim adapter：`TaskSpec` → `ManagerBasedRLEnvCfg`，term 配置带 `preserve_order=True` | 编译产物与 golden 的 diff 落在白名单内 |
@@ -512,26 +512,33 @@ L0 是本设计的最大收益：因为编译目标就是 Isaac Lab 原生 cfg�
 ### 12.3 `instinctlab/compat/`
 
 ```
-compat/vocab.py     署名的中枢词汇表：每个量的参考系 / 原点 / 单位 / 旋转约定 + 各引擎 spoke 映射（S1）
-compat/attrs.py     属性映射表 + denylist
+compat/vocab.py     署名的中枢词汇表：每个量的参考系 / 原点 / 单位 / 旋转约定 + 各引擎 spoke 映射（S1）  ✅ 已实现
+compat/denylist.py  同名不同义陷阱 + Isaac legacy 别名改写表                                    ✅ 已实现
 compat/entity.py    EntityView：统一 asset.data 词汇，每引擎一实现
 compat/sensors.py   SensorRef：统一接触/射线传感器引用与索引
 compat/env.py       统一 env 访问器（get_command 空值、physics_dt 路径、类型名）
 compat/math.py      纯 torch 数学工具（quat_apply_inverse / yaw_quat / ...），四元数一律 wxyz（D8）
 ```
 
-**denylist：6 个同名不同义的语义陷阱**，误用必须报错或强制显式选择，不得默认放行：
+`vocab.py` / `denylist.py` 的每条断言都由 `tests/test_compat_vocab.py` 对着**已安装的引擎**复核，不依赖任何引擎运行时：mjlab 的 `EntityData` 可独立 import，Isaac 的 `ArticulationData` 用 `ast` 读源码（`import isaaclab.assets` 会拉起 `omni`）。写这些测试时纠正了本节此前的三处说法，见下。
+
+**denylist：5 个同名不同义的语义陷阱**，误用必须报错，不得默认放行：
 
 | 陷阱 | isaacsim | mjlab |
 |---|---|---|
-| `joint_acc` | 有限差分 | `qacc` 解析值 |
-| 关节力矩 | `applied_torque` | `qfrc_actuator`（**不是** `actuator_force`，后者是 nu 维执行器空间） |
-| `default_root_state` / `write_root_state` 速度 | COM 系 | link 系 |
-| 非根 body 的 `body_link_vel_w` | per-body COM 偏移换算 | 用 root 的 `subtree_com` |
-| `gravity_vec_w` | 从 sim 重力归一化 | 硬编码 `[0,0,-1]` |
-| legacy 别名 `root_lin_vel_w` / `root_vel_w` | 指向 **COM** 速度，不是 link | 无此别名 |
+| `joint_acc` | 有限差分（`_previous_joint_vel`） | MuJoCo `qacc` 解析值 |
+| `applied_torque` | 关节空间 (nv) | **无同名属性**。关节空间等价物是 `qfrc_actuator` (nv)；`actuator_force` 是 nu 维执行器空间，是假朋友 |
+| `default_root_state` 速度行 | COM 系 | link 系 |
+| `body_link_lin_vel_w`（非根 body） | per-body COM 偏移换算 | 用 root 的 `subtree_com` |
+| 重力向量 | `GRAVITY_VEC_W`（**大写**），从 live sim 重力归一化，跟随任务改重力 | `gravity_vec_w`（小写），entity 构建期硬编码 `[0,0,-1]` |
 
-最后一条是迁移时最容易搞错的：Isaac Lab 的旧别名默认是 COM 语义。codemod 必须把它改写为 `root_com_lin_vel_w` 而不是 `root_link_lin_vel_w`。
+三处修正（均由测试实证）：
+
+1. **legacy 别名是 19 个，不是 2 个**，且分两组：13 个指向 COM 量，6 个指向 link 量。最危险的是 **`root_lin_vel_b`**——它读起来像 link 量，实际是 `root_com_lin_vel_b`。codemod 若按直觉改写成 `root_link_lin_vel_b` 就换了一个物理量，而 mjlab 没有这些别名，下游没有任何东西会报错。完整改写表在 `denylist.LEGACY_COM_ALIASES` / `LEGACY_LINK_ALIASES`，测试双向断言它等于 Isaac 自己 docstring 里的 `Same as :attr:` 声明。
+2. **重力向量不是同名陷阱，是拼写 + 语义双重差异**。Isaac Lab 的 `ArticulationData` 上**没有** `gravity_vec_w`；它叫 `GRAVITY_VEC_W`。可移植 term 一律改用 `projected_gravity_b`（两侧推导一致）；随机化重力的任务必须按 per-engine 处理。
+3. **`body_link_lin_vel_w` 不能既可移植又被 denylist**。中枢因此**不提供任何 per-body 速度**；根部速度用 `root_link_lin_vel_w`，per-body 速度走 per-engine term 并声明容差。
+
+另有一个探测方法上的坑值得记录：`hasattr(EntityData, name)` 会漏掉 mjlab 用 dataclass 注解声明、无类级默认值的字段（`gravity_vec_w`、`default_root_state`、`soft_joint_pos_limits` 都是这种）。判定属性是否存在必须同时查 `__annotations__`。
 
 ### 12.4 `instinctlab/mdp/`
 
