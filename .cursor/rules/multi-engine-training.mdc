@@ -15,7 +15,7 @@ alwaysApply: false
 项目的主要价值是**迁移**：接进任意引擎的开源项目，不改任务逻辑就能换引擎跑。不限于 Isaac Lab 项目——mjlab 项目要能反向迁移到 Isaac。结构上是编译器：**frontend 读进来 → IR → backend 编出去**，成本 O(N+M) 而非逐对转换器的 O(N×M)。
 
 - `spec/`：引擎无关声明，**已完成** ✅——`capability.py`（Requirement 三级）、`entity.py`（`EntityRef`）、`sensor.py`（`ContactSensorRef`）、`mdp.py`（`TermSpec` 家族 + `MdpSpec`）、`task.py`（`SimSpec` / `SceneSpec` / `AgentSpec` / `TaskSpec`）。**禁止 import 任何引擎**，含函数体内延迟 import，由 `tests/test_spec_isolation.py` 静态 + 动态双重把关
-- `mdp/`：**可移植 term 库，一份实现两引擎共用**（待做）。由移植 main 与 Isaac Lab 现有实现种子化，不重新推导数学
+- `mdp/`：**可移植 term 库，一份实现两引擎共用**。flat G1 所需部分已完成 ✅（20 个 term：`observations.py` / `rewards.py` / `terminations.py`）。由移植 main 与 Isaac Lab 现有实现种子化，不重新推导数学；属性名统一搬到 `compat/vocab.py` 的中枢拼写
 - `compat/`：薄兼容层，**已完成** ✅——`vocab.py`（**署名的**中枢词汇表）、`denylist.py`（6 项同名不同义 + 19 条 legacy 别名）、`math.py`（纯 torch，vendor 自两引擎共有的那份）、`entity.py`（`EntityRef` 下降 + resolve 后归一化）、`sensors.py`（接触传感器读取）、`env.py`（命令查找 / 类型名 / dt 配置路径）
 - **`EntityView` 已撤销**，不要重新引入：它要求 term 改走视图层，与「term 直接读 `asset.data.*`」这条迁移前提冲突。性能不是理由（proxy 每步仅 0.1%）。数据层两引擎拼写一致，不需要间接层；第三个引擎若偏离，由**该引擎 backend** 让自己的 data 对象满足 `vocab.HUB`（继承 + `__getattr__` 兜底），代价不外摊（§12.3.2）
 - `engines/`：共享机件，**已完成** ✅——`base.py`（`Resolution` / `CompiledTask` / `EngineAdapter` / `UnsupportedTerm`）、`registry.py`（`TermRegistry`，能力矩阵的唯一来源）、`compile.py`（`CompileCtx` / `compile_family` / `compile_mdp`）。这三个模块**同样禁止 import 引擎**，启动器才能在 bootstrap 之前枚举 adapter
@@ -93,6 +93,9 @@ alwaysApply: false
 - 可移植代码禁止 import `isaaclab.utils.math` 或 `mjlab.utils.lab_api.math`，一律走 `compat/math.py`；vendor 进来的函数不得就地修改，改了钉住它的对拍测试就失效了。也不要用 `quat_rotate` / `quat_rotate_inverse`（Isaac 已废弃，mjlab 已删除）。
 - `resolve()` 后禁止直接读 `cfg.<kind>_names`——Isaac 装的是正则、mjlab 装的是匹配结果，且两边都有真实消费者。一律走 `compat.entity.resolved_names()`（走索引，无需 per-engine 分支）。
 - `EntityRef` 表达不了的选择器种类必须报 `UnsupportedSelector`，禁止丢弃。12 种里只有 `joint` / `body` 重合；Isaac 的 `fixed_tendon` 与 mjlab 的 `tendon` **不合并**。
+- **flat G1 里这 3 个奖励不可移植，不要往 `mdp/` 里加**：`dof_acc_l2`（`joint_acc`：Isaac 跨步有限差分 vs mjlab 解析 `qacc`）、`dof_torques_l2`（`applied_torque` mjlab 没有，等价物是 `qfrc_actuator`(nv) 而非 `actuator_force`(nu)）、`contact_slide`（牛顿阈值 + 逐 body 线速度，中枢刻意不提供后者）。一律 `kind=` per-engine 实现并写明容差。
+- 根部速度：可移植 term 一律读 `root_link_*`。**角速度改成 link 拼写数值不变**（Isaac 的 `root_link_vel_w` 是 `root_com_vel_w.clone()` 后只修正 `[:, :3]`，角速度行原样拷贝，已实测并由测试钉住）；**线速度会变**，差 `ω × R(−com_pos_b)`，`base_lin_vel` 与 `track_lin_vel_xy_yaw_frame_exp` 因此各有一条白名单条目。
+- 接触类 term 收 `ContactSensorRef` 而非 `sensor_cfg`；`illegal_contact` **没有 `threshold` 参数**，改问引擎自己的接触判据。这是迁移中唯一无法回避的签名改动。
 - env 的公共面**两引擎已自发收敛**（`num_envs` / `device` / `physics_dt` / `step_dt` / `max_episode_length(_s)` / `episode_length_buf` / `scene` / `cfg` / `extras` / 七个 manager 全部同名同义，`scene[name]` 与 `scene.sensors[name]` 都可用）。term **直接读 `env.*`**，不要为这些加访问器——那是已撤销的 `EntityView` 错误。收敛由 `tests/test_compat_env.py` 钉住。分歧只有三处：命令查找一律走 `compat.env.get_command()`（mjlab 的 `NullCommandManager` 对任何名字返回 `None`，Isaac 抛 `KeyError`）；类型标注用 `compat.env.RlEnv` 而非 `ManagerBasedRLEnv` / `ManagerBasedRlEnv`（只差一个大写 L）；物理步长的配置路径 `cfg.sim.dt` vs `cfg.sim.mujoco.timestep` 属编译期，term 侧读 `env.physics_dt`。
 - 注册表两种入口并存：可移植族用 `@TERMS.portable(family)` 注册包装器（把 term 自带的 `func` 塞进原生 term 类），任何族都仍可 `@TERMS.<family>(kind)` 按 kind 注册。`func=` / `kind=` 二选一直接决定走哪条；缺少 portable 包装器属 **adapter 缺陷**，报错措辞要与「任务要求了引擎没有的能力」区分开。
 - `AgentSpec.runner` 用点路径惰性引用（`"pkg.module:Class"`），由 backend `resolve()`。**禁止在 `spec/` 里直接持有 runner cfg 类**——现有 `InstinctRlOnPolicyRunnerCfg` 建在 `isaaclab.utils.configclass` 上，持有即破坏隔离。`engine_overrides` 只用于让墙钟可比的 rollout 长度之类；按引擎改超参会让两次运行失去可比性。

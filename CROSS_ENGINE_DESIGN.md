@@ -368,9 +368,18 @@ def compile_family(family: str, specs: Mapping[str, TermSpec], ctx: CompileCtx, 
   reason: D1 同上
 - path: observations.policy.joint_pos.params.asset_cfg.joint_names
   reason: D1 同上
+- path: observations.critic.base_lin_vel.func
+  reason: >
+    可移植 term 读 root_link_lin_vel_b，main 读 root_lin_vel_b（= root_com_lin_vel_b 的 legacy 别名）。
+    二者差 ω × R(−com_pos_b)；中枢取 link 量因为它是两引擎都能表达的那个。critic 专用，不入部署策略。
+- path: rewards.track_lin_vel_xy_exp.func
+  reason: >
+    同上，读 root_link_lin_vel_w 而非 COM 别名。这一项会影响策略，不同于 critic 观测，需要在 review 中被明确看到。
 ```
 
 L0 测试编译 `TaskSpec` 后与 golden 逐字段比对，diff 必须为空或全部命中白名单。**新增白名单条目必须写 reason 并在 review 中被看到**——这是防止偏差悄悄累积的唯一闸门。
+
+**不需要白名单的一项**，记下来以免后人以为漏了：`base_ang_vel` 与 `track_ang_vel_z_world_exp` 同样从 COM 别名改成了 link 拼写，但**数值完全一致**。Isaac 的 `root_link_vel_w` 是 `root_com_vel_w.clone()` 之后**只对 `[:, :3]` 加 COM 偏移修正**，角速度行原样拷贝。刚体角速度本就与参考点无关，但这里是**读源码实测确认**而非物理直觉推断，由 `test_mdp_terms.py` 钉住；若 Isaac 哪天也修正角速度行，那条测试会失败，届时这两项才需要进白名单。
 
 ## 9. Locomotion Flat G1 的 TaskSpec（示意）
 
@@ -449,7 +458,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | P0 | 把 main 的 `G1FlatEnvCfg` 结构化 dump 成唯一 golden；建立差异白名单文件 | golden 与白名单入库，dump 可复现 |
 | P1 | **已完成**。`compat/`：署名词汇表 + denylist + 纯 torch math + `EntityRef` 下降 + 接触传感器读取 + `env` 访问器；`EntityView` 已撤销，见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表 / math / 选择器表 / 传感器轴序的每条断言由测试对着已安装引擎复核 |
 | P2 | **已完成**。`spec/`（`capability` / `entity` / `sensor` / `mdp` / `task`）+ `engines/`（`base` / `registry` / `compile`）+ 三级 Requirement；spec 与 engines 机件的 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 端到端编译整个 MdpSpec，跳过 / emulate / strict 三条路径各有测试与变异检验 |
-| P3 | `mdp/`：移植 locomotion 所需的可移植 term（先做 flat G1 的 16 reward + 6 obs + 2 done） | 每个 term 有两引擎下的数值一致性测试 |
+| P3 | **已完成**（flat G1 部分）。`mdp/`：20 个可移植 term（observations / rewards / terminations）；清出 3 个**不可移植**项交给 per-engine 注册表，见 §12.4.1 | 属性可移植性由 AST 扫描对着 denylist / legacy 别名表 / 两引擎数据类静态把关；term 数值由构造输入的桩验证；变异检验覆盖 |
 | P4 | isaacsim adapter：`TaskSpec` → `ManagerBasedRLEnvCfg`，term 配置带 `preserve_order=True` | 编译产物与 golden 的 diff 落在白名单内 |
 | P5 | mjlab adapter：移植 env 子类 / `MultiRewardManager` / 力阈值接触传感器 | 同一 TaskSpec 编译通过，差异全部落在白名单内 |
 | P6 | `train.py --engine` 收敛；退役 unified 栈；任务 id 单一注册；manifest 落盘 | isaacsim 跑 200 iter 曲线与 main 重合；mjlab 达到同等策略质量 |
@@ -645,6 +654,23 @@ Isaac Lab 拥有 `utils/math.py` 原本，mjlab 以 `utils/lab_api/math.py` 整�
 | 场景 / 地形 / 资产 / sim | **per-engine** | `engines/<name>/{scene,assets,sim}.py` |
 
 per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资产 / sim 主要是 **per-robot** 的：G1 补完一次，后续所有 G1 任务几乎零成本。
+
+#### 12.4.1 实测：flat G1 里三个「看起来可移植其实不是」的奖励
+
+按 golden 清点，flat G1 用到 20 个可移植函数 + 3 个不可移植项。**这 3 个是本阶段最有价值的产出**——它们全都长得像普通正则化奖励，直接照搬会在两引擎上各自优化不同的东西：
+
+| term | 读了什么 | 为什么不能可移植 |
+|---|---|---|
+| `dof_acc_l2` | `joint_acc` | Isaac 是**跨步有限差分**（`ArticulationData._previous_joint_vel`），mjlab 是 MuJoCo **解析 `qacc`**。接触附近二者差值超过该奖励自身尺度，而权重是 `-2e-7`——小到差异只表现为步态略有不同，不会有人去查 |
+| `dof_torques_l2` | `applied_torque` | mjlab **没有这个属性**。关节空间等价物是 `qfrc_actuator`(nv)；`actuator_force` 是假朋友，它在执行器空间(nu)，一对一驱动时才碰巧同维 |
+| `contact_slide` | 接触力牛顿阈值 + **逐 body 线速度** | 两条都不成立：两引擎报的力不是同一个量（仅法向 vs 完整三维）；中枢**刻意不提供任何逐 body 速度**，因为 Isaac 把每个 body 速度偏移到它自己的 COM，mjlab 报的是根的 `subtree_com` |
+
+三者一律用 `kind=` 声明、per-engine 实现并写明容差。**这不是绕开问题，这正是设计在起作用**：另一种做法是让一个 term 在两边都产出看着合理的数值，然后各自优化不同的目标。
+
+另有两处**签名必须改**，无法回避：
+
+- **接触类 term 收 `ContactSensorRef` 而非 `sensor_cfg`。** Isaac 声明一个宽传感器由 term 切片，mjlab 声明窄传感器由 term 整读，不存在一个可以同时传给两边的原生对象。
+- **`illegal_contact` 去掉了 `threshold`。** 两边的原版都对力取模长设牛顿阈值，但那个阈值在一边是「法向载荷 > N」、另一边是「含摩擦的总载荷 > N」，差值是那一刻摩擦承担的量——脚踩在斜坡上会一边越过阈值一边不越过。可移植版改问每个引擎自己的传感器「算不算接触」（走接触时长）。代价是失去了忽略轻微擦碰的能力；真需要力阈值的任务应当 per-engine 声明并写下容差，那才是共享阈值原本在做的事情的诚实版本。
 
 ## 13. 迁移工作流
 

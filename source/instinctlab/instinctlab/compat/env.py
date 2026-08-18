@@ -44,11 +44,13 @@ if TYPE_CHECKING:
 __all__ = [
     "ENV_TYPE_NAMES",
     "PHYSICS_DT_CFG_PATH",
+    "RAW_ACTION_ATTR",
     "RlEnv",
     "command_names",
     "env_engine",
     "get_command",
     "has_command",
+    "raw_action",
 ]
 
 ENV_TYPE_NAMES = {"isaacsim": "ManagerBasedRLEnv", "mjlab": "ManagerBasedRlEnv"}
@@ -57,6 +59,9 @@ ENV_TYPE_NAMES = {"isaacsim": "ManagerBasedRLEnv", "mjlab": "ManagerBasedRlEnv"}
 PHYSICS_DT_CFG_PATH = {"isaacsim": ("sim", "dt"), "mjlab": ("sim", "mujoco", "timestep")}
 """Where the physics timestep lives on each engine's config. Adapters write it; terms read
 ``env.physics_dt``, which is spelled the same on both."""
+
+RAW_ACTION_ATTR = {"isaacsim": "raw_actions", "mjlab": "raw_action"}
+"""An action term's untransformed input, differing by one character between the engines."""
 
 _ENGINE_BY_ROOT_PACKAGE = {"isaaclab": "isaacsim", "mjlab": "mjlab"}
 
@@ -133,6 +138,24 @@ def command_names(env: Any) -> list[str]:
 def has_command(env: Any, name: str) -> bool:
     """Whether ``name`` is a command of this environment."""
     return name in command_names(env)
+
+
+def raw_action(env: Any, action_name: str) -> torch.Tensor:
+    """The named action term's untransformed input.
+
+    Resolved by duck typing rather than by engine, since the difference is one character --
+    ``raw_actions`` against ``raw_action`` -- and a term that guessed wrong would raise an
+    ``AttributeError`` naming an attribute that looks correct.
+    """
+    term = env.action_manager.get_term(action_name)
+    for attr in RAW_ACTION_ATTR.values():
+        value = getattr(term, attr, None)
+        if value is not None:
+            return value
+    raise PortabilityError(
+        f"Action term {action_name!r} ({type(term).__name__}) exposes neither "
+        f"{' nor '.join(RAW_ACTION_ATTR.values())}. A new engine must be registered in compat.env."
+    )
 
 
 def get_command(env: Any, name: str) -> torch.Tensor:
