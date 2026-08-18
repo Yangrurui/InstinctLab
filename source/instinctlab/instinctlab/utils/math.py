@@ -1,6 +1,6 @@
 import torch
 
-import isaaclab.utils.math as math_utils
+import instinctlab.compat.math as math_utils
 
 
 @torch.jit.script

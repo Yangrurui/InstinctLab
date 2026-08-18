@@ -92,7 +92,7 @@ scripts/train.py  --engine isaacsim|mjlab  --task Instinct-Locomotion-Flat-G1-v0
         ▼
 instinctlab/spec/            引擎无关声明层（禁止任何引擎 import）
 instinctlab/mdp/             可移植 MDP term 库（一份实现，两引擎共用）
-instinctlab/compat/          薄兼容层：属性映射 / EntityView / SensorRef / 纯 torch math
+instinctlab/compat/          薄兼容层：署名词汇表 / denylist / 纯 torch math / SensorRef
         ▼
 instinctlab/engines/<name>/  只承载真正需要两份实现的族：
                              actions / events(DR) / scene / assets / sim
@@ -437,7 +437,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | 阶段 | 内容 | 完成判据 |
 |---|---|---|
 | P0 | 把 main 的 `G1FlatEnvCfg` 结构化 dump 成唯一 golden；建立差异白名单文件 | golden 与白名单入库，dump 可复现 |
-| P1 | `compat/`：署名词汇表 + denylist（**已完成**）→ `EntityView` 两实现 + `SensorRef` + 纯 torch math | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表断言由测试对着已安装引擎复核 |
+| P1 | `compat/`：署名词汇表 + denylist + 纯 torch math（**已完成**）→ `SensorRef` + `env` 访问器；`EntityView` 暂缓，触发条件见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表与 math 的每条断言由测试对着已安装引擎复核 |
 | P2 | `spec/` + `EngineAdapter` + `TermRegistry` + 三级 Requirement；spec 层 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 可编译 |
 | P3 | `mdp/`：移植 locomotion 所需的可移植 term（先做 flat G1 的 16 reward + 6 obs + 2 done） | 每个 term 有两引擎下的数值一致性测试 |
 | P4 | isaacsim adapter：`TaskSpec` → `ManagerBasedRLEnvCfg`，term 配置带 `preserve_order=True` | 编译产物与 golden 的 diff 落在白名单内 |
@@ -514,10 +514,10 @@ L0 是本设计的最大收益：因为编译目标就是 Isaac Lab 原生 cfg�
 ```
 compat/vocab.py     署名的中枢词汇表：每个量的参考系 / 原点 / 单位 / 旋转约定 + 各引擎 spoke 映射（S1）  ✅ 已实现
 compat/denylist.py  同名不同义陷阱 + Isaac legacy 别名改写表                                    ✅ 已实现
-compat/entity.py    EntityView：统一 asset.data 词汇，每引擎一实现
+compat/math.py      纯 torch 数学工具，四元数一律 wxyz（D8）                                     ✅ 已实现
 compat/sensors.py   SensorRef：统一接触/射线传感器引用与索引
 compat/env.py       统一 env 访问器（get_command 空值、physics_dt 路径、类型名）
-compat/math.py      纯 torch 数学工具（quat_apply_inverse / yaw_quat / ...），四元数一律 wxyz（D8）
+compat/entity.py    EntityView：统一 asset.data 词汇，每引擎一实现 —— 触发条件见 §12.3.2
 ```
 
 `vocab.py` / `denylist.py` 的每条断言都由 `tests/test_compat_vocab.py` 对着**已安装的引擎**复核，不依赖任何引擎运行时：mjlab 的 `EntityData` 可独立 import，Isaac 的 `ArticulationData` 用 `ast` 读源码（`import isaaclab.assets` 会拉起 `omni`）。写这些测试时纠正了本节此前的三处说法，见下。
@@ -539,6 +539,29 @@ compat/math.py      纯 torch 数学工具（quat_apply_inverse / yaw_quat / ...
 3. **`body_link_lin_vel_w` 不能既可移植又被 denylist**。中枢因此**不提供任何 per-body 速度**；根部速度用 `root_link_lin_vel_w`，per-body 速度走 per-engine term 并声明容差。
 
 另有一个探测方法上的坑值得记录：`hasattr(EntityData, name)` 会漏掉 mjlab 用 dataclass 注解声明、无类级默认值的字段（`gravity_vec_w`、`default_root_state`、`soft_joint_pos_limits` 都是这种）。判定属性是否存在必须同时查 `__annotations__`。
+
+#### 12.3.1 `compat/math.py`：第三份拷贝，但是被钉住的那份
+
+Isaac Lab 拥有 `utils/math.py` 原本，mjlab 以 `utils/lab_api/math.py` 整份 vendor 了它。两边**共有 59 个函数，其中 54 个逐字符相同**；余下 5 个（`_sqrt_positive_part`、`quat_from_matrix`、`apply_delta_pose`、`convert_camera_frame_orientation_convention`、`rigid_body_twist_transform`）只是格式与等价改写，float64 下数值差 `0.0`。
+
+可移植 term 不能 import 其中任何一份：Isaac 那份连独立 import 都做不到（`isaaclab.utils.__init__` 拉 `pxr`）。所以 `compat/` 存第三份拷贝，收录范围由**本仓库真实调用点**决定（`isaaclab.utils.math` 在 40 处被引入），共 23 个函数加内部闭包，保留 Isaac 的 BSD-3 署名。
+
+拷贝的风险由 `tests/test_compat_math.py` 承担：对**两个引擎**逐函数比对，float64 与 float32 各一轮，断言 `torch.equal` 而非容差——目前全部恰好相等，所以任何上游改动都藏不住。不能比源码文本，因为本仓库 black 会重排。测试输入除随机批外含恒等四元数、接近 π 的旋转、π 的奇数倍角，正是 `axis_angle_from_quat` 的 Taylor 分支与 `wrap_to_pi` 边界所在；注入两处变异验证过这套断言确实会失败。
+
+两处**因缺席而生效的迁移规则**：
+
+- `convert_quat` 不 vendor。两引擎签名都是 `convert_quat(quat, to="xyzw")`，默认离开中枢约定。代之以 `quat_wxyz_to_xyzw` / `quat_xyzw_to_wxyz`，方向写在名字里，没有默认值。本仓库现有 6 处调用全部显式传了 `to=` 且全部贴着引擎边界（PhysX body pose、`ArticulationView` 读回、warp mesh transform），D8 的判断得到实证。
+- `quat_rotate` / `quat_rotate_inverse` 不 vendor。它们是 Isaac Lab **v2.1.0 起废弃**、mjlab 直接删除的别名，用了就跑不了 mjlab。与 `quat_apply` / `quat_apply_inverse` 逐位相等（测试断言），所以 codemod 可机械改写。
+
+`instinctlab/utils/math.py` 已改用它，成为本仓库**第一个脱离引擎的模块**：8 个函数对 main 逐位相同，6 个 `torch.jit.script` 函数照常编译，在 `isaaclab` / `omni` / `pxr` 全被屏蔽的环境下可导入——这条性质写成了回归测试。
+
+#### 12.3.2 `EntityView` 暂缓，及其触发条件
+
+原计划里 `compat/entity.py` 提供统一的 `asset.data` 视图。落地时发现它与本设计的核心前提冲突：§12.1 的结论是可移植 term **直接读 `asset.data.<attr>`**，迁移才便宜（Isaac Lab 的 term 原样可用）。若要求 term 改走 `EntityView`，那些 term 就都得重写，迁移成本回到原点。
+
+而它当前能挡的问题，别处已经挡住了：同名不同义走 denylist（访问即报错），Isaac legacy 别名走 codemod 改写，per-body 速度已从中枢移除。两个引擎在中枢量上拼写一致，视图层此刻只是一次多余的属性解引用，还落在每步每环境的热路径上。
+
+因此暂不实现，触发条件写死：**接入第三个引擎（D6）时，若其数据属性拼写偏离中枢**，`EntityView` 就是把偏离吸收在一处、不让它渗进 term 的地方。在那之前 `vocab.py` 的 spoke 表已经把映射记下来了，届时是消费它而不是重新发现它。
 
 ### 12.4 `instinctlab/mdp/`
 
@@ -564,8 +587,8 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 | 步骤 | 动作 | 要点 |
 |---|---|---|
 | 1 | **先在 Isaac 上跑通，不改行为** | 按原样接进来，仍用 isaaclab 原生 env；L0 配置 diff 必须为空。不先固定基线，后面无法区分「迁移引入的差异」与「本来就有的差异」 |
-| 2 | **跑迁移分析器** `instinct-migrate analyze` | AST 遍历每个 term 的函数体，提取 `.data.<attr>` 访问与 import，按 `compat/attrs.py` 分类为 portable / needs-rewrite / needs-facade / per-engine / blocker，输出逐项报告 |
-| 3 | **codemod 自动改写机械部分** | `isaaclab.envs.mdp` → `instinctlab.mdp`；legacy 别名 → 显式帧名；`isaaclab.utils.math` → `compat/math.py`；`sensor_cfg` → `SensorRef`。确定性变换，生成 diff 供 review |
+| 2 | **跑迁移分析器** `instinct-migrate analyze` | AST 遍历每个 term 的函数体，提取 `.data.<attr>` 访问与 import，按 `compat/vocab.py` 与 `compat/denylist.py` 分类为 portable / needs-rewrite / needs-facade / per-engine / blocker，输出逐项报告 |
+| 3 | **codemod 自动改写机械部分** | `isaaclab.envs.mdp` → `instinctlab.mdp`；legacy 别名 → 显式帧名（19 条）；`isaaclab.utils.math` → `compat/math.py`；`quat_rotate` / `quat_rotate_inverse` → `quat_apply` / `quat_apply_inverse`（逐位相等，见 §12.3.1）；`sensor_cfg` → `SensorRef`。确定性变换，生成 diff 供 review。**不带 `to=` 的 `convert_quat` 不属于此列**，须标为人工确认 |
 | 4 | **补 per-engine 条目** | 只剩机器人资产（MJCF + 执行器 profile）、sim profile、动作映射（`actuator_names`）、DR 事件（`dr.*` 组合）。不可消除的人工工作，主要 per-robot |
 | 5 | **验证** | L0 Isaac 侧 diff 仍为空 → L1 定动作 rollout → mjlab smoke + 短训练；差异全部落进白名单 |
 
@@ -588,7 +611,7 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 
 ### 13.2 一次性投入
 
-`instinctlab/mdp/` 覆盖 83 个核心 term 是真实的一次性工作量（多数为移植现有实现）。`compat/` 层不大：映射表 + 两个 `EntityView` 实现 + 传感器桥 + 纯 torch math。换来的是此后每个 Isaac Lab 项目的迁移只剩第 4 步的 per-robot 工作。
+`instinctlab/mdp/` 覆盖 83 个核心 term 是真实的一次性工作量（多数为移植现有实现）。`compat/` 层比原估计更小：词汇表 + denylist + 纯 torch math 已经落地，传感器桥与 env 访问器待做，`EntityView` 按 §12.3.2 暂缓。换来的是此后每个 Isaac Lab 项目的迁移只剩第 4 步的 per-robot 工作。
 
 ## 14. 总框架路线：从双引擎到 N 引擎
 
@@ -768,4 +791,5 @@ mjlab 侧是**未文档化的隐式依赖**。`vocab.py` 该条目必须注明�
 11. 禁止写成对的「引擎 A → 引擎 B」转换器。跨引擎转换只能经过 IR：frontend 读进来、backend 编出去。
 12. 中枢词汇表是 `compat/vocab.py` 中署名的那一份。禁止在 term 里直接假定某个引擎的属性拼写即中枢，即使当前两引擎恰好同名。
 13. frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单，禁止丢弃信息后静默产出一个「能跑」的 `TaskSpec`。
-14. 四元数一律 `(w, x, y, z)`。`spec/` / `mdp/` / `compat/` 禁止出现 xyzw；转换只能贴着引擎 API 调用发生，且不得跨函数边界传播。禁止调用不带 `to=` 的 `convert_quat`——两个引擎的默认值都是转成 xyzw。
+14. 四元数一律 `(w, x, y, z)`。`spec/` / `mdp/` / `compat/` 禁止出现 xyzw；转换只能贴着引擎 API 调用发生，且不得跨函数边界传播。禁止调用不带 `to=` 的 `convert_quat`——两个引擎的默认值都是转成 xyzw；改用 `compat.math` 的 `quat_wxyz_to_xyzw` / `quat_xyzw_to_wxyz`。
+15. 可移植代码禁止 import `isaaclab.utils.math` 或 `mjlab.utils.lab_api.math`，一律走 `compat/math.py`。vendor 进来的函数不得就地修改：改了就不再是「两引擎共有的那份」，钉住它的测试也就失去意义。

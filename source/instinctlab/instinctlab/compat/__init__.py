@@ -2,7 +2,10 @@
 
 :mod:`~instinctlab.compat.vocab` is the single named source of truth for what a physical quantity
 means. :mod:`~instinctlab.compat.denylist` records the attributes whose names agree across engines
-while their semantics do not.
+while their semantics do not. :mod:`~instinctlab.compat.math` carries the tensor math both engines
+already share, so that a term can do frame arithmetic without importing either one; its names are
+left on the submodule rather than re-exported here, since callers read better as
+``math_utils.quat_apply_inverse``.
 """
 
 from __future__ import annotations
