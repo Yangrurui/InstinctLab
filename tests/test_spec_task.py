@@ -1,0 +1,271 @@
+"""Guard: a task declaration rejects the mistakes that would otherwise be found at runtime.
+
+The declaration layer has no engine to check it against, so almost everything it can do for a task
+author has to happen in ``__post_init__`` and :meth:`TaskSpec.validate`. The mistakes worth
+catching there are the quiet ones -- an engine key spelled ``isaac`` instead of ``isaacsim`` is not
+an error anywhere, it simply means the override never applies and the run silently uses defaults.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from instinctlab.sim.robot_spec import JointProperties, RobotSpec
+from instinctlab.spec import (
+    ActionTermSpec,
+    AgentSpec,
+    CommandTermSpec,
+    ContactSensorRef,
+    DoneTermSpec,
+    EntityRef,
+    EventTermSpec,
+    MdpSpec,
+    NoiseSpec,
+    ObsGroupSpec,
+    ObsTermSpec,
+    Requirement,
+    RewardTermSpec,
+    SceneSpec,
+    SimSpec,
+    TaskSpec,
+)
+
+
+def _robot() -> RobotSpec:
+    return RobotSpec(
+        name="tiny",
+        schema_version="dfs_v1",
+        asset_id="tiny_v1",
+        root_body="root",
+        joint_names=("hip", "knee"),
+        body_names=("root", "foot"),
+        joint_properties=(
+            JointProperties("hip", 0.0, 2.0, 0.1, 0.0, 100.0, 10.0, 0.5),
+            JointProperties("knee", 0.0, 2.0, 0.1, 0.0, 100.0, 10.0, 0.5),
+        ),
+        assets=(),
+        default_root_pos=(0.0, 0.0, 1.0),
+        default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+        soft_joint_pos_limit_factor=0.9,
+    )
+
+
+FEET = ContactSensorRef(name="feet", elements=("foot",), track_air_time=True)
+
+
+def _observed(env, asset_cfg=None):  # noqa: ANN001 - a stand-in for a portable term
+    return env
+
+
+def _task(**overrides) -> TaskSpec:
+    fields = dict(
+        task_id="Test-Task-v0",
+        robot=_robot(),
+        scene=SceneSpec(contact_sensors=(FEET,)),
+        sim=SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0),
+        mdp=MdpSpec(
+            observations={"policy": ObsGroupSpec(terms={"joint_pos": ObsTermSpec(_observed)})},
+            actions={"joint_pos": ActionTermSpec(kind="joint_position")},
+            rewards={"rewards": {"alive": RewardTermSpec(_observed, weight=1.0)}},
+            terminations={"time_out": DoneTermSpec(_observed, time_out=True)},
+            commands={"base_velocity": CommandTermSpec(_observed)},
+        ),
+        agent=AgentSpec(runner="instinctlab.spec.task:AgentSpec"),
+        engines=("isaacsim", "mjlab"),
+    )
+    fields.update(overrides)
+    return TaskSpec(**fields)
+
+
+"""
+Term invariants.
+"""
+
+
+def test_a_term_carries_either_a_function_or_a_kind_but_not_both():
+    """The distinction is what tells the compiler whether it needs a per-engine mapping at all."""
+    with pytest.raises(ValueError, match="both was given"):
+        ObsTermSpec(func=_observed, kind="joint_pos")
+    with pytest.raises(ValueError, match="neither was given"):
+        ObsTermSpec()
+
+
+def test_portability_follows_from_which_one_was_set():
+    assert ObsTermSpec(_observed).is_portable
+    assert not EventTermSpec(kind="randomize_friction", mode="startup").is_portable
+
+
+def test_engine_params_override_params_for_that_engine_only():
+    term = RewardTermSpec(
+        _observed,
+        params={"std": 0.5, "command_name": "base_velocity"},
+        engine_params={"mjlab": {"std": 0.6}},
+    )
+    assert term.resolved_params("isaacsim") == {"std": 0.5, "command_name": "base_velocity"}
+    assert term.resolved_params("mjlab") == {"std": 0.6, "command_name": "base_velocity"}
+    assert term.params == {"std": 0.5, "command_name": "base_velocity"}  # not mutated
+
+
+def test_default_levels_follow_the_consequences_of_dropping_the_term():
+    assert ObsTermSpec(_observed).level is Requirement.REQUIRED
+    assert DoneTermSpec(_observed).level is Requirement.REQUIRED
+    assert ActionTermSpec(kind="joint_position").level is Requirement.REQUIRED
+    assert CommandTermSpec(_observed).level is Requirement.REQUIRED
+    assert RewardTermSpec(_observed).level is Requirement.OPTIONAL
+    assert EventTermSpec(kind="x").level is Requirement.OPTIONAL
+
+
+def test_an_interval_event_must_say_how_often():
+    with pytest.raises(ValueError, match="interval range is required"):
+        EventTermSpec(kind="push_robot", mode="interval")
+    with pytest.raises(ValueError, match="meaningless otherwise"):
+        EventTermSpec(kind="push_robot", mode="reset", interval_range_s=(1.0, 2.0))
+    assert EventTermSpec(kind="push_robot", mode="interval", interval_range_s=(10.0, 15.0))
+
+
+def test_noise_bounds_are_checked_in_the_direction_each_distribution_needs():
+    with pytest.raises(ValueError, match="lo=0.2 above hi=0.1"):
+        NoiseSpec("uniform", 0.2, 0.1)
+    with pytest.raises(ValueError, match="negative standard deviation"):
+        NoiseSpec("gaussian", 0.0, -1.0)
+
+
+def test_an_observation_group_with_no_terms_is_rejected():
+    with pytest.raises(ValueError, match="empty input tensor"):
+        ObsGroupSpec(terms={})
+
+
+"""
+The MDP as a whole.
+"""
+
+
+def test_terms_are_keyed_by_family_and_group():
+    keys = set(_task().mdp.terms())
+    assert "observation/policy/joint_pos" in keys
+    assert "reward/rewards/alive" in keys
+    assert "termination/time_out" in keys
+    assert "action/joint_pos" in keys
+
+
+def test_reward_groups_may_reuse_a_term_name_without_colliding():
+    mdp = MdpSpec(
+        rewards={
+            "task": {"alive": RewardTermSpec(_observed, weight=1.0)},
+            "style": {"alive": RewardTermSpec(_observed, weight=2.0)},
+        }
+    )
+    assert set(mdp.terms()) == {"reward/task/alive", "reward/style/alive"}
+
+
+def test_entity_refs_are_found_in_params_as_well_as_in_target():
+    """Portable terms take their entity as a parameter, the way Isaac Lab tasks always have."""
+    target, in_params, in_override = EntityRef(bodies=("foot",)), EntityRef(joints=("hip",)), EntityRef()
+    mdp = MdpSpec(
+        rewards={
+            "rewards": {
+                "a": RewardTermSpec(_observed, target=target),
+                "b": RewardTermSpec(_observed, params={"asset_cfg": in_params}),
+                "c": RewardTermSpec(_observed, engine_params={"mjlab": {"asset_cfg": in_override}}),
+            }
+        }
+    )
+    found = mdp.entity_refs()
+    assert target in found and in_params in found and in_override in found
+
+
+"""
+Whole-task validation.
+"""
+
+
+def test_a_valid_task_validates():
+    _task().validate()
+
+
+def test_a_misspelled_engine_key_is_rejected_rather_than_ignored():
+    """The failure this exists for: the override simply never applies, and nothing says so."""
+    with pytest.raises(ValueError, match=r"keys sim.profiles by \['isaac'\]"):
+        _task(sim=SimSpec(0.005, 4, 20.0, profiles={"isaac": {"solver": 4}})).validate()
+
+    task = _task(
+        mdp=MdpSpec(rewards={"rewards": {"alive": RewardTermSpec(_observed, engine_params={"newton": {"w": 1}})}})
+    )
+    with pytest.raises(ValueError, match=r"engine_params for \['newton'\]"):
+        task.validate()
+
+
+def test_a_term_may_not_read_a_sensor_the_scene_does_not_declare():
+    task = _task(
+        scene=SceneSpec(),
+        mdp=MdpSpec(rewards={"rewards": {"air": RewardTermSpec(_observed, params={"sensor": FEET})}}),
+    )
+    with pytest.raises(ValueError, match="scene does not declare"):
+        task.validate()
+
+
+def test_a_task_must_name_at_least_one_engine_and_may_not_repeat_one():
+    with pytest.raises(ValueError, match="names no engines"):
+        _task(engines=())
+    with pytest.raises(ValueError, match="repeats engines"):
+        _task(engines=("mjlab", "mjlab"))
+
+
+def test_duplicate_sensor_names_are_rejected():
+    with pytest.raises(ValueError, match="must be unique"):
+        SceneSpec(contact_sensors=(FEET, ContactSensorRef(name="feet", elements=("root",))))
+
+
+def test_the_scene_finds_a_declared_sensor_and_says_what_it_has_when_it_cannot():
+    assert SceneSpec(contact_sensors=(FEET,)).sensor("feet") is FEET
+    with pytest.raises(KeyError, match="Declared: feet"):
+        SceneSpec(contact_sensors=(FEET,)).sensor("hands")
+
+
+"""
+Sim and agent.
+"""
+
+
+def test_step_dt_is_the_product_both_engines_compute():
+    assert SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0).step_dt == pytest.approx(0.02)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"physics_dt": 0.0}, "physics_dt must be positive"),
+        ({"decimation": 0}, "decimation must be positive"),
+        ({"episode_length_s": -1.0}, "episode_length_s must be positive"),
+    ],
+)
+def test_sim_timing_must_be_positive(kwargs: dict, message: str):
+    fields = {"physics_dt": 0.005, "decimation": 4, "episode_length_s": 20.0} | kwargs
+    with pytest.raises(ValueError, match=message):
+        SimSpec(**fields)
+
+
+def test_profiles_carry_only_overrides_and_are_empty_by_default():
+    """Defaults come from the adapter, so that each engine gets its own reference values."""
+    sim = SimSpec(0.005, 4, 20.0, profiles={"mjlab": {"iterations": 10}})
+    assert sim.profile_for("mjlab") == {"iterations": 10}
+    assert sim.profile_for("isaacsim") == {}
+
+
+def test_the_agent_is_imported_only_when_asked_for():
+    """Runner configs are built on ``isaaclab.utils.configclass``; naming one must not import it."""
+    agent = AgentSpec(runner="instinctlab.spec.task:SimSpec", engine_overrides={"mjlab": {"num_steps": 24}})
+    assert agent.resolve() is SimSpec
+    assert agent.resolved_overrides("mjlab") == {"num_steps": 24}
+    assert agent.resolved_overrides("isaacsim") == {}
+
+
+def test_a_runner_path_without_a_module_is_rejected():
+    with pytest.raises(ValueError, match="dotted path"):
+        AgentSpec(runner="SimSpec").resolve()
+
+
+def test_portability_means_more_than_one_engine_and_no_escape_hatch():
+    assert _task().is_portable
+    assert not _task(engines=("isaacsim",)).is_portable
+    assert not _task(engine_extras={"isaacsim": {"tiled_camera": True}}).is_portable

@@ -9,12 +9,16 @@ left on the submodule rather than re-exported here, since callers read better as
 each engine's selector config, which is where the engines diverge far more than their data
 attributes do, and :mod:`~instinctlab.compat.sensors` reads contact sensors, the one place that
 does need a runtime shim because the two engines disagree on tensor layout as well as on names.
+:mod:`~instinctlab.compat.env` is the smallest of them, because the two environment classes turned
+out to agree on nearly everything a term reads; it covers the command lookup, which fails
+differently on each engine, and names the environment type portably.
 """
 
 from __future__ import annotations
 
 from .denylist import DENYLIST, LEGACY_COM_ALIASES, DenylistEntry, PortabilityError, assert_portable
 from .entity import SELECTOR_KINDS, UnsupportedSelector, lower, resolved_names
+from .env import ENV_TYPE_NAMES, RlEnv, command_names, env_engine, get_command, has_command
 from .vocab import (
     CANONICAL_QUATERNION,
     ENGINES,
@@ -32,6 +36,7 @@ __all__ = [
     "CANONICAL_QUATERNION",
     "DENYLIST",
     "ENGINES",
+    "ENV_TYPE_NAMES",
     "HUB",
     "LEGACY_COM_ALIASES",
     "SELECTOR_KINDS",
@@ -40,10 +45,15 @@ __all__ = [
     "Frame",
     "HubEntry",
     "PortabilityError",
+    "RlEnv",
     "RotationConvention",
     "Spoke",
     "UnsupportedSelector",
     "assert_portable",
+    "command_names",
+    "env_engine",
+    "get_command",
+    "has_command",
     "hub_entry",
     "lower",
     "resolved_names",

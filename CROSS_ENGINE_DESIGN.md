@@ -92,8 +92,10 @@ scripts/train.py  --engine isaacsim|mjlab  --task Instinct-Locomotion-Flat-G1-v0
         ▼
 instinctlab/spec/            引擎无关声明层（禁止任何引擎 import）
 instinctlab/mdp/             可移植 MDP term 库（一份实现，两引擎共用）
-instinctlab/compat/          薄兼容层：署名词汇表 / denylist / 纯 torch math / SensorRef
+instinctlab/compat/          薄兼容层：署名词汇表 / denylist / 纯 torch math / EntityRef / SensorRef / env
         ▼
+instinctlab/engines/         base / registry / compile 三个机件同样引擎无关，
+                             让启动器能在 bootstrap 之前枚举 adapter
 instinctlab/engines/<name>/  只承载真正需要两份实现的族：
                              actions / events(DR) / scene / assets / sim
         ▼
@@ -332,6 +334,14 @@ def compile_family(family: str, specs: Mapping[str, TermSpec], ctx: CompileCtx, 
 2. **manifest 落盘**：checkpoint 旁记录 engine、版本、DFS 关节顺序、skipped 集合、engine_extras 使用情况。否则「为什么这个 policy 不如那个」无法追查。
 3. **`--strict-capabilities`**：把所有 OPTIONAL 提升为 REQUIRED，用于 CI 与正式训练。
 
+### 6.4 实现时定下的三处细节
+
+**注册表同时支持「按 kind」与「按族」两种入口。** §6.1 的例子写的是 `@TERMS.observation("base_ang_vel")`（按 kind），而 §5 说观测是可移植族、携带 `func=`——两者不一致。实现取两者的并集：每个族有一个 `@TERMS.portable(family)` 包装器，负责把 term 自带的函数塞进该引擎的原生 term 类；同时任何族都仍可按 kind 注册。于是「某个观测在一个引擎上恰好需要原生实现」有地方安放，而不必让所有引擎为它开特例。`func=` 与 `kind=` 二选一的不变式因此直接决定走哪条路径，无需额外判断。
+
+**`AgentSpec` 用点路径惰性引用 runner。** 项目现有的 `InstinctRlOnPolicyRunnerCfg` 建在 `isaaclab.utils.configclass` 上，`spec/` 直接持有它会把 Isaac Lab 拖进每一个任务声明，隔离即刻失效。改为 `runner="pkg.module:Class"`，由 backend 在已加载引擎之后 `resolve()`。`engine_overrides` 存在，但文档里写明它只该用于让墙钟时间可比的 rollout 长度之类；按引擎改超参会让两次运行失去可比性，与本项目的目的相反。
+
+**`num_envs` 不进 `SceneSpec`。** 跑多少份是编译的入参，不是任务的属性；放进去等于让任务文件声明你有多大的显卡。旧 `sim/scene.py` 里的同名 `SceneSpec` 带这个字段，它属于将在 P8 降级到 `verify/` 的那套栈，两者不要混用。
+
 ## 7. Requirement 三级默认值
 
 | 术语族 | 默认 level | 理由 |
@@ -437,8 +447,8 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | 阶段 | 内容 | 完成判据 |
 |---|---|---|
 | P0 | 把 main 的 `G1FlatEnvCfg` 结构化 dump 成唯一 golden；建立差异白名单文件 | golden 与白名单入库，dump 可复现 |
-| P1 | `compat/`：署名词汇表 + denylist + 纯 torch math + `EntityRef` 下降 + 接触传感器读取（**已完成**）→ 只剩 `env` 访问器；`EntityView` 已撤销，见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表 / math / 选择器表 / 传感器轴序的每条断言由测试对着已安装引擎复核 |
-| P2 | `spec/` + `EngineAdapter` + `TermRegistry` + 三级 Requirement；spec 层 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 可编译 |
+| P1 | **已完成**。`compat/`：署名词汇表 + denylist + 纯 torch math + `EntityRef` 下降 + 接触传感器读取 + `env` 访问器；`EntityView` 已撤销，见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表 / math / 选择器表 / 传感器轴序的每条断言由测试对着已安装引擎复核 |
+| P2 | **已完成**。`spec/`（`capability` / `entity` / `sensor` / `mdp` / `task`）+ `engines/`（`base` / `registry` / `compile`）+ 三级 Requirement；spec 与 engines 机件的 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 端到端编译整个 MdpSpec，跳过 / emulate / strict 三条路径各有测试与变异检验 |
 | P3 | `mdp/`：移植 locomotion 所需的可移植 term（先做 flat G1 的 16 reward + 6 obs + 2 done） | 每个 term 有两引擎下的数值一致性测试 |
 | P4 | isaacsim adapter：`TaskSpec` → `ManagerBasedRLEnvCfg`，term 配置带 `preserve_order=True` | 编译产物与 golden 的 diff 落在白名单内 |
 | P5 | mjlab adapter：移植 env 子类 / `MultiRewardManager` / 力阈值接触传感器 | 同一 TaskSpec 编译通过，差异全部落在白名单内 |
@@ -604,6 +614,18 @@ Isaac Lab 拥有 `utils/math.py` 原本，mjlab 以 `utils/lab_api/math.py` 整�
 因此 `in_contact()` 由接触时长导出而非力阈值——让每个引擎用自己的判据判断，这是唯一能一致的做法。`contact_force_history()` 只统一轴序，不假装数值可比。
 
 引擎识别靠元素名属性的鸭子类型，所以本模块不 import 任何引擎，term 也不必知道自己跑在哪个引擎上。
+
+#### 12.3.5 `compat/env.py`：三处分歧，其余已自发收敛
+
+本以为 env 是分歧重灾区，实测相反。两个 env 类独立演化，公共面几乎逐字重合：`num_envs` / `device` / `physics_dt` / `step_dt` / `max_episode_length` / `max_episode_length_s` / `episode_length_buf` / `scene` / `cfg` / `common_step_counter` / `extras` 与全部七个 manager **两边同名同义**，`scene[name]` 与 `scene.sensors[name]` 也都可用。
+
+这条收敛是「term 直接读 `env.*`、不走访问器」的前提，因此 `test_compat_env.py` 把它写成可执行断言而非注释——引擎升级动了 `step_dt`，失败的是一条测试，而不是一百个已移植的 term。**这也是本模块刻意保持极薄的原因：不需要垫片的地方加垫片，就是已经撤销过一次的 `EntityView` 错误。**
+
+真正没收敛的只有三处：
+
+1. **空命令管理器行为不同。** 任务未声明命令时 mjlab 装 `NullCommandManager`，其 `get_command` 对任何名字返回 `None`；Isaac 永远装真管理器，同样调用抛 `KeyError`。mjlab 这侧更危险：`None` 在若干帧后被下标时才炸，一个速度跟踪奖励静默拿到 `None`，报出来的是离成因很远的形状错误。`get_command()` 让两边都在同一处大声失败，并列出该 env 实际有哪些命令。
+2. **类名拼写不同**：`ManagerBasedRLEnv` 与 `ManagerBasedRlEnv`，只差一个大写 L——正是能活过 code review 的那种差异。可移植 term 应标注 `compat.env.RlEnv`（结构化 Protocol），`ENV_TYPE_NAMES` 保留原生拼写供 codemod 识别。
+3. **物理步长的配置路径不同**：`cfg.sim.dt` 与 `cfg.sim.mujoco.timestep`。这属于编译期、归 adapter，term 侧读 `env.physics_dt` 两边一致；记在 `PHYSICS_DT_CFG_PATH` 里是因为后人会来这里找它。
 
 ### 12.4 `instinctlab/mdp/`
 

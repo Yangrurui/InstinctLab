@@ -8,6 +8,11 @@ who breaks it has both engines installed.
 So the import is exercised here with the engines blocked outright. Two checks, because they fail
 differently: a static one that names the offending module in the failure, and a dynamic one that
 catches an engine pulled in through a chain of otherwise innocent imports.
+
+The same applies to the shared machinery in ``engines/`` -- ``base.py``, ``registry.py`` and
+``compile.py``, but not the ``engines/<name>/`` packages, which exist to import an engine. Keeping
+the machinery clean is what lets the launcher inspect which adapters exist before deciding which
+engine to bootstrap, and lets a task be checked against an engine that is not installed.
 """
 
 from __future__ import annotations
@@ -58,9 +63,12 @@ def test_spec_imports_with_engines_blocked() -> None:
             raise ImportError(f"spec/ must not need {name}")
 
     blocker = _Blocker()
-    for name in [name for name in sys.modules if name.split(".")[0] in _ENGINE_ROOTS]:
-        del sys.modules[name]
-    for name in [name for name in sys.modules if name.startswith("instinctlab.spec")]:
+    evicted = {
+        name: module
+        for name, module in sys.modules.items()
+        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith("instinctlab.spec")
+    }
+    for name in evicted:
         del sys.modules[name]
     sys.meta_path.insert(0, blocker)
     try:
@@ -69,3 +77,32 @@ def test_spec_imports_with_engines_blocked() -> None:
         assert ref.kinds() == {"body"}
     finally:
         sys.meta_path.remove(blocker)
+        # Put the originals back. Re-importing left a second copy of every class in ``spec``, and a
+        # later test comparing one of them by identity -- ``AgentSpec.resolve() is SimSpec`` --
+        # would fail against a class that is by every other measure the same one.
+        sys.modules.update(evicted)
+
+
+def _engine_machinery() -> list[pathlib.Path]:
+    """The engine-free part of ``engines/``: its top-level modules, not the per-engine packages."""
+    import instinctlab.engines
+
+    root = pathlib.Path(instinctlab.engines.__file__).parent
+    return sorted(path for path in root.glob("*.py"))
+
+
+def test_engine_machinery_is_not_empty() -> None:
+    assert len(_engine_machinery()) >= 3
+
+
+@pytest.mark.parametrize("source", _engine_machinery(), ids=lambda p: p.name)
+def test_no_engine_appears_in_the_shared_machinery(source: pathlib.Path) -> None:
+    """``compile.py`` reaches an engine only through ``compat``, which imports it inside a call."""
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(source.read_text())):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            imported.add(node.module.split(".")[0])
+    leaked = imported & _ENGINE_ROOTS
+    assert not leaked, f"{source.name} imports {sorted(leaked)}; engines/ machinery must stay engine-free"
