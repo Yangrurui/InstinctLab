@@ -54,7 +54,11 @@ EXPECTED_DIFFERENCES = {
     "scene.sensors": (
         "The reference declares two narrow contact sensors, feet and base; the declaration names "
         "one covering every body and terms select within it. Same elements measured. Isaac Lab's "
-        "config is arranged the second way, and mjlab accepts either."
+        "config is arranged the second way, and mjlab accepts either. This exemption is the one "
+        "blind spot in this file, and it is structural rather than lazy: two arrangements of the "
+        "same measurement cannot be compared field by field. It already cost one silent failure "
+        "-- see tests/test_mjlab_contact_wiring.py -- so what the sensor does is checked against a "
+        "running engine there instead of against the reference here."
     ),
     "scene.sensors.force_threshold": (
         "The reference's foot sensor is a ForceThresholdContactSensorCfg with a 1 N threshold, "

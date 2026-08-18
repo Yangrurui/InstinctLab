@@ -73,6 +73,15 @@ def test_mjlab_engine_options_override_training_defaults() -> None:
 
 
 def test_mjlab_native_contact_cfg_uses_force_only() -> None:
+    """Force alone is safe *here* only because of the subclass, and the two assertions are paired.
+
+    mjlab's stock sensor accumulates air and contact time from its ``found`` field and skips the
+    update when that field was not requested. This stack gets away with omitting it because
+    ``ForceThresholdContactSensorCfg`` rederives contact from a force threshold, which is what the
+    isinstance assertion below is doing here. Do not carry ``fields=("force",)`` over to
+    ``engines/mjlab/scene.py``, which builds a stock sensor: that was tried, and contact timing was
+    dead for a whole training run without anything raising.
+    """
     feet = ContactSensorSpec(
         name="feet_contact_forces",
         entity_name="robot",
