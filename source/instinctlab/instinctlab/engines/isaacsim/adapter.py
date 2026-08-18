@@ -1,0 +1,182 @@
+"""The Isaac Sim backend.
+
+Everything engine-specific about running a declared task here is in this file, its term registry and
+its scene builder. That is the claim the ``N + M`` structure makes, and the size of these three
+files is the evidence for it: no task file, no term in ``instinctlab/mdp``, and nothing in ``spec/``
+knows this engine exists.
+
+``bootstrap`` is separate from ``compile`` for a reason that is not stylistic. ``AppLauncher`` has to
+start Isaac Sim's app before ``isaaclab`` can be imported at all, so a single entry point that took
+a compiled task would need types it cannot yet import.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Mapping
+from types import SimpleNamespace
+from typing import Any
+
+from instinctlab.engines.base import CompiledTask, Resolution
+from instinctlab.engines.compile import CompileCtx, compile_mdp
+from instinctlab.sim.capabilities import CapabilitySet
+from instinctlab.spec.mdp import NoiseSpec
+from instinctlab.spec.task import TaskSpec
+
+from .scene import PROFILE_DEFAULTS, build_scene
+from .terms import TERMS
+
+__all__ = ["IsaacSimAdapter", "IsaacSimCompileCtx"]
+
+
+class IsaacSimCompileCtx(CompileCtx):
+    """Compilation context carrying Isaac Lab's noise classes."""
+
+    def noise(self, noise: NoiseSpec | None) -> Any:
+        if noise is None:
+            return None
+        from isaaclab.utils.noise import GaussianNoiseCfg, UniformNoiseCfg
+
+        if noise.kind == "uniform":
+            return UniformNoiseCfg(n_min=noise.lo, n_max=noise.hi, operation=noise.operation)
+        if noise.kind == "gaussian":
+            return GaussianNoiseCfg(mean=noise.lo, std=noise.hi, operation=noise.operation)
+        raise NotImplementedError(f"Isaac Sim has no noise model for kind {noise.kind!r}.")
+
+
+def _container(terms: Mapping[str, Any]) -> SimpleNamespace:
+    """A term container Isaac Lab's managers can use.
+
+    A namespace rather than a plain dict, even though the managers read either. Some of them write
+    back -- ``CommandManager`` sets ``debug_vis`` on the container it was handed -- and a dict has
+    nowhere to put that. Attribute order follows insertion, which is what the managers walk.
+    """
+    return SimpleNamespace(**terms)
+
+
+def _observation_groups(compiled: Mapping[str, Any]) -> Any:
+    """Observation groups as Isaac Lab's manager wants them.
+
+    The groups have to be real ``ObservationGroupCfg`` instances -- the manager type-checks them --
+    while the terms inside are found by walking ``__dict__``, so assignment order is concatenation
+    order. Declaration order in the task is therefore what determines the observation vector's
+    layout, which is the property that lets a policy trained here be loaded there.
+    """
+    from isaaclab.managers import ObservationGroupCfg
+
+    groups: dict[str, Any] = {}
+    for name, group in compiled.items():
+        cfg = ObservationGroupCfg()
+        cfg.enable_corruption = group["enable_corruption"]
+        cfg.concatenate_terms = group["concatenate_terms"]
+        if group["history_length"]:
+            cfg.history_length = group["history_length"]
+        for term_name, term in group["terms"].items():
+            setattr(cfg, term_name, term)
+        groups[name] = cfg
+    return _container(groups)
+
+
+def _rewards(compiled: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """Reward groups flattened into the single namespace Isaac Lab's manager has.
+
+    Groups exist in the declaration so that a task can say which rewards belong together, and
+    :class:`~instinctlab.spec.mdp.MdpSpec` already guarantees the names stay unique across them.
+    Flattening therefore loses the grouping and nothing else.
+    """
+    return _container({name: term for group in compiled.values() for name, term in group.items()})
+
+
+class IsaacSimAdapter:
+    """Compiles a :class:`TaskSpec` into an Isaac Lab ``ManagerBasedRLEnvCfg``."""
+
+    name = "isaacsim"
+    SUPPORTED_VERSIONS = ">=0.40,<0.50"
+
+    @staticmethod
+    def add_cli_args(parser: argparse.ArgumentParser) -> None:
+        from isaaclab.app import AppLauncher
+
+        AppLauncher.add_app_launcher_args(parser)
+
+    @staticmethod
+    def bootstrap(args: argparse.Namespace) -> object:
+        """Start Isaac Sim. Nothing under ``isaaclab`` may be imported before this returns."""
+        from isaaclab.app import AppLauncher
+
+        return AppLauncher(args).app
+
+    def capabilities(self) -> CapabilitySet:
+        return TERMS.capabilities()
+
+    def profile(self, spec: TaskSpec) -> dict[str, Any]:
+        """This engine's solver settings, the task's overrides applied over the defaults."""
+        merged = dict(PROFILE_DEFAULTS)
+        merged.update(spec.sim.profiles.get(self.name, {}))
+        return merged
+
+    def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
+        from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
+        from isaaclab.sim import SimulationCfg
+
+        profile = self.profile(spec)
+        resolution = Resolution(
+            engine=self.name,
+            task_id=spec.task_id,
+            profile=profile,
+            engine_extras_used=tuple(sorted(spec.engine_extras.get(self.name, {}))),
+            strict=strict,
+        )
+        ctx = IsaacSimCompileCtx(
+            engine=self.name,
+            spec=spec,
+            resolution=resolution,
+            profile=profile,
+            num_envs=num_envs,
+            device=device,
+            strict=strict,
+        )
+        mdp = compile_mdp(spec.mdp, ctx, TERMS)
+
+        env_cfg = ManagerBasedRLEnvCfg(
+            scene=build_scene(spec.scene, spec.robot, profile, num_envs=num_envs, sensor_period=spec.sim.physics_dt),
+            observations=_observation_groups(mdp["observations"]),
+            actions=_container(mdp["actions"]),
+            rewards=_rewards(mdp["rewards"]),
+            terminations=_container(mdp["terminations"]),
+            events=_container(mdp["events"]),
+            commands=_container(mdp["commands"]),
+            curriculum=_container(mdp["curriculum"]),
+            decimation=spec.sim.decimation,
+            episode_length_s=spec.sim.episode_length_s,
+            is_finite_horizon=spec.sim.is_finite_horizon,
+            sim=SimulationCfg(dt=spec.sim.physics_dt, render_interval=spec.sim.decimation, device=device),
+        )
+        return CompiledTask(
+            env_cls=ManagerBasedRLEnv,
+            env_cfg=env_cfg,
+            agent_cfg=spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),
+            resolution=resolution,
+        )
+
+    def contract_report(self, spec: TaskSpec) -> dict[str, Any]:
+        """What this engine would and would not provide, without importing it.
+
+        Answerable on a machine with no Isaac Sim because the registry's keys are declared at import
+        time and only the builder bodies touch ``isaaclab``. That is what makes it possible to check
+        every task against every engine in one CI job.
+        """
+        missing: dict[str, str] = {}
+        for key, term in spec.mdp.terms().items():
+            family = key.split("/", 1)[0]
+            if term.is_portable or TERMS.lookup(family, term.kind) is not None:
+                continue
+            emulated = TERMS.lookup_emulation(family, term.kind) is not None
+            missing[key] = "emulated" if emulated else f"unsupported kind {term.kind!r}"
+        return {
+            "engine": self.name,
+            "task_id": spec.task_id,
+            "capabilities": sorted(cap.value for cap in self.capabilities().values),
+            "missing": missing,
+            "engine_extras_used": sorted(spec.engine_extras.get(self.name, {})),
+        }

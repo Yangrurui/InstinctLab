@@ -19,7 +19,9 @@ alwaysApply: false
 - `compat/`：薄兼容层，**已完成** ✅——`vocab.py`（**署名的**中枢词汇表）、`denylist.py`（6 项同名不同义 + 19 条 legacy 别名）、`math.py`（纯 torch，vendor 自两引擎共有的那份）、`entity.py`（`EntityRef` 下降 + resolve 后归一化）、`sensors.py`（接触传感器读取）、`env.py`（命令查找 / 类型名 / dt 配置路径）
 - **`EntityView` 已撤销**，不要重新引入：它要求 term 改走视图层，与「term 直接读 `asset.data.*`」这条迁移前提冲突。性能不是理由（proxy 每步仅 0.1%）。数据层两引擎拼写一致，不需要间接层；第三个引擎若偏离，由**该引擎 backend** 让自己的 data 对象满足 `vocab.HUB`（继承 + `__getattr__` 兜底），代价不外摊（§12.3.2）
 - `engines/`：共享机件，**已完成** ✅——`base.py`（`Resolution` / `CompiledTask` / `EngineAdapter` / `UnsupportedTerm`）、`registry.py`（`TermRegistry`，能力矩阵的唯一来源）、`compile.py`（`CompileCtx` / `compile_family` / `compile_mdp`）。这三个模块**同样禁止 import 引擎**，启动器才能在 bootstrap 之前枚举 adapter
-- `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族——`actions.py` `events.py`(DR) `scene.py` `assets.py` `sim.py` `caps.py` `adapter.py`
+- `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族。**`engines/isaacsim/` 已完成** ✅——`terms.py`（注册表即能力矩阵）、`scene.py`（含该引擎的求解器 profile 默认值）、`assets.py`（asset_id → `ArticulationCfg`，D5 管线落地前是查表复用而非转换）、`adapter.py`。整个包**顶层不 import `isaaclab`**，builder 函数体内才 import，`contract_report()` 因此能在没装引擎的机器上回答
+- **命令族是 per-engine 的**，尽管它看起来可移植：两边 `UniformVelocityCommandCfg` 语义与多数字段名一致，但 `asset_name` vs `entity_name`，且 mjlab 多出 `rel_world_envs` / `rel_forward_envs` / `init_velocity_prob` / `viz`。共享一个配置对象只能取交集、把 mjlab 的字段静默丢掉；改成共享**语义名** `kind="uniform_velocity"`，各自保留自己的字段
+- **flat G1 的引擎无关声明在 `tasks/locomotion/flat_g1.py`**，与 main 的对比由 `scripts/check_parity.py`（需 Isaac Sim）+ `tests/test_parity_static.py`（不需要）双层把关。当前 177 处差异全部命中白名单，编译产物能真实构造并 step
 - `frontends/<idiom>/`（作来源）：项目源码 → `TaskSpec` + 未转换清单 + 置信度报告
 - `migrate/`：`analyze.py`（AST 分类报告）+ `codemod.py`（确定性改写）
 - 原生栈：isaacsim → `isaaclab.ManagerBasedRLEnv`；mjlab → `mjlab.ManagerBasedRlEnv`
@@ -101,6 +103,11 @@ alwaysApply: false
 - `AgentSpec.runner` 用点路径惰性引用（`"pkg.module:Class"`），由 backend `resolve()`。**禁止在 `spec/` 里直接持有 runner cfg 类**——现有 `InstinctRlOnPolicyRunnerCfg` 建在 `isaaclab.utils.configclass` 上，持有即破坏隔离。`engine_overrides` 只用于让墙钟可比的 rollout 长度之类；按引擎改超参会让两次运行失去可比性。
 - `num_envs` 不进 `SceneSpec`，它是编译入参。注意 `sim/scene.py` 有同名的旧 `SceneSpec` / `TerrainSpec`，属 P8 将降级到 `verify/` 的那套栈，不要混用。
 - 判断接触一律用 `compat.sensors.in_contact()`（由接触时长导出）。禁止对接触力取模长设牛顿阈值：Isaac 的 `net_forces_w` 是世界系**仅法向**，mjlab 的 `force` 是完整三维力且默认在**接触系**，不是同一个物理量。力历史轴序也相反（Isaac `(env,time,elem,3)` / mjlab `(env,elem,time,3)`），两脚两子步时形状相同、只有值能分辨——必须走 `contact_force_history()`。
+- **golden dump 与 `verify/structure.py` 的 `dump()` 禁止按字段名排序**。观测组按属性顺序拼接，排序后的 golden 对一个观测向量布局已经不同的配置仍然相等——逐字段 diff 天然看不见重排（路径按名字索引），只有顺序断言能钉住它，见 `tests/test_parity_static.py`。
+- 白名单 key 是**路径前缀**，按路径段匹配（`p` 后接 `.` 或 `[`），**不要写结尾的 `.`**（匹配器自己会补，写了反而永不命中）。禁止 `rewards` / `observations` 这类整族前缀。
+- 需要非零退出码的 Isaac Sim 脚本必须在 `app.close()` **之前** `os._exit(status)`：Isaac Sim 的关闭流程会把进程退出码改写成 0。
+- 交给 Isaac manager 的 term 容器**不能是 dict**。管理器会往容器上写回属性（`CommandManager` 写 `debug_vis`），dict 没地方放；用 `SimpleNamespace`。但观测**组**必须是真的 `ObservationGroupCfg`（有 isinstance 检查），组内 term 靠 `__dict__` 顺序遍历。
+- 事件 term 的 `interval_range_s` 必须由 builder 透传。漏掉它一切照常构造，只是周期性推力永远不触发——`engines/isaacsim/terms.py` 用一个 `_event()` 辅助函数统一处理。
 
 ## 迁移一个 Isaac Lab 项目
 

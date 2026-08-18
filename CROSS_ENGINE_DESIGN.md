@@ -459,7 +459,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | P1 | **已完成**。`compat/`：署名词汇表 + denylist + 纯 torch math + `EntityRef` 下降 + 接触传感器读取 + `env` 访问器；`EntityView` 已撤销，见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表 / math / 选择器表 / 传感器轴序的每条断言由测试对着已安装引擎复核 |
 | P2 | **已完成**。`spec/`（`capability` / `entity` / `sensor` / `mdp` / `task`）+ `engines/`（`base` / `registry` / `compile`）+ 三级 Requirement；spec 与 engines 机件的 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 端到端编译整个 MdpSpec，跳过 / emulate / strict 三条路径各有测试与变异检验 |
 | P3 | **已完成**（flat G1 部分）。`mdp/`：20 个可移植 term（observations / rewards / terminations）；清出 3 个**不可移植**项交给 per-engine 注册表，见 §12.4.1 | 属性可移植性由 AST 扫描对着 denylist / legacy 别名表 / 两引擎数据类静态把关；term 数值由构造输入的桩验证；变异检验覆盖 |
-| P4 | isaacsim adapter：`TaskSpec` → `ManagerBasedRLEnvCfg`，term 配置带 `preserve_order=True` | 编译产物与 golden 的 diff 落在白名单内 |
+| P4 | **已完成**。`engines/isaacsim/`（`terms` / `scene` / `assets` / `adapter`）+ `tasks/locomotion/flat_g1.py` 的引擎无关声明 | 177 处 diff，0 处未解释；编译产物能构造并 step，观测维度与 13 个奖励项与 main 一致，见 §12.5 |
 | P5 | mjlab adapter：移植 env 子类 / `MultiRewardManager` / 力阈值接触传感器 | 同一 TaskSpec 编译通过，差异全部落在白名单内 |
 | P6 | `train.py --engine` 收敛；退役 unified 栈；任务 id 单一注册；manifest 落盘 | isaacsim 跑 200 iter 曲线与 main 重合；mjlab 达到同等策略质量 |
 | P7 | `migrate/`：analyze + codemod；`mdp/` 补齐到 Isaac 83 核心 term | 拿一个真实开源 Isaac Lab 项目走完 §13 五步 |
@@ -671,6 +671,31 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 
 - **接触类 term 收 `ContactSensorRef` 而非 `sensor_cfg`。** Isaac 声明一个宽传感器由 term 切片，mjlab 声明窄传感器由 term 整读，不存在一个可以同时传给两边的原生对象。
 - **`illegal_contact` 去掉了 `threshold`。** 两边的原版都对力取模长设牛顿阈值，但那个阈值在一边是「法向载荷 > N」、另一边是「含摩擦的总载荷 > N」，差值是那一刻摩擦承担的量——脚踩在斜坡上会一边越过阈值一边不越过。可移植版改问每个引擎自己的传感器「算不算接触」（走接触时长）。代价是失去了忽略轻微擦碰的能力；真需要力阈值的任务应当 per-engine 声明并写下容差，那才是共享阈值原本在做的事情的诚实版本。
+
+### 12.5 P4 实测：flat G1 编译产物 vs main
+
+`tasks/locomotion/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**177 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，57 条），且编译产物能真实构造并 step——观测维度、13 个奖励项、命令与事件管理器全部正常。
+
+差异只有六类，每类都是一个决定：
+
+| 类别 | 条数 | 是什么 |
+|---|---|---|
+| `.func` 指向 `instinctlab.mdp` 而非引擎自带 | ~56 | 整个设计要做的那次替换，也是同一份声明能编到 mjlab 的原因 |
+| action scale 逐关节 vs 按执行器组正则 | ~43 | 同样 29 个数，改从 `RobotSpec.joint_properties` 取，任务因此不需要引擎 import；逐关节验证相等 |
+| 三个不可移植奖励缺席 | ~45 | §12.4.1 的判定，出现在 resolution 报告里而非静默消失 |
+| 接触 term 收 `ContactSensorRef` 而非 `SceneEntityCfg` | ~26 | §12.4.1 的签名改动 |
+| 选择器 `str` → 单元素 tuple、`preserve_order=True` | ~5 | `EntityRef` 归一化；D1 |
+| `run_name` / `viewer` / 空容器 | ~6 | 日志标签与相机，不进 MDP |
+
+**场景与 sim 子树零差异**：地形、机器人 spawn、接触传感器、PhysX 求解器设置逐字段相同。这一段本来就该相同——它是把 main 的常量按 profile 重新装配，而不是重新推导。
+
+比对过程本身暴露了三个陷阱，已进 §15 硬约束：
+
+- **golden 不能按字段名排序。** 原先 `dump()` 与 `json.dumps` 都排了序，于是「观测项顺序」这个决定策略能否加载 checkpoint 的性质，在逐字段比对里完全不可见——路径按名字索引，重排后 diff 为空。现在 dump 保留声明顺序，`tests/test_parity_static.py` 直接钉住顺序。
+- **Isaac Sim 的 `app.close()` 会把进程退出码改写成 0。** 退出码放在它之后，这个检查永远不会失败。
+- **term 容器不能是 dict。** `CommandManager` 会往传进去的容器上写 `debug_vis`，dict 没地方放。
+
+尚未做：两引擎数值一致性测试（同一 term 在 isaacsim 与 mjlab 下的逐值比对）与 `engines/mjlab/`。P4 证明的是「声明能无损降到 Isaac 原生配置」，不是「两引擎跑出同一条轨迹」。
 
 ## 13. 迁移工作流
 
@@ -886,3 +911,6 @@ mjlab 侧是**未文档化的隐式依赖**。`vocab.py` 该条目必须注明�
 16. `spec/` 禁止 import 任何引擎，含函数体内的延迟 import。由 `tests/test_spec_isolation.py` 静态 + 动态双重把关。
 17. `resolve()` 之后禁止直接读 `cfg.<kind>_names`——两引擎装的东西不同（Isaac 是正则，mjlab 是匹配结果）。一律走 `compat.entity.resolved_names()`。
 18. 可移植 term 判断接触一律用 `compat.sensors.in_contact()`（由接触时长导出），禁止对接触力取模长设牛顿阈值：两引擎的「接触力」不是同一个物理量。需要力值的 term 必须 per-engine 并声明容差。
+19. golden dump 与结构比对禁止按字段名排序。观测组是按属性顺序拼接的，排序后的 golden 对一个观测向量布局已经不同的配置仍然相等——这类错误编不出编译期信号，只会在加载 checkpoint 时炸。
+20. 白名单条目的 key 是**路径前缀**，按路径段匹配（`p` 后接 `.` 或 `[`），不要写结尾的 `.`。禁止用 `rewards` / `observations` 这类整族前缀，由 `tests/test_parity_static.py` 把关。
+21. 需要非零退出码的 Isaac Sim 脚本必须在 `app.close()` **之前** `os._exit(status)`。Isaac Sim 的关闭流程会把进程退出码改写成 0，放在之后的检查永远不会失败。
