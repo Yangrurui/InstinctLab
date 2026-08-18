@@ -114,6 +114,8 @@ alwaysApply: false
 - 注册表两种入口并存：可移植族用 `@TERMS.portable(family)` 注册包装器（把 term 自带的 `func` 塞进原生 term 类），任何族都仍可 `@TERMS.<family>(kind)` 按 kind 注册。`func=` / `kind=` 二选一直接决定走哪条；缺少 portable 包装器属 **adapter 缺陷**，报错措辞要与「任务要求了引擎没有的能力」区分开。
 - `AgentSpec.runner` 用点路径惰性引用（`"pkg.module:Class"`），由 backend `resolve()`。**禁止在 `spec/` 里直接持有 runner cfg 类**——现有 `InstinctRlOnPolicyRunnerCfg` 建在 `isaaclab.utils.configclass` 上，持有即破坏隔离。`engine_overrides` 只用于让墙钟可比的 rollout 长度之类；按引擎改超参会让两次运行失去可比性。
 - `num_envs` 不进 `SceneSpec`，它是编译入参。注意 `sim/scene.py` 有同名的旧 `SceneSpec` / `TerrainSpec`，属 P8 将降级到 `verify/` 的那套栈，不要混用。
+- **给引擎传字段清单时，禁止只写「这一层要读的」**：mjlab 接触传感器的 `fields` 默认是 `("found", "force")`，我们只声明 `("force",)`——`force` 确实是力历史要读的那个，但 mjlab 的空中/接触计时**是从 `found` 累加的**，缺了它 `_update_air_time_tracking()` 直接 return。结果是传感器构造成功、环境正常 step、策略照常收敛，而 `illegal_contact` 永不触发、`feet_air_time` 恒付零，回合只能超时结束。跑满 5000 轮才被发现，靠的是和 InstinctMJ 的回合长曲线对比（参照 10.5→47→646→991，我们从头到尾 1000.0）。**覆盖引擎默认值前先查它内部还有谁读这个字段**；这类退化没有异常、没有数值断言信号，只有行为曲线能看见。
+- **验收跨引擎训练必须对回合长度曲线，不只对奖励曲线**。奖励是各项加权和，一项恒零仍会平滑上升、看起来在学；回合长度直接暴露终止是否活着。同理，只在 reset 那步产出的日志（mjlab 每步清空 `extras["log"]`，Isaac Lab 只在 `_reset_idx` 清）在终止失效时会被 wrapper 补零成一片 0.0000——**满屏精确的 0.0000 是信号不是噪声**。
 - 判断接触一律用 `compat.sensors.in_contact()`（由接触时长导出）。禁止对接触力取模长设牛顿阈值：Isaac 的 `net_forces_w` 是世界系**仅法向**，mjlab 的 `force` 是完整三维力且默认在**接触系**，不是同一个物理量。力历史轴序也相反（Isaac `(env,time,elem,3)` / mjlab `(env,elem,time,3)`），两脚两子步时形状相同、只有值能分辨——必须走 `contact_force_history()`。
 - **golden dump 与 `verify/structure.py` 的 `dump()` 禁止按字段名排序**。观测组按属性顺序拼接，排序后的 golden 对一个观测向量布局已经不同的配置仍然相等——逐字段 diff 天然看不见重排（路径按名字索引），只有顺序断言能钉住它，见 `tests/test_parity_static.py`。
 - 白名单 key 是**路径前缀**，按路径段匹配（`p` 后接 `.` 或 `[`），**不要写结尾的 `.`**（匹配器自己会补，写了反而永不命中）。禁止 `rewards` / `observations` 这类整族前缀。

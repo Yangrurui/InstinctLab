@@ -64,6 +64,14 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
     :class:`ContactSensorCfg` rather than a force-thresholded one: the portable terms decide contact
     from the sensor's own contact duration, so imposing a newton threshold here would reintroduce
     the very quantity the two engines disagree about.
+
+    ``"found"`` is requested and not merely inherited from mjlab's default, because everything that
+    decides contact here depends on it and its absence does not announce itself. mjlab accumulates
+    air and contact time from ``found`` and returns early when the field was not requested, leaving
+    both timers at zero for the whole run -- so ``illegal_contact`` never fires and
+    ``feet_air_time`` pays nothing. Training still proceeds, on an episode that can only time out.
+    InstinctMJ can ask for force alone because its sensor subclass rederives contact from a force
+    threshold; the portable terms deliberately do not.
     """
     from mjlab.sensor import ContactMatch, ContactSensorCfg
 
@@ -72,7 +80,7 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
         name=sensor.name,
         primary=ContactMatch(mode="body", pattern=elements, entity=sensor.entity),
         secondary=None if sensor.against is None else ContactMatch(mode="body", pattern=(sensor.against,)),
-        fields=("force",),
+        fields=("found", "force"),
         reduce="netforce",
         track_air_time=sensor.track_air_time,
         history_length=sensor.history_length,
