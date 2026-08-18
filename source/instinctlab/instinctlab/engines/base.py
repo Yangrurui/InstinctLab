@@ -131,23 +131,36 @@ class CompiledTask:
 
     ``agent_cfg`` resolves on first access rather than during compilation. Building an environment
     must not require importing the RL library, and treating that as merely tidy would have hidden a
-    real problem: this project's runner configs are declared with ``isaaclab.utils.configclass``, so
-    importing one pulls in Isaac Lab -- and on a machine where Isaac Sim has not been launched, that
-    import fails outright. An mjlab run would have needed Isaac Sim started to read its PPO
-    hyperparameters. The coupling is still there and still needs removing; deferring it means it
-    only affects the code that actually wants the agent.
+    real problem: this project's runner configs were declared with ``isaaclab.utils.configclass``,
+    so importing one pulled in Isaac Lab, and on a machine where Isaac Sim has not been launched
+    that import fails outright -- an mjlab run needed Isaac Sim started to read its PPO
+    hyperparameters. The decorator has since been vendored engine-free
+    (:mod:`instinctlab.utils.configclass`), but the laziness stays: it is what keeps a task's
+    environment independent of whatever library ends up consuming it.
+
+    ``make_env`` exists because the engines disagree about constructor signatures -- Isaac Lab
+    reads the device out of ``cfg.sim.device`` while mjlab takes it as an argument. That is a fact
+    about an engine, so the adapter answers it by supplying ``env_factory``; callers that build an
+    environment should go through ``make_env`` rather than re-deriving the call themselves.
     """
 
     env_cls: type
     env_cfg: Any
     resolution: Resolution
     agent_factory: Callable[[], Any] | None = None
+    env_factory: Callable[[], Any] | None = None
 
     @cached_property
     def agent_cfg(self) -> Any:
         if self.agent_factory is None:
             raise RuntimeError(f"{self.resolution.task_id} was compiled without an agent factory.")
         return self.agent_factory()
+
+    def make_env(self) -> Any:
+        """Construct the environment the way this engine wants it constructed."""
+        if self.env_factory is None:
+            return self.env_cls(cfg=self.env_cfg)
+        return self.env_factory()
 
 
 @runtime_checkable
@@ -190,6 +203,18 @@ class EngineAdapter(Protocol):
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
         """Compile a task into this engine's native environment config."""
+        ...
+
+    @staticmethod
+    def wrap_for_rl(env: Any) -> Any:
+        """Adapt this engine's environment to the ``instinct_rl`` VecEnv contract.
+
+        The contract is one thing, but the translation to it is per-engine: the two engines
+        disagree about whether observations arrive as a dict or a tensor, whether an episode
+        statistic is reported on every step, and what a reward's shape is. Each adapter therefore
+        names its own wrapper rather than a launcher keeping a table of them, which is what makes
+        adding a third engine a change in one directory (D4, N+M).
+        """
         ...
 
     def contract_report(self, spec: TaskSpec) -> dict[str, Any]:

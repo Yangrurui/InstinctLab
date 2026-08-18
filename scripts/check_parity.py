@@ -28,7 +28,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN)
     parser.add_argument("--whitelist", type=Path, default=DEFAULT_WHITELIST)
-    parser.add_argument("--num-envs", type=int, default=4096)
+    parser.add_argument(
+        "--num-envs",
+        type=int,
+        default=None,
+        help=(
+            "Environment count to compile at. Defaults to the golden's, because the count is a"
+            " property of a run rather than of the declaration -- compiling at a different one"
+            " reports a difference that says nothing about whether the task lowered correctly."
+        ),
+    )
     parser.add_argument(
         "--construct",
         action="store_true",
@@ -52,7 +61,8 @@ def main() -> int:
     golden = json.loads(args.golden.read_text())
     whitelist = json.loads(args.whitelist.read_text()) if args.whitelist.exists() else {}
 
-    compiled = IsaacSimAdapter().compile(flat_g1(), num_envs=args.num_envs, device="cuda:0")
+    num_envs = args.num_envs if args.num_envs is not None else golden["config"]["scene"]["num_envs"]
+    compiled = IsaacSimAdapter().compile(flat_g1(), num_envs=num_envs, device="cuda:0")
     print(compiled.resolution.summary_table())
 
     differences = compare(golden["config"], dump(compiled.env_cfg), allow=whitelist)
@@ -73,7 +83,10 @@ def main() -> int:
 
     # Deliberately without closing the app, and via os._exit. Isaac Sim's shutdown ends the process
     # itself with a status of zero, so a status set after it never reaches the caller and the check
-    # becomes incapable of failing. Output is already flushed and the process is going away anyway.
+    # becomes incapable of failing. Flush first: os._exit skips stdio buffers, and when this runs
+    # with its output redirected that silently drops everything printed since the last flush --
+    # which is how the stepping result went missing while the check still reported success.
+    sys.stdout.flush()
     os._exit(1 if remaining or stale else 0)
 
 

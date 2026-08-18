@@ -1,8 +1,7 @@
 from dataclasses import MISSING
 from typing import Literal, Sequence
 
-from isaaclab.utils import configclass
-
+from instinctlab.utils.configclass import configclass
 from instinctlab.utils.wrappers.instinct_rl.module_cfg import InstinctRlParallelBlockCfg
 
 

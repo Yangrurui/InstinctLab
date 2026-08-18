@@ -143,7 +143,10 @@ class InstinctRlVecEnvWrapper(VecEnv):
 
     @property
     def num_rewards(self) -> int:
-        return self.unwrapped.num_rewards
+        # ``num_rewards`` is declared by InstinctRlEnv, which routes grouped rewards to the
+        # MultiRewardManager. A task whose rewards are a single flat container is served by a
+        # plain ManagerBasedRLEnv, which has no such attribute and exactly one reward.
+        return getattr(self.unwrapped, "num_rewards", 1)
 
     """
     Operations - MDP

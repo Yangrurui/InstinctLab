@@ -95,6 +95,12 @@ class IsaacSimAdapter:
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser) -> None:
+        """Isaac Sim's launch flags, ``--device`` and ``--headless`` among them.
+
+        ``AppLauncher`` declares ``--device`` itself and rejects a parser that already has one, so
+        the launcher leaves that flag to the adapters; both engines end up accepting the same
+        spelling with the same meaning.
+        """
         from isaaclab.app import AppLauncher
 
         AppLauncher.add_app_launcher_args(parser)
@@ -105,6 +111,13 @@ class IsaacSimAdapter:
         from isaaclab.app import AppLauncher
 
         return AppLauncher(args).app
+
+    @staticmethod
+    def wrap_for_rl(env: Any) -> Any:
+        """Wrap with main's Isaac wrapper, so training reads the same tensors main's does."""
+        from instinctlab.utils.wrappers.instinct_rl.vecenv_wrapper import InstinctRlVecEnvWrapper
+
+        return InstinctRlVecEnvWrapper(env)
 
     def capabilities(self) -> CapabilitySet:
         return TERMS.capabilities()

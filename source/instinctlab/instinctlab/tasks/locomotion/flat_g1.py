@@ -268,6 +268,6 @@ def flat_g1() -> TaskSpec:
             },
             events=_events(),
         ),
-        agent=AgentSpec(runner="instinctlab.tasks.locomotion.config.g1.agents.instinct_rl_ppo_cfg:G1FlatPPORunnerCfg"),
+        agent=AgentSpec(runner="instinctlab.tasks.locomotion.agents.flat_g1_ppo:G1FlatPPORunnerCfg"),
         engines=("isaacsim", "mjlab"),
     )

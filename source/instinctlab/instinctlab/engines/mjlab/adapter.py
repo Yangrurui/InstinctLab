@@ -77,12 +77,26 @@ class MjlabAdapter:
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser) -> None:
-        """No launch flags. mjlab is an ordinary import, which is most of why it is quick to use."""
+        """Only ``--device``. mjlab is an ordinary import, which is most of why it is quick to use.
+
+        ``--device`` is contributed by the adapter rather than by the launcher because Isaac Sim's
+        ``AppLauncher`` insists on declaring that flag itself and refuses a parser that already
+        has one. Both engines therefore spell it the same way and mean the same thing, but each
+        engine registers its own.
+        """
+        parser.add_argument("--device", type=str, default="cuda:0", help="Device to simulate and learn on.")
 
     @staticmethod
     def bootstrap(args: argparse.Namespace) -> object | None:
         """Nothing to start. Present because the protocol has it, and doing nothing is the answer."""
         return None
+
+    @staticmethod
+    def wrap_for_rl(env: Any) -> Any:
+        """Wrap with the wrapper ported from InstinctMJ, which is how mjlab training was run."""
+        from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import MjlabVecEnvWrapper
+
+        return MjlabVecEnvWrapper(env)
 
     def capabilities(self) -> CapabilitySet:
         return TERMS.capabilities()
@@ -139,6 +153,7 @@ class MjlabAdapter:
             ),
         )
         return CompiledTask(
+            env_factory=lambda: ManagerBasedRlEnv(cfg=env_cfg, device=device),
             env_cls=ManagerBasedRlEnv,
             env_cfg=env_cfg,
             resolution=resolution,

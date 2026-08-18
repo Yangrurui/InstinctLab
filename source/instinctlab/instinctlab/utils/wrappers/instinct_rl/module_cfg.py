@@ -1,7 +1,7 @@
 from dataclasses import MISSING
 from typing import List, Literal, Sequence
 
-from isaaclab.utils import configclass
+from instinctlab.utils.configclass import configclass
 
 
 @configclass
