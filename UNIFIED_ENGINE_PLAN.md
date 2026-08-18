@@ -1,4 +1,14 @@
-# InstinctLab 统一训练引擎方案
+# InstinctLab 统一训练引擎方案（部分已取代）
+
+> **本文的架构立场与 `SimulatorBackend` 契约已被取代。** 当前权威设计是 [`CROSS_ENGINE_DESIGN.md`](CROSS_ENGINE_DESIGN.md)。
+>
+> 具体地：
+>
+> - 「架构目标」「SimulatorBackend 契约」「两个后端的实现落点」「实施步骤」「目标目录」「验收标准」各节描述的自研 `InstinctManagerBasedRlEnv` + 统一 canonical 张量方案**不再是实现方向**。原因见 `CROSS_ENGINE_DESIGN.md` §1–3：该方案无法同时满足「统一接口」和「与参考实现一致」，且已实测导致 isaacsim 路径的观测向量成为 main 分支的一个置换。
+> - `SimulatorBackend` 双实现本身不作废，降级为 `instinctlab/verify/` 的 sim2sim 状态读写层，本文的契约描述对该层仍有参考价值。
+> - **附录 A（PBHC 实现指南）、附录 B（HumanoidVerse 整合）、附录 C（MJLab Entity API）完全有效**，是本仓库最有价值的参考资料汇编。
+>
+> 其中「关节统一为显式冻结的 DFS 顺序」这一条被保留并强化为决策 D1，但实现方式改变：不再由自研 env 做张量置换，而是让两个引擎的原生 term 配置带上 `preserve_order=True`。
 
 ## 架构目标
 
@@ -538,13 +548,13 @@ source/instinctlab/instinctlab/
 
 不要先写三个 adapter。正确顺序是：
 
-1. 选定规范引擎，冻结张量约定  
-2. 从现有 Env 里抽出 `BaseSimulator` 接口  
-3. 把现有引擎改成第一个 adapter，确认训练还能跑  
-4. 加配置注入（Hydra group + `_target_`）  
-5. 处理入口脚本的 SDK 引导（import 顺序、AppLauncher）  
-6. 加第二个引擎的 adapter  
-7. 写对齐测试，再扩第三个  
+1. 选定规范引擎，冻结张量约定
+2. 从现有 Env 里抽出 `BaseSimulator` 接口
+3. 把现有引擎改成第一个 adapter，确认训练还能跑
+4. 加配置注入（Hydra group + `_target_`）
+5. 处理入口脚本的 SDK 引导（import 顺序、AppLauncher）
+6. 加第二个引擎的 adapter
+7. 写对齐测试，再扩第三个
 
 每一步都要保持「原引擎训练不回退」。接口是从能跑的代码里抽出来的，不是先设计再填。
 
@@ -906,8 +916,8 @@ def main(cfg):
 
 第一个 adapter 稳定后，再加第二个。建议顺序：
 
-1. `num_envs=1`、平面地形、关掉 domain rand  
-2. 同一套初始状态，跑 1 秒开环（固定零动作或默认 pose）  
+1. `num_envs=1`、平面地形、关掉 domain rand
+2. 同一套初始状态，跑 1 秒开环（固定零动作或默认 pose）
 3. 对比这些量是否同量级、同符号、同关节顺序：
 
 ```
@@ -917,19 +927,19 @@ robot_root_states[:, 2]          # 高度
 contact_forces[:, feet]
 ```
 
-4. 再开闭环：加载规范引擎训好的策略，看第二个引擎上是否不立刻摔倒  
+4. 再开闭环：加载规范引擎训好的策略，看第二个引擎上是否不立刻摔倒
 5. 最后再开 DR、复杂地形、多环境
 
 **不要用「第二个引擎重新训到类似 reward」当对齐成功。** 那只说明两边都能学，不说明接口一致。真正的检验是：**规范引擎的策略零改动迁过去，行为可识别。**
 
 对齐失败时按这个顺序查：
 
-1. 关节顺序（最常见）  
-2. 四元数约定  
-3. 力矩 vs 位置控制  
-4. `dt` / decimation 不一致  
-5. 接触力 body 下标（`find_rigid_body_indice` 返回了引擎内部 index）  
-6. 资产惯性 / 碰撞网格不是同一份模型  
+1. 关节顺序（最常见）
+2. 四元数约定
+3. 力矩 vs 位置控制
+4. `dt` / decimation 不一致
+5. 接触力 body 下标（`find_rigid_body_indice` 返回了引擎内部 index）
+6. 资产惯性 / 碰撞网格不是同一份模型
 
 ---
 
@@ -975,16 +985,16 @@ elif cfg.simulator.config.name == "real":
 
 按周拆也行，但每一项都要可提交、可回滚。
 
-- [ ] 列出 Env 里所有 SDK 调用，标出将下沉的部分  
-- [ ] 写 `BaseSimulator`，字段和四元数 / 关节顺序写进注释  
-- [ ] 现有引擎改成 adapter，Env 去掉 SDK import，原配置仍能训  
-- [ ] `load_assets` 应对 `dof_names` / `body_names` 做 assert（当前 HumanoidVerse Genesis 尚缺）  
-- [ ] Hydra `config/simulator/*.yaml` + `+simulator=`  
-- [ ] `train.py` 集中处理 import 顺序 / AppLauncher  
-- [ ] 机器人 yaml 同时给出各引擎资产路径  
-- [ ] 物理循环统一为 `decimation × (apply_torque + simulate)`，随后在 post 阶段 refresh  
-- [ ] 第二个 adapter：开环张量对比 → 闭环策略迁移  
-- [ ] （可选）部署接口 + ONNX，不塞进 `BaseSimulator`  
+- [ ] 列出 Env 里所有 SDK 调用，标出将下沉的部分
+- [ ] 写 `BaseSimulator`，字段和四元数 / 关节顺序写进注释
+- [ ] 现有引擎改成 adapter，Env 去掉 SDK import，原配置仍能训
+- [ ] `load_assets` 应对 `dof_names` / `body_names` 做 assert（当前 HumanoidVerse Genesis 尚缺）
+- [ ] Hydra `config/simulator/*.yaml` + `+simulator=`
+- [ ] `train.py` 集中处理 import 顺序 / AppLauncher
+- [ ] 机器人 yaml 同时给出各引擎资产路径
+- [ ] 物理循环统一为 `decimation × (apply_torque + simulate)`，随后在 post 阶段 refresh
+- [ ] 第二个 adapter：开环张量对比 → 闭环策略迁移
+- [ ] （可选）部署接口 + ONNX，不塞进 `BaseSimulator`
 
 ---
 
@@ -1591,9 +1601,9 @@ yaml 中的 `dof_names`、`body_names` 以 IsaacGym URDF 顺序为真值。Isaac
 
 ##### 7.5 Domain Randomization
 
-IsaacGym 在 `create_actor` 时改 `RigidShapeProperties` / `RigidBodyProperties`。  
-IsaacSim 用 Isaac Lab 的 `EventManager`（`randomize_rigid_body_mass`、自定义 `randomize_body_com`）。  
-Genesis 目前对 DR 的覆盖更弱。  
+IsaacGym 在 `create_actor` 时改 `RigidShapeProperties` / `RigidBodyProperties`。
+IsaacSim 用 Isaac Lab 的 `EventManager`（`randomize_rigid_body_mass`、自定义 `randomize_body_com`）。
+Genesis 目前对 DR 的覆盖更弱。
 因此**同一套 `domain_rand` yaml 在不同引擎上效果不一定等价**。官方训练只用 IsaacGym。
 
 ---
@@ -1718,10 +1728,10 @@ humanoidverse/
 
 PPO 通常不需要修改，但不能只照抄现有实验性 adapter；要先补齐状态契约，并检查任务中的引擎特判和可选能力。
 
-1. **实现类**  
+1. **实现类**
    `humanoidverse/simulator/<name>/<name>.py`，继承 `BaseSimulator`，实现第 3 节全部方法。
 
-2. **Hydra yaml**  
+2. **Hydra yaml**
    `config/simulator/<name>.yaml`：
    ```yaml
    # @package _global_
@@ -1743,10 +1753,10 @@ PPO 通常不需要修改，但不能只照抄现有实验性 adapter；要先�
    - `load_assets` 结束时 assert 名字与 yaml 一致
    - 若 SDK 必须在 `torch` 之前初始化，在 `train_agent.py` / `eval_agent.py` 加与 IsaacGym 类似的早期分支
 
-4. **资产**  
+4. **资产**
    在 `robot.asset` 增加该引擎需要的文件字段，或复用 `urdf_file`。
 
-5. **验证**  
+5. **验证**
    用 `num_envs=1`、同一 motion、对比 `dof_pos` / `base_quat` / `robot_root_states[:, 3:7]` / `contact_forces` / `_rigid_body_pos` 是否与 IsaacGym 同量级、同顺序。还要覆盖 reset 写回和 feet index 同时访问 contact / rigid-body 字段；DR 和接触往往是最大误差源。
 
 部署引擎则走另一条：继承 `URCIRobot`，实现 `_get_state` / `_apply_action` / `_reset`，并在 `urci.py` 的 `main()` 内嵌 `setup_simulator()` 工厂中注册。
@@ -2782,7 +2792,7 @@ class Entity:
     """Set joint position targets.
 
     Args:
-      position: Target joint poisitions with shape (N, num_joints).
+      position: Target joint positions with shape (N, num_joints).
       joint_ids: Optional joint indices to set. If None, set all joints.
       env_ids: Optional environment indices. If None, set all environments.
     """
@@ -3667,4 +3677,3 @@ class EntityData:
     """Root COM angular velocity in body frame. Shape (num_envs, 3)."""
     return quat_apply_inverse(self.root_link_quat_w, self.root_com_ang_vel_w)
 ```
-

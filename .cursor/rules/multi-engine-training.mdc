@@ -1,28 +1,108 @@
 ---
-description: 跨引擎训练选型与 InstinctLab 约束。评估/接入新仿真引擎、对比 HumanoidVerse/ProtoMotions/RoboVerse/Isaac Lab 3、或扩展 SimulatorBackend 时使用。完整简报见 MULTI_ENGINE_TRAINING.md。
-globs: source/instinctlab/instinctlab/sim/**/*.py, source/instinctlab/instinctlab/backends/**/*.py, source/instinctlab/instinctlab/envs/unified_manager_based_rl_env.py, scripts/instinct_rl/train_unified.py, scripts/instinct_rl/play_unified.py, UNIFIED_ENGINE_PLAN.md, MULTI_ENGINE_TRAINING.md
+description: 跨引擎训练架构与 InstinctLab 约束。评估/接入新仿真引擎、扩展 spec 或 engines 层、对比 HumanoidVerse/ProtoMotions/RoboVerse/Isaac Lab 3 时使用。权威设计见 CROSS_ENGINE_DESIGN.md。
+globs: source/instinctlab/instinctlab/spec/**/*.py, source/instinctlab/instinctlab/engines/**/*.py, source/instinctlab/instinctlab/frontends/**/*.py, source/instinctlab/instinctlab/compat/**/*.py, source/instinctlab/instinctlab/mdp/**/*.py, source/instinctlab/instinctlab/migrate/**/*.py, source/instinctlab/instinctlab/sim/**/*.py, source/instinctlab/instinctlab/backends/**/*.py, source/instinctlab/instinctlab/verify/**/*.py, scripts/instinct_rl/train*.py, scripts/instinct_rl/play*.py, CROSS_ENGINE_DESIGN.md, UNIFIED_ENGINE_PLAN.md, MULTI_ENGINE_TRAINING.md
 alwaysApply: false
 ---
 
 # 跨引擎训练约束
 
-完整简报：[`MULTI_ENGINE_TRAINING.md`](../../MULTI_ENGINE_TRAINING.md)。实现契约：[`UNIFIED_ENGINE_PLAN.md`](../../UNIFIED_ENGINE_PLAN.md)。
+权威设计：[`CROSS_ENGINE_DESIGN.md`](../../CROSS_ENGINE_DESIGN.md)。选型背景：[`MULTI_ENGINE_TRAINING.md`](../../MULTI_ENGINE_TRAINING.md)。[`UNIFIED_ENGINE_PLAN.md`](../../UNIFIED_ENGINE_PLAN.md) 的 SimulatorBackend 契约与统一 env 部分**已被取代**，仅附录 A/B/C 仍有效。
 
 ## 既定立场
 
-本仓库走 Simulator Adapter：一份 Task / Manager / MDP，Isaac Sim 与 MJLab 只实现 `SimulatorBackend`。已注册 `isaacsim`、`mjlab`、`mock`。统一入口是 `scripts/instinct_rl/train_unified.py --backend ...`，首个统一任务是 `Instinct-Locomotion-Flat-G1-v0`。
+统一层是**声明式 TaskSpec + 一份可移植 MDP 库**，由每个引擎的 adapter 编译成该引擎的**原生** env 配置。env 循环与 manager 一律使用引擎原生实现，不自研。
+
+项目的主要价值是**迁移**：接进任意引擎的开源项目，不改任务逻辑就能换引擎跑。不限于 Isaac Lab 项目——mjlab 项目要能反向迁移到 Isaac。结构上是编译器：**frontend 读进来 → IR → backend 编出去**，成本 O(N+M) 而非逐对转换器的 O(N×M)。
+
+- `spec/`：引擎无关声明（`TaskSpec` / `MdpSpec` / `TermSpec` / `EntityRef` / `Requirement`）
+- `mdp/`：**可移植 term 库，一份实现两引擎共用**。由移植 main 与 Isaac Lab 现有实现种子化，不重新推导数学
+- `compat/`：薄兼容层——`vocab.py`（**署名的**中枢词汇表）、`attrs.py`（映射表 + denylist）、`entity.py`（`EntityView`）、`sensors.py`（`SensorRef`）、`env.py`、`math.py`（纯 torch）
+- `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族——`actions.py` `events.py`(DR) `scene.py` `assets.py` `sim.py` `caps.py` `adapter.py`
+- `frontends/<idiom>/`（作来源）：项目源码 → `TaskSpec` + 未转换清单 + 置信度报告
+- `migrate/`：`analyze.py`（AST 分类报告）+ `codemod.py`（确定性改写）
+- 原生栈：isaacsim → `isaaclab.ManagerBasedRLEnv`；mjlab → `mjlab.ManagerBasedRlEnv`
+- `verify/`：旧 `SimulatorBackend` 双实现降级至此，做 sim2sim 状态断言，**不在训练热路径**
+
+入口 `scripts/instinct_rl/train.py --engine isaacsim|mjlab`。任务 id 单一注册。
+
+## Term 的两种写法
+
+- **可移植族**（观测 / 奖励 / 终止 / 命令）：`TermSpec(func=instinctlab.mdp.xxx)`，直接给函数引用，写法与 Isaac Lab 原生 cfg 一致。已验证两框架数据属性显式名收敛（`root_link_lin_vel_b` / `root_link_quat_w` / `projected_gravity_b` / `joint_pos` / `joint_vel` 等同名同义）、term 签名同形、env 级访问器同名，所以一份实现两引擎都能跑。
+- **per-engine 族**（动作 / 事件与 DR / 场景 / 资产 / sim）：`TermSpec(kind="...")`，由 `engines/<name>/` 映射。动作是 `joint_names` vs `actuator_names`；DR 是高层 event class vs 约 40 个 `mdp.dr.*` 函数，范式不同。
+
+不要因为「Isaac Lab 与 mjlab 的 mdp 库 0% 签名一致」就给每个 term 写两份实现——那个数字比较的是两个独立库，不是本仓库的实现路径。
+
+## compat denylist：6 个同名不同义的陷阱
+
+误用必须报错或强制显式选择，禁止默认放行：
+
+1. `joint_acc`：Isaac 有限差分 vs mjlab `qacc`
+2. 关节力矩：Isaac `applied_torque` ↔ mjlab **`qfrc_actuator`**，不是 `actuator_force`（后者 nu 维执行器空间）
+3. `default_root_state` / `write_root_state` 速度：Isaac COM 系 vs mjlab link 系
+4. 非根 body 的 `body_link_vel_w`：Isaac per-body COM 偏移 vs mjlab root `subtree_com`
+5. `gravity_vec_w`：Isaac 从 sim 重力归一化 vs mjlab 硬编码 `[0,0,-1]`
+6. Isaac legacy 别名 `root_lin_vel_w` / `root_vel_w` 指向 **COM** 速度——codemod 必须改写为 `root_com_lin_vel_w`，不是 `root_link_lin_vel_w`
+
+## 三个已定决策
+
+- **D1 顺序以 DFS 为主**：`RobotSpec.joint_names` / `body_names` 是唯一真值，两个 adapter 都发 `preserve_order=True`，由引擎按名解析。canonical→native 翻译只在 `CompileCtx.entity()` 一处发生。isaacsim 相对 main 的 BFS 顺序是已接受偏差，见差异白名单。
+- **D2 自研 env / managers 已退役**：`unified_manager_based_rl_env.py`、`managers/unified.py`、`mdp/unified.py` 不再是实现方向。
+- **D3 main 是唯一 golden**：`tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义真值。不依赖 InstinctMJ，仅作 mjlab 表达方式的参考。验收 = diff 为空或命中白名单。**泛化形式**：golden 是「该项目跑在它原本的引擎上」，D3 是本仓库 locomotion 项目的特例。
+
+## N 引擎扩展：五处待改结构（CROSS_ENGINE_DESIGN §14）
+
+写 `spec/` / `compat/` 时按这五条来，不要复刻双引擎期的形状：
+
+- **S1 中枢词汇表须署名**。中枢在 `compat/vocab.py`，每个量带参考系/原点/单位/旋转约定（四元数固定 wxyz，见 D8），各引擎给 spoke 映射。可以沿用 Isaac 拼写但要写成「我们选它」——两引擎当前同名是巧合，第三个引擎不会遵守。
+- **S2 `EntityRef` 须开放选择器种类**。mjlab `SceneEntityCfg` 有 10 种（joint / body / geom / site / actuator / tendon / camera / light / material / pair），Isaac 只有 4 种，仅 joint / body 重合。这是 **mjlab → Isaac 方向的硬门槛**。
+- **S3 capability 用带命名空间的字符串 ID**（`contact.air_time` / `dr.friction.per_geom` / `sensor.tiled_camera` / `physics.differentiable`），引擎包导入时注册；未注册 ID 启动期报错。不要用封闭 enum。
+- **S4 golden 泛化**，见上。
+- **S5 加 conformance suite**：与任务无关的行为探针（自由落体、静态保持、PD 阶跃、接触冲量、摩擦滑移），每 `(机器人, 引擎)` 一次性产出签名基线，供所有用该机器人的项目共享。
+
+## 四个已定边界（CROSS_ENGINE_DESIGN §14.7）
+
+- **D4 RL 边界统一到 `instinct_rl`**。frontend 把 rsl_rl / rl_games / skrl 的 agent cfg 翻译成 `AgentSpec`，**不可翻译的超参必须进未转换清单**，不得静默取默认值。`AgentSpec.runner` 字段保留，当前只实现 `"instinct_rl"`，将来加多 runner 是新增枚举值而非改结构。导入项目的验收标准是**可比性能**，不是复现原论文数字。
+- **D5 做资产自动转换管线** `assets/pipeline/`：`converters/`（URDF ↔ MJCF ↔ USD，封装既有工具）+ `validators/`（质量／惯量／COM／关节限位／关节名集合／DFS 序／碰撞几何数对照）+ `manifest.py`（provenance + checksum）。**validators 比 converters 重要**——校验不通过的资产禁止进训练路径。
+- **D6 第三个引擎暂不选定**，先把 isaacsim ↔ mjlab 双向打通。M5 待触发。但 S1／S2／S3 照做：S2 是 M3 的前置。
+- **D8 四元数一律 `(w, x, y, z)`**。中枢约定写进 `compat/vocab.py`。`spec/` / `mdp/` / `compat/` 禁止出现 xyzw。两引擎的 `data.*` 本来都是 wxyz，但 Isaac Lab 显式文档化（`articulation_data.py:853,885,917,949`），**mjlab 没有**——约定继承自 MuJoCo `qpos`/`xquat`，属未文档化隐式依赖，须列入引擎升级复查项。xyzw 只允许贴着引擎 API 那一行出现（`set_root_transforms`、warp mesh transform、`ArticulationView` 读回、motion 可视化写回），**转换结果不得跨函数边界传播**。注意 `convert_quat(quat, to="xyzw")` 两边默认值都是转成 xyzw——`compat/math.py` 的 quat 工具不设默认方向，`migrate/analyze.py` 把不带 `to=` 的调用标为需人工确认。外部数据（motion 文件 / SMPL / poselib / ROS / IMU）常用 xyzw，须在入口归一并在 manifest 记录原始约定。
+- **D7 IR 只支持 manager 架构**。`TaskSpec` 显式假设 manager 语义。frontend 遇到单体 env 项目（HumanoidVerse / PBHC / IsaacGymEnvs 风格）必须**明确报错并说明需先手工重构成 term 结构**，禁止自动拆解单体 `compute_reward()`——自动拆解只会产出语义已漂移但看起来能跑的结果。非 manager 引擎若接入，走 backend 路径而非 frontend 路径。
+
+里程碑：M1 双引擎跑通同一 TaskSpec（= §10 的 P0–P6）→ M2 导入第三方 Isaac Lab 项目 → M3 反向把 mjlab 项目跑在 Isaac 上（引擎中立性的真正检验）→ M4 迁移产品化 → M5 第三引擎（待触发）。
 
 ## 硬约束
 
-- Env / Reward / Obs / Algo / Manager 禁止 import 引擎 SDK，禁止 `if backend == ...`。
-- 关节/body 顺序以 `RobotSpec` 冻结 DFS 名为唯一真值；用 `CanonicalIndexMap` 按名称映射。
-- 不支持的 Capability 启动即失败，禁止静默降级。
-- 新引擎 = 新 provider + adapter + `asset_for` + 测试。禁止复制第二份 Task。
+- `spec/` 禁止 import 任何引擎 SDK（`isaaclab` / `mujoco` / `mjlab` / `omni.*` / PhysX 类型）。
+- 公共层禁止 `if engine == ...`。引擎差异只能是按引擎名分区的**数据**（`profiles` / `engine_params` / `engine_extras`），或 adapter 内部实现。
+- 禁止再写第三套 env 循环或 manager；禁止为一个引擎复制第二份 `TaskSpec`。
+- Requirement 三级：REQUIRED 缺失启动即失败；OPTIONAL 缺失警告+跳过，**必须**打印启动汇总并写入 manifest；EMULATE 需 adapter 注册替代实现。禁止无记录的静默降级。默认值：观测/动作/终止/命令 REQUIRED，奖励/事件/curriculum/传感器 OPTIONAL。
+- adapter 的 `CapabilitySet` 从 `terms.py` 的 `provides=` 推导，禁止手写与实现脱节的声明。
+- 引擎 profile 的**默认值就是该引擎参考实现的值**；`TaskSpec` 只放覆盖。
+- 差异白名单新增条目必须写 reason。
+- 禁止把 PhysX 与 MuJoCo 接触力当逐值等价；需要绝对力值的任务必须声明容差。
 - 训练契约与 `instinct_onboard` 部署分开。
-- 不要用 Gymnasium 当 sim2sim 对齐层；不要把 Isaac Lab 3 的 Articulation 工厂抄进公共层。
+- 不用 Gymnasium 当 sim2sim 对齐层；不把 Isaac Lab 3 的 Articulation 工厂抄进公共层。
+- 禁止写成对的「引擎 A → 引擎 B」转换器。跨引擎转换只能经过 IR。
+- 禁止在 term 里直接假定某引擎的属性拼写即中枢，即使当前两引擎恰好同名；中枢是 `compat/vocab.py` 署名的那一份。
+- frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单，禁止丢信息后静默产出「能跑」的 `TaskSpec`。
+- 四元数一律 wxyz；`spec/` / `mdp/` / `compat/` 禁止出现 xyzw；禁止调用不带 `to=` 的 `convert_quat`。
+
+## 迁移一个 Isaac Lab 项目
+
+五步，顺序不能变：1) 先在 Isaac 上按原样跑通，L0 diff 为空，固定基线 2) `instinct-migrate analyze` 出逐项分类报告 3) codemod 改写机械部分（import 换 `instinctlab.mdp`、legacy 别名换显式帧名、math 换纯 torch、`sensor_cfg` 换 `SensorRef`）4) 补 per-engine 条目（资产 / sim profile / 动作映射 / DR）5) L0 → L1 → mjlab smoke 与短训练。
+
+第 4 步主要是 **per-robot** 而非 per-task：一个机器人补完一次，其后续任务几乎零成本。真正的 blocker 约占 Isaac 核心 term 的 10%：TiledCamera / `image_features`、RTX 视觉 DR、deformable、OSC / RMPFlow / binary gripper、PhysX collider offsets。
+
+## 接入新引擎
+
+entry point `instinctlab.engines` 注册，可作独立 pip 包。清单：`bootstrap` 不污染其他引擎进程 · `compile` 产出原生 env · `terms.py` 覆盖所需语义名 · `assets.py` + checksum · `caps.py` 声明能力与版本区间 · contract report golden 入库 · L0/L1 测试通过。缺失术语走 OPTIONAL 跳过，不必先补齐全部。
 
 ## 选型（不要改立场）
 
-- 本仓库训同一任务：扩展 `BACKENDS`，不要引入 HumanoidVerse Hydra 或 MetaSim 训练热路径。
-- 只要官方 PhysX ↔ MJWarp：那是 Isaac Lab 3 `physics=`，不是本仓库统一任务的迁移方向。
-- 抄 HumanoidVerse 只抄“任务不 import SDK、adapter 对齐张量”；不要抄任务内 `simulator.name` 分支。
+- 本仓库训同一任务：加 `EngineAdapter`，不要引入 HumanoidVerse Hydra 或 MetaSim 训练热路径。
+- 只要官方 PhysX ↔ MJWarp：那是 Isaac Lab 3 `physics=`，不是本仓库的迁移方向。
+- 抄 HumanoidVerse 只抄“任务不 import SDK”；不要抄任务内 `simulator.name` 分支。
+
+对照容器内两个多引擎实现（各解决不同的一半）：
+
+- **MetaSim**（11 引擎）：`BaseSimHandler` 统一 sim 句柄 + `scenario/` 场景 IR，但**没有** MDP term 组成层（无 `RewardManager` / `ObservationManager`，reward 是 task 方法）。互补而非竞争。备选战略：单个 `engines/metasim/` backend 一次拿到 6+ 引擎，代价是无原生 manager 语义，只作 sim2sim 与快速试跑，不作主训练引擎。
+- **holosoma**（3 引擎）：`base_simulator` 抽象 + **自建 managers**，与两个引擎的原生 manager 都不兼容。这就是 D2 已否决的路径——自建 manager 意味着开源项目仍要手工重写 term，迁移成本没降。不要往这个方向走。

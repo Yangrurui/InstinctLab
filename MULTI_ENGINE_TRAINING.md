@@ -1,6 +1,10 @@
 # 跨引擎训练机器人任务：Agent 简报
 
-> 给后续任务 agent 用。选型、约束和仓库落点以本文为准；实现契约细节以 [`UNIFIED_ENGINE_PLAN.md`](UNIFIED_ENGINE_PLAN.md) 为准。
+> **架构立场已更新。** 本文第 2 节（既定立场、分层、硬约束、关键代码）与第 7 节描述的是「统一张量 Adapter + 自研 `UnifiedManagerBasedRLEnv`」方案，**已被取代**。当前权威设计是 [`CROSS_ENGINE_DESIGN.md`](CROSS_ENGINE_DESIGN.md)：统一层改为声明式 `TaskSpec`，由每个引擎的 adapter 编译成该引擎的**原生** env 配置。
+>
+> 本文第 3–6、8 节（路径分类、公开框架对照、单引擎产品、与 HumanoidVerse 的差异）仍然有效，作为选型背景保留。
+
+> 给后续任务 agent 用。选型背景以本文为准；实现契约以 [`CROSS_ENGINE_DESIGN.md`](CROSS_ENGINE_DESIGN.md) 为准。
 >
 > 资料截至 2026-08。核心问题不是“有哪些仿真器”，而是 **任务 / MDP / 算法换物理引擎后能否保持同一套代码**。
 
