@@ -7,7 +7,8 @@ already share, so that a term can do frame arithmetic without importing either o
 left on the submodule rather than re-exported here, since callers read better as
 ``math_utils.quat_apply_inverse``. :mod:`~instinctlab.compat.entity` lowers an ``EntityRef`` onto
 each engine's selector config, which is where the engines diverge far more than their data
-attributes do.
+attributes do, and :mod:`~instinctlab.compat.sensors` reads contact sensors, the one place that
+does need a runtime shim because the two engines disagree on tensor layout as well as on names.
 """
 
 from __future__ import annotations

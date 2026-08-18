@@ -437,7 +437,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | 阶段 | 内容 | 完成判据 |
 |---|---|---|
 | P0 | 把 main 的 `G1FlatEnvCfg` 结构化 dump 成唯一 golden；建立差异白名单文件 | golden 与白名单入库，dump 可复现 |
-| P1 | `compat/`：署名词汇表 + denylist + 纯 torch math（**已完成**）→ `SensorRef` + `env` 访问器；`EntityView` 暂缓，触发条件见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表与 math 的每条断言由测试对着已安装引擎复核 |
+| P1 | `compat/`：署名词汇表 + denylist + 纯 torch math + `EntityRef` 下降 + 接触传感器读取（**已完成**）→ 只剩 `env` 访问器；`EntityView` 已撤销，见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表 / math / 选择器表 / 传感器轴序的每条断言由测试对着已安装引擎复核 |
 | P2 | `spec/` + `EngineAdapter` + `TermRegistry` + 三级 Requirement；spec 层 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 可编译 |
 | P3 | `mdp/`：移植 locomotion 所需的可移植 term（先做 flat G1 的 16 reward + 6 obs + 2 done） | 每个 term 有两引擎下的数值一致性测试 |
 | P4 | isaacsim adapter：`TaskSpec` → `ManagerBasedRLEnvCfg`，term 配置带 `preserve_order=True` | 编译产物与 golden 的 diff 落在白名单内 |
@@ -515,14 +515,17 @@ L0 是本设计的最大收益：因为编译目标就是 Isaac Lab 原生 cfg�
 compat/vocab.py     署名的中枢词汇表：每个量的参考系 / 原点 / 单位 / 旋转约定 + 各引擎 spoke 映射（S1）  ✅ 已实现
 compat/denylist.py  同名不同义陷阱 + Isaac legacy 别名改写表                                    ✅ 已实现
 compat/math.py      纯 torch 数学工具，四元数一律 wxyz（D8）                                     ✅ 已实现
-compat/sensors.py   SensorRef：统一接触/射线传感器引用与索引
+compat/entity.py    EntityRef 下降到原生 SceneEntityCfg + resolve 后归一化（§12.3.3）            ✅ 已实现
+compat/sensors.py   接触传感器读取：元素名 / 轴序归一，力语义差异显式化（§12.3.4）                 ✅ 已实现
 compat/env.py       统一 env 访问器（get_command 空值、physics_dt 路径、类型名）
-compat/entity.py    EntityView：统一 asset.data 词汇，每引擎一实现 —— 触发条件见 §12.3.2
+
+spec/entity.py      EntityRef：开放选择器种类（S2）                                             ✅ 已实现
+spec/sensor.py      ContactSensorRef：声明「测什么」，由 backend 决定编成什么                     ✅ 已实现
 ```
 
 `vocab.py` / `denylist.py` 的每条断言都由 `tests/test_compat_vocab.py` 对着**已安装的引擎**复核，不依赖任何引擎运行时：mjlab 的 `EntityData` 可独立 import，Isaac 的 `ArticulationData` 用 `ast` 读源码（`import isaaclab.assets` 会拉起 `omni`）。写这些测试时纠正了本节此前的三处说法，见下。
 
-**denylist：5 个同名不同义的语义陷阱**，误用必须报错，不得默认放行：
+**denylist：6 个同名不同义的语义陷阱**，误用必须报错，不得默认放行：
 
 | 陷阱 | isaacsim | mjlab |
 |---|---|---|
@@ -531,6 +534,7 @@ compat/entity.py    EntityView：统一 asset.data 词汇，每引擎一实现 �
 | `default_root_state` 速度行 | COM 系 | link 系 |
 | `body_link_lin_vel_w`（非根 body） | per-body COM 偏移换算 | 用 root 的 `subtree_com` |
 | 重力向量 | `GRAVITY_VEC_W`（**大写**），从 live sim 重力归一化，跟随任务改重力 | `gravity_vec_w`（小写），entity 构建期硬编码 `[0,0,-1]` |
+| 接触力 | `net_forces_w`，世界系，**仅法向** | 无同名属性。最接近的 `force` 是完整三维接触力，默认在**接触系** |
 
 三处修正（均由测试实证）：
 
@@ -555,13 +559,51 @@ Isaac Lab 拥有 `utils/math.py` 原本，mjlab 以 `utils/lab_api/math.py` 整�
 
 `instinctlab/utils/math.py` 已改用它，成为本仓库**第一个脱离引擎的模块**：8 个函数对 main 逐位相同，6 个 `torch.jit.script` 函数照常编译，在 `isaaclab` / `omni` / `pxr` 全被屏蔽的环境下可导入——这条性质写成了回归测试。
 
-#### 12.3.2 `EntityView` 暂缓，及其触发条件
+#### 12.3.2 `EntityView` 撤销，改为引用解析
 
 原计划里 `compat/entity.py` 提供统一的 `asset.data` 视图。落地时发现它与本设计的核心前提冲突：§12.1 的结论是可移植 term **直接读 `asset.data.<attr>`**，迁移才便宜（Isaac Lab 的 term 原样可用）。若要求 term 改走 `EntityView`，那些 term 就都得重写，迁移成本回到原点。
 
-而它当前能挡的问题，别处已经挡住了：同名不同义走 denylist（访问即报错），Isaac legacy 别名走 codemod 改写，per-body 速度已从中枢移除。两个引擎在中枢量上拼写一致，视图层此刻只是一次多余的属性解引用，还落在每步每环境的热路径上。
+性能不是理由，这点要写清楚以免后人重新捡起这个论据：实测包装式 proxy 每次属性访问 304ns、直接访问 20ns，按每步约 75 次读算是 21μs/step，占典型 step（10–30ms）的 **0.1%**。真正的理由只有前一段那一条。
 
-因此暂不实现，触发条件写死：**接入第三个引擎（D6）时，若其数据属性拼写偏离中枢**，`EntityView` 就是把偏离吸收在一处、不让它渗进 term 的地方。在那之前 `vocab.py` 的 spoke 表已经把映射记下来了，届时是消费它而不是重新发现它。
+而它当前能挡的问题，别处已经挡住了：同名不同义走 denylist（访问即报错），Isaac legacy 别名走 codemod 改写，per-body 速度已从中枢移除。两个引擎在中枢量上拼写一致，数据层不需要间接层。
+
+第三个引擎若拼写偏离中枢，代价由**那个引擎的 backend 承担**——它负责让自己的 data 对象满足 `vocab.HUB`，用同一套 conformance 测试验收。实现上不必包装：**继承引擎的 data 类 + `__getattr__` 兜底**即可，命中的名字走原生查找（实测只贵约 10ns），只有缺失的名字才落到 spoke 表。term 完全无感。
+
+`compat/entity.py` 的名字保留，内容换成**引用解析**——分歧真正所在，且发生在编译期，抽象免费。见下。
+
+#### 12.3.3 `compat/entity.py`：`EntityRef` 下降与 resolve 后归一化
+
+两引擎的 `SceneEntityCfg` 连类名都一样，字段结构也一样（`name` + `preserve_order` + 每种选择器一对 `<kind>_names` / `<kind>_ids`），所以下降是无重命名的字段映射。底层的名字解析更是同一份代码：`resolve_matching_names` 除 docstring 措辞外逐字符相同，8 种 pattern 组合 ×`preserve_order` 两态实测结果全同。**这层不需要重新实现，只需要路由。**
+
+真正的分歧有两处。
+
+**选择器种类。** 12 种里只有 2 种重合：
+
+| | 种类 |
+|---|---|
+| 两者都有 | `joint`、`body` |
+| 仅 Isaac | `fixed_tendon`、`object_collection` |
+| 仅 mjlab | `actuator`、`camera`、`geom`、`light`、`material`、`pair`、`site`、`tendon` |
+
+所以 `EntityRef` 给这两种命名字段，其余走开放映射 `other`；目标引擎表达不了的种类**报错而非丢弃**——这正是 S2 说的 mjlab → Isaac 硬门槛。注意 Isaac 的 `fixed_tendon` 与 mjlab 的 `tendon` **不合并**：没有证据表明它们是同一种选择器，合并会让引用在对面解析到另一组元素上。
+
+**`resolve()` 之后 `<kind>_names` 装的东西不同。** Isaac 把用户写的**正则留在原处**（匹配结果丢给 `_`），mjlab **覆盖成匹配到的真实名字**。而且有真实消费者：Isaac 自己的 `envs/mdp/events.py:1451` 把这个字段 `"|".join(...)` 拼回正则去匹配 USD prim path，本仓库的 `reference_masked_proprioception.py:67` 也存了它。这是 denylist 那类陷阱在 config 层的翻版。`resolved_names()` 绕过它——走两边都一致的**索引**，因此不需要任何 per-engine 分支。
+
+#### 12.3.4 `compat/sensors.py`：与实体相反，这里确实需要运行时垫片
+
+两引擎的接触传感器是**结构性对立**：Isaac 声明**一个宽传感器**（prim_path 正则覆盖整机），term 用 `SceneEntityCfg.body_ids` 切片；mjlab 声明**多个窄传感器**，每个由 `primary` 模式限定范围，term 读整只。所以 `ContactSensorRef` 只声明「测什么」，由 backend 决定编成宽传感器的一个切片还是一只专用传感器。
+
+**对得上的部分：** 四个时间量 `current_air_time` / `last_air_time` / `current_contact_time` / `last_contact_time` **两边同名且都是二维 `(env, element)`**，力历史也都是 index 0 最新。这比看上去重要——每个引擎是用**自己的**接触判据、自己的求解器力，在自己的传感器内部算出这些秒数的，term 拿到时口径已经统一。**这是可移植的接触信号。**
+
+**对不上的三处：**
+
+1. 元素名列表叫法不同：Isaac `ContactSensor.body_names`，mjlab `ContactSensor.primary_names`。
+2. 力历史轴序相反：Isaac `(env, time, element, 3)`，mjlab `(env, element, time, 3)`。这个错法很隐蔽——**两只脚 + 两个子步**时形状同为 `(env,2,2,3)`，形状断言抓不到，只有值能分辨。测试里专门有一条覆盖这个情形。
+3. **力根本不是同一个量，转置也救不了。** Isaac 的 `net_forces_w` 是世界系**仅法向力**（docstring 明确警告不含切向）；mjlab 的 `force` 是完整三维接触力，且默认在**接触系**（除非 `reduce="netforce"` 或 `global_frame=True`）。取模长，一个是法向载荷、一个含摩擦，差值就是那一刻摩擦承担的量。**牛顿阈值不可跨引擎搬运**，已列入 denylist。
+
+因此 `in_contact()` 由接触时长导出而非力阈值——让每个引擎用自己的判据判断，这是唯一能一致的做法。`contact_force_history()` 只统一轴序，不假装数值可比。
+
+引擎识别靠元素名属性的鸭子类型，所以本模块不 import 任何引擎，term 也不必知道自己跑在哪个引擎上。
 
 ### 12.4 `instinctlab/mdp/`
 
@@ -793,3 +835,6 @@ mjlab 侧是**未文档化的隐式依赖**。`vocab.py` 该条目必须注明�
 13. frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单，禁止丢弃信息后静默产出一个「能跑」的 `TaskSpec`。
 14. 四元数一律 `(w, x, y, z)`。`spec/` / `mdp/` / `compat/` 禁止出现 xyzw；转换只能贴着引擎 API 调用发生，且不得跨函数边界传播。禁止调用不带 `to=` 的 `convert_quat`——两个引擎的默认值都是转成 xyzw；改用 `compat.math` 的 `quat_wxyz_to_xyzw` / `quat_xyzw_to_wxyz`。
 15. 可移植代码禁止 import `isaaclab.utils.math` 或 `mjlab.utils.lab_api.math`，一律走 `compat/math.py`。vendor 进来的函数不得就地修改：改了就不再是「两引擎共有的那份」，钉住它的测试也就失去意义。
+16. `spec/` 禁止 import 任何引擎，含函数体内的延迟 import。由 `tests/test_spec_isolation.py` 静态 + 动态双重把关。
+17. `resolve()` 之后禁止直接读 `cfg.<kind>_names`——两引擎装的东西不同（Isaac 是正则，mjlab 是匹配结果）。一律走 `compat.entity.resolved_names()`。
+18. 可移植 term 判断接触一律用 `compat.sensors.in_contact()`（由接触时长导出），禁止对接触力取模长设牛顿阈值：两引擎的「接触力」不是同一个物理量。需要力值的 term 必须 per-engine 并声明容差。

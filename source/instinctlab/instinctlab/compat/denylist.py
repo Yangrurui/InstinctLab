@@ -97,6 +97,26 @@ _ENTRIES: tuple[DenylistEntry, ...] = (
             " that randomises gravity must treat this as a per-engine concern."
         ),
     ),
+    _entry(
+        "net_forces_w",
+        "Contact force that measures a different quantity on each side, in a different frame.",
+        isaacsim=(
+            "ContactSensorData.net_forces_w: world frame, normal component only. Its own docstring"
+            " warns that the tangential contribution is excluded."
+        ),
+        mjlab=(
+            "No net_forces_w. The nearest field is ContactData.force, which is the full 3-D contact"
+            " force and sits in the contact frame unless reduce='netforce' or global_frame=True"
+            " moves it to world."
+        ),
+        resolution=(
+            "Norms of the two are not the same physical quantity -- one is normal load, the other"
+            " includes friction -- so a newton threshold does not transfer. Portable terms detect"
+            " contact through compat.sensors.in_contact, which defers to each engine's own contact"
+            " criterion. A term that truly needs force magnitude is per-engine and must declare its"
+            " threshold and tolerance per engine."
+        ),
+    ),
 )
 
 DENYLIST: Mapping[str, DenylistEntry] = MappingProxyType({entry.name: entry for entry in _ENTRIES})

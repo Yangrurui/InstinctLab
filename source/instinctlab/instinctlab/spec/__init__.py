@@ -9,5 +9,6 @@ declaration portable. ``tests/test_spec_isolation.py`` enforces this.
 from __future__ import annotations
 
 from .entity import UNIVERSAL_KINDS, EntityRef
+from .sensor import ContactSensorRef
 
-__all__ = ["UNIVERSAL_KINDS", "EntityRef"]
+__all__ = ["UNIVERSAL_KINDS", "ContactSensorRef", "EntityRef"]

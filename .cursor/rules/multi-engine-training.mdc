@@ -14,9 +14,10 @@ alwaysApply: false
 
 项目的主要价值是**迁移**：接进任意引擎的开源项目，不改任务逻辑就能换引擎跑。不限于 Isaac Lab 项目——mjlab 项目要能反向迁移到 Isaac。结构上是编译器：**frontend 读进来 → IR → backend 编出去**，成本 O(N+M) 而非逐对转换器的 O(N×M)。
 
-- `spec/`：引擎无关声明（`TaskSpec` / `MdpSpec` / `TermSpec` / `EntityRef` / `Requirement`）
+- `spec/`：引擎无关声明（`TaskSpec` / `MdpSpec` / `TermSpec` / `Requirement` 待做；`EntityRef` ✅、`ContactSensorRef` ✅）。**禁止 import 任何引擎**，含函数体内延迟 import，由 `tests/test_spec_isolation.py` 静态 + 动态双重把关
 - `mdp/`：**可移植 term 库，一份实现两引擎共用**。由移植 main 与 Isaac Lab 现有实现种子化，不重新推导数学
-- `compat/`：薄兼容层——`vocab.py`（**署名的**中枢词汇表）✅、`denylist.py`（同名不同义 + 19 条 legacy 别名）✅、`math.py`（纯 torch，vendor 自两引擎共有的那份）✅、`sensors.py`（`SensorRef`）、`env.py`。`entity.py` 的 `EntityView` **暂缓**：它要求 term 改走视图层，与「term 直接读 `asset.data.*`」的迁移前提冲突；触发条件是第三个引擎的拼写偏离中枢（CROSS_ENGINE_DESIGN §12.3.2）
+- `compat/`：薄兼容层——`vocab.py`（**署名的**中枢词汇表）✅、`denylist.py`（6 项同名不同义 + 19 条 legacy 别名）✅、`math.py`（纯 torch，vendor 自两引擎共有的那份）✅、`entity.py`（`EntityRef` 下降 + resolve 后归一化）✅、`sensors.py`（接触传感器读取）✅、`env.py`（待做）
+- **`EntityView` 已撤销**，不要重新引入：它要求 term 改走视图层，与「term 直接读 `asset.data.*`」这条迁移前提冲突。性能不是理由（proxy 每步仅 0.1%）。数据层两引擎拼写一致，不需要间接层；第三个引擎若偏离，由**该引擎 backend** 让自己的 data 对象满足 `vocab.HUB`（继承 + `__getattr__` 兜底），代价不外摊（§12.3.2）
 - `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族——`actions.py` `events.py`(DR) `scene.py` `assets.py` `sim.py` `caps.py` `adapter.py`
 - `frontends/<idiom>/`（作来源）：项目源码 → `TaskSpec` + 未转换清单 + 置信度报告
 - `migrate/`：`analyze.py`（AST 分类报告）+ `codemod.py`（确定性改写）
@@ -89,6 +90,9 @@ alwaysApply: false
 - frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单，禁止丢信息后静默产出「能跑」的 `TaskSpec`。
 - 四元数一律 wxyz；`spec/` / `mdp/` / `compat/` 禁止出现 xyzw；禁止调用不带 `to=` 的 `convert_quat`，改用 `compat.math` 的 `quat_wxyz_to_xyzw` / `quat_xyzw_to_wxyz`。
 - 可移植代码禁止 import `isaaclab.utils.math` 或 `mjlab.utils.lab_api.math`，一律走 `compat/math.py`；vendor 进来的函数不得就地修改，改了钉住它的对拍测试就失效了。也不要用 `quat_rotate` / `quat_rotate_inverse`（Isaac 已废弃，mjlab 已删除）。
+- `resolve()` 后禁止直接读 `cfg.<kind>_names`——Isaac 装的是正则、mjlab 装的是匹配结果，且两边都有真实消费者。一律走 `compat.entity.resolved_names()`（走索引，无需 per-engine 分支）。
+- `EntityRef` 表达不了的选择器种类必须报 `UnsupportedSelector`，禁止丢弃。12 种里只有 `joint` / `body` 重合；Isaac 的 `fixed_tendon` 与 mjlab 的 `tendon` **不合并**。
+- 判断接触一律用 `compat.sensors.in_contact()`（由接触时长导出）。禁止对接触力取模长设牛顿阈值：Isaac 的 `net_forces_w` 是世界系**仅法向**，mjlab 的 `force` 是完整三维力且默认在**接触系**，不是同一个物理量。力历史轴序也相反（Isaac `(env,time,elem,3)` / mjlab `(env,elem,time,3)`），两脚两子步时形状相同、只有值能分辨——必须走 `contact_force_history()`。
 
 ## 迁移一个 Isaac Lab 项目
 
