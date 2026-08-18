@@ -10,6 +10,6 @@ Nothing here is imported by a training run.
 
 from __future__ import annotations
 
-from .structure import Difference, compare, dump, flatten, qualname, report, unexplained
+from .structure import Difference, compare, dump, flatten, qualname, report, unexplained, unused
 
-__all__ = ["Difference", "compare", "dump", "flatten", "qualname", "report", "unexplained"]
+__all__ = ["Difference", "compare", "dump", "flatten", "qualname", "report", "unexplained", "unused"]

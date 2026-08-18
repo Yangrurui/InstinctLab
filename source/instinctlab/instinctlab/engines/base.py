@@ -20,8 +20,9 @@ engine SDK appears.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any, Protocol, runtime_checkable
 
 from instinctlab.sim.capabilities import CapabilitySet
@@ -127,12 +128,26 @@ class CompiledTask:
 
     ``env_cls`` and ``env_cfg`` are the engine's own types, not wrappers. The task was declared
     portably; what runs is native.
+
+    ``agent_cfg`` resolves on first access rather than during compilation. Building an environment
+    must not require importing the RL library, and treating that as merely tidy would have hidden a
+    real problem: this project's runner configs are declared with ``isaaclab.utils.configclass``, so
+    importing one pulls in Isaac Lab -- and on a machine where Isaac Sim has not been launched, that
+    import fails outright. An mjlab run would have needed Isaac Sim started to read its PPO
+    hyperparameters. The coupling is still there and still needs removing; deferring it means it
+    only affects the code that actually wants the agent.
     """
 
     env_cls: type
     env_cfg: Any
-    agent_cfg: Any
     resolution: Resolution
+    agent_factory: Callable[[], Any] | None = None
+
+    @cached_property
+    def agent_cfg(self) -> Any:
+        if self.agent_factory is None:
+            raise RuntimeError(f"{self.resolution.task_id} was compiled without an agent factory.")
+        return self.agent_factory()
 
 
 @runtime_checkable

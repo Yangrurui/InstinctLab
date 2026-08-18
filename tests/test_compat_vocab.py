@@ -235,3 +235,41 @@ def test_assert_portable_refuses_traps_and_accepts_hub_names() -> None:
         assert_portable("root_lin_vel_b")
     for name in HUB:
         assert_portable(name)
+
+
+def _isaac_articulation_methods() -> set[str]:
+    """Method names on ``Articulation``, read from source so ``omni`` is not needed."""
+    isaaclab = pytest.importorskip("isaaclab")
+    source = pathlib.Path(isaaclab.__file__).parent / "assets/articulation/articulation.py"
+    if not source.is_file():  # pragma: no cover - upstream layout change
+        pytest.skip(f"Isaac Lab articulation not found at {source}")
+    class_def = next(
+        node
+        for node in ast.walk(ast.parse(source.read_text()))
+        if isinstance(node, ast.ClassDef) and node.name == "Articulation"
+    )
+    return {node.name for node in class_def.body if isinstance(node, ast.FunctionDef)}
+
+
+def test_the_frame_qualified_root_writers_exist_on_both_engines() -> None:
+    """The denylist tells callers to use these instead of the ambiguous one; they have to be there.
+
+    ``write_root_state_to_sim`` takes a centre-of-mass velocity on Isaac Lab and a link velocity on
+    mjlab, so the advice is to say which frame is meant. If either engine renames the qualified
+    writers, the advice becomes wrong, and it should fail here rather than in a training run whose
+    resets are quietly a different distribution.
+    """
+    entry = DENYLIST["write_root_state_to_sim"]
+    required = {"write_root_link_pose_to_sim", "write_root_link_velocity_to_sim"}
+
+    isaac = _isaac_articulation_methods()
+    assert required <= isaac, sorted(required - isaac)
+    assert "write_root_state_to_sim" in isaac, "the ambiguous method the entry warns about is gone"
+
+    entity = pytest.importorskip("mjlab.entity").Entity
+    mjlab_methods = {name for name in dir(entity) if not name.startswith("__")}
+    assert required <= mjlab_methods, sorted(required - mjlab_methods)
+    assert "write_root_state_to_sim" in mjlab_methods
+
+    for method in sorted(required):
+        assert method in entry.resolution, f"the entry should name {method} as the way out"

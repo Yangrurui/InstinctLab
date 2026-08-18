@@ -19,9 +19,10 @@ alwaysApply: false
 - `compat/`：薄兼容层，**已完成** ✅——`vocab.py`（**署名的**中枢词汇表）、`denylist.py`（6 项同名不同义 + 19 条 legacy 别名）、`math.py`（纯 torch，vendor 自两引擎共有的那份）、`entity.py`（`EntityRef` 下降 + resolve 后归一化）、`sensors.py`（接触传感器读取）、`env.py`（命令查找 / 类型名 / dt 配置路径）
 - **`EntityView` 已撤销**，不要重新引入：它要求 term 改走视图层，与「term 直接读 `asset.data.*`」这条迁移前提冲突。性能不是理由（proxy 每步仅 0.1%）。数据层两引擎拼写一致，不需要间接层；第三个引擎若偏离，由**该引擎 backend** 让自己的 data 对象满足 `vocab.HUB`（继承 + `__getattr__` 兜底），代价不外摊（§12.3.2）
 - `engines/`：共享机件，**已完成** ✅——`base.py`（`Resolution` / `CompiledTask` / `EngineAdapter` / `UnsupportedTerm`）、`registry.py`（`TermRegistry`，能力矩阵的唯一来源）、`compile.py`（`CompileCtx` / `compile_family` / `compile_mdp`）。这三个模块**同样禁止 import 引擎**，启动器才能在 bootstrap 之前枚举 adapter
-- `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族。**`engines/isaacsim/` 已完成** ✅——`terms.py`（注册表即能力矩阵）、`scene.py`（含该引擎的求解器 profile 默认值）、`assets.py`（asset_id → `ArticulationCfg`，D5 管线落地前是查表复用而非转换）、`adapter.py`。整个包**顶层不 import `isaaclab`**，builder 函数体内才 import，`contract_report()` 因此能在没装引擎的机器上回答
+- `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族。**`engines/isaacsim/` 与 `engines/mjlab/` 均已完成** ✅——各含 `terms.py`（注册表即能力矩阵）、`scene.py`（含该引擎的求解器 profile 默认值）、`assets.py`、`adapter.py`；mjlab 另有 `events.py` / `rewards.py` 放它自己那几份实现。两个包**顶层都不 import 引擎**，builder 函数体内才 import，`contract_report()` 因此能在没装引擎的机器上回答。mjlab 侧资产是从 `RobotSpec` **推导**（MJCF 自带几何，只需补执行器增益），Isaac 侧仍是查表——D5 管线要抹平的就是后者
 - **命令族是 per-engine 的**，尽管它看起来可移植：两边 `UniformVelocityCommandCfg` 语义与多数字段名一致，但 `asset_name` vs `entity_name`，且 mjlab 多出 `rel_world_envs` / `rel_forward_envs` / `init_velocity_prob` / `viz`。共享一个配置对象只能取交集、把 mjlab 的字段静默丢掉；改成共享**语义名** `kind="uniform_velocity"`，各自保留自己的字段
-- **flat G1 的引擎无关声明在 `tasks/locomotion/flat_g1.py`**，与 main 的对比由 `scripts/check_parity.py`（需 Isaac Sim）+ `tests/test_parity_static.py`（不需要）双层把关。当前 177 处差异全部命中白名单，编译产物能真实构造并 step
+- **flat G1 的引擎无关声明在 `tasks/locomotion/flat_g1.py`**，同一份声明对上了两份互不知情的参考：Isaac 侧由 `scripts/check_parity.py`（需 Isaac Sim）+ `tests/test_parity_static.py`（不需要）比对 main，134 处差异全部命中白名单；mjlab 侧由 `scripts/check_mjlab.py` + `tests/test_mjlab_reference.py` 比对 InstinctMJ（读语法树，不 import），观测顺序 / 噪声 / 16 个奖励权重 / 终止 / 事件 / 时序全部一致。两边都能真实构造并 step
+- **两引擎逐值比对：`scripts/compare_terms.py --run`**。两个进程各构造一次环境（Isaac Sim 必须先启 app），把机器人**写**进同一状态后逐项求值。26 项在 float32 精度内一致（最大 4.8e-07），5 项按设计不比且各有理由。写而不 step 是有意的：term 是状态的函数，step 后的一致性掺进了积分器
 - `frontends/<idiom>/`（作来源）：项目源码 → `TaskSpec` + 未转换清单 + 置信度报告
 - `migrate/`：`analyze.py`（AST 分类报告）+ `codemod.py`（确定性改写）
 - 原生栈：isaacsim → `isaaclab.ManagerBasedRLEnv`；mjlab → `mjlab.ManagerBasedRlEnv`
@@ -54,7 +55,7 @@ alwaysApply: false
 
 - **D1 顺序以 DFS 为主**：`RobotSpec.joint_names` / `body_names` 是唯一真值，两个 adapter 都发 `preserve_order=True`，由引擎按名解析。canonical→native 翻译只在 `CompileCtx.entity()` 一处发生。isaacsim 相对 main 的 BFS 顺序是已接受偏差，见差异白名单。
 - **D2 自研 env / managers 已退役**：`unified_manager_based_rl_env.py`、`managers/unified.py`、`mdp/unified.py` 不再是实现方向。
-- **D3 main 是唯一 golden**：`tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义真值。不依赖 InstinctMJ，仅作 mjlab 表达方式的参考。验收 = diff 为空或命中白名单。**泛化形式**：golden 是「该项目跑在它原本的引擎上」，D3 是本仓库 locomotion 项目的特例。
+- **D3 main 是唯一 golden**：`tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义真值。不依赖 InstinctMJ（未安装），仅作 mjlab 表达方式的参考——`tests/reference_mjlab.py` 读它的语法树而非 import 它。验收 = diff 为空或命中白名单。**泛化形式**：golden 是「该项目跑在它原本的引擎上」，D3 是本仓库 locomotion 项目的特例。
 
 ## N 引擎扩展：五处待改结构（CROSS_ENGINE_DESIGN §14）
 
@@ -96,6 +97,12 @@ alwaysApply: false
 - `resolve()` 后禁止直接读 `cfg.<kind>_names`——Isaac 装的是正则、mjlab 装的是匹配结果，且两边都有真实消费者。一律走 `compat.entity.resolved_names()`（走索引，无需 per-engine 分支）。
 - `EntityRef` 表达不了的选择器种类必须报 `UnsupportedSelector`，禁止丢弃。12 种里只有 `joint` / `body` 重合；Isaac 的 `fixed_tendon` 与 mjlab 的 `tendon` **不合并**。
 - **flat G1 里这 3 个奖励不可移植，不要往 `mdp/` 里加**：`dof_acc_l2`（`joint_acc`：Isaac 跨步有限差分 vs mjlab 解析 `qacc`）、`dof_torques_l2`（`applied_torque` mjlab 没有，等价物是 `qfrc_actuator`(nv) 而非 `actuator_force`(nu)）、`contact_slide`（牛顿阈值 + 逐 body 线速度，中枢刻意不提供后者）。一律 `kind=` per-engine 实现并写明容差。
+- **但「不可移植」只约束写法，不约束任务该不该有这一项。** 这 3 项两个引擎其实都有，只是测法不同：用 `kind=` 按名声明 + 各引擎注册各自的参考实现 + `level=REQUIRED`。禁止因为写不出一份共享实现就让任务少掉一项——那不再是同一个任务。
+- **禁止不带坐标系限定的 `write_root_state_to_sim` / `write_root_velocity_to_sim`**：Isaac 收质心速度、mjlab 收连杆速度，同样的数写进去两个机器人不在同一状态（实测连杆速度差到 0.85 m/s，随后所有速度类 term 全部不一致）。一律用 `write_root_link_*_to_sim` / `write_root_com_*_to_sim`，由 `tests/test_compat_vocab.py` 钉住这两个接口存在。
+- **白名单条目必须会过期**：`verify.structure.unused()` 报出解释了零处差异的条目即失败。加这个检查时当场抓出 11 条死条目，其中一条项级前缀条目理由早已过时却仍覆盖着整个奖励项。
+- **构造环境禁止依赖 RL 库可导入**：`CompiledTask.agent_cfg` 惰性解析。现有 runner cfg 建在 `isaaclab.utils.configclass` 上，急切解析会让 mjlab 侧运行需要先启动 Isaac Sim——这个耦合仍待 D4 收尾时移除。
+- **mjlab 的三处形状/声明约定**：`soft_joint_pos_limits` 首维为 1（模型常量），Isaac 是逐环境的，按 `env_ids` 索引的移植代码在第二个环境上越界；`dr` 事件的包装函数必须用 `@requires_model_fields(*被包装函数.model_fields, ...)` 转发声明，否则模型字段不会逐环境展开、写入失败；接触传感器没有 `body_names`，不能用 `SceneEntityCfg` 从外部切片，元素选择走 `compat.sensors.element_ids()`。
+- **mjlab 缺的事件函数不要用「邻居」顶替**：`reset_joints_by_offset` 是加偏移而 Isaac 的 `by_scale` 是乘缩放；`dr.body_mass` 只改质量而 Isaac 默认按比例同步缩放惯量。两者都能编译通过并随机化出另一个东西，已在 `engines/mjlab/events.py` 各移植一份。
 - 根部速度：可移植 term 一律读 `root_link_*`。**角速度改成 link 拼写数值不变**（Isaac 的 `root_link_vel_w` 是 `root_com_vel_w.clone()` 后只修正 `[:, :3]`，角速度行原样拷贝，已实测并由测试钉住）；**线速度会变**，差 `ω × R(−com_pos_b)`，`base_lin_vel` 与 `track_lin_vel_xy_yaw_frame_exp` 因此各有一条白名单条目。
 - 接触类 term 收 `ContactSensorRef` 而非 `sensor_cfg`；`illegal_contact` **没有 `threshold` 参数**，改问引擎自己的接触判据。这是迁移中唯一无法回避的签名改动。
 - env 的公共面**两引擎已自发收敛**（`num_envs` / `device` / `physics_dt` / `step_dt` / `max_episode_length(_s)` / `episode_length_buf` / `scene` / `cfg` / `extras` / 七个 manager 全部同名同义，`scene[name]` 与 `scene.sensors[name]` 都可用）。term **直接读 `env.*`**，不要为这些加访问器——那是已撤销的 `EntityView` 错误。收敛由 `tests/test_compat_env.py` 钉住。分歧只有三处：命令查找一律走 `compat.env.get_command()`（mjlab 的 `NullCommandManager` 对任何名字返回 `None`，Isaac 抛 `KeyError`）；类型标注用 `compat.env.RlEnv` 而非 `ManagerBasedRLEnv` / `ManagerBasedRlEnv`（只差一个大写 L）；物理步长的配置路径 `cfg.sim.dt` vs `cfg.sim.mujoco.timestep` 属编译期，term 侧读 `env.physics_dt`。

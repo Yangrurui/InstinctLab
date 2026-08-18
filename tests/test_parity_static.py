@@ -28,6 +28,8 @@ GOLDEN_FILE = REPO / "tests/parity/isaacsim.locomotion_flat.golden.json"
 WHITELIST_FILE = REPO / "tests/parity/isaacsim.locomotion_flat.whitelist.json"
 ENGINE_DIR = REPO / "source/instinctlab/instinctlab/engines/isaacsim"
 
+# Rewards each backend implements itself, because the two engines do not measure the quantity
+# the same way. Present in the task, named by kind rather than by function.
 NOT_PORTABLE = {"dof_acc_l2", "dof_torques_l2", "feet_slide"}
 """Main's rewards that the portable task deliberately omits, per the design's P3 findings."""
 
@@ -58,16 +60,26 @@ def test_the_observation_vector_has_the_same_terms_in_the_same_order(golden, tas
         assert list(task.mdp.observations[group].terms) == expected, group
 
 
-def test_the_reward_weights_match_main_except_where_a_term_was_dropped(golden, task):
+def test_the_reward_weights_match_main(golden, task):
     declared = {name: term.weight for name, term in task.mdp.rewards["rewards"].items()}
-    expected = {name: cfg["weight"] for name, cfg in golden["rewards"].items() if name not in NOT_PORTABLE}
-    assert declared == expected
+    assert declared == {name: cfg["weight"] for name, cfg in golden["rewards"].items()}
 
 
-def test_the_dropped_rewards_are_the_ones_the_design_names(golden, task):
-    """Guards against a term going missing by accident and being read as a decision."""
-    missing = set(golden["rewards"]) - set(task.mdp.rewards["rewards"])
-    assert missing == NOT_PORTABLE
+def test_no_reward_is_missing(golden, task):
+    """Every one of main's rewards is present, including the three that are not portable.
+
+    Being unportable is a statement about how a term is written, not about whether the task has it.
+    Each of these three reads a quantity the two engines measure differently, so each backend
+    supplies its own implementation and the task names them by kind -- which is the difference
+    between an engine keeping its own characteristics and a task quietly losing a term.
+    """
+    assert set(golden["rewards"]) - set(task.mdp.rewards["rewards"]) == set()
+
+
+def test_the_terms_named_by_kind_are_the_ones_the_design_names(task):
+    """Guards the reverse mistake: a portable term being replaced by an engine-specific one."""
+    by_kind = {name for name, term in task.mdp.rewards["rewards"].items() if term.kind is not None}
+    assert by_kind == NOT_PORTABLE
 
 
 def test_every_joint_gets_the_action_scale_main_gives_it(golden, task):

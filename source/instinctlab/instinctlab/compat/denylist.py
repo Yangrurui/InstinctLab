@@ -64,6 +64,20 @@ _ENTRIES: tuple[DenylistEntry, ...] = (
         resolution="Read through a per-engine accessor; never map applied_torque to actuator_force.",
     ),
     _entry(
+        "write_root_state_to_sim",
+        "Same name, and the velocity rows it accepts are about a different point.",
+        isaacsim="Takes the root link's pose and the centre of mass's velocity.",
+        mjlab="Takes the root link's pose and the root link's velocity.",
+        resolution=(
+            "Use the frame-qualified writers, which both engines have:"
+            " write_root_link_pose_to_sim and write_root_link_velocity_to_sim, or their com"
+            " counterparts. Writing the same thirteen numbers through the unqualified method puts"
+            " the two robots into different states -- measured at up to 0.85 m/s of link velocity"
+            " for this task's G1 -- after which every velocity-reading term disagrees for a reason"
+            " that has nothing to do with the terms. scripts/probe_terms.py does it the right way."
+        ),
+    ),
+    _entry(
         "default_root_state",
         "Same name, velocity rows expressed about a different point.",
         isaacsim="Linear/angular velocity rows are centre-of-mass quantities.",

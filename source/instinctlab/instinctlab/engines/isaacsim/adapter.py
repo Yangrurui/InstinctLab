@@ -155,8 +155,8 @@ class IsaacSimAdapter:
         return CompiledTask(
             env_cls=ManagerBasedRLEnv,
             env_cfg=env_cfg,
-            agent_cfg=spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),
             resolution=resolution,
+            agent_factory=lambda: spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),
         )
 
     def contract_report(self, spec: TaskSpec) -> dict[str, Any]:

@@ -63,6 +63,43 @@ def _termination(spec, ctx):
     return _import_cfgs()["done"](func=spec.func, time_out=spec.time_out, params=ctx.params(spec))
 
 
+def _sensor_entity(ref, ctx):
+    """A ``SceneEntityCfg`` naming a declared sensor and the elements a term wants from it.
+
+    A :class:`ContactSensorRef` is a sensor plus a subset of what it tracks, and Isaac Lab spells
+    that as an entity config over the sensor whose ``body_names`` slice it. Terms written against
+    the sensor rather than against the compat accessors need it in that shape.
+    """
+    from isaaclab.managers import SceneEntityCfg
+
+    elements = ref.elements
+    return SceneEntityCfg(ref.name, body_names=elements if isinstance(elements, str) else list(elements))
+
+
+@TERMS.reward("contact_slide")
+def _contact_slide(spec, ctx):
+    """main's own slide penalty, kept rather than replaced. See the task's note on why."""
+    cfgs = _import_cfgs()
+    params = ctx.params(spec)
+    return cfgs["reward"](
+        func=cfgs["instinct_mdp"].contact_slide,
+        weight=spec.weight,
+        params={**params, "sensor_cfg": _sensor_entity(params["sensor_cfg"], ctx)},
+    )
+
+
+@TERMS.reward("joint_acc_l2")
+def _joint_acc_l2(spec, ctx):
+    cfgs = _import_cfgs()
+    return cfgs["reward"](func=cfgs["mdp"].joint_acc_l2, weight=spec.weight, params=ctx.params(spec))
+
+
+@TERMS.reward("joint_torques_l2")
+def _joint_torques_l2(spec, ctx):
+    cfgs = _import_cfgs()
+    return cfgs["reward"](func=cfgs["instinct_mdp"].joint_torques_l2, weight=spec.weight, params=ctx.params(spec))
+
+
 @TERMS.action("joint_position")
 def _joint_position(spec, ctx):
     """Position-target action.

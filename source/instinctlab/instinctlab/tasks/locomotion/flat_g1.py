@@ -96,6 +96,18 @@ def _rewards() -> dict[str, RewardTermSpec]:
             weight=1.0,
             params={"command_name": COMMAND, "sensor": FEET_CONTACT, "threshold": 0.5},
         ),
+        # Stated by name rather than by function, because the two engines measure it differently.
+        # A slide penalty multiplies foot velocity by a contact mask taken from force magnitude, and
+        # neither factor survives translation: Isaac Lab reports the normal component of the contact
+        # force where mjlab reports the whole vector, and Isaac Lab's ``body_lin_vel_w`` is the
+        # centre-of-mass velocity where mjlab's is the link's. Each backend supplies its own
+        # reference implementation; ``kind`` is how a task asks for that without naming one.
+        "feet_slide": RewardTermSpec(
+            kind="contact_slide",
+            weight=-0.1,
+            params={"sensor_cfg": FEET_CONTACT, "asset_cfg": EntityRef("robot", bodies=".*_ankle_roll_link")},
+            level=Requirement.REQUIRED,
+        ),
         "flat_orientation_l2": RewardTermSpec(func=mdp.flat_orientation_l2, weight=-1.0),
         "stand_still": RewardTermSpec(func=mdp.stand_still, weight=-0.8, params={"command_name": COMMAND}),
         "dof_pos_limits": RewardTermSpec(
@@ -120,6 +132,21 @@ def _rewards() -> dict[str, RewardTermSpec]:
         "joint_deviation_knee": deviation((".*_knee_joint",), -0.05),
         "lin_vel_z_l2": RewardTermSpec(func=mdp.lin_vel_z_l2, weight=-0.1),
         "action_rate_l2": RewardTermSpec(func=mdp.action_rate_l2, weight=-0.05),
+        # Also by name. Joint acceleration is a finite difference of measured velocity on one engine
+        # and a solver output on the other; applied torque excludes passive terms on one and
+        # includes them on the other. Both engines ship the term, so both get their own.
+        "dof_acc_l2": RewardTermSpec(
+            kind="joint_acc_l2",
+            weight=-2.0e-7,
+            params={"asset_cfg": EntityRef("robot", joints=(".*_hip_.*", ".*_knee_joint"))},
+            level=Requirement.REQUIRED,
+        ),
+        "dof_torques_l2": RewardTermSpec(
+            kind="joint_torques_l2",
+            weight=-4.0e-6,
+            params={"asset_cfg": EntityRef("robot", joints=(".*_hip_.*", ".*_knee_joint"))},
+            level=Requirement.REQUIRED,
+        ),
     }
 
 

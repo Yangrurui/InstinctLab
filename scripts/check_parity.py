@@ -47,7 +47,7 @@ def main() -> int:
 
     from instinctlab.engines.isaacsim import IsaacSimAdapter
     from instinctlab.tasks.locomotion.flat_g1 import flat_g1
-    from instinctlab.verify.structure import compare, dump, report, unexplained
+    from instinctlab.verify.structure import compare, dump, report, unexplained, unused
 
     golden = json.loads(args.golden.read_text())
     whitelist = json.loads(args.whitelist.read_text()) if args.whitelist.exists() else {}
@@ -57,11 +57,16 @@ def main() -> int:
 
     differences = compare(golden["config"], dump(compiled.env_cfg), allow=whitelist)
     remaining = unexplained(differences)
+    stale = unused(differences, whitelist)
     print(report(differences))
     if remaining:
         print("\nunexplained:")
         for difference in remaining:
             print(f"  {difference}")
+    if stale:
+        print("\nwhitelist entries that no longer explain anything:")
+        for entry in stale:
+            print(f"  {entry}")
 
     if args.construct:
         _step(compiled)
@@ -69,7 +74,7 @@ def main() -> int:
     # Deliberately without closing the app, and via os._exit. Isaac Sim's shutdown ends the process
     # itself with a status of zero, so a status set after it never reaches the caller and the check
     # becomes incapable of failing. Output is already flushed and the process is going away anyway.
-    os._exit(1 if remaining else 0)
+    os._exit(1 if remaining or stale else 0)
 
 
 def _step(compiled) -> None:

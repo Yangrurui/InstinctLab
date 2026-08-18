@@ -674,7 +674,9 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 
 ### 12.5 P4 实测：flat G1 编译产物 vs main
 
-`tasks/locomotion/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**177 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，57 条），且编译产物能真实构造并 step——观测维度、13 个奖励项、命令与事件管理器全部正常。
+`tasks/locomotion/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**134 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，46 条），且编译产物能真实构造并 step——观测维度、16 个奖励项、命令与事件管理器全部正常。
+
+> P5 期间三个奖励从「刻意缺席」改为「按引擎注册」，差异数由 177 降到 134，白名单由 57 条降到 46 条。见 §12.6。
 
 差异只有六类，每类都是一个决定：
 
@@ -682,7 +684,6 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 |---|---|---|
 | `.func` 指向 `instinctlab.mdp` 而非引擎自带 | ~56 | 整个设计要做的那次替换，也是同一份声明能编到 mjlab 的原因 |
 | action scale 逐关节 vs 按执行器组正则 | ~43 | 同样 29 个数，改从 `RobotSpec.joint_properties` 取，任务因此不需要引擎 import；逐关节验证相等 |
-| 三个不可移植奖励缺席 | ~45 | §12.4.1 的判定，出现在 resolution 报告里而非静默消失 |
 | 接触 term 收 `ContactSensorRef` 而非 `SceneEntityCfg` | ~26 | §12.4.1 的签名改动 |
 | 选择器 `str` → 单元素 tuple、`preserve_order=True` | ~5 | `EntityRef` 归一化；D1 |
 | `run_name` / `viewer` / 空容器 | ~6 | 日志标签与相机，不进 MDP |
@@ -695,7 +696,46 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 - **Isaac Sim 的 `app.close()` 会把进程退出码改写成 0。** 退出码放在它之后，这个检查永远不会失败。
 - **term 容器不能是 dict。** `CommandManager` 会往传进去的容器上写 `debug_vis`，dict 没地方放。
 
-尚未做：两引擎数值一致性测试（同一 term 在 isaacsim 与 mjlab 下的逐值比对）与 `engines/mjlab/`。P4 证明的是「声明能无损降到 Isaac 原生配置」，不是「两引擎跑出同一条轨迹」。
+第四个陷阱是 P5 期间补的：**白名单条目必须会过期**。`verify.structure.unused()` 报告「解释了零处差异」的条目，`check_parity.py` 视其为失败。加这个检查时它当场抓出 11 条死条目——其中 `rewards.feet_slide` 是一条项级前缀条目，理由早已过时却仍覆盖着整个奖励项的所有子路径。白名单只有在每条都还在挣它的位置时才可信。
+
+### 12.6 P5 实测：同一份声明编到 mjlab
+
+`engines/mjlab/` 编译同一份 `flat_g1()`，构造真实环境并 step 通过（`scripts/check_mjlab.py`）。观测分组形状与 Isaac 侧逐项相同，动作维度 29，**动作顺序等于目录声明的 DFS 顺序**（D1）。
+
+mjlab 侧的参考实现是 InstinctMJ 的 `G1LocomotionFlatEnvCfg`。它没有安装（D3），所以 `tests/test_mjlab_reference.py` 直接读它的语法树比对。同一份 `TaskSpec` 对上了两份互不知情的参考：
+
+| 对比项 | 结果 |
+|---|---|
+| policy 观测项与顺序 | 完全一致 |
+| 观测噪声区间 | 完全一致 |
+| 16 个奖励项名称与权重 | 完全一致 |
+| 终止项 | 完全一致 |
+| 事件名 / mode / interval | 完全一致 |
+| 时序（0.005 / 4 / 20.0） | 与两份参考都一致 |
+| 求解器设置 | 不在任务里，在 mjlab profile 里，取值等于参考 |
+
+**三个「不可移植」奖励的处理改了。** P3 判定 `dof_acc_l2`、`dof_torques_l2`、`feet_slide` 不可移植是对的，但由此让它们缺席是错的——「不可移植」说的是**写法**，不是任务该不该有这一项。两个引擎其实都有这三项，只是实现不同。现在它们用 `kind=` 按名声明、由各引擎注册各自的参考实现（Isaac 用 main 自己的，mjlab 用移植自 InstinctMJ 的），`level=REQUIRED` 保证没有哪个引擎能悄悄少掉它们。这正是 `kind` 机制存在的理由，也是「保留各引擎特性」与「任务完整」两件事的交点。
+
+#### 12.6.1 mjlab 侧的四处真实分歧
+
+都不是拼写问题，都得由 backend 承担：
+
+- **域随机化是另一套机制。** Isaac 用带分布参数的事件函数；mjlab 用声明式 `dr` 模块，原语按它改写的模型字段命名。摩擦最尖锐：PhysX 有静/动两个系数加恢复系数、从 bucket 池里抽；MuJoCo 只有一个滑动系数、且没有逐 geom 的恢复系数。mjlab profile 取两个区间的并（`(0.2, 0.8)`），与 InstinctMJ 的折叠一致；恢复系数直接丢弃而非近似，因此 mjlab 的能力矩阵不宣称 `DR_RESTITUTION`——真需要它的任务会在启动时报出能力名而失败。
+- **mjlab 缺三个事件函数，其中两个有「邻居」。** `reset_joints_by_offset` 是加偏移、Isaac 的 `reset_joints_by_scale` 是乘缩放；`dr.body_mass` 只改质量、Isaac 的 `randomize_rigid_body_mass` 默认按比例同步缩放惯量。两个替代品都能编译通过并随机化出**另一个东西**，所以在 `engines/mjlab/events.py` 里各自移植了一份。
+- **动作选的是 actuator 而非 joint。** 选择器 kind 不同，D1 的落点也在这里：显式传 DFS 关节名并置 `preserve_order`，而不是靠 `.*` 展开——后者跟的是模型文件自己的顺序。
+- **摩擦作用在 geom 上而非 body 上。** 「机器人的所有表面」这个引用在 Isaac 下降成 body 选择、在 mjlab 下降成 geom 选择，由 builder 完成——builder 知道自己那个函数要什么，任务不必知道。
+
+另外两处是 mjlab 侧的形状约定：`soft_joint_pos_limits` 是模型常量（首维为 1），Isaac 是逐环境的，按 `env_ids` 索引的移植代码会在第二个环境上越界；以及 mjlab 从**事件函数本身**读它要写哪些模型字段，包装函数必须把这个声明转发出去，否则字段不会被逐环境展开，写入同样在第二个环境上失败。
+
+### 12.7 两引擎逐值比对：26 项一致，5 项按设计不一致
+
+`scripts/compare_terms.py --run` 在两个进程里各构造一次环境（Isaac Sim 必须先启动 app，两个引擎不能同进程），把机器人**写**进同一个状态，逐项求值后比对。写而不是 step：term 是状态的函数，在两边都被**放进**同一状态下的一致性说的是 term；step 之后的一致性还掺进了积分器，是另一件弱得多的事。
+
+结果：**26 项在 float32 精度内一致**（最大 4.8e-07，多数精确为 0），5 项按设计不比。一致的包括全部关节量、投影重力、基座线角速度、速度跟踪与全部姿态类奖励。不比的 5 项各自记了理由：气空时间是跨步累积量、`feet_slide` / `dof_acc_l2` / `dof_torques_l2` 读的正是两引擎测法不同的量、接触终止依赖同一个力读数。
+
+**这个比对本身抓出了一个陷阱，而且是它最该抓的那种。** 第一次跑时所有速度类 term 全部不一致（差到 0.83）。原因不在 term：`write_root_state_to_sim` 在 Isaac 下把速度当**质心**速度、在 mjlab 下当**连杆**速度，同样十三个数写进去，两个机器人根本不在同一个物理状态。改用两个引擎都有的 `write_root_link_pose_to_sim` / `write_root_link_velocity_to_sim` 后，状态回读一致到 1e-8，全部速度类 term 随即一致。已作为 `write_root_state_to_sim` 进 denylist，并有测试钉住那两个限定写入接口的存在——否则这条建议会随上游改名而悄悄失效。
+
+`compat/denylist.py` 里原本就有 `default_root_state` 的读侧条目，说的是同一件事的另一半。写侧这条是它的对偶，而且是实测出来的。
 
 ## 13. 迁移工作流
 
@@ -914,3 +954,7 @@ mjlab 侧是**未文档化的隐式依赖**。`vocab.py` 该条目必须注明�
 19. golden dump 与结构比对禁止按字段名排序。观测组是按属性顺序拼接的，排序后的 golden 对一个观测向量布局已经不同的配置仍然相等——这类错误编不出编译期信号，只会在加载 checkpoint 时炸。
 20. 白名单条目的 key 是**路径前缀**，按路径段匹配（`p` 后接 `.` 或 `[`），不要写结尾的 `.`。禁止用 `rewards` / `observations` 这类整族前缀，由 `tests/test_parity_static.py` 把关。
 21. 需要非零退出码的 Isaac Sim 脚本必须在 `app.close()` **之前** `os._exit(status)`。Isaac Sim 的关闭流程会把进程退出码改写成 0，放在之后的检查永远不会失败。
+22. 禁止调用不带坐标系限定的 `write_root_state_to_sim` / `write_root_velocity_to_sim`——Isaac 收的是质心速度、mjlab 收的是连杆速度，同样的数写进去两个机器人不在同一状态。一律用 `write_root_link_*_to_sim` 或 `write_root_com_*_to_sim` 明说是哪个。
+23. 白名单条目必须会过期。`verify.structure.unused()` 报出「解释了零处差异」的条目即视为失败，禁止留着一条理由已过时的宽前缀条目继续覆盖整个 term。
+24. 「不可移植」只约束写法，不约束任务是否该有这一项。两引擎都有、但测法不同的 term，用 `kind=` 按名声明 + 各引擎注册各自实现 + `level=REQUIRED`；禁止因为写不出一份共享实现就让任务少掉一项。
+25. 构造环境禁止依赖 RL 库可导入。`CompiledTask.agent_cfg` 惰性解析；本仓库的 runner cfg 目前用 `isaaclab.utils.configclass` 声明，急切解析会让 mjlab 侧的运行需要先启动 Isaac Sim。这个耦合本身仍待 D4 收尾时移除。

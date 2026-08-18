@@ -162,6 +162,22 @@ def unexplained(differences: Iterable[Difference]) -> list[Difference]:
     return [d for d in differences if not d.is_explained]
 
 
+def unused(differences: Iterable[Difference], allow: Mapping[str, str]) -> list[str]:
+    """Whitelist entries that explained nothing, which is a failure and not housekeeping.
+
+    An entry outlives the difference it was written for whenever the compiler improves, and from
+    then on it covers a path that no longer differs -- so the next real difference at that path is
+    waved through with a reason describing something else. The whitelist is only trustworthy if
+    every entry is still earning its place.
+    """
+    paths = [difference.path for difference in differences]
+    return sorted(
+        entry
+        for entry in allow
+        if not any(path == entry or path.startswith(f"{entry}.") or path.startswith(f"{entry}[") for path in paths)
+    )
+
+
 def report(differences: Sequence[Difference]) -> str:
     """Human-readable summary, for a test failure message."""
     missing = unexplained(differences)
