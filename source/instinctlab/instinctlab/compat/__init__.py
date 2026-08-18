@@ -5,12 +5,15 @@ means. :mod:`~instinctlab.compat.denylist` records the attributes whose names ag
 while their semantics do not. :mod:`~instinctlab.compat.math` carries the tensor math both engines
 already share, so that a term can do frame arithmetic without importing either one; its names are
 left on the submodule rather than re-exported here, since callers read better as
-``math_utils.quat_apply_inverse``.
+``math_utils.quat_apply_inverse``. :mod:`~instinctlab.compat.entity` lowers an ``EntityRef`` onto
+each engine's selector config, which is where the engines diverge far more than their data
+attributes do.
 """
 
 from __future__ import annotations
 
 from .denylist import DENYLIST, LEGACY_COM_ALIASES, DenylistEntry, PortabilityError, assert_portable
+from .entity import SELECTOR_KINDS, UnsupportedSelector, lower, resolved_names
 from .vocab import (
     CANONICAL_QUATERNION,
     ENGINES,
@@ -30,6 +33,7 @@ __all__ = [
     "ENGINES",
     "HUB",
     "LEGACY_COM_ALIASES",
+    "SELECTOR_KINDS",
     "Anchor",
     "DenylistEntry",
     "Frame",
@@ -37,7 +41,10 @@ __all__ = [
     "PortabilityError",
     "RotationConvention",
     "Spoke",
+    "UnsupportedSelector",
     "assert_portable",
     "hub_entry",
+    "lower",
+    "resolved_names",
     "spoke_attr",
 ]
