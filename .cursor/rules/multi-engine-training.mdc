@@ -28,7 +28,9 @@ alwaysApply: false
 - 原生栈：isaacsim → `isaaclab.ManagerBasedRLEnv`；mjlab → `mjlab.ManagerBasedRlEnv`
 - `verify/`：旧 `SimulatorBackend` 双实现降级至此，做 sim2sim 状态断言，**不在训练热路径**
 
-入口 `scripts/instinct_rl/train.py --engine isaacsim|mjlab`。任务 id 单一注册。
+入口 **`scripts/train.py --engine isaacsim|mjlab --task <id>`**，已完成 ✅。引擎必须在任何 import 之前选定（`AppLauncher` 要先于 `isaaclab` 和 torch），所以先用只认 `--engine` 的 parser 选中适配器、由它补自己的开关、再 `bootstrap`。入口之后没有一处知道自己拿到哪个引擎。两个注册表都存点路径、不 import 被注册者：`engines.ADAPTERS`（`engines.adapter(name)`）与 `tasks.registry.TASKS`（`tasks.registry.spec(id)`）——Gym 注册表做不到，注册一个 id 就要 import 它指向的 Isaac env cfg。agent 配置在 `tasks/locomotion/agents/`，引擎无关，`config/g1/agents/` 保留为 re-export。`scripts/instinct_rl/train.py` 是 main 的 Isaac-only 旧入口，仍在。
+
+**unified 栈（`envs/unified_manager_based_rl_env.py` / `tasks/locomotion/unified_flat_env_cfg.py` / `scripts/instinct_rl/*_unified.py` 及其测试）D2 已判退役，但尚未删除**，`scripts/profile_backend.py` 仍依赖它。
 
 ## Term 的两种写法
 
@@ -100,7 +102,10 @@ alwaysApply: false
 - **但「不可移植」只约束写法，不约束任务该不该有这一项。** 这 3 项两个引擎其实都有，只是测法不同：用 `kind=` 按名声明 + 各引擎注册各自的参考实现 + `level=REQUIRED`。禁止因为写不出一份共享实现就让任务少掉一项——那不再是同一个任务。
 - **禁止不带坐标系限定的 `write_root_state_to_sim` / `write_root_velocity_to_sim`**：Isaac 收质心速度、mjlab 收连杆速度，同样的数写进去两个机器人不在同一状态（实测连杆速度差到 0.85 m/s，随后所有速度类 term 全部不一致）。一律用 `write_root_link_*_to_sim` / `write_root_com_*_to_sim`，由 `tests/test_compat_vocab.py` 钉住这两个接口存在。
 - **白名单条目必须会过期**：`verify.structure.unused()` 报出解释了零处差异的条目即失败。加这个检查时当场抓出 11 条死条目，其中一条项级前缀条目理由早已过时却仍覆盖着整个奖励项。
-- **构造环境禁止依赖 RL 库可导入**：`CompiledTask.agent_cfg` 惰性解析。现有 runner cfg 建在 `isaaclab.utils.configclass` 上，急切解析会让 mjlab 侧运行需要先启动 Isaac Sim——这个耦合仍待 D4 收尾时移除。
+- **构造环境禁止依赖 RL 库可导入**：`CompiledTask.agent_cfg` 惰性解析。**agent 配置本身也禁止依赖引擎**：用 `instinctlab.utils.configclass`（engine-free vendor，勿改 vendor 的函数体，改了对拍测试就失效），且不得放在会 import 引擎的包路径下——超参放在 `config/g1/agents/` 时，读一个学习率要先启动 Isaac Sim，因为那个包注册 Gym id。旧路径保留为 re-export，必须是同一个类对象而非副本。
+- **跨引擎间接层的每一次运行时解析，都要问它在原生实现里是不是初始化期做完的**。是的话这层必须自己缓存。实测：`ContactSensorRef` 的元素解析没缓存时，Isaac 侧每步付三次 `ContactSensor.body_names`——那是个每次访问都从 physics view 重建的 property，4096 env 下单次约 70 毫秒，占掉 21.6 秒里的 18.7 秒，整个环境慢十倍（5,699 → 56,339 step/s），而 GPU 空转、所有数值断言照常通过。Isaac 自己的 term 不付这笔钱是因为 `SceneEntityCfg` 由 manager 解析一次；`ContactSensorRef` 由 term 解析（这正是它能同时对上 Isaac 一个宽传感器和 mjlab 几个窄传感器的原因），所以 manager 白送的缓存得在 `compat/sensors.py` 自己做。**这类退化没有数值信号**，`compare_terms.py` 修复前后结果完全相同。
+- **`train.py` 里禁止出现引擎名字面量、禁止按引擎分支**。构造方式（`make_env`，Isaac 从 `cfg.sim.device` 取设备而 mjlab 要构造参数）、命令行开关（`add_cli_args`，`--device` 也归适配器，因为 `AppLauncher` 坚持自己声明它）、RL wrapper（`wrap_for_rl`）一律由适配器回答，`tests/test_train_entry.py` 用 AST 把关。两个注册表 `engines.ADAPTERS` / `tasks.registry.TASKS` 存点路径，命名一个引擎或列出任务都不得 import 它。
+- **用 `os._exit` 的脚本必须先 `sys.stdout.flush()`**：`os._exit` 不刷 stdio 缓冲，输出重定向到文件时会静默丢掉最后一段。`check_parity.py` 曾因此在报成功的同时丢掉整个构造与 step 结果。
 - **mjlab 的三处形状/声明约定**：`soft_joint_pos_limits` 首维为 1（模型常量），Isaac 是逐环境的，按 `env_ids` 索引的移植代码在第二个环境上越界；`dr` 事件的包装函数必须用 `@requires_model_fields(*被包装函数.model_fields, ...)` 转发声明，否则模型字段不会逐环境展开、写入失败；接触传感器没有 `body_names`，不能用 `SceneEntityCfg` 从外部切片，元素选择走 `compat.sensors.element_ids()`。
 - **mjlab 缺的事件函数不要用「邻居」顶替**：`reset_joints_by_offset` 是加偏移而 Isaac 的 `by_scale` 是乘缩放；`dr.body_mass` 只改质量而 Isaac 默认按比例同步缩放惯量。两者都能编译通过并随机化出另一个东西，已在 `engines/mjlab/events.py` 各移植一份。
 - 根部速度：可移植 term 一律读 `root_link_*`。**角速度改成 link 拼写数值不变**（Isaac 的 `root_link_vel_w` 是 `root_com_vel_w.clone()` 后只修正 `[:, :3]`，角速度行原样拷贝，已实测并由测试钉住）；**线速度会变**，差 `ω × R(−com_pos_b)`，`base_lin_vel` 与 `track_lin_vel_xy_yaw_frame_exp` 因此各有一条白名单条目。

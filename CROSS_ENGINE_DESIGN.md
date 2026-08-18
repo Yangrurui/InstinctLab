@@ -460,8 +460,8 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | P2 | **已完成**。`spec/`（`capability` / `entity` / `sensor` / `mdp` / `task`）+ `engines/`（`base` / `registry` / `compile`）+ 三级 Requirement；spec 与 engines 机件的 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 端到端编译整个 MdpSpec，跳过 / emulate / strict 三条路径各有测试与变异检验 |
 | P3 | **已完成**（flat G1 部分）。`mdp/`：20 个可移植 term（observations / rewards / terminations）；清出 3 个**不可移植**项交给 per-engine 注册表，见 §12.4.1 | 属性可移植性由 AST 扫描对着 denylist / legacy 别名表 / 两引擎数据类静态把关；term 数值由构造输入的桩验证；变异检验覆盖 |
 | P4 | **已完成**。`engines/isaacsim/`（`terms` / `scene` / `assets` / `adapter`）+ `tasks/locomotion/flat_g1.py` 的引擎无关声明 | 177 处 diff，0 处未解释；编译产物能构造并 step，观测维度与 13 个奖励项与 main 一致，见 §12.5 |
-| P5 | mjlab adapter：移植 env 子类 / `MultiRewardManager` / 力阈值接触传感器 | 同一 TaskSpec 编译通过，差异全部落在白名单内 |
-| P6 | `train.py --engine` 收敛；退役 unified 栈；任务 id 单一注册；manifest 落盘 | isaacsim 跑 200 iter 曲线与 main 重合；mjlab 达到同等策略质量 |
+| P5 | **已完成**。mjlab adapter：`assets` / `scene` / `events` / `rewards` / `terms` / `adapter`；从 InstinctMJ 移植 `reset_joints_by_scale` / `randomize_body_mass` / `contact_slide` | 同一 TaskSpec 编译通过并实际构造 step；与 InstinctMJ 的 AST 对拍一致；26 个 term 两引擎数值一致，见 §12.6 |
+| P6 | **部分完成**。`scripts/train.py --engine` 收敛（`engines.ADAPTERS` + `tasks.registry` 双注册表、manifest 落盘、agent cfg 脱离 Isaac），见 §12.7；**退役 unified 栈尚未执行** | 两引擎从同一入口、同一 task id 起训；isaacsim 4096 env 跑到 56k step/s，mjlab 5000 iter 收敛 |
 | P7 | `migrate/`：analyze + codemod；`mdp/` 补齐到 Isaac 83 核心 term | 拿一个真实开源 Isaac Lab 项目走完 §13 五步 |
 | P8 | `verify/`：旧 `SimulatorBackend` 改作状态导出；sim2sim 断言与容差声明 | 同 policy 在两引擎的落地/接触指标在声明容差内 |
 | P9 | 按能力矩阵推进 terrain / raycaster / camera / motion_reference | 能力矩阵文档与 `terms.py` 自动一致 |
@@ -737,6 +737,22 @@ mjlab 侧的参考实现是 InstinctMJ 的 `G1LocomotionFlatEnvCfg`。它没有�
 
 `compat/denylist.py` 里原本就有 `default_root_state` 的读侧条目，说的是同一件事的另一半。写侧这条是它的对偶，而且是实测出来的。
 
+### 12.8 P6：一个入口，以及它逼出来的两件事
+
+`scripts/train.py --engine <name>` 是两引擎唯一的训练入口。它的结构由一个排序约束决定：引擎必须在**任何东西被 import 之前**选定，因为 Isaac Sim 的 `AppLauncher` 要先于 `isaaclab`、也先于 torch 运行。所以先用一个只认 `--engine` 的 parser 选中适配器，由适配器补自己的命令行开关（`--device` 也归适配器，因为 `AppLauncher` 坚持自己声明它、并拒绝已有同名参数的 parser），再 `bootstrap`，之后程序的其余部分才存在。
+
+入口之后没有任何一处知道自己拿到的是哪个引擎：适配器负责编译、负责构造（`CompiledTask.make_env()`，因为 Isaac 从 `cfg.sim.device` 取设备而 mjlab 要求构造参数）、也负责说出自己的 RL wrapper（`wrap_for_rl`）。`tests/test_train_entry.py` 用 AST 读这个文件，禁止其中出现任何引擎名字面量——第三个引擎的成本是否真的被买下来，看的就是这一条。
+
+两个注册表都不 import 被注册的东西：`engines.ADAPTERS` 与 `tasks.registry.TASKS` 存的是点号路径。Gym 注册表做不到这件事——注册 `Instinct-Locomotion-Flat-G1-v0` 就要 import 它指向的 Isaac Lab env cfg，于是「列出有哪些任务」这个动作本身需要 Isaac Sim。
+
+**第一件被逼出来的事：D4 的耦合必须真的断掉，不能只是推迟。** 硬约束 25 原本写的是「`agent_cfg` 惰性解析，耦合待 D4 收尾时移除」。但 mjlab 训练要读 PPO 超参，惰性只是把失败推到第一次访问：`configclass` 住在 `isaaclab.utils`，而这个包的 `__init__` import `mesh` → `pxr`。于是「读一个学习率」需要 Isaac Sim 运行时在路径上。现在 `configclass` 按 `compat/math.py` 的先例整份 vendor 到 `instinctlab/utils/configclass.py`（BSD-3，`tests/test_configclass_vendor.py` 用 AST 逐函数对着上游钉住，另有一条在 Isaac Sim 下比对真实 agent 配置 `to_dict()` 的端到端断言）；agent 配置从 `config/g1/agents/` 移到 `tasks/locomotion/agents/`，脱离那条注册 Gym id 的 import 链，main 的旧路径改为 re-export，保证是**同一个类对象**而不是一份会漂移的副本。
+
+**第二件：`ContactSensorRef` 的解析必须只做一次。** 首次 4096 env 训练时 Isaac 侧 16.6 秒/迭代、GPU 利用率 1%、CPU 满载——这个形状说明时间花在 Python 里而不是物理里。cProfile 定位到 `omni.physics.tensors` 的 `prim_paths`：21.6 秒里占 18.7 秒，来自 Isaac Lab 的 `ContactSensor.body_names`——它是个**每次访问都从 physics view 重建**的 property，4096 env 下单次约 70 毫秒。三个接触类 term 每次求值都重新解析自己的脚，于是每步付三遍。
+
+这不是疏忽，是架构选择的代价，而且值得写下来：Isaac Lab 自己的 term 不付这笔钱，因为 `SceneEntityCfg` 在 manager 建好时解析一次，之后 term 手里只有下标。而 `ContactSensorRef` 是**由 term 而不是由 manager** 解析的——这正是同一份声明既能对上 Isaac Lab 的一个宽传感器、又能对上 mjlab 的几个窄传感器的原因。manager 白送的缓存，换成这个结构就得自己做。现在 `compat/sensors.py` 按 (sensor, ref) 记忆解析结果，弱引用持有 sensor；成立的前提是传感器的元素表在场景建好后不再变，两个引擎都满足。修完 5,699 → 56,339 step/s，同一场景快十倍。
+
+一般化的教训：**跨引擎间接层的每一次「运行时解析」，都要问它在原生实现里是不是初始化期就做完的。**是的话，这层间接就必须自己把它缓存住，否则语义对了、性能塌了，而且塌得没有任何数值信号——`compare_terms.py` 在修复前后给出完全相同的结果。
+
 ## 13. 迁移工作流
 
 | 步骤 | 动作 | 要点 |
@@ -957,4 +973,7 @@ mjlab 侧是**未文档化的隐式依赖**。`vocab.py` 该条目必须注明�
 22. 禁止调用不带坐标系限定的 `write_root_state_to_sim` / `write_root_velocity_to_sim`——Isaac 收的是质心速度、mjlab 收的是连杆速度，同样的数写进去两个机器人不在同一状态。一律用 `write_root_link_*_to_sim` 或 `write_root_com_*_to_sim` 明说是哪个。
 23. 白名单条目必须会过期。`verify.structure.unused()` 报出「解释了零处差异」的条目即视为失败，禁止留着一条理由已过时的宽前缀条目继续覆盖整个 term。
 24. 「不可移植」只约束写法，不约束任务是否该有这一项。两引擎都有、但测法不同的 term，用 `kind=` 按名声明 + 各引擎注册各自实现 + `level=REQUIRED`；禁止因为写不出一份共享实现就让任务少掉一项。
-25. 构造环境禁止依赖 RL 库可导入。`CompiledTask.agent_cfg` 惰性解析；本仓库的 runner cfg 目前用 `isaaclab.utils.configclass` 声明，急切解析会让 mjlab 侧的运行需要先启动 Isaac Sim。这个耦合本身仍待 D4 收尾时移除。
+25. 构造环境禁止依赖 RL 库可导入，`CompiledTask.agent_cfg` 惰性解析。agent 配置本身也禁止依赖任何引擎：超参是引擎无关的，声明它的装饰器也必须是（用 `instinctlab.utils.configclass`，不要用 `isaaclab.utils.configclass`），且不得放在会 import 引擎的包路径下。
+26. 跨引擎间接层里的每一次运行时解析，都要先问它在原生实现里是不是初始化期做完的。是的话这层必须自己缓存——`ContactSensorRef` 的元素解析没缓存时，Isaac 侧每步付三次 `ContactSensor.body_names`（4096 env 下单次 70 毫秒），整个环境慢十倍，而所有数值断言照常通过。语义正确不蕴含性能可用，且这类退化没有数值信号。
+27. `train.py` 里禁止出现任何引擎名字面量，禁止按引擎分支。构造方式、命令行开关、RL wrapper 一律由适配器回答（`make_env` / `add_cli_args` / `wrap_for_rl`），由 `tests/test_train_entry.py` 用 AST 把关。
+28. 用 `os._exit` 结束的脚本必须先 `sys.stdout.flush()`。`os._exit` 不刷 stdio 缓冲，输出重定向到文件时会**静默丢掉**最后一段——`check_parity.py` 曾因此在报告成功的同时丢掉了整个构造与 step 的结果。
