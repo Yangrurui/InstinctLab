@@ -28,6 +28,7 @@ from instinctlab.compat.sensors import (
     contact_time,
     element_ids,
     element_names,
+    forget,
     in_contact,
     sensor_engine,
 )
@@ -284,3 +285,90 @@ def test_reference_without_elements_is_refused() -> None:
 def test_negative_history_is_refused() -> None:
     with pytest.raises(ValueError, match="negative history_length"):
         ContactSensorRef(name="feet", elements=".*", history_length=-1)
+
+
+"""
+Resolution happens once.
+
+Not a performance nicety. Isaac Lab's ``ContactSensor.body_names`` rebuilds itself from the physics
+view on every access, costing about seventy milliseconds at four thousand environments, so a term
+that resolves its feet per evaluation spends the step enumerating prim paths with the GPU idle --
+measured at 18.7 of 21.6 seconds on flat G1, and a tenfold slowdown of the whole environment. The
+counting stub below is what stops that returning quietly.
+"""
+
+
+class _CountingSensor:
+    """An Isaac-shaped sensor that records how often its element list is read.
+
+    Standalone rather than a subclass of :class:`_IsaacSensor`, whose constructor reads
+    ``body_names`` before a counter could exist.
+    """
+
+    def __init__(self, names: list[str] | None = None) -> None:
+        self.reads = 0
+        self._names = names or ["pelvis", "left_ankle_roll_link", "right_ankle_roll_link"]
+        self.data = _IsaacData(2, len(self._names), 3)
+
+    @property
+    def body_names(self) -> list[str]:
+        self.reads += 1
+        return self._names
+
+    def find_bodies(self, name_keys, preserve_order: bool = False):
+        names = self.body_names
+        ids = [i for i, n in enumerate(names) if any(re.fullmatch(k, n) for k in name_keys)]
+        if preserve_order:
+            ids = [i for k in name_keys for i, n in enumerate(names) if re.fullmatch(k, n)]
+        return ids, [names[i] for i in ids]
+
+
+def test_the_element_list_is_read_once_however_often_it_is_asked_for() -> None:
+    """Stated as growth rather than a fixed count: engine detection probes the attribute too, and
+    what matters is that the cost is paid on the first call and never again."""
+    sensor = _CountingSensor()
+    forget(sensor)
+    first = element_names(sensor)
+    settled = sensor.reads
+    for _ in range(20):
+        element_names(sensor)
+    assert sensor.reads == settled, f"read the element list {sensor.reads - settled} more times; a step pays that"
+    assert element_names(sensor) == first
+
+
+def test_indices_are_resolved_once_per_reference() -> None:
+    sensor = _CountingSensor()
+    forget(sensor)
+    expected = element_ids(sensor, ANKLES)
+    reads_after_first = sensor.reads
+    for _ in range(20):
+        assert element_ids(sensor, ANKLES) == expected
+    assert sensor.reads == reads_after_first, "re-resolved a reference that had already been resolved"
+
+
+def test_two_references_against_one_sensor_do_not_collide() -> None:
+    """The cache is keyed by reference as well as by sensor; one entry per sensor would alias."""
+    sensor = _CountingSensor()
+    forget(sensor)
+    pelvis = ContactSensorRef(name="feet", elements="pelvis")
+    assert element_ids(sensor, ANKLES) != element_ids(sensor, pelvis)
+    assert element_ids(sensor, pelvis) == [0]
+
+
+def test_two_sensors_are_remembered_separately() -> None:
+    """Keyed by identity, so a second sensor tracking other elements is not served the first's."""
+    first = _CountingSensor()
+    second = _CountingSensor(["pelvis", "left_ankle_roll_link", "right_ankle_roll_link", "extra_link"])
+    forget()
+    assert element_ids(first, ANKLES) == [1, 2]
+    assert element_ids(second, ContactSensorRef(name="extra", elements="extra_link")) == [3]
+
+
+def test_caching_does_not_change_what_is_resolved() -> None:
+    """Mutation check: the cached answer is the answer the uncached path gives."""
+    sensor = _IsaacSensor()
+    forget(sensor)
+    uncached = element_ids(sensor, ANKLES)
+    forget(sensor)
+    assert element_ids(sensor, ANKLES) == uncached
+    assert element_ids(sensor, ANKLES) == uncached

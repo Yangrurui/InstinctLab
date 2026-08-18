@@ -37,12 +37,33 @@ nothing more; it does not pretend the values are comparable.
 
 Engine detection is by duck typing on the element-name attribute, so this module imports no engine
 and a term does not have to know which one it is running under.
+
+Resolution happens once
+-----------------------
+Which indices a reference names is worked out on first use and remembered. This is not an
+optimisation in the usual sense of the word -- it is the difference between a usable environment
+and an unusable one. Isaac Lab's ``ContactSensor.body_names`` is a property that rebuilds itself
+from the physics view on every access, and at four thousand environments that access costs about
+seventy milliseconds. A term that resolves its feet on every evaluation therefore spends most of
+the step in name lookup: measured on flat G1, three such terms accounted for 18.7 of 21.6 seconds,
+and the GPU sat idle while Python enumerated prim paths.
+
+Isaac Lab's own terms do not pay this, because ``SceneEntityCfg`` is resolved once when the manager
+is built and the term afterwards holds plain indices. A ``ContactSensorRef`` is resolved by the
+term rather than by the manager -- that is what lets one declaration work against Isaac Lab's one
+broad sensor and mjlab's several narrow ones -- so the caching that the managers give for free has
+to happen here instead.
+
+The cache is keyed by sensor and reference, and holds sensors weakly so that a closed environment
+is collectable. It is sound because a sensor's element list is fixed once the scene is built: both
+engines derive it from prims that exist for the lifetime of the simulation.
 """
 
 from __future__ import annotations
 
 import torch
-from typing import Any
+import weakref
+from typing import Any, MutableMapping
 
 from instinctlab.spec.sensor import ContactSensorRef
 
@@ -54,11 +75,28 @@ __all__ = [
     "contact_time",
     "element_ids",
     "element_names",
+    "forget",
     "in_contact",
     "sensor_engine",
 ]
 
 _ELEMENT_NAME_ATTR = {"isaacsim": "body_names", "mjlab": "primary_names"}
+
+_NAMES: MutableMapping[Any, list[str]] = weakref.WeakKeyDictionary()
+_IDS: MutableMapping[Any, dict[tuple[str, tuple[str, ...], bool], list[int]]] = weakref.WeakKeyDictionary()
+
+
+def forget(sensor: Any | None = None) -> None:
+    """Drop remembered resolutions, for ``sensor`` or for everything.
+
+    Only needed by tests that reuse one stub sensor while changing what it tracks. Nothing in a
+    running environment changes its element list, so nothing in one calls this.
+    """
+    for cache in (_NAMES, _IDS):
+        if sensor is None:
+            cache.clear()
+        else:
+            cache.pop(sensor, None)
 
 
 def sensor_engine(sensor: Any) -> str:
@@ -73,8 +111,21 @@ def sensor_engine(sensor: Any) -> str:
 
 
 def element_names(sensor: Any) -> list[str]:
-    """The elements this sensor tracks, ordered as the element axis is ordered."""
-    return list(getattr(sensor, _ELEMENT_NAME_ATTR[sensor_engine(sensor)]))
+    """The elements this sensor tracks, ordered as the element axis is ordered.
+
+    Remembered per sensor: on Isaac Lab this reads a property that rebuilds the list from the
+    physics view every time it is touched, which is the dominant cost of a step at scale.
+    """
+    try:
+        return _NAMES[sensor]
+    except (KeyError, TypeError):
+        pass
+    names = list(getattr(sensor, _ELEMENT_NAME_ATTR[sensor_engine(sensor)]))
+    try:
+        _NAMES[sensor] = names
+    except TypeError:  # a sensor that cannot be referenced weakly still works, just uncached
+        pass
+    return names
 
 
 def element_ids(sensor: Any, ref: ContactSensorRef) -> list[int]:
@@ -83,12 +134,19 @@ def element_ids(sensor: Any, ref: ContactSensorRef) -> list[int]:
     Resolution goes through the sensor's own ``find_bodies``/``find_*`` when it has one, because
     that is what the engine's manager would use; otherwise the patterns are matched here against
     :func:`element_names`. Either path uses the same matching semantics -- the helper behind them
-    is the same code in both engines.
+    is the same code in both engines. The answer is remembered; see the module docstring for why
+    that is load-bearing rather than tidy.
 
     Raises:
         PortabilityError: A pattern matched nothing. Silently returning an empty selection would
             turn a foot-contact reward into a constant.
     """
+    key = (ref.name, ref.elements, ref.preserve_order)
+    try:
+        return _IDS[sensor][key]
+    except (KeyError, TypeError):
+        pass
+
     names = element_names(sensor)
     finder = getattr(sensor, "find_bodies", None)
     if callable(finder):
@@ -97,7 +155,13 @@ def element_ids(sensor: Any, ref: ContactSensorRef) -> list[int]:
         ids = _match(ref.elements, names, ref.preserve_order)
     if not ids:
         raise PortabilityError(f"Contact sensor {ref.name!r} matched none of {list(ref.elements)}. It tracks {names}.")
-    return list(ids)
+
+    resolved = list(ids)
+    try:
+        _IDS.setdefault(sensor, {})[key] = resolved
+    except TypeError:
+        pass
+    return resolved
 
 
 def _match(patterns: tuple[str, ...], names: list[str], preserve_order: bool) -> list[int]:
