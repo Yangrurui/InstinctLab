@@ -1229,9 +1229,10 @@ class MjlabBackend:
     def profile_field_groups(self) -> dict[str, float]:
         """Time one synchronize split by field group. Training never calls this.
 
-        Used by ``scripts/profile_backend.py``. A 4096-env run put contact /
-        cvel / effort well under 1% of the policy step; do not change the
-        training copies from these numbers alone.
+        Its caller, ``scripts/profile_backend.py``, went with the unified stack; kept because
+        the split is a property of this backend rather than of that script. A 4096-env run put
+        contact / cvel / effort well under 1% of the policy step; do not change the training
+        copies from these numbers alone.
         """
         import time
 
@@ -1337,7 +1338,7 @@ class MjlabBackend:
     def profile_sync_ops(self) -> dict[str, float]:
         """Kernel-level split of cvel / contact history / update_active.
 
-        Training never calls this. Used by ``scripts/profile_backend.py``.
+        Training never calls this. Its caller went with the unified stack; invoke it directly.
         """
         import time
 

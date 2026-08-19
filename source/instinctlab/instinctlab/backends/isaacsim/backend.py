@@ -948,7 +948,7 @@ class IsaacSimBackend:
     def profile_field_groups(self) -> dict[str, float]:
         """Time one synchronize split by native read vs canonical copy.
 
-        Training never calls this. Used by ``scripts/profile_backend.py``.
+        Training never calls this. Its caller went with the unified stack; invoke it directly.
         """
         import time
 
