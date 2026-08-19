@@ -152,6 +152,11 @@ def main() -> None:
         "sim_step": 0.0,
         "scene_update": 0.0,
         "synchronize": 0.0,
+        "synchronize_post_physics": 0.0,
+        "synchronize_pre_observation": 0.0,
+        "synchronize_post_interval": 0.0,
+        "synchronize_post_reset": 0.0,
+        "synchronize_post_event": 0.0,
         "process_action": 0.0,
         "apply_action": 0.0,
         "termination": 0.0,
@@ -159,45 +164,142 @@ def main() -> None:
         "command": 0.0,
         "event": 0.0,
         "reset": 0.0,
+        "reset_backend": 0.0,
+        "reset_scene": 0.0,
+        "reset_write_default_root": 0.0,
+        "reset_write_default_joint": 0.0,
+        "reset_control_target": 0.0,
+        "reset_command0": 0.0,
+        "event_reset": 0.0,
+        "event_interval": 0.0,
+        "event_write_root": 0.0,
+        "event_write_joint": 0.0,
+        "reset_managers": 0.0,
+        "sim_forward": 0.0,
         "obs": 0.0,
         "policy_step": 0.0,
     }
+    reset_env_counts: list[int] = []
 
     def timed_backend_step() -> None:
         buckets["step"] += _time_ms(device, orig_step)
 
     def timed_synchronize(phase) -> None:
-        from instinctlab.sim.backend import SensorReadPhase
-
         elapsed = _time_ms(device, lambda: orig_sync(phase))
-        if phase is SensorReadPhase.POST_PHYSICS:
-            buckets["synchronize"] += elapsed
+        buckets["synchronize"] += elapsed
+        phase_key = f"synchronize_{phase.value}"
+        if phase_key in buckets:
+            buckets[phase_key] += elapsed
+
+    native_scene = getattr(env.backend, "_native_scene", None) or getattr(env.backend, "_mj_scene", None)
+    native_sim = getattr(env.backend, "_sim", None)
+    orig_backend_reset = env.backend.reset
+    orig_forward = getattr(native_sim, "forward", None) if native_sim is not None else None
+    orig_write = getattr(native_scene, "write_data_to_sim", None) if native_scene is not None else None
+    orig_sim_step = getattr(native_sim, "step", None) if native_sim is not None else None
+    orig_scene_update = getattr(native_scene, "update", None) if native_scene is not None else None
+
+    in_backend_reset = False
+    orig_scene_reset = native_scene.reset if native_scene is not None else None
+    robot = getattr(env.backend, "_robot", None)
+    orig_write_root_sim = getattr(robot, "write_root_link_state_to_sim", None) if robot is not None else None
+    orig_write_joint_sim = getattr(robot, "write_joint_state_to_sim", None) if robot is not None else None
+    orig_set_target = env.backend.set_joint_control_target
+    manager_resets = {
+        name: getattr(getattr(env, name), "reset")
+        for name in (
+            "reward_manager",
+            "curriculum_manager",
+            "action_manager",
+            "observation_manager",
+            "termination_manager",
+            "event_manager",
+            "command_manager",
+            "monitor_manager",
+        )
+        if hasattr(getattr(env, name, None), "reset")
+    }
+
+    def timed_command(dt: float):
+        key = "reset_command0" if dt == 0.0 else "command"
+        return _record(key, device, lambda: orig_command(dt), buckets)
+
+    def timed_reset(ids):
+        reset_env_counts.append(int(torch.as_tensor(ids, device=device).numel()))
+        return _record("reset", device, lambda: orig_reset(ids), buckets)
+
+    def timed_event_by_mode(*args, **kwargs):
+        mode = args[0] if args else kwargs.get("mode", "")
+        result_box: list[object] = []
+
+        def wrapped() -> None:
+            result_box.append(orig_event(*args, **kwargs))
+
+        elapsed = _time_ms(device, wrapped)
+        buckets["event"] += elapsed
+        mode_key = f"event_{mode}"
+        if mode_key in buckets:
+            buckets[mode_key] += elapsed
+        return result_box[0]
+
+    def timed_backend_reset(ids):
+        nonlocal in_backend_reset
+        in_backend_reset = True
+        try:
+            return _record("reset_backend", device, lambda: orig_backend_reset(ids), buckets)
+        finally:
+            in_backend_reset = False
+
+    def timed_scene_reset(*args, **kwargs):
+        return _record("reset_scene", device, lambda: orig_scene_reset(*args, **kwargs), buckets)
+
+    def timed_write_root_sim(*args, **kwargs):
+        key = "reset_write_default_root" if in_backend_reset else "event_write_root"
+        return _record(key, device, lambda: orig_write_root_sim(*args, **kwargs), buckets)
+
+    def timed_write_joint_sim(*args, **kwargs):
+        key = "reset_write_default_joint" if in_backend_reset else "event_write_joint"
+        return _record(key, device, lambda: orig_write_joint_sim(*args, **kwargs), buckets)
+
+    def timed_set_target(*args, **kwargs):
+        if in_backend_reset:
+            return _record("reset_control_target", device, lambda: orig_set_target(*args, **kwargs), buckets)
+        return orig_set_target(*args, **kwargs)
+
+    def timed_manager_reset(orig_fn):
+        return lambda *a, **k: _record("reset_managers", device, lambda: orig_fn(*a, **k), buckets)
 
     env.backend.step = timed_backend_step  # type: ignore[method-assign]
     env.backend.synchronize = timed_synchronize  # type: ignore[method-assign]
     env.action_manager.process_action = lambda act: _record("process_action", device, lambda: orig_process(act), buckets)  # type: ignore[method-assign]
     env.action_manager.apply_action = lambda: _record("apply_action", device, orig_apply, buckets)  # type: ignore[method-assign]
     env.termination_manager.compute = lambda: _record("termination", device, orig_term, buckets)  # type: ignore[method-assign]
-    env.command_manager.compute = lambda dt: _record("command", device, lambda: orig_command(dt), buckets)  # type: ignore[method-assign]
-    env.event_manager.apply = lambda *a, **k: _record("event", device, lambda: orig_event(*a, **k), buckets)  # type: ignore[method-assign]
-    env._reset_idx = lambda ids: _record("reset", device, lambda: orig_reset(ids), buckets)  # type: ignore[method-assign]
+    env.command_manager.compute = timed_command  # type: ignore[method-assign]
+    env.event_manager.apply = timed_event_by_mode  # type: ignore[method-assign]
+    env._reset_idx = timed_reset  # type: ignore[method-assign]
+    env.backend.reset = timed_backend_reset  # type: ignore[method-assign]
+    env.backend.set_joint_control_target = timed_set_target  # type: ignore[method-assign]
+    if orig_scene_reset is not None:
+        native_scene.reset = timed_scene_reset
+    if orig_write_root_sim is not None:
+        env.backend._robot.write_root_link_state_to_sim = timed_write_root_sim
+    if orig_write_joint_sim is not None:
+        env.backend._robot.write_joint_state_to_sim = timed_write_joint_sim
+    for mgr_name, orig_mgr_reset in manager_resets.items():
+        setattr(getattr(env, mgr_name), "reset", timed_manager_reset(orig_mgr_reset))
 
     orig_reward = env.reward_manager.compute
     orig_obs = env.observation_manager.compute
     env.reward_manager.compute = lambda dt: _record("reward", device, lambda: orig_reward(dt), buckets)  # type: ignore[method-assign]
     env.observation_manager.compute = lambda: _record("obs", device, orig_obs, buckets)  # type: ignore[method-assign]
-
-    mj_scene = getattr(env.backend, "_mj_scene", None)
-    mj_sim = getattr(env.backend, "_sim", None)
-    orig_write = getattr(mj_scene, "write_data_to_sim", None) if mj_scene is not None else None
-    orig_sim_step = getattr(mj_sim, "step", None) if mj_sim is not None else None
-    orig_scene_update = getattr(mj_scene, "update", None) if mj_scene is not None else None
     if orig_write is not None:
-        mj_scene.write_data_to_sim = lambda: _record("write_data_to_sim", device, orig_write, buckets)
+        native_scene.write_data_to_sim = lambda: _record("write_data_to_sim", device, orig_write, buckets)
     if orig_sim_step is not None:
-        mj_sim.step = lambda: _record("sim_step", device, orig_sim_step, buckets)
+        native_sim.step = lambda *a, **k: _record("sim_step", device, lambda: orig_sim_step(*a, **k), buckets)
     if orig_scene_update is not None:
-        mj_scene.update = lambda dt: _record("scene_update", device, lambda: orig_scene_update(dt), buckets)
+        native_scene.update = lambda dt: _record("scene_update", device, lambda: orig_scene_update(dt), buckets)
+    if orig_forward is not None:
+        native_sim.forward = lambda *a, **k: _record("sim_forward", device, lambda: orig_forward(*a, **k), buckets)
 
     prof = None
     if args.aten_ops:
@@ -221,14 +323,26 @@ def main() -> None:
     env.command_manager.compute = orig_command  # type: ignore[method-assign]
     env.event_manager.apply = orig_event  # type: ignore[method-assign]
     env._reset_idx = orig_reset  # type: ignore[method-assign]
+    env.backend.reset = orig_backend_reset  # type: ignore[method-assign]
+    env.backend.set_joint_control_target = orig_set_target  # type: ignore[method-assign]
+    if orig_scene_reset is not None:
+        native_scene.reset = orig_scene_reset
+    if orig_write_root_sim is not None:
+        env.backend._robot.write_root_link_state_to_sim = orig_write_root_sim
+    if orig_write_joint_sim is not None:
+        env.backend._robot.write_joint_state_to_sim = orig_write_joint_sim
+    for mgr_name, orig_mgr_reset in manager_resets.items():
+        setattr(getattr(env, mgr_name), "reset", orig_mgr_reset)
     env.reward_manager.compute = orig_reward  # type: ignore[method-assign]
     env.observation_manager.compute = orig_obs  # type: ignore[method-assign]
     if orig_write is not None:
-        mj_scene.write_data_to_sim = orig_write
+        native_scene.write_data_to_sim = orig_write
     if orig_sim_step is not None:
-        mj_sim.step = orig_sim_step
+        native_sim.step = orig_sim_step
     if orig_scene_update is not None:
-        mj_scene.update = orig_scene_update
+        native_scene.update = orig_scene_update
+    if orig_forward is not None:
+        native_sim.forward = orig_forward
 
     policy_ms = buckets["policy_step"]
     sync_ms = buckets["synchronize"]
@@ -237,7 +351,12 @@ def main() -> None:
     field_ms = {}
     profile_fields = getattr(env.backend, "profile_field_groups", None)
     if callable(profile_fields):
-        samples = [profile_fields() for _ in range(max(1, args.steps))]
+        samples = []
+        for _ in range(max(1, args.steps)):
+            # One physics substep so lazy Isaac / mjlab buffers go stale, matching
+            # the first synchronize after scene.update rather than a cached reread.
+            orig_step()
+            samples.append(profile_fields())
         keys = samples[0]
         field_ms = {name: sum(sample[name] for sample in samples) / len(samples) for name in keys}
     sync_ops_ms = {}
@@ -246,6 +365,68 @@ def main() -> None:
         samples = [profile_ops() for _ in range(max(1, args.steps))]
         keys = samples[0]
         sync_ops_ms = {name: sum(sample[name] for sample in samples) / len(samples) for name in keys}
+    reset_scale = {}
+    if not args.no_reset:
+        from instinctlab.sim.backend import SensorReadPhase
+
+        all_ids = torch.arange(env.num_envs, device=device, dtype=torch.int64)
+        robot = getattr(env.backend, "_robot", None)
+
+        def _default_root(selected):
+            native = robot.data
+            root_state = native.default_root_state[selected].clone()
+            root_state[:, :3] += native_scene.env_origins[selected]
+            robot.write_root_link_state_to_sim(root_state, env_ids=selected)
+
+        def _default_joint(selected):
+            native = robot.data
+            robot.write_joint_state_to_sim(
+                native.default_joint_pos[selected],
+                native.default_joint_vel[selected],
+                env_ids=selected,
+            )
+
+        def _read_root():
+            _ = robot.data.root_link_pose_w
+            _ = robot.data.root_link_vel_w
+
+        for count in (1, 256, 1024, env.num_envs):
+            ids = all_ids[:count]
+            reset_scale[str(count)] = {
+                "reset_idx": sum(_time_ms(device, lambda selected=ids: orig_reset(selected)) for _ in range(5)) / 5.0,
+                "backend_reset": (
+                    sum(_time_ms(device, lambda selected=ids: orig_backend_reset(selected)) for _ in range(5)) / 5.0
+                ),
+                "scene_reset": (
+                    sum(_time_ms(device, lambda selected=ids: orig_scene_reset(selected)) for _ in range(5)) / 5.0
+                    if orig_scene_reset is not None
+                    else 0.0
+                ),
+                "write_default_root": (
+                    sum(_time_ms(device, lambda selected=ids: _default_root(selected)) for _ in range(5)) / 5.0
+                    if robot is not None
+                    else 0.0
+                ),
+                "write_default_joint": (
+                    sum(_time_ms(device, lambda selected=ids: _default_joint(selected)) for _ in range(5)) / 5.0
+                    if robot is not None
+                    else 0.0
+                ),
+                "event_reset": (
+                    sum(_time_ms(device, lambda selected=ids: orig_event("reset", env_ids=selected)) for _ in range(5))
+                    / 5.0
+                ),
+                "post_reset_sync": (
+                    sum(_time_ms(device, lambda: orig_sync(SensorReadPhase.POST_RESET)) for _ in range(5)) / 5.0
+                ),
+                "native_root_read": (
+                    sum(_time_ms(device, _read_root) for _ in range(5)) / 5.0 if robot is not None else 0.0
+                ),
+            }
+        forward_ms = [_time_ms(device, orig_forward) for _ in range(5)] if orig_forward is not None else []
+        reset_scale["sim_forward_only"] = sum(forward_ms) / len(forward_ms) if forward_ms else 0.0
+
+    reset_when = [count for count in reset_env_counts if count]
     report = {
         "backend": args.backend,
         "num_envs": args.num_envs,
@@ -255,6 +436,13 @@ def main() -> None:
         "ms": {name: value / args.steps for name, value in buckets.items()},
         "field_ms": field_ms,
         "sync_ops_ms": sync_ops_ms,
+        "reset_stats": {
+            "calls": len(reset_env_counts),
+            "steps_with_reset": len(reset_when),
+            "mean_envs": (sum(reset_env_counts) / len(reset_env_counts)) if reset_env_counts else 0.0,
+            "mean_envs_when_reset": (sum(reset_when) / len(reset_when)) if reset_when else 0.0,
+        },
+        "reset_scale_ms": reset_scale,
         "bridge_ratio": bridge_ratio,
         "fps": fps,
         "ops": _summarize_profiler(prof) if prof is not None else {},

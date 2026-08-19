@@ -142,6 +142,7 @@ class IsaacSimBackend:
         self._last_position_target_version = -1
         self._last_position_velocity: torch.Tensor | None = None
         self._last_position_velocity_version = -1
+        self._root_com_pos_b: torch.Tensor | None = None
         self._closed = False
 
     @staticmethod
@@ -412,6 +413,10 @@ class IsaacSimBackend:
             sensors=sensors,
         )
         self._shape_counts_by_native_body = self._query_shape_counts()
+        # Root COM in the root-link frame. Mass DR keeps COM, so one vector is enough
+        # to convert link velocity to the PhysX COM velocity write.
+        coms = self._robot.root_physx_view.get_coms()
+        self._root_com_pos_b = coms[0, 0, :3].to(device=self.device, dtype=torch.float32).reshape(3).clone()
         material_width = int(self._robot.root_physx_view.get_material_properties().shape[-1])
         if material_width < 3:
             values = set(self.capabilities.values)
@@ -454,27 +459,11 @@ class IsaacSimBackend:
     def reset(self, env_ids: torch.Tensor) -> None:
         self._require_initialized()
         env_ids = self._validate_ids("env_ids", env_ids, self.num_envs)
+        # Contract: reset only clears solver/cache/sensor history. Reset events
+        # write the sampled root/joint state afterwards. Writing defaults here
+        # would double-hit PhysX (get/clone/set the whole 4096-env scene).
         self._native_scene.reset(env_ids)
         self.scene.reset(env_ids)
-        native = self._robot.data
-        root_state = native.default_root_state[env_ids].clone()
-        root_state[:, :3] += self._native_scene.env_origins[env_ids]
-        self._robot.write_root_link_state_to_sim(root_state, env_ids=env_ids)
-        self._robot.write_joint_state_to_sim(
-            native.default_joint_pos[env_ids],
-            native.default_joint_vel[env_ids],
-            env_ids=env_ids,
-        )
-        state = self.scene.articulations[self._entity_name].data
-        state.joint_acc[env_ids] = 0.0
-        self.set_joint_control_target(
-            self._entity_name,
-            JointControlTarget(
-                mode=ControlMode.POSITION,
-                value=state.default_joint_pos,
-            ),
-            env_ids=env_ids,
-        )
 
     def write_root_state(self, entity_name: str, state_wxyz: torch.Tensor, env_ids: torch.Tensor) -> None:
         robot = self._entity(entity_name)
@@ -486,7 +475,38 @@ class IsaacSimBackend:
         quat_norm = torch.linalg.vector_norm(state_wxyz[:, 3:7], dim=-1)
         if torch.any(torch.abs(quat_norm - 1.0) > 1.0e-4):
             raise ValueError("root state contains a non-unit WXYZ quaternion")
-        robot.write_root_link_state_to_sim(state_wxyz, env_ids=env_ids)
+
+        # Do not call Isaac Lab write_root_link_state_to_sim: it get/clones the
+        # whole scene and invalidates every body buffer. Write selected rows to
+        # PhysX, keep Isaac caches current, and update canonical here so
+        # POST_RESET does not have to reread 4096 bodies.
+        from isaaclab.utils.math import quat_apply
+
+        pose_wxyz = state_wxyz[:, :7]
+        vel_link = state_wxyz[:, 7:13]
+        native = robot.data
+        timestamp = native._sim_timestamp
+        self._patch_timestamped(native._root_link_pose_w, env_ids, pose_wxyz, timestamp)
+        self._patch_timestamped(native._root_link_vel_w, env_ids, vel_link, timestamp)
+
+        assert self._root_com_pos_b is not None
+        com_lin = vel_link[:, :3] + torch.linalg.cross(
+            vel_link[:, 3:6],
+            quat_apply(pose_wxyz[:, 3:7], self._root_com_pos_b.expand(vel_link.shape[0], -1)),
+            dim=-1,
+        )
+        vel_com = torch.cat((com_lin, vel_link[:, 3:6]), dim=-1)
+        self._patch_timestamped(native._root_com_vel_w, env_ids, vel_com, timestamp)
+        pose_all = native._root_link_pose_w.data
+        pose_xyzw = torch.cat((pose_all[:, :3], pose_all[:, 4:7], pose_all[:, 3:4]), dim=-1)
+        robot.root_physx_view.set_root_transforms(pose_xyzw, indices=env_ids)
+        robot.root_physx_view.set_root_velocities(native._root_com_vel_w.data, indices=env_ids)
+
+        state = self.scene.articulations[self._entity_name].data
+        state.root_pos_w[env_ids] = pose_wxyz[:, :3]
+        state.root_quat_w[env_ids] = pose_wxyz[:, 3:7]
+        state.root_lin_vel_w[env_ids] = vel_link[:, :3]
+        state.root_ang_vel_w[env_ids] = vel_link[:, 3:6]
 
     def write_joint_state(
         self,
@@ -508,12 +528,18 @@ class IsaacSimBackend:
         self._validate_float_tensor("joint position", position)
         self._validate_float_tensor("joint velocity", velocity)
         native_ids = self._joint_map.native_ids(canonical_ids)
-        robot.write_joint_state_to_sim(
-            position,
-            velocity,
-            joint_ids=native_ids,
-            env_ids=env_ids,
-        )
+        native_pos = robot.data.joint_pos
+        native_vel = robot.data.joint_vel
+        rows = env_ids.unsqueeze(1)
+        native_pos[rows, native_ids] = position
+        native_vel[rows, native_ids] = velocity
+        robot.root_physx_view.set_dof_positions(native_pos, indices=env_ids)
+        robot.root_physx_view.set_dof_velocities(native_vel, indices=env_ids)
+
+        state = self.scene.articulations[self._entity_name].data
+        state.joint_pos[rows, canonical_ids] = position
+        state.joint_vel[rows, canonical_ids] = velocity
+        state.joint_acc[env_ids] = 0.0
 
     def set_joint_control_target(
         self,
@@ -865,7 +891,21 @@ class IsaacSimBackend:
             raise ValueError(f"invalid sensor read phase: {phase!r}")
         if phase in {SensorReadPhase.POST_RESET, SensorReadPhase.POST_EVENT}:
             self._sim.forward()
+        if phase is SensorReadPhase.POST_RESET:
+            # write_root_state / write_joint_state already patched canonical
+            # root/joint. scene.reset zeroed contacts. Do not reread every
+            # body — Isaac Lab write_* would have marked those buffers stale.
+            return
+        self._sync_canonical_from_native()
 
+    def _patch_timestamped(self, buffer: Any, env_ids: torch.Tensor, values: torch.Tensor, timestamp: float) -> None:
+        if buffer.data is None:
+            shape = (self.num_envs, *tuple(values.shape[1:]))
+            buffer.data = torch.zeros(shape, device=self.device, dtype=values.dtype)
+        buffer.data[env_ids] = values
+        buffer.timestamp = timestamp
+
+    def _sync_canonical_from_native(self) -> None:
         native = self._robot.data
         state = self.scene.articulations[self._entity_name].data
         root_pose = native.root_link_pose_w
@@ -904,6 +944,93 @@ class IsaacSimBackend:
                 contact_map.copy_to_canonical(native_data.last_air_time, canonical.last_air_time, dim=1)
                 contact_map.copy_to_canonical(native_data.last_contact_time, canonical.last_contact_time, dim=1)
             canonical.update_active(sensor_spec.force_threshold)
+
+    def profile_field_groups(self) -> dict[str, float]:
+        """Time one synchronize split by native read vs canonical copy.
+
+        Training never calls this. Used by ``scripts/profile_backend.py``.
+        """
+        import time
+
+        self._require_initialized()
+        times: dict[str, float] = {}
+
+        def _ms(fn) -> float:
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            begin = time.perf_counter()
+            fn()
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            return (time.perf_counter() - begin) * 1000.0
+
+        native = self._robot.data
+        state = self.scene.articulations[self._entity_name].data
+        holder: dict[str, torch.Tensor] = {}
+
+        def _read_root() -> None:
+            holder["root_pose"] = native.root_link_pose_w
+            holder["root_vel"] = native.root_link_vel_w
+
+        def _read_body_pose() -> None:
+            holder["body_pose"] = native.body_link_pose_w
+
+        def _read_body_vel() -> None:
+            holder["body_vel"] = native.body_link_vel_w
+
+        def _copy_root() -> None:
+            root_pose = holder["root_pose"]
+            root_vel = holder["root_vel"]
+            state.root_pos_w.copy_(root_pose[:, :3])
+            state.root_quat_w.copy_(root_pose[:, 3:7])
+            state.root_lin_vel_w.copy_(root_vel[:, :3])
+            state.root_ang_vel_w.copy_(root_vel[:, 3:6])
+
+        def _copy_body() -> None:
+            body_pose = holder["body_pose"]
+            body_vel = holder["body_vel"]
+            self._body_map.copy_to_canonical(body_pose[..., :3], state.body_pos_w, dim=1)
+            self._body_map.copy_to_canonical(body_pose[..., 3:7], state.body_quat_w, dim=1)
+            self._body_map.copy_to_canonical(body_vel[..., :3], state.body_lin_vel_w, dim=1)
+            self._body_map.copy_to_canonical(body_vel[..., 3:6], state.body_ang_vel_w, dim=1)
+
+        def _copy_joints() -> None:
+            self._joint_map.copy_to_canonical(native.joint_pos, state.joint_pos, dim=1)
+            self._joint_map.copy_to_canonical(native.joint_vel, state.joint_vel, dim=1)
+            self._joint_map.copy_to_canonical(native.joint_acc, state.joint_acc, dim=1)
+            self._joint_map.copy_to_canonical(native.applied_torque, state.applied_joint_effort, dim=1)
+
+        def _copy_contacts() -> None:
+            assert self._scene_spec is not None
+            specs = {item.name: item for item in self._scene_spec.contact_sensors}
+            for name, canonical in self.scene.sensors.items():
+                sensor_spec = specs[name]
+                native_data = self._native_scene.sensors[name].data
+                contact_map = self._contact_maps[name]
+                contact_map.copy_to_canonical(native_data.net_forces_w, canonical.net_forces_w, dim=1)
+                if canonical.history_length:
+                    contact_map.copy_to_canonical(
+                        native_data.net_forces_w_history[:, : canonical.history_length],
+                        canonical.net_forces_w_history,
+                        dim=2,
+                    )
+                if sensor_spec.track_air_time:
+                    contact_map.copy_to_canonical(native_data.current_air_time, canonical.current_air_time, dim=1)
+                    contact_map.copy_to_canonical(
+                        native_data.current_contact_time, canonical.current_contact_time, dim=1
+                    )
+                    contact_map.copy_to_canonical(native_data.last_air_time, canonical.last_air_time, dim=1)
+                    contact_map.copy_to_canonical(native_data.last_contact_time, canonical.last_contact_time, dim=1)
+                canonical.update_active(sensor_spec.force_threshold)
+
+        times["native.root"] = _ms(_read_root)
+        times["native.body_pose"] = _ms(_read_body_pose)
+        times["native.body_vel"] = _ms(_read_body_vel)
+        times["copy.root"] = _ms(_copy_root)
+        times["copy.body"] = _ms(_copy_body)
+        times["copy.joints"] = _ms(_copy_joints)
+        times["copy.contacts"] = _ms(_copy_contacts)
+        return times
 
     def render(self, mode: str) -> object | None:
         self._require_initialized()
