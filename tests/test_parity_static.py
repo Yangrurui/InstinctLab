@@ -73,7 +73,9 @@ def test_no_reward_is_missing(golden, task):
     supplies its own implementation and the task names them by kind -- which is the difference
     between an engine keeping its own characteristics and a task quietly losing a term.
     """
-    assert set(golden["rewards"]) - set(task.mdp.rewards["rewards"]) == set()
+    # Symmetric on purpose. A one-sided difference lets the task grow a reward main does not have,
+    # which changes what is being optimised just as surely as losing one.
+    assert set(golden["rewards"]) == set(task.mdp.rewards["rewards"])
 
 
 def test_the_terms_named_by_kind_are_the_ones_the_design_names(task):
@@ -260,9 +262,10 @@ def test_the_joint_axis_is_pinned_to_the_canonical_order():
     next to it looks like it settles their order. It does not: ``resolve_matching_names`` orders a
     selection by the *patterns* it was given, so a single pattern falls back to the entity's own
     order and the flag becomes a no-op. The task therefore has to name every joint, and the
-    difference is invisible in every check that does not compare sequences -- the asset test compares
-    sets, and the term-value comparison reindexes both engines to this order before diffing, so it
-    would agree either way.
+    difference used to be invisible in every check that did not compare sequences: the asset test
+    compared sets, and the term-value comparison reindexed both engines to this order before diffing,
+    so it agreed either way. Both have since been fixed -- the asset test pins the sequence and the
+    comparison no longer reindexes -- and this is the assertion on the declaration itself.
 
     Both the action term and the two joint observations are checked, because pinning one without the
     other leaves a policy whose inputs and outputs are indexed differently per engine.

@@ -20,11 +20,13 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import pathlib
 import sys
+import traceback
 
 
-def main() -> int:
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cfg", required=True, help="module:ClassName of the env config to dump")
     parser.add_argument("--out", required=True, type=pathlib.Path, help="where to write the JSON")
@@ -47,10 +49,18 @@ def main() -> int:
         # golden that a reordered config still matches.
         args.out.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
         print(f"wrote {args.out} ({args.out.stat().st_size} bytes)")
-    finally:
-        app.close()
-    return 0
+        status = 0
+    except Exception:
+        traceback.print_exc()
+        status = 1
+
+    # Not via ``app.close()`` and a return: Isaac Sim's shutdown ends the process with a status of
+    # zero, so a golden that failed to dump would be reported to the caller as one that succeeded.
+    # Flush before os._exit, which skips stdio buffers.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(status)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

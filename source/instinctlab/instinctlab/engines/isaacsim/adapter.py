@@ -204,7 +204,7 @@ class IsaacSimAdapter:
         return {
             "engine": self.name,
             "task_id": spec.task_id,
-            "capabilities": sorted(cap.value for cap in self.capabilities().values),
+            "capabilities": sorted(self.capabilities().values),
             "missing": missing,
             "engine_extras_used": sorted(spec.engine_extras.get(self.name, {})),
         }

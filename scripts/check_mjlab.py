@@ -46,8 +46,12 @@ def main() -> int:
         print(f"action dimension: {env.action_manager.total_action_dim}")
         print(f"action order matches the catalog's depth-first order: {names == catalog}")
         if names != catalog:
+            # Ends the script non-zero rather than printing and carrying on. This was a bare print
+            # for a long time, which made the only runtime check of D1 on this engine incapable of
+            # failing -- and it reads as if it were an assertion.
             print(f"  catalog: {catalog[:6]}")
             print(f"  driven : {names[:6]}")
+            raise SystemExit("the action term does not drive the catalog's depth-first joint order")
 
         actions = torch.zeros((env.num_envs, env.action_manager.total_action_dim), device=env.device)
         for _ in range(args.steps):

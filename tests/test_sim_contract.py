@@ -8,7 +8,7 @@ import pytest
 from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
 from instinctlab.backends.mock import MockSimulatorBackend
 from instinctlab.sim.backend import CanonicalIndexMap, RuntimeRequirements, SensorReadPhase
-from instinctlab.sim.capabilities import Capability
+from instinctlab.sim.capabilities import BATCHED_SIMULATION, CONTACT_ACTIVE, JOINT_STATE, ROOT_STATE
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.rng import RngManager
 from instinctlab.sim.robot_spec import BackendAsset
@@ -301,10 +301,10 @@ def test_mock_backend_contract() -> None:
         RuntimeRequirements(
             capabilities=frozenset(
                 {
-                    Capability.BATCHED_SIMULATION,
-                    Capability.ROOT_STATE,
-                    Capability.JOINT_STATE,
-                    Capability.CONTACT_ACTIVE,
+                    BATCHED_SIMULATION,
+                    ROOT_STATE,
+                    JOINT_STATE,
+                    CONTACT_ACTIVE,
                 }
             )
         ),

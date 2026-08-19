@@ -20,11 +20,11 @@ import pathlib
 import pytest
 
 from instinctlab.compat.entity import (
-    SELECTOR_KINDS,
     UnsupportedSelector,
     lower,
     resolved_names,
     selector_field,
+    selector_kinds,
     universal,
 )
 from instinctlab.spec.entity import UNIVERSAL_KINDS, EntityRef
@@ -53,26 +53,42 @@ def _engine_fields(engine: str) -> list[str]:
     return _isaac_cfg_fields() if engine == "isaacsim" else _mjlab_cfg_fields()
 
 
-@pytest.mark.parametrize("engine", sorted(SELECTOR_KINDS))
-def test_selector_table_matches_engine(engine: str) -> None:
-    """The table lists exactly the kinds the engine's config declares -- no more, no fewer."""
-    declared = {name[: -len("_names")] for name in _engine_fields(engine) if name.endswith("_names")}
-    assert declared == set(SELECTOR_KINDS[engine]), (
-        f"{engine} selector kinds drifted. Config declares {sorted(declared)}, "
-        f"table says {sorted(SELECTOR_KINDS[engine])}."
+def test_every_engine_registers_its_selectors() -> None:
+    """The registry is populated by importing engine packages, and the tests below parametrize on it.
+
+    Which is a trap worth naming: if registration stopped happening, ``sorted(selector_kinds())``
+    would be empty, every parametrized test in this file would collect zero cases, and the run would
+    be green. A guard that the registry is not empty is the difference between those tests checking
+    the engines and checking nothing.
+    """
+    from instinctlab.engines import ADAPTERS
+
+    assert set(selector_kinds()) == set(ADAPTERS), (
+        f"registered engines {sorted(selector_kinds())} are not the known ones {sorted(ADAPTERS)}; "
+        "an engine package registers its selectors when it is imported"
     )
 
 
-@pytest.mark.parametrize("engine", sorted(SELECTOR_KINDS))
+@pytest.mark.parametrize("engine", sorted(selector_kinds()))
+def test_selector_table_matches_engine(engine: str) -> None:
+    """The table lists exactly the kinds the engine's config declares -- no more, no fewer."""
+    declared = {name[: -len("_names")] for name in _engine_fields(engine) if name.endswith("_names")}
+    assert declared == set(selector_kinds()[engine]), (
+        f"{engine} selector kinds drifted. Config declares {sorted(declared)}, "
+        f"table says {sorted(selector_kinds()[engine])}."
+    )
+
+
+@pytest.mark.parametrize("engine", sorted(selector_kinds()))
 def test_every_kind_has_a_names_and_ids_field(engine: str) -> None:
     """The ``<kind>_names`` / ``<kind>_ids`` convention holds, which is what the lowering assumes."""
     fields = set(_engine_fields(engine))
-    for kind in SELECTOR_KINDS[engine]:
+    for kind in selector_kinds()[engine]:
         assert selector_field(kind) in fields
         assert f"{kind}_ids" in fields
 
 
-@pytest.mark.parametrize("engine", sorted(SELECTOR_KINDS))
+@pytest.mark.parametrize("engine", sorted(selector_kinds()))
 def test_engines_agree_on_the_non_selector_fields(engine: str) -> None:
     """``name`` and ``preserve_order`` are the only other fields, so lowering can pass them blindly."""
     others = {f for f in _engine_fields(engine) if not f.endswith(("_names", "_ids"))}
@@ -81,13 +97,13 @@ def test_engines_agree_on_the_non_selector_fields(engine: str) -> None:
 
 def test_universal_kinds_are_the_intersection() -> None:
     """``UNIVERSAL_KINDS`` is derived from the engines, not asserted independently of them."""
-    intersection = frozenset.intersection(*SELECTOR_KINDS.values())
+    intersection = frozenset.intersection(*selector_kinds().values())
     assert intersection == frozenset(UNIVERSAL_KINDS)
 
 
 def test_engines_overlap_on_almost_nothing() -> None:
     """The premise behind an open selector set: agreement is the exception, not the rule."""
-    isaac, mjlab = SELECTOR_KINDS["isaacsim"], SELECTOR_KINDS["mjlab"]
+    isaac, mjlab = selector_kinds()["isaacsim"], selector_kinds()["mjlab"]
     assert len(isaac & mjlab) == 2
     assert isaac - mjlab == {"fixed_tendon", "object_collection"}
     assert len(mjlab - isaac) == 8
@@ -159,11 +175,11 @@ def test_lower_leaves_unnamed_kinds_at_their_defaults() -> None:
     module = pytest.importorskip("mjlab.managers.scene_entity_config")
     cfg = lower(EntityRef(entity="robot", joints=("hip",)), "mjlab")
     defaults = {f.name: f for f in dataclasses.fields(module.SceneEntityCfg)}
-    for kind in SELECTOR_KINDS["mjlab"] - {"joint"}:
+    for kind in selector_kinds()["mjlab"] - {"joint"}:
         assert getattr(cfg, selector_field(kind)) is defaults[selector_field(kind)].default
 
 
-@pytest.mark.parametrize("engine", sorted(SELECTOR_KINDS))
+@pytest.mark.parametrize("engine", sorted(selector_kinds()))
 def test_lowering_targets_fields_the_engine_declares(engine: str) -> None:
     """Every field the lowering would set exists on the engine's config.
 
@@ -171,7 +187,7 @@ def test_lowering_targets_fields_the_engine_declares(engine: str) -> None:
     the object constructs, but that no field name is invented.
     """
     fields = set(_engine_fields(engine))
-    for kind in SELECTOR_KINDS[engine]:
+    for kind in selector_kinds()[engine]:
         assert selector_field(kind) in fields
     assert {"name", "preserve_order"} <= fields
 

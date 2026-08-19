@@ -63,7 +63,8 @@ from __future__ import annotations
 
 import torch
 import weakref
-from typing import Any, MutableMapping
+from types import MappingProxyType
+from typing import Any, Mapping, MutableMapping
 
 from instinctlab.spec.sensor import ContactSensorRef
 
@@ -81,6 +82,19 @@ __all__ = [
 ]
 
 _ELEMENT_NAME_ATTR = {"isaacsim": "body_names", "mjlab": "primary_names"}
+
+_FORCE_HISTORY: Mapping[str, tuple[str, bool]] = MappingProxyType(
+    {
+        # attribute holding the history, and whether its element axis comes before its time axis.
+        "isaacsim": ("net_forces_w_history", False),
+        "mjlab": ("force_history", True),
+    }
+)
+"""How each engine spells and shapes its contact force history.
+
+Data rather than a branch: a third engine adds a row, and the reader of ``contact_force_history``
+can see the whole cross-engine story in one place instead of tracing two ``if``s.
+"""
 
 _NAMES: MutableMapping[Any, list[str]] = weakref.WeakKeyDictionary()
 _IDS: MutableMapping[Any, dict[tuple[str, tuple[str, ...], bool], list[int]]] = weakref.WeakKeyDictionary()
@@ -222,19 +236,14 @@ def contact_force_history(sensor: Any, ref: ContactSensorRef) -> torch.Tensor:
         in the contact frame unless the sensor was configured otherwise. Any threshold on these
         numbers has to be declared per engine, with the tolerance written down.
     """
-    engine = sensor_engine(sensor)
     ids = element_ids(sensor, ref)
-    if engine == "isaacsim":
-        history = sensor.data.net_forces_w_history
-        attr = "net_forces_w_history"
-    else:
-        history = sensor.data.force_history
-        attr = "force_history"
+    attr, element_axis_first = _FORCE_HISTORY[sensor_engine(sensor)]
+    history = getattr(sensor.data, attr)
     if history is None:
         raise PortabilityError(
             f"Contact sensor {ref.name!r} has no {attr}; both engines return None for it unless the "
             "sensor was given a non-zero history_length."
         )
-    if engine == "mjlab":
+    if element_axis_first:
         history = history.transpose(1, 2)  # (env, element, time, 3) -> (env, time, element, 3)
     return history[:, :, ids]

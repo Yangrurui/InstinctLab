@@ -12,7 +12,7 @@ from instinctlab.sim.backend import (
     RuntimeRequirements,
     SensorReadPhase,
 )
-from instinctlab.sim.capabilities import Capability, CapabilitySet
+from instinctlab.sim.capabilities import CapabilitySet, known
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.scene import ArticulationView, SceneSpec, SceneView, SimulationSpec
 from instinctlab.sim.state import ArticulationState, ContactState
@@ -21,7 +21,10 @@ from instinctlab.sim.state import ArticulationState, ContactState
 class MockSimulatorBackend:
     """Small tensor-only simulator with the real backend contract."""
 
-    capabilities = CapabilitySet.of(Capability)
+    # Everything registered at the time this class is defined. A mock that claims the whole
+    # vocabulary is saying "not the thing under test here" rather than making a claim about a
+    # simulator; tests that need a backend to lack something build a narrower set explicitly.
+    capabilities = CapabilitySet.of(known())
     metadata = BackendMetadata(
         name="mock",
         version="1",

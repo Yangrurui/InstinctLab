@@ -18,7 +18,7 @@ import pytest
 
 from instinctlab.engines import CompileCtx, Resolution, TermRegistry, UnsupportedTerm, compile_family, compile_mdp
 from instinctlab.engines.compile import qualname_of
-from instinctlab.sim.capabilities import Capability
+from instinctlab.sim.capabilities import CONTACT_FORCE_VECTOR, DR_RESTITUTION, DR_SLIDING_FRICTION, EXTERNAL_WRENCH
 from instinctlab.spec import (
     ActionTermSpec,
     CommandTermSpec,
@@ -52,11 +52,11 @@ def _mock_registry() -> TermRegistry:
     def _joint_position(spec, ctx):
         return _NativeTerm(_joint_position, target=ctx.entity(spec.target))
 
-    @registry.event("randomize_friction", provides=(Capability.DR_SLIDING_FRICTION, Capability.DR_RESTITUTION))
+    @registry.event("randomize_friction", provides=(DR_SLIDING_FRICTION, DR_RESTITUTION))
     def _friction(spec, ctx):
         return _NativeTerm(_friction, **ctx.profile.get("friction", {}))
 
-    @registry.event("push_robot", provides=(Capability.EXTERNAL_WRENCH,))
+    @registry.event("push_robot", provides=(EXTERNAL_WRENCH,))
     def _push(spec, ctx):
         return _NativeTerm(_push)
 
@@ -96,10 +96,10 @@ The registry is the capability matrix.
 def test_capabilities_are_derived_from_the_builders_rather_than_declared():
     """A hand-written capability list drifts; this one cannot, because there is only one copy."""
     capabilities = _mock_registry().capabilities()
-    assert capabilities.supports(Capability.DR_SLIDING_FRICTION)
-    assert capabilities.supports(Capability.DR_RESTITUTION)
-    assert capabilities.supports(Capability.EXTERNAL_WRENCH)
-    assert not capabilities.supports(Capability.CONTACT_FORCE_VECTOR)
+    assert capabilities.supports(DR_SLIDING_FRICTION)
+    assert capabilities.supports(DR_RESTITUTION)
+    assert capabilities.supports(EXTERNAL_WRENCH)
+    assert not capabilities.supports(CONTACT_FORCE_VECTOR)
 
 
 def test_an_unregistered_kind_is_simply_absent():

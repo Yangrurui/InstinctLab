@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
-from .capabilities import Capability, CapabilitySet
+from .capabilities import CapabilitySet
 from .control import JointControlTarget
 from .scene import SceneSpec, SceneView, SimulationSpec
 
@@ -46,8 +46,8 @@ JOINT_ACC_SOURCES = frozenset({"qacc_v1", "isaaclab_lazy_fd_v1", "fd_v1"})
 
 @dataclass(frozen=True)
 class RuntimeRequirements:
-    capabilities: frozenset[Capability]
-    optional_capabilities: frozenset[Capability] = frozenset()
+    capabilities: frozenset[str]
+    optional_capabilities: frozenset[str] = frozenset()
     randomization_fields: frozenset[str] = frozenset()
     accepted_joint_acc_sources: frozenset[str] = frozenset()
 

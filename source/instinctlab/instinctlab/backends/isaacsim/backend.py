@@ -23,29 +23,50 @@ from instinctlab.sim.backend import (
     RuntimeRequirements,
     SensorReadPhase,
 )
-from instinctlab.sim.capabilities import Capability, CapabilitySet
+from instinctlab.sim.capabilities import (
+    BATCHED_SIMULATION,
+    BODY_MASS_PROPERTIES,
+    BODY_STATE,
+    CONTACT_ACTIVE,
+    CONTACT_AIR_TIME,
+    CONTACT_FORCE_VECTOR,
+    CONTACT_HISTORY,
+    DR_RESTITUTION,
+    DR_SLIDING_FRICTION,
+    EFFORT_CONTROL,
+    EXTERNAL_WRENCH,
+    GPU_SIMULATION,
+    HUMAN_VIEWER,
+    IMPLICIT_POSITION_CONTROL,
+    JOINT_STATE,
+    PLANE_TERRAIN,
+    RGB_ARRAY,
+    ROOT_STATE,
+    ROOT_VELOCITY_WRITE,
+    CapabilitySet,
+)
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.scene import ArticulationView, SceneSpec, SceneView, SimulationSpec
 from instinctlab.sim.state import ArticulationState, ContactState
 
 _BASE_CAPABILITIES = frozenset(
     {
-        Capability.BATCHED_SIMULATION,
-        Capability.PLANE_TERRAIN,
-        Capability.ROOT_STATE,
-        Capability.JOINT_STATE,
-        Capability.BODY_STATE,
-        Capability.IMPLICIT_POSITION_CONTROL,
-        Capability.EFFORT_CONTROL,
-        Capability.CONTACT_ACTIVE,
-        Capability.CONTACT_HISTORY,
-        Capability.CONTACT_AIR_TIME,
-        Capability.CONTACT_FORCE_VECTOR,
-        Capability.DR_SLIDING_FRICTION,
-        Capability.DR_RESTITUTION,
-        Capability.BODY_MASS_PROPERTIES,
-        Capability.EXTERNAL_WRENCH,
-        Capability.ROOT_VELOCITY_WRITE,
+        BATCHED_SIMULATION,
+        PLANE_TERRAIN,
+        ROOT_STATE,
+        JOINT_STATE,
+        BODY_STATE,
+        IMPLICIT_POSITION_CONTROL,
+        EFFORT_CONTROL,
+        CONTACT_ACTIVE,
+        CONTACT_HISTORY,
+        CONTACT_AIR_TIME,
+        CONTACT_FORCE_VECTOR,
+        DR_SLIDING_FRICTION,
+        DR_RESTITUTION,
+        BODY_MASS_PROPERTIES,
+        EXTERNAL_WRENCH,
+        ROOT_VELOCITY_WRITE,
     }
 )
 _RESERVED_SCENE_NAMES = frozenset(
@@ -99,11 +120,11 @@ class IsaacSimBackend:
         self._launcher = bootstrap_context
         capabilities = set(_BASE_CAPABILITIES)
         if self.device.type == "cuda":
-            capabilities.add(Capability.GPU_SIMULATION)
+            capabilities.add(GPU_SIMULATION)
         if not bool(getattr(bootstrap_context, "_headless", False)) or int(
             getattr(bootstrap_context, "_livestream", 0)
         ) in {1, 2}:
-            capabilities.add(Capability.HUMAN_VIEWER)
+            capabilities.add(HUMAN_VIEWER)
         self.capabilities = CapabilitySet.of(capabilities)
         self.metadata = BackendMetadata(
             name="isaacsim",
@@ -420,7 +441,7 @@ class IsaacSimBackend:
         material_width = int(self._robot.root_physx_view.get_material_properties().shape[-1])
         if material_width < 3:
             values = set(self.capabilities.values)
-            values.discard(Capability.DR_RESTITUTION)
+            values.discard(DR_RESTITUTION)
             self.capabilities = CapabilitySet.of(values)
 
     def _query_shape_counts(self) -> tuple[int, ...]:
@@ -1037,7 +1058,7 @@ class IsaacSimBackend:
         if mode == "none":
             return None
         if mode == "human":
-            if not self.capabilities.supports(Capability.HUMAN_VIEWER):
+            if not self.capabilities.supports(HUMAN_VIEWER):
                 raise RuntimeError("human rendering is unavailable because AppLauncher is headless")
             self._sim.render()
             return None

@@ -16,12 +16,12 @@ alwaysApply: false
 
 - `spec/`：引擎无关声明，**已完成** ✅——`capability.py`（Requirement 三级）、`entity.py`（`EntityRef`）、`sensor.py`（`ContactSensorRef`）、`mdp.py`（`TermSpec` 家族 + `MdpSpec`）、`task.py`（`SimSpec` / `SceneSpec` / `AgentSpec` / `TaskSpec`）。**禁止 import 任何引擎**，含函数体内延迟 import，由 `tests/test_spec_isolation.py` 静态 + 动态双重把关
 - `mdp/`：**可移植 term 库，一份实现两引擎共用**。flat G1 所需部分已完成 ✅（20 个 term：`observations.py` / `rewards.py` / `terminations.py`）。由移植 main 与 Isaac Lab 现有实现种子化，不重新推导数学；属性名统一搬到 `compat/vocab.py` 的中枢拼写
-- `compat/`：薄兼容层，**已完成** ✅——`vocab.py`（**署名的**中枢词汇表）、`denylist.py`（6 项同名不同义 + 19 条 legacy 别名）、`math.py`（纯 torch，vendor 自两引擎共有的那份）、`entity.py`（`EntityRef` 下降 + resolve 后归一化）、`sensors.py`（接触传感器读取）、`env.py`（命令查找 / 类型名 / dt 配置路径）
+- `compat/`：薄兼容层，**已完成** ✅——`vocab.py`（**署名的**中枢词汇表）、`denylist.py`（7 项同名不同义 + 19 条 legacy 别名）、`math.py`（纯 torch，vendor 自两引擎共有的那份）、`entity.py`（`EntityRef` 下降 + resolve 后归一化）、`sensors.py`（接触传感器读取）、`env.py`（命令查找 / 类型名 / dt 配置路径）
 - **`EntityView` 已撤销**，不要重新引入：它要求 term 改走视图层，与「term 直接读 `asset.data.*`」这条迁移前提冲突。性能不是理由（proxy 每步仅 0.1%）。数据层两引擎拼写一致，不需要间接层；第三个引擎若偏离，由**该引擎 backend** 让自己的 data 对象满足 `vocab.HUB`（继承 + `__getattr__` 兜底），代价不外摊（§12.3.2）
 - `engines/`：共享机件，**已完成** ✅——`base.py`（`Resolution` / `CompiledTask` / `EngineAdapter` / `UnsupportedTerm`）、`registry.py`（`TermRegistry`，能力矩阵的唯一来源）、`compile.py`（`CompileCtx` / `compile_family` / `compile_mdp`）。这三个模块**同样禁止 import 引擎**，启动器才能在 bootstrap 之前枚举 adapter
 - `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族。**`engines/isaacsim/` 与 `engines/mjlab/` 均已完成** ✅——各含 `terms.py`（注册表即能力矩阵）、`scene.py`（含该引擎的求解器 profile 默认值）、`assets.py`、`adapter.py`；mjlab 另有 `events.py` / `rewards.py` 放它自己那几份实现。两个包**顶层都不 import 引擎**，builder 函数体内才 import，`contract_report()` 因此能在没装引擎的机器上回答。mjlab 侧资产是从 `RobotSpec` **推导**（MJCF 自带几何，只需补执行器增益），Isaac 侧仍是查表——D5 管线要抹平的就是后者
 - **命令族是 per-engine 的**，尽管它看起来可移植：两边 `UniformVelocityCommandCfg` 语义与多数字段名一致，但 `asset_name` vs `entity_name`，且 mjlab 多出 `rel_world_envs` / `rel_forward_envs` / `init_velocity_prob` / `viz`。共享一个配置对象只能取交集、把 mjlab 的字段静默丢掉；改成共享**语义名** `kind="uniform_velocity"`，各自保留自己的字段
-- **flat G1 的引擎无关声明在 `tasks/locomotion/flat_g1.py`**，同一份声明对上了两份互不知情的参考：Isaac 侧由 `scripts/check_parity.py`（需 Isaac Sim）+ `tests/test_parity_static.py`（不需要）比对 main，134 处差异全部命中白名单；mjlab 侧由 `scripts/check_mjlab.py` + `tests/test_mjlab_reference.py` 比对 InstinctMJ（读语法树，不 import），观测顺序 / 噪声 / 16 个奖励权重 / 终止 / 事件 / 时序全部一致。两边都能真实构造并 step
+- **flat G1 的引擎无关声明在 `tasks/locomotion/flat_g1.py`**，同一份声明对上了两份互不知情的参考：Isaac 侧由 `scripts/check_parity.py`（需 Isaac Sim）+ `tests/test_parity_static.py`（不需要）比对 main，314 处差异全部命中白名单（其中 173 条是 D1 逐个列出 29 个关节名带来的逐元素差异）；mjlab 侧由 `scripts/check_mjlab.py` + `tests/test_mjlab_reference.py` 比对 InstinctMJ（读语法树，不 import），观测顺序 / 噪声 / 16 个奖励权重 / 终止 / 事件 / 时序全部一致。两边都能真实构造并 step
 - **两引擎逐值比对：`scripts/compare_terms.py --run`**。两个进程各构造一次环境（Isaac Sim 必须先启 app），把机器人**写**进同一状态后逐项求值。26 项在 float32 精度内一致（最大 4.8e-07），5 项按设计不比且各有理由。写而不 step 是有意的：term 是状态的函数，step 后的一致性掺进了积分器
 - `frontends/<idiom>/`（作来源）：项目源码 → `TaskSpec` + 未转换清单 + 置信度报告
 - `migrate/`：`analyze.py`（AST 分类报告）+ `codemod.py`（确定性改写）
@@ -64,8 +64,8 @@ alwaysApply: false
 写 `spec/` / `compat/` 时按这五条来，不要复刻双引擎期的形状：
 
 - **S1 中枢词汇表须署名**。中枢在 `compat/vocab.py`，每个量带参考系/原点/单位/旋转约定（四元数固定 wxyz，见 D8），各引擎给 spoke 映射。可以沿用 Isaac 拼写但要写成「我们选它」——两引擎当前同名是巧合，第三个引擎不会遵守。
-- **S2 `EntityRef` 须开放选择器种类**。mjlab `SceneEntityCfg` 有 10 种（joint / body / geom / site / actuator / tendon / camera / light / material / pair），Isaac 只有 4 种，仅 joint / body 重合。这是 **mjlab → Isaac 方向的硬门槛**。
-- **S3 capability 用带命名空间的字符串 ID**（`contact.air_time` / `dr.friction.per_geom` / `sensor.tiled_camera` / `physics.differentiable`），引擎包导入时注册；未注册 ID 启动期报错。不要用封闭 enum。
+- **S2 `EntityRef` 须开放选择器种类**（**已实现**）。mjlab `SceneEntityCfg` 有 10 种（joint / body / geom / site / actuator / tendon / camera / light / material / pair），Isaac 只有 4 种，仅 joint / body 重合。这是 **mjlab → Isaac 方向的硬门槛**。种类由引擎包在 `__init__.py` 里调 `compat.entity.register()` 声明，共享层不再持有种类表；`selector_kinds()` 会按需导入适配器包触发注册（适配器不在模块级 import SDK，因此没装引擎也成立）。Isaac 的 `fixed_tendon` 与 mjlab 的 `tendon` 分开注册。
+- **S3 capability 用带命名空间的字符串 ID**（**已实现**）。`sim/capabilities.py` 是注册表而非封闭 enum：`capability("contact.air_time", "说明")` 注册并返回 id，模块常量绑定到这个调用；引擎包可注册核心没有的能力。**未注册 id 会报 `UnknownCapability` 而不是被当成「后端不支持」**——后者会把 `provides=` 里的拼写错误变成一个被静默跳过的 term。
 - **S4 golden 泛化**，见上。
 - **S5 加 conformance suite**：与任务无关的行为探针（自由落体、静态保持、PD 阶跃、接触冲量、摩擦滑移），每 `(机器人, 引擎)` 一次性产出签名基线，供所有用该机器人的项目共享。
 

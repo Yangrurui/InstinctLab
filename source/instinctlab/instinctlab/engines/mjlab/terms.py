@@ -18,7 +18,15 @@ import math
 from typing import Any
 
 from instinctlab.engines.registry import TermRegistry
-from instinctlab.sim.capabilities import Capability
+from instinctlab.sim.capabilities import (
+    BODY_MASS_PROPERTIES,
+    DR_RESTITUTION,
+    DR_SLIDING_FRICTION,
+    EXTERNAL_WRENCH,
+    JOINT_STATE,
+    ROOT_STATE,
+    ROOT_VELOCITY_WRITE,
+)
 
 TERMS = TermRegistry("mjlab")
 
@@ -149,7 +157,7 @@ def _geoms_of(ctx, ref) -> Any:
 
 @TERMS.event(
     "randomize_friction",
-    provides=(Capability.DR_SLIDING_FRICTION,),
+    provides=(DR_SLIDING_FRICTION,),
 )
 def _randomize_friction(spec, ctx):
     """Sliding friction randomisation.
@@ -166,7 +174,7 @@ def _randomize_friction(spec, ctx):
     return _event(spec, dr.geom_friction, {"asset_cfg": _geoms_of(ctx, spec.target), **profile})
 
 
-@TERMS.event("randomize_body_mass", provides=(Capability.BODY_MASS_PROPERTIES,))
+@TERMS.event("randomize_body_mass", provides=(BODY_MASS_PROPERTIES,))
 def _randomize_body_mass(spec, ctx):
     from .events import randomize_body_mass
 
@@ -174,7 +182,7 @@ def _randomize_body_mass(spec, ctx):
     return _event(spec, randomize_body_mass, {"asset_cfg": ctx.entity(spec.target), "add_range": params["add_range"]})
 
 
-@TERMS.event("apply_external_force_torque", provides=(Capability.EXTERNAL_WRENCH,))
+@TERMS.event("apply_external_force_torque", provides=(EXTERNAL_WRENCH,))
 def _apply_external_force_torque(spec, ctx):
     from mjlab.envs.mdp import apply_external_force_torque
 
@@ -190,7 +198,7 @@ def _apply_external_force_torque(spec, ctx):
     )
 
 
-@TERMS.event("reset_root_state_uniform", provides=(Capability.ROOT_STATE, Capability.ROOT_VELOCITY_WRITE))
+@TERMS.event("reset_root_state_uniform", provides=(ROOT_STATE, ROOT_VELOCITY_WRITE))
 def _reset_root_state_uniform(spec, ctx):
     from mjlab.envs.mdp import reset_root_state_uniform
 
@@ -202,7 +210,7 @@ def _reset_root_state_uniform(spec, ctx):
     )
 
 
-@TERMS.event("reset_joints_by_scale", provides=(Capability.JOINT_STATE,))
+@TERMS.event("reset_joints_by_scale", provides=(JOINT_STATE,))
 def _reset_joints_by_scale(spec, ctx):
     from .events import reset_joints_by_scale
 
@@ -214,7 +222,7 @@ def _reset_joints_by_scale(spec, ctx):
     )
 
 
-@TERMS.event("push_by_setting_velocity", provides=(Capability.ROOT_VELOCITY_WRITE,))
+@TERMS.event("push_by_setting_velocity", provides=(ROOT_VELOCITY_WRITE,))
 def _push_by_setting_velocity(spec, ctx):
     from mjlab.envs.mdp import push_by_setting_velocity
 

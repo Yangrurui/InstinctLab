@@ -39,12 +39,23 @@ def main() -> int:
         ),
     )
     parser.add_argument(
-        "--construct",
-        action="store_true",
+        "--no-construct",
+        dest="construct",
+        action="store_false",
         help=(
-            "Also build the environment and step it. Comparing configs proves the declaration"
-            " lowers correctly; stepping proves the result runs, which the terms' shapes and the"
-            " sensor wiring can break without any field differing."
+            "Skip building and stepping the environment. On by default: comparing configs proves"
+            " the declaration lowers correctly, while stepping proves the result runs, which the"
+            " terms' shapes and the sensor wiring can break without any field differing. It was"
+            " opt-in for a while, which meant nothing in routine use ever ran it."
+        ),
+    )
+    parser.add_argument(
+        "--no-recheck-golden",
+        dest="recheck_golden",
+        action="store_false",
+        help=(
+            "Skip re-deriving the golden from main's live config. On by default: the golden is a"
+            " file, and a file cannot notice that the config it was dumped from has moved on."
         ),
     )
 
@@ -78,6 +89,17 @@ def main() -> int:
         for entry in stale:
             print(f"  {entry}")
 
+    stale_golden = _recheck_golden(golden, num_envs) if args.recheck_golden else []
+    if stale_golden:
+        print(f"\nthe golden no longer matches {golden['source']}, which it is a recording of:")
+        for difference in stale_golden:
+            print(f"  {difference}")
+        print(f"  re-dump it with scripts/dump_golden.py --cfg {golden['source']}")
+    elif args.recheck_golden:
+        # Said out loud, because a check that prints nothing when it passes is indistinguishable
+        # from one that did not run.
+        print(f"\ngolden still matches {golden['source']} as built here.")
+
     if args.construct:
         _step(compiled)
 
@@ -87,7 +109,28 @@ def main() -> int:
     # with its output redirected that silently drops everything printed since the last flush --
     # which is how the stepping result went missing while the check still reported success.
     sys.stdout.flush()
-    os._exit(1 if remaining or stale else 0)
+    os._exit(1 if remaining or stale or stale_golden else 0)
+
+
+def _recheck_golden(golden: dict, num_envs: int) -> list:
+    """Rebuild main's config here and now, and check the golden still describes it.
+
+    Everything else in this script measures the compiled task against a JSON file. Nothing measured
+    the file against the thing it claims to be a recording of, so main's config could move and every
+    check here would keep passing -- against a ruler that had quietly stopped describing the task it
+    was cut from. That is not hypothetical: main's task was once unbuildable for long enough that
+    the golden was dumped from a broken state, and no check said so.
+    """
+    import importlib
+
+    from instinctlab.verify.structure import compare, dump, unexplained
+
+    module_name, _, class_name = golden["source"].replace(":", ".").rpartition(".")
+    cfg = getattr(importlib.import_module(module_name), class_name)()
+    # The count is a property of a run, not of the declaration, and the golden records whichever one
+    # it was dumped at. Compare like for like.
+    cfg.scene.num_envs = num_envs
+    return unexplained(compare(golden["config"], dump(cfg), allow={}))
 
 
 def _step(compiled) -> None:

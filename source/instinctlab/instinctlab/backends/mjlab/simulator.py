@@ -23,7 +23,28 @@ from instinctlab.sim.backend import (
     SensorReadPhase,
     contiguous_index_range,
 )
-from instinctlab.sim.capabilities import Capability, CapabilitySet
+from instinctlab.sim.capabilities import (
+    BATCHED_SIMULATION,
+    BODY_MASS_PROPERTIES,
+    BODY_STATE,
+    CONTACT_ACTIVE,
+    CONTACT_AIR_TIME,
+    CONTACT_FORCE_VECTOR,
+    CONTACT_HISTORY,
+    DR_RESTITUTION,
+    DR_SLIDING_FRICTION,
+    EFFORT_CONTROL,
+    EXTERNAL_WRENCH,
+    GPU_SIMULATION,
+    HUMAN_VIEWER,
+    IMPLICIT_POSITION_CONTROL,
+    JOINT_STATE,
+    PLANE_TERRAIN,
+    RGB_ARRAY,
+    ROOT_STATE,
+    ROOT_VELOCITY_WRITE,
+    CapabilitySet,
+)
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.scene import ArticulationView, ContactSensorSpec, SceneSpec, SceneView, SimulationSpec
 from instinctlab.sim.state import ArticulationState, ContactState
@@ -130,11 +151,11 @@ def _expanded_randomization_fields(requirements: RuntimeRequirements) -> tuple[s
     for field_name in requirements.randomization_fields:
         result.update(_RANDOMIZATION_FIELD_ALIASES.get(field_name, (field_name,)))
     requested = requirements.capabilities | requirements.optional_capabilities
-    if Capability.DR_SLIDING_FRICTION in requested:
+    if DR_SLIDING_FRICTION in requested:
         result.add("geom_friction")
-    if Capability.DR_RESTITUTION in requested:
+    if DR_RESTITUTION in requested:
         result.add("geom_solref")
-    if Capability.BODY_MASS_PROPERTIES in requested:
+    if BODY_MASS_PROPERTIES in requested:
         result.update(_MASS_MODEL_FIELDS)
     return tuple(sorted(result))
 
@@ -153,7 +174,7 @@ def _enable_effort_actuator(
     supports_effort_control: bool,
     requirements: RuntimeRequirements,
 ) -> bool:
-    return supports_effort_control and Capability.EFFORT_CONTROL in requirements.capabilities
+    return supports_effort_control and EFFORT_CONTROL in requirements.capabilities
 
 
 def _group_equal_pd_joints(properties: Iterable[Any]) -> tuple[tuple[tuple[str, ...], Any], ...]:
@@ -218,24 +239,24 @@ class MjlabBackend:
 
     capabilities = CapabilitySet.of(
         (
-            Capability.BATCHED_SIMULATION,
-            Capability.GPU_SIMULATION,
-            Capability.PLANE_TERRAIN,
-            Capability.ROOT_STATE,
-            Capability.JOINT_STATE,
-            Capability.BODY_STATE,
-            Capability.IMPLICIT_POSITION_CONTROL,
-            Capability.EFFORT_CONTROL,
-            Capability.CONTACT_ACTIVE,
-            Capability.CONTACT_HISTORY,
-            Capability.CONTACT_AIR_TIME,
-            Capability.CONTACT_FORCE_VECTOR,
-            Capability.DR_SLIDING_FRICTION,
-            Capability.BODY_MASS_PROPERTIES,
-            Capability.EXTERNAL_WRENCH,
-            Capability.ROOT_VELOCITY_WRITE,
-            Capability.HUMAN_VIEWER,
-            Capability.RGB_ARRAY,
+            BATCHED_SIMULATION,
+            GPU_SIMULATION,
+            PLANE_TERRAIN,
+            ROOT_STATE,
+            JOINT_STATE,
+            BODY_STATE,
+            IMPLICIT_POSITION_CONTROL,
+            EFFORT_CONTROL,
+            CONTACT_ACTIVE,
+            CONTACT_HISTORY,
+            CONTACT_AIR_TIME,
+            CONTACT_FORCE_VECTOR,
+            DR_SLIDING_FRICTION,
+            BODY_MASS_PROPERTIES,
+            EXTERNAL_WRENCH,
+            ROOT_VELOCITY_WRITE,
+            HUMAN_VIEWER,
+            RGB_ARRAY,
         )
     )
     metadata = BackendMetadata(
@@ -327,7 +348,7 @@ class MjlabBackend:
 
             self._supports_effort_control = False
             capabilities = set(self.capabilities.values)
-            capabilities.discard(Capability.EFFORT_CONTROL)
+            capabilities.discard(EFFORT_CONTROL)
             self.capabilities = CapabilitySet.of(capabilities)
         self.capabilities.require(requirements.capabilities, context="MJLab runtime")
         self._effort_actuator_enabled = _enable_effort_actuator(
@@ -732,7 +753,7 @@ class MjlabBackend:
             if not self._effort_actuator_enabled:
                 raise NotImplementedError(
                     "MJLab effort control was not enabled for this runtime; "
-                    "declare Capability.EFFORT_CONTROL in RuntimeRequirements"
+                    "declare EFFORT_CONTROL in RuntimeRequirements"
                 )
             if full_control_write:
                 limits = self.scene.articulations[entity_name].data.joint_effort_limits

@@ -114,7 +114,10 @@ def main() -> int:
         return 1
     same_native_order = left_meta["engine_joint_order"] == right_meta["engine_joint_order"]
     print(f"engines: {left_meta['engine']} vs {right_meta['engine']}")
-    print(f"native joint orders identical: {same_native_order} (readings are reindexed either way)")
+    # Diagnostic only: the two engines are free to store joints in different orders. What has to
+    # agree is what the terms return, and that is compared below without any reindexing, because the
+    # task selects the joint axis by name in the catalog's order on both engines (decision D1).
+    print(f"native joint orders identical: {same_native_order} (readings are compared as returned)")
 
     # Root-state readings are diagnostics rather than terms, and the two engines expose different
     # sets of them -- Isaac Lab has an unqualified ``root_lin_vel_w`` where mjlab makes the caller

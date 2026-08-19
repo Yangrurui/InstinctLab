@@ -19,7 +19,7 @@ from .backend import (
     SimulatorBackend,
     contiguous_index_range,
 )
-from .capabilities import Capability, CapabilitySet
+from .capabilities import CapabilitySet, UnknownCapability, capability, known
 from .control import ControlMode, ControlSemantics, JointControlTarget
 from .robot_spec import BackendAsset, JointProperties, RobotSpec
 from .scene import ContactSensorSpec, SceneSpec, SceneView, SimulationSpec, TerrainSpec
@@ -43,8 +43,10 @@ __all__ = [
     "BackendAsset",
     "BackendMetadata",
     "CanonicalIndexMap",
-    "Capability",
     "CapabilitySet",
+    "UnknownCapability",
+    "capability",
+    "known",
     "contiguous_index_range",
     "CheckpointManifest",
     "ContactSensorSpec",

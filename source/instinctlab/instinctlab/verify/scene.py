@@ -17,7 +17,22 @@ from dataclasses import dataclass
 
 from instinctlab.assets import ASSETS
 from instinctlab.sim.backend import JOINT_ACC_SOURCES, RuntimeRequirements
-from instinctlab.sim.capabilities import Capability
+from instinctlab.sim.capabilities import (
+    BATCHED_SIMULATION,
+    BODY_MASS_PROPERTIES,
+    BODY_STATE,
+    CONTACT_ACTIVE,
+    CONTACT_AIR_TIME,
+    CONTACT_FORCE_VECTOR,
+    CONTACT_HISTORY,
+    DR_RESTITUTION,
+    DR_SLIDING_FRICTION,
+    IMPLICIT_POSITION_CONTROL,
+    JOINT_STATE,
+    PLANE_TERRAIN,
+    ROOT_STATE,
+    ROOT_VELOCITY_WRITE,
+)
 from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec, TerrainSpec
 
 FEET = ("left_ankle_roll_link", "right_ankle_roll_link")
@@ -132,22 +147,22 @@ def locomotion_flat_scene(*, num_envs: int = 2) -> VerificationScene:
         requirements=RuntimeRequirements(
             capabilities=frozenset(
                 {
-                    Capability.BATCHED_SIMULATION,
-                    Capability.PLANE_TERRAIN,
-                    Capability.ROOT_STATE,
-                    Capability.JOINT_STATE,
-                    Capability.BODY_STATE,
-                    Capability.IMPLICIT_POSITION_CONTROL,
-                    Capability.CONTACT_ACTIVE,
-                    Capability.CONTACT_HISTORY,
-                    Capability.CONTACT_AIR_TIME,
-                    Capability.CONTACT_FORCE_VECTOR,
-                    Capability.DR_SLIDING_FRICTION,
-                    Capability.BODY_MASS_PROPERTIES,
-                    Capability.ROOT_VELOCITY_WRITE,
+                    BATCHED_SIMULATION,
+                    PLANE_TERRAIN,
+                    ROOT_STATE,
+                    JOINT_STATE,
+                    BODY_STATE,
+                    IMPLICIT_POSITION_CONTROL,
+                    CONTACT_ACTIVE,
+                    CONTACT_HISTORY,
+                    CONTACT_AIR_TIME,
+                    CONTACT_FORCE_VECTOR,
+                    DR_SLIDING_FRICTION,
+                    BODY_MASS_PROPERTIES,
+                    ROOT_VELOCITY_WRITE,
                 }
             ),
-            optional_capabilities=frozenset({Capability.DR_RESTITUTION}),
+            optional_capabilities=frozenset({DR_RESTITUTION}),
             randomization_fields=frozenset({"sliding_friction", "mass", "root_pose", "root_velocity", "joint_state"}),
             accepted_joint_acc_sources=JOINT_ACC_SOURCES,
         ),

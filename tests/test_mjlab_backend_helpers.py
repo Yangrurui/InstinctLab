@@ -19,7 +19,7 @@ from instinctlab.backends.mjlab.simulator import (
     _strip_visual_meshes_xml,
 )
 from instinctlab.sim.backend import CanonicalIndexMap, RuntimeRequirements, SensorReadPhase
-from instinctlab.sim.capabilities import Capability
+from instinctlab.sim.capabilities import DR_RESTITUTION, EFFORT_CONTROL, IMPLICIT_POSITION_CONTROL
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.scene import ContactSensorSpec, SimulationSpec
 from instinctlab.sim.state import ArticulationState
@@ -195,7 +195,7 @@ def test_mjlab_restitution_maps_to_solref_dampratio() -> None:
 def test_mjlab_expands_solref_when_restitution_dr_is_declared() -> None:
     fields = _expanded_randomization_fields(
         RuntimeRequirements(
-            capabilities=frozenset({Capability.DR_RESTITUTION}),
+            capabilities=frozenset({DR_RESTITUTION}),
             randomization_fields=frozenset({"restitution"}),
         )
     )
@@ -204,8 +204,8 @@ def test_mjlab_expands_solref_when_restitution_dr_is_declared() -> None:
 
 
 def test_mjlab_effort_actuator_is_enabled_only_when_requested() -> None:
-    position_only = RuntimeRequirements(capabilities=frozenset({Capability.IMPLICIT_POSITION_CONTROL}))
-    effort_required = RuntimeRequirements(capabilities=frozenset({Capability.EFFORT_CONTROL}))
+    position_only = RuntimeRequirements(capabilities=frozenset({IMPLICIT_POSITION_CONTROL}))
+    effort_required = RuntimeRequirements(capabilities=frozenset({EFFORT_CONTROL}))
 
     assert not _enable_effort_actuator(True, position_only)
     assert _enable_effort_actuator(True, effort_required)

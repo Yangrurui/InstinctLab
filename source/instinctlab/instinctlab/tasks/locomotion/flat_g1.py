@@ -1,19 +1,21 @@
 """Flat-ground G1 velocity tracking, declared once for every engine.
 
 This is main's ``G1FlatEnvCfg`` restated as a :class:`TaskSpec`, and the differences between the two
-files are the whole argument of the design. Nothing here imports an engine, names a joint index,
-or spells a native config class; ``tests/test_parity_isaacsim.py`` compiles it for Isaac Sim and
-compares the result against main's config field by field.
+files are the whole argument of the design. Nothing here imports an engine, names a joint index, or
+spells a native config class. ``scripts/check_parity.py`` compiles it for Isaac Sim and compares the
+result against main's config field by field; ``tests/test_parity_static.py`` checks the invariants
+that need the golden dump but not the engine.
 
-Three of main's rewards are absent, and their absence is deliberate rather than unfinished. Two of
-them, ``dof_acc_l2`` and ``dof_torques_l2``, read quantities the two engines report differently
-enough that a single term would mean different things on each -- joint acceleration is a finite
-difference here and a solver output there, and applied torque excludes passive terms here and
-includes them there. The third, ``feet_slide``, multiplies foot velocity by a contact mask derived
-from force magnitude, and the two engines' contact forces are not the same measurement. All three
-are engine-specific terms, declared per engine or not at all, and a run that has them here and not
-there is not a comparison between engines -- which is exactly why they are named in the resolution
-report instead of being dropped silently.
+Three of main's rewards are declared by ``kind`` rather than by function, and the distinction is
+about how they are written rather than whether the task has them. Two of them, ``dof_acc_l2`` and
+``dof_torques_l2``, read quantities the two engines report differently enough that a single shared
+term would mean different things on each -- joint acceleration is a finite difference here and a
+solver output there, and applied torque excludes passive terms here and includes them there. The
+third, ``feet_slide``, multiplies foot velocity by a contact mask derived from force magnitude, and
+the two engines' contact forces are not the same measurement. Each backend registers its own
+reference implementation and all three are ``REQUIRED``: a task that lost a term because no single
+implementation could be written would no longer be the same task, and a run that has them on one
+engine and not the other is not a comparison between engines.
 """
 
 from __future__ import annotations

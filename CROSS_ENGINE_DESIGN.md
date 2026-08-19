@@ -469,7 +469,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | P1 | **已完成**。`compat/`：署名词汇表 + denylist + 纯 torch math + `EntityRef` 下降 + 接触传感器读取 + `env` 访问器；`EntityView` 已撤销，见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表 / math / 选择器表 / 传感器轴序的每条断言由测试对着已安装引擎复核 |
 | P2 | **已完成**。`spec/`（`capability` / `entity` / `sensor` / `mdp` / `task`）+ `engines/`（`base` / `registry` / `compile`）+ 三级 Requirement；spec 与 engines 机件的 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 端到端编译整个 MdpSpec，跳过 / emulate / strict 三条路径各有测试与变异检验 |
 | P3 | **已完成**（flat G1 部分）。`mdp/`：20 个可移植 term（observations / rewards / terminations）；清出 3 个**不可移植**项交给 per-engine 注册表，见 §12.4.1 | 属性可移植性由 AST 扫描对着 denylist / legacy 别名表 / 两引擎数据类静态把关；term 数值由构造输入的桩验证；变异检验覆盖 |
-| P4 | **已完成**。`engines/isaacsim/`（`terms` / `scene` / `assets` / `adapter`）+ `tasks/locomotion/flat_g1.py` 的引擎无关声明 | 177 处 diff，0 处未解释；编译产物能构造并 step，观测维度与 13 个奖励项与 main 一致，见 §12.5 |
+| P4 | **已完成**。`engines/isaacsim/`（`terms` / `scene` / `assets` / `adapter`）+ `tasks/locomotion/flat_g1.py` 的引擎无关声明 | 当时 177 处 diff、0 处未解释；编译产物能构造并 step，观测维度与奖励项与 main 一致。当前数字见 §12.5 |
 | P5 | **已完成**。mjlab adapter：`assets` / `scene` / `events` / `rewards` / `terms` / `adapter`；从 InstinctMJ 移植 `reset_joints_by_scale` / `randomize_body_mass` / `contact_slide` | 同一 TaskSpec 编译通过并实际构造 step；与 InstinctMJ 的 AST 对拍一致；26 个 term 两引擎数值一致，见 §12.6 |
 | P6 | **部分完成**。`scripts/train.py --engine` 收敛（`engines.ADAPTERS` + `tasks.registry` 双注册表、manifest 落盘、agent cfg 脱离 Isaac），见 §12.7；**退役 unified 栈尚未执行** | 两引擎从同一入口、同一 task id 起训；isaacsim 4096 env 跑到 56k step/s，mjlab 5000 iter 收敛 |
 | P7 | `migrate/`：analyze + codemod；`mdp/` 补齐到 Isaac 83 核心 term | 拿一个真实开源 Isaac Lab 项目走完 §13 五步 |
@@ -575,7 +575,7 @@ spec/sensor.py      ContactSensorRef：声明「测什么」，由 backend 决�
 
 #### 12.3.1 `compat/math.py`：第三份拷贝，但是被钉住的那份
 
-Isaac Lab 拥有 `utils/math.py` 原本，mjlab 以 `utils/lab_api/math.py` 整份 vendor 了它。两边**共有 59 个函数，其中 54 个逐字符相同**；余下 5 个（`_sqrt_positive_part`、`quat_from_matrix`、`apply_delta_pose`、`convert_camera_frame_orientation_convention`、`rigid_body_twist_transform`）只是格式与等价改写，float64 下数值差 `0.0`。
+Isaac Lab 拥有 `utils/math.py` 原本，mjlab 以 `utils/lab_api/math.py` 整份 vendor 了它。两边**共有 59 个函数，其中 55 个逐字符相同**；余下 4 个（`_sqrt_positive_part`、`quat_from_matrix`、`apply_delta_pose`、`rigid_body_twist_transform`）只是格式与等价改写，float64 下数值差 `0.0`。这 4 个名字由 `tests/test_compat_math.py::test_the_two_engines_copies_have_only_the_known_rewrites_between_them` 正向断言——上游新改写一个公式会多出一个名字，把改写收敛回去会少一个名字，两种都会让测试红。早先文档写的是 54/5，多算了 `convert_camera_frame_orientation_convention`（它后来两边一致了），而当时没有任何检查看得见这件事，这条断言就是为此补的。
 
 可移植 term 不能 import 其中任何一份：Isaac 那份连独立 import 都做不到（`isaaclab.utils.__init__` 拉 `pxr`）。所以 `compat/` 存第三份拷贝，收录范围由**本仓库真实调用点**决定（`isaaclab.utils.math` 在 40 处被引入），共 23 个函数加内部闭包，保留 Isaac 的 BSD-3 署名。
 
@@ -684,9 +684,9 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 
 ### 12.5 P4 实测：flat G1 编译产物 vs main
 
-`tasks/locomotion/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**134 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，46 条），且编译产物能真实构造并 step——观测维度、16 个奖励项、命令与事件管理器全部正常。
+`tasks/locomotion/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**314 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，50 条），且编译产物能真实构造并 step——观测维度、16 个奖励项、命令与事件管理器全部正常。
 
-> P5 期间三个奖励从「刻意缺席」改为「按引擎注册」，差异数由 177 降到 134，白名单由 57 条降到 46 条。见 §12.6。
+> 两次数字变动都记在这里，因为「差异变多」本身需要有人解释。P5 期间三个奖励从「刻意缺席」改为「按引擎注册」，差异由 177 降到 134、白名单由 57 条降到 46 条（见 §12.6）。P6 修 D1 时差异反而涨到 314：把 5 个选择器（动作项 + policy/critic 各两个关节观测）从一个 `.*` 改成逐个列出 29 个关节名，逐字段比对自然多出 173 条**逐元素**差异。条数涨了，未解释数仍是 0，而这 173 条正是 D1 生效的证据。
 
 差异只有六类，每类都是一个决定：
 
@@ -897,8 +897,8 @@ frontend 与 backend 相互独立：一个引擎可以只有 backend（能作为
 | 编号 | 现状 | 需改为 | 触发原因 |
 |---|---|---|---|
 | S1 | 可移植 term 直接读 `root_link_lin_vel_b`，能跑通是因为两引擎**碰巧**同名。中枢事实上是 Isaac 的命名，但无处声明 | `compat/vocab.py` 定义**署名的**中枢词汇表：每个量给出参考系、原点、单位、旋转约定（四元数固定 wxyz，见 D8），各引擎提供 spoke 映射。中枢可以沿用 Isaac 拼写，但须写成「我们选它」 | 第三个引擎不会遵守 Isaac 拼写。没有署名中枢就会退化成双边映射，N×M 回归。四元数是活样本：两引擎都是 wxyz，但 mjlab 侧**未文档化** |
-| S2 | `EntityRef` 只有 `joints` / `bodies` | 带**可注册选择器种类**的开放结构，引擎包注册自己的种类；IR 保留目标引擎不认识的引用，由 capability 检查在编译期报错或显式降级 | mjlab `SceneEntityCfg` 有 10 种选择器（joint / body / geom / site / actuator / tendon / camera / light / material / pair），Isaac 只有 4 种，仅 joint / body 重合。**这是 mjlab → Isaac 方向的硬门槛** |
-| S3 | `Capability` 是封闭 enum | 带命名空间的字符串 ID（`contact.air_time`、`dr.friction.per_geom`、`sensor.tiled_camera`、`physics.differentiable`），引擎包导入时注册；未注册 ID 启动期报错以防拼写错误 | 新引擎会带来现有引擎都没有的能力（可微物理、软体、触觉）。封闭枚举意味着每次都要改核心包 |
+| S2 | ~~`EntityRef` 只有 `joints` / `bodies`~~ **已实现** | 带**可注册选择器种类**的开放结构：引擎包在自己的 `__init__.py` 里调 `compat.entity.register()` 声明种类、配置类路径与容器类型，共享层不再持有种类表；目标引擎不认识的种类报 `UnsupportedSelector` | mjlab `SceneEntityCfg` 有 10 种选择器（joint / body / geom / site / actuator / tendon / camera / light / material / pair），Isaac 只有 4 种，仅 joint / body 重合。**这是 mjlab → Isaac 方向的硬门槛** |
+| S3 | ~~`Capability` 是封闭 enum~~ **已实现** | 带命名空间的字符串 ID（`contact.air_time`、`dr.friction.sliding`…），`capability(id, 说明)` 注册并返回 id，模块常量绑定到该调用；引擎包可注册核心没有的能力。未注册 ID 报 `UnknownCapability` 而非被当作「后端不支持」 | 新引擎会带来现有引擎都没有的能力（可微物理、软体、触觉）。封闭枚举意味着每次都要改核心包。**拼写错误当作「不支持」处理会变成一个被静默跳过的 term**——正是本项目反复吃亏的那种失败 |
 | S4 | D3：`main` 是唯一 golden | golden 定义为**「该项目跑在它原本的引擎上」**。D3 成为特例（我们的 locomotion 项目原生引擎是 Isaac）；每个导入项目在导入时自动获得自己的基线 | 「main 是 golden」对第三方项目没有意义，它们的参照物是自己发表的结果 |
 | S5 | parity L0–L3 绑定在具体任务上 | 增加 **conformance suite**：与任务无关的行为探针（自由落体、重力下静态保持、关节 PD 阶跃响应、接触冲量、摩擦滑移），任意 `(机器人, 引擎)` 组合都能跑，产出签名向量 | 逐项目 golden 的成本随项目数线性增长；行为探针是每个「机器人 × 引擎」一次性的，之后所有用该机器人的项目共享 |
 

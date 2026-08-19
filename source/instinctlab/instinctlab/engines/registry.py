@@ -14,7 +14,7 @@ Two ways in, matching the two ways a term is declared:
 
 **By kind**, for families where the engines genuinely differ::
 
-    @TERMS.event("randomize_friction", provides=(Capability.DR_SLIDING_FRICTION,))
+    @TERMS.event("randomize_friction", provides=(DR_SLIDING_FRICTION,))
     def _friction(spec, ctx): ...
 
 **Per family**, for portable terms that arrive carrying their own function. The builder wraps that
@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from instinctlab.sim.capabilities import Capability, CapabilitySet
+from instinctlab.sim.capabilities import DR_SLIDING_FRICTION, CapabilitySet
 
 __all__ = ["FAMILIES", "TermBuilder", "TermRegistry"]
 

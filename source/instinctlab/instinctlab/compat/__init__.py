@@ -17,7 +17,7 @@ differently on each engine, and names the environment type portably.
 from __future__ import annotations
 
 from .denylist import DENYLIST, LEGACY_COM_ALIASES, DenylistEntry, PortabilityError, assert_portable
-from .entity import SELECTOR_KINDS, UnsupportedSelector, lower, resolved_names
+from .entity import UnsupportedSelector, lower, resolved_names, selector_kinds
 from .env import ENV_TYPE_NAMES, RlEnv, command_names, env_engine, get_command, has_command
 from .vocab import (
     CANONICAL_QUATERNION,
@@ -39,7 +39,7 @@ __all__ = [
     "ENV_TYPE_NAMES",
     "HUB",
     "LEGACY_COM_ALIASES",
-    "SELECTOR_KINDS",
+    "selector_kinds",
     "Anchor",
     "DenylistEntry",
     "Frame",

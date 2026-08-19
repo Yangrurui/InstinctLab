@@ -101,11 +101,14 @@ from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import load_yaml
 from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 
-# Import extensions to set up environment tasks
-import instinctlab.tasks  # noqa: F401
+import instinctlab.tasks
 from instinctlab.managers.reward_manager import MultiRewardManager
 from instinctlab.utils.wrappers import InstinctRlVecEnvWrapper
 from instinctlab.utils.wrappers.instinct_rl import InstinctRlOnPolicyRunnerCfg
+
+# Registering the Gym ids used to be a side effect of importing the package above. It is an
+# explicit call now, and without it the task id below resolves to NameNotFound.
+instinctlab.tasks.register_legacy_isaac_tasks()
 
 # wait for attach if in debug mode
 if args_cli.debug:

@@ -275,6 +275,48 @@ Migration rules that this module encodes by omission.
 """
 
 
+_KNOWN_REWRITES = frozenset(
+    {"_sqrt_positive_part", "quat_from_matrix", "apply_delta_pose", "rigid_body_twist_transform"}
+)
+
+
+def _module_functions(source: pathlib.Path) -> dict[str, str]:
+    """Every module-level function, as source text with the docstring dropped."""
+    functions = {}
+    for node in ast.parse(source.read_text()).body:
+        if isinstance(node, ast.FunctionDef):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                body = body[1:]
+            functions[node.name] = ast.unparse(ast.Module(body=body, type_ignores=[]))
+    return functions
+
+
+def test_the_two_engines_copies_have_only_the_known_rewrites_between_them() -> None:
+    """How far apart the two upstreams have drifted, asserted rather than described.
+
+    The design quotes a count of how many of the shared functions are character-identical and names
+    the handful that are not. That sentence was written from a one-off measurement and went stale
+    without anything noticing -- one of the named functions had since become identical. A number
+    that appears in prose and nowhere in a test is a number that is true on the day it is written.
+
+    Only the set matters here, not the count: an upstream that rewrites a formula shows up as a new
+    name, and one that reconciles a rewrite shows up as a missing one. Whether the rewrites are
+    still numerically equivalent is what the value comparisons above are for.
+    """
+    isaac = _module_functions(pathlib.Path(_isaac_math().__file__))
+    mjlab = _module_functions(pathlib.Path(_mjlab_math().__file__))
+
+    shared = set(isaac) & set(mjlab)
+    rewritten = {name for name in shared if isaac[name] != mjlab[name]}
+
+    assert rewritten == _KNOWN_REWRITES, (
+        f"the two vendored copies now differ in {sorted(rewritten)}, not {sorted(_KNOWN_REWRITES)}. "
+        "A new name means an upstream rewrote a formula and compat.math may be following the other "
+        "one; a missing name means the rewrite was reconciled and the design's prose is stale."
+    )
+
+
 def test_deprecated_rotate_aliases_are_not_vendored() -> None:
     """``quat_rotate`` is Isaac-only and deprecated, so a term using it cannot run on mjlab."""
     isaac, mjlab = _isaac_math(), _mjlab_math()

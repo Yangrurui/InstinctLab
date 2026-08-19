@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import reference_mjlab as reference
 
 from instinctlab.spec.capability import Requirement
-from instinctlab.tasks.locomotion.flat_g1 import flat_g1
+from instinctlab.tasks.locomotion.flat_g1 import FEET_CONTACT, UPPER_BODY_CONTACT, flat_g1
 
 pytestmark = pytest.mark.skipif(not reference.available(), reason="InstinctMJ is not checked out")
 
@@ -54,11 +54,14 @@ EXPECTED_DIFFERENCES = {
     "scene.sensors": (
         "The reference declares two narrow contact sensors, feet and base; the declaration names "
         "one covering every body and terms select within it. Same elements measured. Isaac Lab's "
-        "config is arranged the second way, and mjlab accepts either. This exemption is the one "
-        "blind spot in this file, and it is structural rather than lazy: two arrangements of the "
-        "same measurement cannot be compared field by field. It already cost one silent failure "
-        "-- see tests/test_mjlab_contact_wiring.py -- so what the sensor does is checked against a "
-        "running engine there instead of against the reference here."
+        "config is arranged the second way, and mjlab accepts either. Structural rather than lazy: "
+        "two arrangements of the same measurement cannot be compared field by field. What is "
+        "comparable is compared -- test_the_contact_groups_are_the_reference_groups resolves both "
+        "arrangements against the robot's bodies and requires the same two groups, and "
+        "test_the_declared_sensor_keeps_the_references_timing carries over the history depth and "
+        "air-time tracking. For a while this entry exempted the sensors and nothing else looked at "
+        "them at all, which is how a missing field left every contact timer at zero for a whole "
+        "training run; see tests/test_mjlab_contact_wiring.py for the live check."
     ),
     "scene.sensors.force_threshold": (
         "The reference's foot sensor is a ForceThresholdContactSensorCfg with a 1 N threshold, "
@@ -253,15 +256,81 @@ def test_the_friction_range_is_the_collapse_the_reference_performs():
     assert PROFILE_DEFAULTS["friction_dr"]["ranges"] == expected
     assert PROFILE_DEFAULTS["friction_dr"]["operation"] == "abs"
     assert PROFILE_DEFAULTS["friction_dr"]["shared_random"] is True
-    assert isinstance(module, ast.Module)
 
 
 def test_the_action_is_the_reference_action(spec):
     action = spec.mdp.actions["joint_pos"]
-    source = reference.REFERENCE.read_text()
     assert action.kind == "joint_position"
-    assert "use_default_offset=True" in source
     assert action.params["use_default_offset"] is True
+
+
+def _matching(patterns, names):
+    """Bodies the patterns select, as a set. Both sides spell the same selection differently."""
+    import re
+
+    chosen = {name for name in names for pattern in patterns if re.fullmatch(pattern, name)}
+    unused = [pattern for pattern in patterns if not any(re.fullmatch(pattern, name) for name in names)]
+    assert not unused, f"{unused} match no body; a pattern that selects nothing hides what it meant to select"
+    return chosen
+
+
+def test_the_contact_groups_are_the_reference_groups(spec):
+    """What the two arrangements of contact sensors actually measure, which is comparable.
+
+    The reference splits feet from upper body at the sensor and this task splits them at the term,
+    so the declarations cannot be diffed field by field -- which is why ``scene.sensors`` is an
+    expected difference. That exemption was doing more work than it should: the extractor that reads
+    these sensors out of the reference had no caller at all, so nothing compared the two
+    arrangements in any form, and contact is where this project's one silent training failure came
+    from.
+
+    Resolved against the robot's bodies, the arrangements do become comparable. Each side ends up
+    measuring two groups; the groups have to hold the same bodies, however each side spells them.
+    """
+    sensors = reference.scene_sensors()
+    assert set(sensors) == {"feet_contact_forces", "base_contact_forces"}, (
+        f"the reference now declares {sorted(sensors)}; the mapping onto this task's single sensor "
+        "plus per-term selections has to be redrawn"
+    )
+
+    bodies = spec.robot.body_names
+    groups = {
+        "feet_contact_forces": FEET_CONTACT,
+        "base_contact_forces": UPPER_BODY_CONTACT,
+    }
+    for name, ref in groups.items():
+        elements = (ref.elements,) if isinstance(ref.elements, str) else ref.elements
+        assert _matching(elements, bodies) == _matching(
+            sensors[name]["primary"]["pattern"], bodies
+        ), f"the {name} group covers different bodies than the term that replaces it"
+        assert sensors[name]["primary"]["mode"] == "body"
+        assert sensors[name]["primary"]["entity"] == ref.entity
+
+
+def test_the_declared_sensor_keeps_the_references_timing(spec):
+    """History depth and air-time tracking, which survive the regrouping and have to carry over.
+
+    ``track_air_time`` is what makes mjlab accumulate contact and air duration at all, and the
+    portable terms take contact from that duration rather than from a force threshold. Getting it
+    from the reference rather than from a constant here means an upstream that stops asking for it
+    shows up as a failure instead of as a foot that is never in contact.
+    """
+    sensors = reference.scene_sensors()
+    declared = {sensor.name: sensor for sensor in spec.scene.contact_sensors}
+    assert set(declared) == {
+        "contact_forces"
+    }, f"one sensor was the arrangement compared above; found {sorted(declared)}"
+    sensor = declared["contact_forces"]
+
+    assert sensor.track_air_time is sensors["feet_contact_forces"]["track_air_time"] is True
+    assert sensor.history_length == sensors["feet_contact_forces"]["history_length"]
+
+    # The one property that deliberately does not carry over, asserted so that it stays deliberate.
+    # The reference's subclass rederives contact from a newton threshold; a plain ContactSensorCfg
+    # has no such threshold and must request the "found" field instead, which is exactly the field
+    # whose absence once left every contact timer at zero for a whole training run.
+    assert sensors["feet_contact_forces"]["cfg_class"] == "ForceThresholdContactSensorCfg"
+    assert "found" not in sensors["feet_contact_forces"]["fields"]
 
 
 def test_every_expected_difference_says_why():

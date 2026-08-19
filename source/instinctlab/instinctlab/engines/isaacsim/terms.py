@@ -18,7 +18,15 @@ import math
 from typing import Any
 
 from instinctlab.engines.registry import TermRegistry
-from instinctlab.sim.capabilities import Capability
+from instinctlab.sim.capabilities import (
+    BODY_MASS_PROPERTIES,
+    DR_RESTITUTION,
+    DR_SLIDING_FRICTION,
+    EXTERNAL_WRENCH,
+    JOINT_STATE,
+    ROOT_STATE,
+    ROOT_VELOCITY_WRITE,
+)
 
 TERMS = TermRegistry("isaacsim")
 
@@ -158,7 +166,7 @@ def _event(spec, func, params: dict[str, Any]):
 
 @TERMS.event(
     "randomize_friction",
-    provides=(Capability.DR_SLIDING_FRICTION, Capability.DR_RESTITUTION),
+    provides=(DR_SLIDING_FRICTION, DR_RESTITUTION),
 )
 def _randomize_friction(spec, ctx):
     """Material randomisation, with this engine's own scheme as the default.
@@ -176,7 +184,7 @@ def _randomize_friction(spec, ctx):
     return _event(spec, randomize_rigid_body_material, {"asset_cfg": ctx.entity(spec.target), **profile})
 
 
-@TERMS.event("randomize_body_mass", provides=(Capability.BODY_MASS_PROPERTIES,))
+@TERMS.event("randomize_body_mass", provides=(BODY_MASS_PROPERTIES,))
 def _randomize_body_mass(spec, ctx):
     from isaaclab.envs.mdp import randomize_rigid_body_mass
 
@@ -192,7 +200,7 @@ def _randomize_body_mass(spec, ctx):
     )
 
 
-@TERMS.event("apply_external_force_torque", provides=(Capability.EXTERNAL_WRENCH,))
+@TERMS.event("apply_external_force_torque", provides=(EXTERNAL_WRENCH,))
 def _apply_external_force_torque(spec, ctx):
     from isaaclab.envs.mdp import apply_external_force_torque
 
@@ -208,7 +216,7 @@ def _apply_external_force_torque(spec, ctx):
     )
 
 
-@TERMS.event("reset_root_state_uniform", provides=(Capability.ROOT_STATE, Capability.ROOT_VELOCITY_WRITE))
+@TERMS.event("reset_root_state_uniform", provides=(ROOT_STATE, ROOT_VELOCITY_WRITE))
 def _reset_root_state_uniform(spec, ctx):
     from isaaclab.envs.mdp import reset_root_state_uniform
 
@@ -218,7 +226,7 @@ def _reset_root_state_uniform(spec, ctx):
     )
 
 
-@TERMS.event("reset_joints_by_scale", provides=(Capability.JOINT_STATE,))
+@TERMS.event("reset_joints_by_scale", provides=(JOINT_STATE,))
 def _reset_joints_by_scale(spec, ctx):
     from isaaclab.envs.mdp import reset_joints_by_scale
 
@@ -230,7 +238,7 @@ def _reset_joints_by_scale(spec, ctx):
     )
 
 
-@TERMS.event("push_by_setting_velocity", provides=(Capability.ROOT_VELOCITY_WRITE,))
+@TERMS.event("push_by_setting_velocity", provides=(ROOT_VELOCITY_WRITE,))
 def _push_by_setting_velocity(spec, ctx):
     from isaaclab.envs.mdp import push_by_setting_velocity
 

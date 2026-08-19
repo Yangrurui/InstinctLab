@@ -106,3 +106,43 @@ def test_no_engine_appears_in_the_shared_machinery(source: pathlib.Path) -> None
             imported.add(node.module.split(".")[0])
     leaked = imported & _ENGINE_ROOTS
     assert not leaked, f"{source.name} imports {sorted(leaked)}; engines/ machinery must stay engine-free"
+
+
+def _shared_layer() -> list[pathlib.Path]:
+    """Everything an engine may not be named in: the IR, the portable terms, compat, the launcher."""
+    import instinctlab
+
+    root = pathlib.Path(instinctlab.__file__).parent
+    paths = [p for package in ("spec", "mdp", "compat") for p in (root / package).rglob("*.py")]
+    return sorted([*paths, *_engine_machinery(), pathlib.Path(__file__).resolve().parents[1] / "scripts" / "train.py"])
+
+
+def _engine_names() -> frozenset[str]:
+    import instinctlab.engines
+
+    return frozenset(instinctlab.engines.ADAPTERS)
+
+
+@pytest.mark.parametrize("source", _shared_layer(), ids=lambda p: p.name)
+def test_the_shared_layer_never_branches_on_an_engine_name(source: pathlib.Path) -> None:
+    """Engine differences may be data keyed by engine name; they may not be control flow.
+
+    The distinction is what makes the third engine cost a row instead of an edit. A table gains a
+    key and every reader of it keeps working, while ``if engine == "isaacsim" ... elif ...`` has an
+    ``else`` that a new engine falls into -- and the failure is a shared-layer function silently
+    taking the wrong limb rather than an adapter that was never written.
+
+    Comparisons only. The engine names appear all over this layer as dictionary keys and in prose,
+    which is the form they are supposed to take.
+    """
+    names = _engine_names()
+    branches = [
+        ast.unparse(node)
+        for node in ast.walk(ast.parse(source.read_text()))
+        if isinstance(node, ast.Compare)
+        and any(isinstance(n, ast.Constant) and n.value in names for n in (node.left, *node.comparators))
+    ]
+    assert not branches, (
+        f"{source.name} branches on an engine name: {branches}. Engine-specific behaviour belongs in "
+        "a table keyed by engine name, or in the adapter."
+    )

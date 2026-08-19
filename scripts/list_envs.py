@@ -17,10 +17,15 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import gymnasium as gym
+import sys
+import traceback
 from prettytable import PrettyTable
 
-# Import extensions to set up environment tasks
-import instinctlab.tasks  # noqa: F401
+import instinctlab.tasks
+
+# Registering the Gym ids used to be a side effect of the import above. It is an explicit call now,
+# and a caller that only imports the package sees an empty table rather than an error.
+instinctlab.tasks.register_legacy_isaac_tasks()
 
 
 def main():
@@ -47,11 +52,17 @@ def main():
 
 
 if __name__ == "__main__":
+    import os
+
+    status = 0
     try:
-        # run the main function
         main()
-    except Exception as e:
-        raise e
-    finally:
-        # close the app
-        simulation_app.close()
+    except Exception:
+        traceback.print_exc()
+        status = 1
+
+    # Isaac Sim's shutdown decides this process's exit status on its own, so a failure reported
+    # after ``close()`` reaches the caller as success. Flush, then leave before it gets the chance.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(status)
