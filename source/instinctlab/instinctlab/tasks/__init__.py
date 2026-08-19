@@ -16,6 +16,11 @@ def register_legacy_isaac_tasks() -> None:
     """Import the Gym registrations. Requires Isaac Sim; call only after it has been launched."""
     from isaaclab_tasks.utils import import_packages
 
+    # The blocklist is matched as a substring against every module the walker reaches, so "agents"
+    # skips each task's own ``config/<robot>/agents`` -- not the flattened package that used to sit
+    # in ``locomotion/``. Registration is unaffected either way: ``gym.register`` runs in
+    # ``config/<robot>/__init__.py``, whose name does not contain the word, and that module imports
+    # its agents itself. "utils" matches nothing under this package and is Isaac Lab's template.
     import_packages(__name__, ["utils", "registry", "agents"])
 
 

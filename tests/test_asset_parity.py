@@ -275,3 +275,45 @@ def test_the_verification_scene_spawns_the_robot_the_task_trains() -> None:
         "the sim2sim scene and the Isaac config disagree on which spawn keys exist: "
         f"{sorted(set(stated) - rest)} vs {sorted(set(declared) - rest)}"
     )
+
+
+def test_the_isaac_config_starts_the_robot_where_the_catalog_says() -> None:
+    """The POPSICLE config writes its own ``joint_pos`` dict; the catalog derives the same numbers.
+
+    Two spellings of one pose. The config is main's and states patterns, the catalog resolves per
+    joint, so neither can simply read the other -- which is what makes this the arrangement rule 38
+    warns about, and why it needs a check rather than a convention.
+    """
+    import ast
+
+    for node in ast.walk(ast.parse(_ASSETS.read_text())):
+        if not (
+            isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "G1_29DOF_TORSOBASE_POPSICLE_CFG"
+        ):
+            continue
+        init = next(k.value for k in node.value.keywords if k.arg == "init_state")  # type: ignore[union-attr]
+        stated = next(k.value for k in init.keywords if k.arg == "joint_pos")  # type: ignore[union-attr]
+        patterns = {
+            key.value: ast.literal_eval(value)
+            for key, value in zip(stated.keys, stated.values)  # type: ignore[union-attr]
+        }
+        break
+    else:
+        raise AssertionError("G1_29DOF_TORSOBASE_POPSICLE_CFG no longer states init_state.joint_pos")
+
+    robot = make_g1_29dof_robot_spec()
+    posed = 0
+    for properties in robot.joint_properties:
+        matched = [value for pattern, value in patterns.items() if re.fullmatch(pattern, properties.name)]
+        assert len(matched) <= 1, f"{properties.name} matches {len(matched)} patterns; the pose is ambiguous"
+        expected = matched[0] if matched else 0.0
+        posed += expected != 0.0
+        assert properties.default_pos == pytest.approx(expected), (
+            f"{properties.name} starts at {expected} in G1_29DOF_TORSOBASE_POPSICLE_CFG but at "
+            f"{properties.default_pos} in the catalog, so the two engines start from different poses"
+        )
+
+    # Without this the check is one a broken regex would pass: every joint would fall through to
+    # zero on both sides and compare equal, and a robot that stands with straight legs is exactly
+    # what the pose exists to prevent.
+    assert posed == 12, f"{posed} joints were matched by a pattern, not 12; the pose is not being compared"

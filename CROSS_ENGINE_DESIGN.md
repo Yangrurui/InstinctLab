@@ -465,7 +465,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | P3 | **已完成**（flat G1 部分）。`mdp/`：20 个可移植 term（observations / rewards / terminations）；清出 3 个**不可移植**项交给 per-engine 注册表，见 §12.4.1 | 属性可移植性由 AST 扫描对着 denylist / legacy 别名表 / 两引擎数据类静态把关；term 数值由构造输入的桩验证；变异检验覆盖 |
 | P4 | **已完成**。`engines/isaacsim/`（`terms` / `scene` / `assets` / `adapter`）+ `tasks/locomotion/flat_g1.py` 的引擎无关声明 | 当时 177 处 diff、0 处未解释；编译产物能构造并 step，观测维度与奖励项与 main 一致。当前数字见 §12.5 |
 | P5 | **已完成**。mjlab adapter：`assets` / `scene` / `events` / `rewards` / `terms` / `adapter`；从 InstinctMJ 移植 `reset_joints_by_scale` / `randomize_body_mass` / `contact_slide` | 同一 TaskSpec 编译通过并实际构造 step；与 InstinctMJ 的 AST 对拍一致；26 个 term 两引擎数值一致，见 §12.6 |
-| P6 | **部分完成**。`scripts/train.py --engine` 收敛（`engines.ADAPTERS` + `tasks.registry` 双注册表、manifest 落盘、agent cfg 脱离 Isaac），见 §12.7；**退役 unified 栈尚未执行** | 两引擎从同一入口、同一 task id 起训；isaacsim 4096 env 跑到 56k step/s，mjlab 5000 iter 收敛 |
+| P6 | **已完成**。`scripts/train.py --engine` 收敛（`engines.ADAPTERS` + `tasks.registry` 双注册表、manifest 落盘、agent cfg 脱离 Isaac），见 §12.7；unified 栈已退役，删除清单见 §3 | 两引擎从同一入口、同一 task id 起训；isaacsim 4096 env 跑到 56k step/s，mjlab 5000 iter 收敛 |
 | P7 | `migrate/`：analyze + codemod；`mdp/` 补齐到 Isaac 83 核心 term | 拿一个真实开源 Isaac Lab 项目走完 §13 五步 |
 | P8 | `verify/`：旧 `SimulatorBackend` 改作状态导出；sim2sim 断言与容差声明 | 同 policy 在两引擎的落地/接触指标在声明容差内 |
 | P9 | 按能力矩阵推进 terrain / raycaster / camera / motion_reference | 能力矩阵文档与 `terms.py` 自动一致 |
