@@ -143,3 +143,9 @@ entry point `instinctlab.engines` 注册，可作独立 pip 包。清单：`boot
 
 - **MetaSim**（11 引擎）：`BaseSimHandler` 统一 sim 句柄 + `scenario/` 场景 IR，但**没有** MDP term 组成层（无 `RewardManager` / `ObservationManager`，reward 是 task 方法）。互补而非竞争。备选战略：单个 `engines/metasim/` backend 一次拿到 6+ 引擎，代价是无原生 manager 语义，只作 sim2sim 与快速试跑，不作主训练引擎。
 - **holosoma**（3 引擎）：`base_simulator` 抽象 + **自建 managers**，与两个引擎的原生 manager 都不兼容。这就是 D2 已否决的路径——自建 manager 意味着开源项目仍要手工重写 term，迁移成本没降。不要往这个方向走。
+29. 训练入口必须把 agent 的 seed 交给环境配置（`compiled.env_cfg.seed = agent_cfg.seed`）。两个引擎的 `cfg.seed` 默认都是 `None`，含义是**完全不播种**；只在入口调 `torch.manual_seed` 不等价——它在环境构造之前、且不覆盖 numpy/random。表现是训练一切正常、只是不可复现，没有任何异常或断言会响。
+30. 两个参照互相矛盾的设置，禁止在共享入口二选一，必须下放到各自适配器。torch 后端开关是现成例子：main 开 TF32 matmul，InstinctMJ 什么都不设，写进 `train.py` 就必然有一侧不是它的参照栈。「复现一次参照训练」包含复现它跑在什么栈上。
+31. 对拍脚本里**能提取但没人断言**的信息等同于没比。`tests/reference_mjlab.py` 曾提供事件 `params`、`reward_functions()`、`scene_sensors()` 而无调用者，读代码的人会以为比过了——质量随机化范围、接触阈值、每个惩罚罚哪几个关节，当时全部无人看守。新增提取器必须同时新增断言。
+32. 比较实体选择器时断言**解析结果**而不是字面量。参照写死两个 body 名、声明写正则模式，是同一个选择当且仅当在实体自己的名字表里解析出同样的名字和同样的顺序。
+33. 配置逐字段对拍不覆盖**消费配置的那个类**。main 用 `InstinctRlEnv`（多奖励路由 + MonitorManager），编译产物用朴素 `ManagerBasedRLEnv`；两者等价的前提（奖励容器不是 `MultiRewardCfg`、monitor 配置为空）必须从参照的声明里读出来断言，不能默认成立——`num_rewards` 从 1 变成向量意味着两边优化的不是同一个目标。
+34. 文档或 docstring 声称「由 `tests/xxx.py` 保证」时，必须确认该文件存在。`flat_g1_ppo.py` 曾声称 `tests/test_agent_cfg.py` 钉住了每个超参，而该文件从未被创建。

@@ -89,8 +89,6 @@ def main() -> None:
     # launcher does not need to know that only one of the two engines has a runtime to start.
     app = engine.bootstrap(args)
 
-    import torch
-
     from instinctlab.tasks.registry import spec as task_spec
 
     spec = task_spec(args.task)
@@ -112,7 +110,11 @@ def main() -> None:
         json.dump(compiled.resolution.manifest(), handle, indent=2, sort_keys=True, default=str)
     print(f"[INFO] Wrote the compilation manifest to {manifest_path}")
 
-    torch.manual_seed(agent_cfg.seed)
+    # The environment seeds itself from its own config, and both reference training scripts hand it
+    # the agent's seed to do that with. Left unset it defaults to None on both engines, which means
+    # no seeding at all -- runs still look fine and are simply not reproducible, and the randomised
+    # mass, friction and pushes come from wherever the global RNG happened to be.
+    compiled.env_cfg.seed = agent_cfg.seed
 
     env = compiled.make_env()
     env = engine.wrap_for_rl(env)

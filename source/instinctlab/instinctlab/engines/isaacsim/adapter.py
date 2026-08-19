@@ -107,10 +107,25 @@ class IsaacSimAdapter:
 
     @staticmethod
     def bootstrap(args: argparse.Namespace) -> object:
-        """Start Isaac Sim. Nothing under ``isaaclab`` may be imported before this returns."""
+        """Start Isaac Sim. Nothing under ``isaaclab`` may be imported before this returns.
+
+        The torch backend settings are main's, from its own training script, and they are set here
+        rather than in the launcher because the two references disagree: InstinctMJ sets none of
+        them, so the mjlab adapter deliberately leaves torch alone. Reproducing a reference run
+        means reproducing the stack it ran on, and TF32 matmul changes both the arithmetic of the
+        policy update and its speed.
+        """
         from isaaclab.app import AppLauncher
 
-        return AppLauncher(args).app
+        app = AppLauncher(args).app
+
+        import torch
+
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = False
+        return app
 
     @staticmethod
     def wrap_for_rl(env: Any) -> Any:

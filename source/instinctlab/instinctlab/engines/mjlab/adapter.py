@@ -88,7 +88,12 @@ class MjlabAdapter:
 
     @staticmethod
     def bootstrap(args: argparse.Namespace) -> object | None:
-        """Nothing to start. Present because the protocol has it, and doing nothing is the answer."""
+        """Nothing to start. Present because the protocol has it, and doing nothing is the answer.
+
+        Torch is left at its defaults on purpose. The Isaac Sim adapter enables TF32 matmul here
+        because main's training script does; InstinctMJ's does not, and this engine's reference is
+        InstinctMJ.
+        """
         return None
 
     @staticmethod

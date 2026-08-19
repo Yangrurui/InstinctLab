@@ -195,3 +195,34 @@ def test_no_whitelist_entry_would_swallow_a_whole_family():
     allow = json.loads(WHITELIST_FILE.read_text())
     too_broad = {"observations", "rewards", "terminations", "events", "actions", "commands", "scene", "sim"}
     assert not (too_broad & set(allow))
+
+
+MAIN_ENV_CFG = REPO / "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py"
+
+
+def test_mains_env_subclass_adds_nothing_this_task_uses():
+    """Main trains through ``InstinctRlEnv``; a compiled task runs on a stock ``ManagerBasedRLEnv``.
+
+    Not covered by the field-by-field diff, which compares configs and not the class that consumes
+    them. The subclass does three things: it routes a ``MultiRewardCfg`` to a multi-reward manager,
+    it runs a monitor manager, and it wraps step and reset to log what that manager produced. For
+    this task the first does not fire and the second has nothing to run, so the two classes step
+    identically -- and both halves of that are read off main's declaration here rather than assumed,
+    because either one becoming false would make the runs quietly different objectives.
+    """
+    tree = ast.parse(MAIN_ENV_CFG.read_text())
+    classes = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+
+    rewards = classes["G1FlatRewardsCfg"]
+    bases = {ast.unparse(base) for base in rewards.bases}
+    assert not any("MultiReward" in base for base in bases), (
+        f"main's rewards now derive from {bases}, which routes them to the MultiRewardManager and "
+        "makes main's return a vector where the compiled task's is a scalar"
+    )
+
+    monitors = classes["G1FlatMonitorCfg"]
+    declared = [node for node in monitors.body if not isinstance(node, ast.Pass | ast.Expr)]
+    assert not declared, (
+        f"main's monitor config now declares {len(declared)} term(s); the compiled task has no "
+        "monitor manager, so whatever they measure would be missing from its logs"
+    )

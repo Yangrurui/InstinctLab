@@ -784,6 +784,37 @@ Isaac 侧逐点落在两份参照之间，是健康的；mjlab 侧从头到尾�
 
 一般化的教训有两条。**覆盖引擎默认值之前，先查它内部还有谁读这个字段**：默认值往往编码着实现内部的依赖，而这些依赖不会出现在参数文档里（这里其实出现了，`track_air_time` 的 docstring 写了 "Requires `found` in fields"——但那行字在 40 行的参数说明中间，而我们是在照着 InstinctMJ 的 `fields=("force",)` 抄，它能这么写是因为它的传感器子类重写了计时逻辑改用力阈值）。以及 **S5 conformance suite 的必要性在这里被证实**：与任务无关的行为探针（接触冲量、静态保持）本来就该在任何训练启动前跑一遍，成本几秒，而这次的代价是一次 5000 轮的空跑。
 
+### 12.10 覆盖率审计：两个参照到底守住了什么
+
+12.9 那个 bug 是在「所有验收都通过」的状态下跑满 5000 轮的，所以这次不再重跑同一批检查，而是反过来问：这批检查**没比什么**。审计对象是「训练一致」这个完整命题，比配置一致大——它还包含超参、env 类、RL wrapper、训练循环、随机种子。
+
+**mjlab 侧发现四处空白，均已补上，补上后逐项一致。** `tests/reference_mjlab.py` 能从 InstinctMJ 的语法树里取出的东西，比测试实际用到的多：事件只比了 name/mode/period 而没比 `params`，奖励只比了名字和权重而没比 `params`，`reward_functions()` 和 `scene_sensors()` 两个提取器根本没有调用者。也就是说质量随机化范围、推力范围、`feet_air_time` 的 0.5 秒阈值、每个 `joint_deviation_*` 到底罚哪几个关节——这些直接改变训练的量，当时全部无人看守。补了四条测试（事件区间、奖励底层实现、实体选择器、标量参数），变异检验确认能抓住 ±5→±2 的质量范围、0.5→0.3 的阈值、以及把膝关节选择器换成髋。
+
+其中 `feet_slide` 的选择器是唯一一处字面不同：参照写死 `("left_ankle_roll_link", "right_ankle_roll_link")`，声明用模式 `.*_ankle_roll_link`。断言比的是**解析结果**而不是字面量——两者在机器人自己的 body 表里解析出同样的名字、同样的顺序，才算一致。
+
+**Isaac 侧的空白在 env 类而不在配置。** 逐字段比对覆盖 `ManagerBasedRLEnvCfg` 的全部字段（133 处差异，0 处无法解释），但它比的是配置，不是消费配置的那个类：main 注册的 entry_point 是 `instinctlab.envs:InstinctRlEnv`，编译产物用的是朴素 `ManagerBasedRLEnv`。这个子类做三件事——把 `MultiRewardCfg` 路由到多奖励管理器、跑 MonitorManager、包装 step/reset 记日志。对这个任务前者不触发（`G1FlatRewardsCfg` 是普通类）、后者无事可做（`G1FlatMonitorCfg` 是 `pass`），所以两者 step 行为等价。这两个前提现在由 `test_parity_static.py` 从 main 的声明里读出来断言，任一变假都会响——`num_rewards` 从 1 变成向量意味着两边优化的根本不是同一个目标。
+
+**训练循环里找到两处真差异，都已修。**
+
+一是**环境从来没有播种**。两个参照都把 agent 的 seed 交给环境（main 是 `env_cfg.seed = agent_cfg.seed`，InstinctMJ 是 `cfg.env.seed = seed`），两个引擎也都在 `__init__` 里从 `cfg.seed` 播种——而这个字段默认是 `None`，两边都是「不播种」。我们只在入口调了 `torch.manual_seed`：它在环境构造**之前**、且不覆盖 numpy/random。表现是训练完全正常、只是不可复现，随机质量摩擦和推力取决于进程 RNG 当时在哪。这是又一个「没有异常、没有断言会响」的类别。
+
+二是 **torch 后端设置，而这里两个参照本身就不一致**：main 的训练脚本开 TF32 matmul（连同 `cudnn.allow_tf32=True`、`deterministic=False`、`benchmark=False`），InstinctMJ 什么都不设。TF32 改变策略更新中每一次 matmul 的算术。放进共享入口就必然有一个引擎是错的，所以放进各自适配器的 `bootstrap`——「复现一次参照训练」包括复现它跑在什么栈上。
+
+**超参本身两侧都对上了。** Isaac 侧的 agent 配置和 main 逐字节相同（只有 docstring 和两行 import 变了，因为它被移出 Isaac-only 包路径以便脱离 Isaac Sim 解析）；mjlab 侧和 InstinctMJ 那次 5000 轮跑 dump 出的 `agent.yaml` 比，35 个共有字段全部一致，它多出的 37 个字段（MoE / VAE / 蒸馏 / AMP 判别器）在那次跑里全部关闭。顺带发现 `flat_g1_ppo.py` 的 docstring 声称 `tests/test_agent_cfg.py` 钉住了每个字段——**而那个文件不存在**。现在存在了，并且它比对的是参照训练**实际写出的 yaml** 而不是参照的源码。
+
+一般化的教训：**文档里写「由某测试保证」时，要检查那个测试存在**；以及 **对拍脚本能提取的信息比它断言的多，是一种典型的覆盖率假象**——提取器写好了、没人调用，读代码的人会以为比过了。
+
+两侧各跑满 5000 轮后的终值：
+
+| 第 5000 轮 | 回合长度 | 单步回报 | 线速度误差 | 角速度误差 |
+|---|---|---|---|---|
+| main 参照（Isaac） | 977.14 | 0.012 | 0.311 | 0.695 |
+| 本项目 isaacsim | 980.17 | 0.014 | 0.358 | 0.638 |
+| InstinctMJ 参照（mjlab） | 977.66 | 0.016 | 0.367 | 0.580 |
+| 本项目 mjlab | 970.30 | 0.015 | 0.350 | 0.571 |
+
+最有说服力的一列是角速度误差：两个 mjlab 跑都落在 0.57–0.58，两个 Isaac 跑都落在 0.64–0.70，线速度误差则相反。**引擎留下了可辨认的指纹，而本项目的两次跑各自带着自己所跑引擎的指纹**——这比「数值接近」更能说明对齐的是引擎行为本身，而不是碰巧调出了相似的结果。
+
 ## 13. 迁移工作流
 
 | 步骤 | 动作 | 要点 |

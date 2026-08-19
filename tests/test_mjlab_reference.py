@@ -126,6 +126,87 @@ def test_the_events_match_by_name_mode_and_period(spec):
     assert declared == expected
 
 
+# The reference and the declaration spell one parameter differently for the same quantity. Stated as
+# data so a second one has to be added here rather than absorbed into an assertion.
+EVENT_PARAM_ALIASES = {"add_range": "mass_distribution_params"}
+
+
+def test_every_event_randomises_over_the_reference_range(spec):
+    """The ranges, not just the names and periods.
+
+    Weights and term names are what a config diff shows; the intervals are what the randomisation
+    actually is. A mass range of +/-5 kg against +/-2 kg is the same term, the same mode and the
+    same period, and a different task.
+    """
+    for name, event in reference.events().items():
+        if name == "physics_material":
+            continue  # See EXPECTED_DIFFERENCES: the interval is the engine profile's, by design.
+        declared = dict(spec.mdp.events[name].params)
+        for ours, theirs in EVENT_PARAM_ALIASES.items():
+            if ours in declared:
+                declared[theirs] = declared.pop(ours)
+        expected = {
+            key: value
+            for key, value in event["params"].items()
+            # Entity configs read off a syntax tree are markers rather than values; what they select
+            # is compared where it can be resolved, in the reward tests below.
+            if not (isinstance(value, str) and value.startswith("<"))
+        }
+        assert {key: declared.get(key) for key in expected} == expected, name
+
+
+def test_every_reward_is_computed_by_the_reference_implementation(rewards):
+    """Name and weight agreeing is not the same as measuring the same thing.
+
+    Two of these differ from what the name suggests -- ``track_lin_vel_xy_exp`` is computed by
+    ``track_lin_vel_xy_yaw_frame_exp`` and ``track_ang_vel_z_exp`` by ``track_ang_vel_z_world_exp``
+    -- so the term names alone would not have caught a substitution.
+    """
+    for name, function in reference.reward_functions().items():
+        term = rewards[name]
+        ours = term.func.__name__ if term.func is not None else term.kind
+        assert ours == function, f"{name} is computed by {ours} where the reference uses {function}"
+
+
+def test_every_reward_charges_for_the_reference_elements(spec, rewards):
+    """Which joints and bodies a term selects, resolved rather than compared as text.
+
+    The reference names both feet outright where the declaration matches them with a pattern. That
+    is the same selection only if it resolves to the same names in the same order, so this resolves
+    both against the robot's own lists instead of accepting the difference on sight.
+    """
+    import re
+
+    catalogue = {"joint": list(spec.robot.joint_names), "body": list(spec.robot.body_names)}
+
+    def resolve(kind: str, patterns) -> list[str]:
+        return [name for name in catalogue[kind] if any(re.fullmatch(p, name) for p in patterns)]
+
+    checked = 0
+    for name, params in reference.entity_selectors().items():
+        for key, selection in params.items():
+            declared = rewards[name].params.get(key)
+            selectors = declared.selectors() if hasattr(declared, "selectors") else {}
+            for kind in ("joint", "body"):
+                theirs = selection.get(f"{kind}_names")
+                if theirs is None:
+                    continue
+                assert resolve(kind, selectors[kind]) == resolve(kind, theirs), f"{name}.{key} {kind}s"
+                checked += 1
+    assert checked >= 8, f"only {checked} selections compared; the extractor stopped seeing them"
+
+
+def test_every_reward_takes_the_reference_parameters(rewards):
+    """The scalars: tracking widths, contact thresholds, which command a term reads."""
+    for name, params in reference.reward_params().items():
+        for key, value in params.items():
+            if isinstance(value, str) and value.startswith("<"):
+                continue  # An entity config; compared by what it selects, above.
+            if key == "sensor_name":
+                continue  # The reference's two narrow sensors against one wide one, per EXPECTED_DIFFERENCES.
+            assert rewards[name].params.get(key) == value, f"{name}.{key}"
+
+
 def test_the_timing_matches(spec):
     timing = reference.timing()
     assert spec.sim.physics_dt == timing["timestep"]

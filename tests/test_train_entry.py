@@ -173,3 +173,58 @@ def test_the_moved_agent_config_is_still_the_one_main_registers() -> None:
     assert not [
         node for node in tree.body if isinstance(node, ast.ClassDef)
     ], f"{old.name} declares a class of its own; two declarations of one agent config will drift"
+
+
+def test_the_environment_is_given_a_seed(entry_source: str) -> None:
+    """Both reference scripts hand the agent's seed to the environment config; this one must too.
+
+    Left alone, ``cfg.seed`` is ``None`` on both engines and neither seeds anything. A run with no
+    seed does not fail or warn its way into a log -- it trains, and the randomised masses, frictions
+    and pushes come from wherever the process's RNG happened to be, so the run cannot be repeated
+    and two engines given the same declaration are not given the same episodes.
+    """
+    assignments = {
+        ast.unparse(node.targets[0])
+        for node in ast.walk(ast.parse(entry_source))
+        if isinstance(node, ast.Assign) and node.targets and ast.unparse(node.targets[0]).endswith(".seed")
+    }
+    assert "compiled.env_cfg.seed" in assignments, (
+        "the entry point never seeds the environment; main does this with env_cfg.seed = "
+        "agent_cfg.seed and InstinctMJ with cfg.env.seed = seed"
+    )
+
+
+TORCH_BACKEND_FLAGS = {
+    "torch.backends.cuda.matmul.allow_tf32": True,
+    "torch.backends.cudnn.allow_tf32": True,
+    "torch.backends.cudnn.deterministic": False,
+    "torch.backends.cudnn.benchmark": False,
+}
+
+
+def _assignments(path: pathlib.Path) -> dict[str, object]:
+    return {
+        ast.unparse(node.targets[0]): ast.literal_eval(node.value)
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.Assign)
+        and node.targets
+        and ast.unparse(node.targets[0]).startswith("torch.backends")
+        and isinstance(node.value, ast.Constant)
+    }
+
+
+def test_each_engine_reproduces_its_references_torch_settings() -> None:
+    """The one place the two references disagree, so neither the launcher nor a default can decide.
+
+    Main's training script enables TF32 matmul; InstinctMJ's touches nothing. TF32 changes the
+    arithmetic of every matmul in the policy update, so a run that sets it and a run that does not
+    are not the same run -- and putting the flags in the shared launcher would make one engine wrong
+    whichever way it went. They live in each adapter's bootstrap instead.
+    """
+    engines_dir = pathlib.Path(engines.__file__).parent
+    isaac = _assignments(engines_dir / "isaacsim" / "adapter.py")
+    mjlab = _assignments(engines_dir / "mjlab" / "adapter.py")
+
+    assert isaac == TORCH_BACKEND_FLAGS, f"the Isaac adapter sets {isaac}, main sets {TORCH_BACKEND_FLAGS}"
+    assert not mjlab, f"the mjlab adapter sets {mjlab}; InstinctMJ leaves torch at its defaults"
+    assert not _assignments(_ENTRY), "torch backend settings in the launcher apply to every engine"

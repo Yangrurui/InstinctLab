@@ -133,6 +133,47 @@ def reward_functions() -> dict[str, str]:
     }
 
 
+def reward_params() -> dict[str, dict[str, Any]]:
+    """Parameters per reward term, entity configs left as the markers ``_literal`` gives them.
+
+    Separate from :func:`entity_selectors` because the two are compared differently: a tracking
+    width or a contact threshold is a number that must match, while an entity config is a selection
+    that has to be read out of its constructor first.
+    """
+    return {
+        name: _kwargs(node).get("params", {})
+        for name, node in _returned_dict("_rewards_cfg").items()
+        if isinstance(node, ast.Call)
+    }
+
+
+def entity_selectors(family: str = "_rewards_cfg") -> dict[str, dict[str, Any]]:
+    """What each term's ``SceneEntityCfg`` selects, as ``{term: {param: {selector: patterns}}}``.
+
+    The patterns are what a joint-deviation penalty is actually about -- which joints it charges
+    for -- and they are the part of a term that changes training while its name and weight stay
+    put. On the Isaac side the golden dump carries them; on this side nothing did until here.
+    """
+    result: dict[str, dict[str, Any]] = {}
+    for name, node in _returned_dict(family).items():
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "params" or not isinstance(keyword.value, ast.Dict):
+                continue
+            for key, value in zip(keyword.value.keys, keyword.value.values, strict=True):
+                if not isinstance(key, ast.Constant) or not isinstance(value, ast.Call):
+                    continue
+                if not ast.unparse(value.func).endswith("SceneEntityCfg"):
+                    continue
+                selection: dict[str, Any] = {}
+                if value.args:
+                    selection["name"] = _literal(value.args[0])
+                selection.update(_kwargs(value))
+                result.setdefault(name, {})[key.value] = selection
+    return result
+
+
 def terminations() -> dict[str, str]:
     return {
         name: _func_name(node)
