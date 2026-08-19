@@ -31,7 +31,7 @@
 
 **只发 `preserve_order=True` 而选择器写 `.*` 是无效的**，这一点代价不小才弄清楚：`resolve_matching_names` 按**模式**的先后排列选择结果，单个 `.*` 意味着所有关节都落在同一个模式里，模式内部仍按实体自身顺序排列——于是 `preserve_order` 真假结果完全相同，Isaac 侧留在 PhysX 的 BFS 序、mjlab 侧留在模型文件的顺序。落点有两处而非一处：动作项和 `joint_pos`/`joint_vel` 两个观测项都要带这份名单，只钉一侧会让策略的输入与输出在两个引擎上索引方式不同。`last_action` 读动作管理器的整条向量，自动跟随动作项。
 
-验收上这件事**没有任何既有检查能看见**：`test_asset_parity.py` 比的是关节名集合，`probe_terms.py` 当时会先把两边重排到 canonical 序再比。现在 `test_asset_parity.py` 断言目录序等于 URDF 的 DFS 前序、`test_parity_static.py` 正向断言三个选择器都持有完整名单，而 `probe_terms.py` 不再重排——两引擎的 `joint_pos` / `joint_vel` / `actions` 实测差为**精确的 0**。
+验收上这件事**没有任何既有检查能看见**：`test_asset_parity.py` 比的是关节名集合，`probe_terms.py` 当时会先把两边重排到 canonical 序再比。现在 `test_asset_parity.py` 断言目录序等于 URDF 的 DFS 前序、`test_flat_g1_declaration.py` 正向断言五个选择器（动作项 + policy/critic 各两个关节观测）都持有完整名单，而 `probe_terms.py` 不再重排——两引擎的 `joint_pos` / `joint_vel` / `actions` 实测差为**精确的 0**。
 
 已验证两侧都支持这一机制：
 
@@ -61,11 +61,25 @@
 
 删除过程暴露了这套栈留下的两处**静默断裂**，都是「没有异常、没有测试会响」的类型，记在 §12.11。
 
-### D3：main 分支是唯一 golden，允许声明的轻微差异
+### D3：main 分支是唯一 golden（**已于 2026-08-19 退役**）
 
-不引入 InstinctMJ 作为依赖。main 的 `tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义的唯一真值。InstinctMJ 只作为「如何在 mjlab 上表达同一任务」的参考实现——其 env 子类、`MultiRewardManager`、`ForceThresholdContactSensor` 按需移植进 `engines/mjlab/`。
+原文：不引入 InstinctMJ 作为依赖；main 的 `tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义的唯一真值，验收标准是「编译产物与它逐字段 diff，空 diff 或全部命中白名单」。InstinctMJ 只作为「如何在 mjlab 上表达同一任务」的参考实现——其 env 子类、`MultiRewardManager`、`ForceThresholdContactSensor` 按需移植进 `engines/mjlab/`。
 
-验收标准从「diff 必须为空」放宽为「diff 落在差异白名单内」。
+**现状**：`tasks/locomotion/config/g1/`、`tasks/locomotion/mdp/`、`tests/parity/`（golden + 50 条白名单）、`scripts/dump_golden.py`、`scripts/check_parity.py`、`verify/structure.py` 已全部删除。`tasks/locomotion/config/flat_g1.py` 是该任务的唯一描述，**没有第二份可比对**。下文 §8（差异白名单）、§10 的 L0 层、§12.7–12.11 的相关叙述按史料读。
+
+**退役理由**。golden 在迁移期的作用是证明「重述没丢东西」，这一点已经拿到：314 处差异 0 处未解释，编译产物真实构造、step、训练收敛。迁移结束之后它的性质变了——它不再是外部参照，而是一份必须与实现同步维护的副本，而副本失效的方式恰好是本文反复记录的那一类。这份 golden 自己就中过两次：一次是从一个 main 已经无法实例化的状态 dump 出来的（§12.11），一次是有人把编译器的 spawn 覆盖复制进 golden 的源文件来消差（§12.12）。两次都没有任何检查会响。
+
+**退役之后剩下什么**，明写以免以后误以为还有：
+
+- mjlab 侧的 `tests/test_mjlab_reference.py` 仍在。**它是唯一一份本仓库改不动的参照**，这正是它比 golden 更值钱的地方。
+- 超参仍逐字段对着 main：`tests/test_agent_cfg.py` 用 `git show main:<path>` 现取现执行。那份文件在 main 分支上永远都在，删本地副本不影响。这也是「要恢复 env 配置对拍」时的现成手法。
+- 两个引擎互相对拍不受影响：`scripts/probe_terms.py` 逐 term 比值，`scripts/check_mjlab.py` 比运行期关节序与构造。
+- `tests/test_flat_g1_declaration.py` 把 16 个奖励权重记成快照，并**在文档字符串里标明它是快照不是参照**——记录一次变更需要两处编辑，而不是声称与谁一致。
+- `tests/test_main_reference.py` 保留，并补上了删除侧：`--diff-filter=M` 只看修改，删掉 main 的文件原本完全不报；且必须带 `--no-renames`，否则 git 把「移走」认成改名，两侧都不算。
+
+**代价**，同样明写：此后没有任何东西会告诉你 `flat_g1.py` 偏离了 main 的 locomotion。这是一次有意的取舍，不是遗漏。
+
+**泛化（S4）**：golden 是「该项目跑在它原本的引擎上」，每个待迁项目各有各的。但它是**迁移期脚手架，不是常设设施**——判据是「还有没有人负责重新 dump 它」，没有就该退役，留着一把没人校准的尺子比没有尺子更坏。
 
 ## 3. 可对齐 / 不可对齐边界
 
@@ -367,9 +381,11 @@ def compile_family(family: str, specs: Mapping[str, TermSpec], ctx: CompileCtx, 
 
 任务可逐项覆盖：`RewardTermSpec(..., level=Requirement.REQUIRED)`。
 
-## 8. 差异白名单
+## 8. 差异白名单（**已随 D3 删除，按史料读**）
 
-`tests/parity/isaacsim.locomotion_flat.whitelist.json`，实际落地的是 JSON、按点号路径做键，当前 50 条。形如：
+本节描述的 `tests/parity/isaacsim.locomotion_flat.whitelist.json` 与 golden 已一并删除，见 §2 的 D3。留下这一节是因为「已知差异清单」这个形状在下一个待迁项目上还会再出现一次，它的三条性质——每条写 reason、key 是路径前缀不是整族、条目必须会过期——是从踩过的坑里来的。
+
+当时是 JSON、按点号路径做键，50 条，形如：
 
 ```json
 {
@@ -478,12 +494,12 @@ P4 之前不动任何现有训练路径。P1 在 P2 之前是有意的：`compat
 
 | 级别 | 方法 | 成本 |
 |---|---|---|
-| L0 配置结构 diff | 编译 TaskSpec 与 golden 逐字段比对；空 diff 或命中白名单 | 秒级，无 GPU，进 CI |
+| ~~L0 配置结构 diff~~ | ~~编译 TaskSpec 与 golden 逐字段比对；空 diff 或命中白名单~~ **已随 D3 退役** | — |
 | L1 定动作 rollout | 固定 seed + 固定动作序列跑 N 步，isaacsim 的 obs/reward/done 与 main 按名对齐后逐位比对 | 分钟级，需 GPU，单引擎单进程 |
 | L2 短训练曲线 | 200 iter，isaacsim 与 main 的 reward 曲线比对 | 小时级 |
 | L3 跨引擎行为 | 同一 TaskSpec 两引擎各训到收敛，比对成功率/步态指标，**不比对张量** | 天级 |
 
-L0 是本设计的最大收益：因为编译目标就是 Isaac Lab 原生 cfg，而 main 的 `G1FlatEnvCfg` 本身就是 Isaac Lab 原生 cfg，「是否和原来一致」退化成一个纯静态字段 diff。
+L0 曾是本设计**在迁移期**的最大收益：因为编译目标就是 Isaac Lab 原生 cfg，而 main 的 `G1FlatEnvCfg` 本身就是 Isaac Lab 原生 cfg，「是否和原来一致」退化成一个秒级、无 GPU 的静态字段 diff。迁移完成后它随 D3 退役（理由见 §2）。**下一个待迁项目应当重新搭一次 L0，然后同样在迁完之后拆掉**——它的价值在迁移过程中，不在之后。
 
 ## 11. 引擎升级与新引擎接入
 
@@ -679,6 +695,8 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 
 ### 12.5 P4 实测：flat G1 编译产物 vs main
 
+> 这一节记的是迁移期的结论。比对用的 golden、白名单与脚本已随 D3 删除，**结论本身没有被推翻，但此后无人复核**。
+
 `tasks/locomotion/config/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**314 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，50 条），且编译产物能真实构造并 step——观测维度、16 个奖励项、命令与事件管理器全部正常。
 
 > 两次数字变动都记在这里，因为「差异变多」本身需要有人解释。P5 期间三个奖励从「刻意缺席」改为「按引擎注册」，差异由 177 降到 134、白名单由 57 条降到 46 条（见 §12.6）。P6 修 D1 时差异反而涨到 314：把 5 个选择器（动作项 + policy/critic 各两个关节观测）从一个 `.*` 改成逐个列出 29 个关节名，逐字段比对自然多出 173 条**逐元素**差异。条数涨了，未解释数仍是 0，而这 173 条正是 D1 生效的证据。
@@ -697,7 +715,7 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 
 比对过程本身暴露了三个陷阱，已进 §15 硬约束：
 
-- **golden 不能按字段名排序。** 原先 `dump()` 与 `json.dumps` 都排了序，于是「观测项顺序」这个决定策略能否加载 checkpoint 的性质，在逐字段比对里完全不可见——路径按名字索引，重排后 diff 为空。现在 dump 保留声明顺序，`tests/test_parity_static.py` 直接钉住顺序。
+- **golden 不能按字段名排序。** 原先 `dump()` 与 `json.dumps` 都排了序，于是「观测项顺序」这个决定策略能否加载 checkpoint 的性质，在逐字段比对里完全不可见——路径按名字索引，重排后 diff 为空。改法是让 dump 保留声明顺序，并另加一条直接钉顺序的断言——**顺序只能由顺序断言钉住，diff 钉不住**。dump 与那条断言已随 D3 删除，这条教训对以后写的任何拍平比对工具仍然成立。
 - **Isaac Sim 的 `app.close()` 会把进程退出码改写成 0。** 退出码放在它之后，这个检查永远不会失败。
 - **term 容器不能是 dict。** `CommandManager` 会往传进去的容器上写 `debug_vis`，dict 没地方放。
 
@@ -797,7 +815,7 @@ Isaac 侧逐点落在两份参照之间，是健康的；mjlab 侧从头到尾�
 
 其中 `feet_slide` 的选择器是唯一一处字面不同：参照写死 `("left_ankle_roll_link", "right_ankle_roll_link")`，声明用模式 `.*_ankle_roll_link`。断言比的是**解析结果**而不是字面量——两者在机器人自己的 body 表里解析出同样的名字、同样的顺序，才算一致。
 
-**Isaac 侧的空白在 env 类而不在配置。** 逐字段比对覆盖 `ManagerBasedRLEnvCfg` 的全部字段（133 处差异，0 处无法解释），但它比的是配置，不是消费配置的那个类：main 注册的 entry_point 是 `instinctlab.envs:InstinctRlEnv`，编译产物用的是朴素 `ManagerBasedRLEnv`。这个子类做三件事——把 `MultiRewardCfg` 路由到多奖励管理器、跑 MonitorManager、包装 step/reset 记日志。对这个任务前者不触发（`G1FlatRewardsCfg` 是普通类）、后者无事可做（`G1FlatMonitorCfg` 是 `pass`），所以两者 step 行为等价。这两个前提现在由 `test_parity_static.py` 从 main 的声明里读出来断言，任一变假都会响——`num_rewards` 从 1 变成向量意味着两边优化的根本不是同一个目标。
+**Isaac 侧的空白在 env 类而不在配置。** 逐字段比对覆盖 `ManagerBasedRLEnvCfg` 的全部字段（133 处差异，0 处无法解释），但它比的是配置，不是消费配置的那个类：main 注册的 entry_point 是 `instinctlab.envs:InstinctRlEnv`，编译产物用的是朴素 `ManagerBasedRLEnv`。这个子类做三件事——把 `MultiRewardCfg` 路由到多奖励管理器、跑 MonitorManager、包装 step/reset 记日志。对这个任务前者不触发（`G1FlatRewardsCfg` 是普通类）、后者无事可做（`G1FlatMonitorCfg` 是 `pass`），所以两者 step 行为等价。这两个前提当时由一条静态测试从 main 的声明里读出来断言。该断言随 D3 一并删除，因为它支撑的命题（编译产物应当等价于 main 注册的那个 env 子类）本身已经不存在了——编译产物用朴素 `ManagerBasedRLEnv`，不再声称与谁等价。`vecenv_wrapper.py` 里那处 `num_rewards` 回退仍在 `tests/test_main_reference.py` 的 EDITED 表中登记。
 
 **训练循环里找到两处真差异，都已修。**
 
@@ -894,7 +912,7 @@ frontend 与 backend 相互独立：一个引擎可以只有 backend（能作为
 | S1 | 可移植 term 直接读 `root_link_lin_vel_b`，能跑通是因为两引擎**碰巧**同名。中枢事实上是 Isaac 的命名，但无处声明 | `compat/vocab.py` 定义**署名的**中枢词汇表：每个量给出参考系、原点、单位、旋转约定（四元数固定 wxyz，见 D8），各引擎提供 spoke 映射。中枢可以沿用 Isaac 拼写，但须写成「我们选它」 | 第三个引擎不会遵守 Isaac 拼写。没有署名中枢就会退化成双边映射，N×M 回归。四元数是活样本：两引擎都是 wxyz，但 mjlab 侧**未文档化** |
 | S2 | ~~`EntityRef` 只有 `joints` / `bodies`~~ **已实现** | 带**可注册选择器种类**的开放结构：引擎包在自己的 `__init__.py` 里调 `compat.entity.register()` 声明种类、配置类路径与容器类型，共享层不再持有种类表；目标引擎不认识的种类报 `UnsupportedSelector` | mjlab `SceneEntityCfg` 有 10 种选择器（joint / body / geom / site / actuator / tendon / camera / light / material / pair），Isaac 只有 4 种，仅 joint / body 重合。**这是 mjlab → Isaac 方向的硬门槛** |
 | S3 | ~~`Capability` 是封闭 enum~~ **已实现** | 带命名空间的字符串 ID（`contact.air_time`、`dr.friction.sliding`…），`capability(id, 说明)` 注册并返回 id，模块常量绑定到该调用；引擎包可注册核心没有的能力。未注册 ID 报 `UnknownCapability` 而非被当作「后端不支持」 | 新引擎会带来现有引擎都没有的能力（可微物理、软体、触觉）。封闭枚举意味着每次都要改核心包。**拼写错误当作「不支持」处理会变成一个被静默跳过的 term**——正是本项目反复吃亏的那种失败 |
-| S4 | D3：`main` 是唯一 golden | golden 定义为**「该项目跑在它原本的引擎上」**。D3 成为特例（我们的 locomotion 项目原生引擎是 Isaac）；每个导入项目在导入时自动获得自己的基线 | 「main 是 golden」对第三方项目没有意义，它们的参照物是自己发表的结果 |
+| S4 | D3：`main` 是唯一 golden | golden 定义为**「该项目跑在它原本的引擎上」**，每个导入项目在导入时自动获得自己的基线。且是**迁移期脚手架**：迁完就该拆，判据是「还有没有人负责重新 dump 它」——locomotion 那份已按此退役 | 「main 是 golden」对第三方项目没有意义，它们的参照物是自己发表的结果；而一把没人校准的尺子比没有尺子更坏 |
 | S5 | parity L0–L3 绑定在具体任务上 | 增加 **conformance suite**：与任务无关的行为探针（自由落体、重力下静态保持、关节 PD 阶跃响应、接触冲量、摩擦滑移），任意 `(机器人, 引擎)` 组合都能跑，产出签名向量 | 逐项目 golden 的成本随项目数线性增长；行为探针是每个「机器人 × 引擎」一次性的，之后所有用该机器人的项目共享 |
 
 ### 14.3 组件矩阵
@@ -1036,7 +1054,7 @@ mjlab 侧是**未文档化的隐式依赖**。`vocab.py` 该条目必须注明�
 4. 禁止为一个引擎复制第二份 `TaskSpec`。
 5. 关节/body 顺序以 `RobotSpec` 的 DFS 名为唯一真值；禁止依赖 URDF / USD / MJCF 隐式遍历顺序。
 6. REQUIRED 能力缺失必须启动即失败；OPTIONAL 跳过必须打印汇总并写入 manifest，禁止无记录的静默降级。
-7. 差异白名单新增条目必须写 reason。
+7. 任何「已知差异」清单，新增条目必须写 reason。（locomotion 的白名单已随 D3 删除；下一个待迁项目会再需要一份。）
 8. 禁止把 PhysX 与 MuJoCo 的接触力当逐值等价；需要绝对力值的任务必须声明容差。
 9. 训练契约与 `instinct_onboard` 部署分开，不塞进同一基类。
 10. 不用 Gymnasium 当 sim2sim 对齐层；不把 Isaac Lab 3 的 Articulation 工厂抄进公共层。
@@ -1048,13 +1066,13 @@ mjlab 侧是**未文档化的隐式依赖**。`vocab.py` 该条目必须注明�
 16. `spec/` 禁止 import 任何引擎，含函数体内的延迟 import。由 `tests/test_spec_isolation.py` 静态 + 动态双重把关。
 17. `resolve()` 之后禁止直接读 `cfg.<kind>_names`——两引擎装的东西不同（Isaac 是正则，mjlab 是匹配结果）。一律走 `compat.entity.resolved_names()`。
 18. 可移植 term 判断接触一律用 `compat.sensors.in_contact()`（由接触时长导出），禁止对接触力取模长设牛顿阈值：两引擎的「接触力」不是同一个物理量。需要力值的 term 必须 per-engine 并声明容差。
-19. golden dump 与结构比对禁止按字段名排序。观测组是按属性顺序拼接的，排序后的 golden 对一个观测向量布局已经不同的配置仍然相等——这类错误编不出编译期信号，只会在加载 checkpoint 时炸。
-20. 白名单条目的 key 是**路径前缀**，按路径段匹配（`p` 后接 `.` 或 `[`），不要写结尾的 `.`。禁止用 `rewards` / `observations` 这类整族前缀，由 `tests/test_parity_static.py` 把关。
+19. 凡是把配置拍平成字典再比对的工具，禁止按字段名排序。观测组是按属性顺序拼接的，排序之后，一个观测向量布局已经不同的配置照样相等——**顺序只能由顺序断言钉住，逐字段 diff 钉不住**，因为路径是按名字索引的。这类错误编不出编译期信号，只会在加载 checkpoint 时炸。
+20. 白名单条目的 key 是**路径前缀**，按路径段匹配（`p` 后接 `.` 或 `[`），不要写结尾的 `.`。禁止用 `rewards` / `observations` 这类整族前缀。（白名单已随 D3 删除；此条对以后写的任何同类清单仍然成立。）
 21. 需要非零退出码的 Isaac Sim 脚本必须在 `app.close()` **之前** `os._exit(status)`。Isaac Sim 的关闭流程会把进程退出码改写成 0，放在之后的检查永远不会失败。
 22. 禁止调用不带坐标系限定的 `write_root_state_to_sim` / `write_root_velocity_to_sim`——Isaac 收的是质心速度、mjlab 收的是连杆速度，同样的数写进去两个机器人不在同一状态。一律用 `write_root_link_*_to_sim` 或 `write_root_com_*_to_sim` 明说是哪个。
-23. 白名单条目必须会过期。`verify.structure.unused()` 报出「解释了零处差异」的条目即视为失败，禁止留着一条理由已过时的宽前缀条目继续覆盖整个 term。
+23. 「已知差异」清单的条目必须会过期：解释了零处差异的条目即视为失败，禁止留着一条理由已过时的宽前缀条目继续覆盖整个 term。同形的活例子是 `tests/test_main_reference.py` 的 EDITED / REMOVED 两表，两者都断言条目描述的差异确实还在。
 24. 「不可移植」只约束写法，不约束任务是否该有这一项。两引擎都有、但测法不同的 term，用 `kind=` 按名声明 + 各引擎注册各自实现 + `level=REQUIRED`；禁止因为写不出一份共享实现就让任务少掉一项。
 25. 构造环境禁止依赖 RL 库可导入，`CompiledTask.agent_cfg` 惰性解析。agent 配置本身也禁止依赖任何引擎：超参是引擎无关的，声明它的装饰器也必须是（用 `instinctlab.utils.configclass`，不要用 `isaaclab.utils.configclass`），且不得放在会 import 引擎的包路径下。
 26. 跨引擎间接层里的每一次运行时解析，都要先问它在原生实现里是不是初始化期做完的。是的话这层必须自己缓存——`ContactSensorRef` 的元素解析没缓存时，Isaac 侧每步付三次 `ContactSensor.body_names`（4096 env 下单次 70 毫秒），整个环境慢十倍，而所有数值断言照常通过。语义正确不蕴含性能可用，且这类退化没有数值信号。
 27. `train.py` 里禁止出现任何引擎名字面量，禁止按引擎分支。构造方式、命令行开关、RL wrapper 一律由适配器回答（`make_env` / `add_cli_args` / `wrap_for_rl`），由 `tests/test_train_entry.py` 用 AST 把关。
-28. 用 `os._exit` 结束的脚本必须先 `sys.stdout.flush()`。`os._exit` 不刷 stdio 缓冲，输出重定向到文件时会**静默丢掉**最后一段——`check_parity.py` 曾因此在报告成功的同时丢掉了整个构造与 step 的结果。
+28. 用 `os._exit` 结束的脚本必须先 `sys.stdout.flush()`。`os._exit` 不刷 stdio 缓冲，输出重定向到文件时会**静默丢掉**最后一段——当初是 `check_parity.py` 因此在报告成功的同时丢掉了整个构造与 step 的结果。

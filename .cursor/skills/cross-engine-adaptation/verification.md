@@ -8,7 +8,7 @@
 |---|---|---|---|
 | L0 静态隔离 | AST 扫描 | `spec/` 误 import 引擎、星号导入、`train.py` 出现引擎名 | 任何运行期行为 |
 | L1 逐字段对拍 | golden dump + 白名单 | 参数值漂移、漏传字段 | **字段顺序**、**消费配置的那个类**、配置能否实例化 |
-| L2 静态不变量 | `tests/test_parity_static.py` | 观测组顺序、结构性等价前提 | 数值 |
+| L2 静态不变量 | `tests/test_flat_g1_declaration.py` | 观测组顺序、声明层不变量 | 数值 |
 | L3 语法树参照 | `tests/reference_mjlab.py` | 未安装的参照（读 AST 不 import） | 参照的运行期语义 |
 | L4 逐值 term 对拍 | `probe_terms.py` 两进程 | 同一状态下 term 数值分歧 | **一切只存在于时间轴上的量** |
 | L5 行为探针 | conformance suite | 接触冲量、摩擦、PD 响应、积分器差异 | 任务级组合语义 |
@@ -18,6 +18,8 @@
 **L4 的盲区是最容易被误判为已覆盖的。** term 是状态的函数，逐值对拍只能陈述「同一状态下两边算得一样」；接触时长、空中时间、事件触发频率、curriculum 推进全部落在时间轴上，L4 结构性地看不见。接触传感器漏字段那个缺陷，L0–L4 全部通过，最后是 L7 抓住的。
 
 **L6 无可替代。** 对 main 做过逐字段比对、静态不变量、白名单过期检查，唯独没有 L6，结果 golden 是从一份无法实例化的配置里 dump 的，所有验收照常通过。
+
+> **L1 在本仓库已随 D3 退役**（locomotion 的 golden、白名单、`check_parity.py` / `dump_golden.py` / `verify/structure.py` 全部删除）。这一层对**下一个待迁项目**仍然必要——迁移期它是「重述有没有丢东西」的唯一证据——但同样应当在迁完之后拆掉，判据见 [silent-failures.md](silent-failures.md) 第 15 条。下面 L1 的两个陷阱是给重搭它的人看的。
 
 ## L4 为什么写状态而不 step
 
@@ -31,11 +33,11 @@
 
 ## L1 的两个陷阱
 
-**不许按字段名排序。** golden dump 与 `verify/structure.py` 的 `dump()` 都不许排序：观测组按属性顺序拼接，排序后的 golden 对一个**观测向量布局已经不同**的配置仍然相等。逐字段 diff 天然看不见重排（路径按名字索引），只有顺序断言能钉住它。
+**不许按字段名排序。** 拍平配置的那个 `dump()` 不许排序：观测组按属性顺序拼接，排序之后，一个**观测向量布局已经不同**的配置照样相等。逐字段 diff 天然看不见重排（路径按名字索引），**顺序只能由顺序断言钉住**。
 
 **白名单 key 是路径前缀**，按路径段匹配（`p` 后接 `.` 或 `[`）。**不要写结尾的 `.`**——匹配器自己会补，写了反而永不命中。禁止 `rewards` / `observations` 这类整族前缀，那会吞掉整族的未来差异。新增条目必须写 reason，且必须会过期。
 
-**逐字段对拍不覆盖消费配置的那个类。** main 用 `InstinctRlEnv`（多奖励路由 + MonitorManager），编译产物用朴素 `ManagerBasedRLEnv`。两者等价的前提（奖励容器不是 `MultiRewardCfg`、monitor 配置为空）必须**从参照的声明里读出来断言**，不能默认成立——`num_rewards` 从 1 变成向量意味着两边优化的不是同一个目标。
+**逐字段对拍不覆盖消费配置的那个类。** 本仓库的实例：main 用 `InstinctRlEnv`（多奖励路由 + MonitorManager），编译产物用朴素 `ManagerBasedRLEnv`。两者等价的前提（奖励容器不是 `MultiRewardCfg`、monitor 配置为空）必须**从参照的声明里读出来断言**，不能默认成立——`num_rewards` 从 1 变成向量意味着两边优化的不是同一个目标。配置比对比的是配置，不是消费它的那个类。
 
 **比较实体选择器时断言解析结果而非字面量。** 参照写死两个 body 名、我们的声明写正则模式，是同一个选择当且仅当**在实体自己的名字表里解析出同样的名字和同样的顺序**。
 
@@ -60,11 +62,7 @@ python -m pytest tests/ -q
 python scripts/check_mjlab.py                      # mjlab ≡ InstinctMJ，读语法树
 
 # 需要 Isaac Sim
-python scripts/check_parity.py                     # isaacsim ≡ main，逐字段 + 构造 + step
-# 重新生成 golden（改动 main 的任务后）。--cfg/--out 必填，check_parity 失败时会打出该跑哪条
-python scripts/dump_golden.py \
-  --cfg instinctlab.tasks.locomotion.config.g1.flat_env_cfg:G1FlatEnvCfg \
-  --out tests/parity/isaacsim.locomotion_flat.golden.json
+python scripts/bench_isaac.py --headless --device cuda:0 --profile   # 构造 + step + 性能剖面
 
 # 逐值对拍（两进程，各跑一次再 diff）
 python scripts/probe_terms.py --engine mjlab   --out /tmp/mjlab.json
@@ -76,7 +74,7 @@ python scripts/train.py --engine isaacsim --task Instinct-Velocity-Flat-G1
 python scripts/train.py --engine mjlab    --task Instinct-Velocity-Flat-G1
 ```
 
-`check_parity.py` 报成功的同时曾丢掉整个构造与 step 结果——`os._exit` 不刷 stdio 缓冲。**输出重定向到文件时，先确认最后一段还在**。
+用 `os._exit` 收尾的脚本（Isaac Sim 下都要这么收）不刷 stdio 缓冲——当初 `check_parity.py` 就在报成功的同时丢掉了整个构造与 step 结果。**输出重定向到文件时，先确认最后一段还在**。
 
 ## L7 看曲线
 

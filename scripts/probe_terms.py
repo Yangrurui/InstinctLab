@@ -157,8 +157,8 @@ def main() -> int:
     import os
 
     # os._exit skips stdio buffers, and this script is normally run with its output redirected, so
-    # without the flush the line above is silently dropped -- the same way check_parity.py once
-    # reported success while losing everything it had printed.
+    # without the flush the line above is silently dropped -- which once made a sibling script
+    # report success while losing every line it had printed.
     sys.stdout.flush()
     os._exit(0)
 

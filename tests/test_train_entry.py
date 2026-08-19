@@ -154,27 +154,6 @@ def test_the_agent_config_resolves_without_an_engine() -> None:
     assert values["num_steps_per_env"] == 24
 
 
-def test_the_moved_agent_config_is_still_the_one_main_registers() -> None:
-    """One class object, two dotted paths. A copy would drift; a re-export cannot.
-
-    Read rather than imported: the old path sits under ``config/g1/``, whose package registers Gym
-    ids and therefore needs Isaac Sim, which is the whole reason the definition moved.
-    """
-    old = pathlib.Path(registry.__file__).parent / "locomotion" / "config" / "g1" / "agents" / "instinct_rl_ppo_cfg.py"
-    tree = ast.parse(old.read_text())
-    sources = {
-        node.module
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and any(alias.name == "G1FlatPPORunnerCfg" for alias in node.names)
-    }
-    assert sources == {
-        "instinctlab.tasks.locomotion.config.flat_g1_ppo"
-    }, "main's registration must re-export the moved definition rather than declare its own"
-    assert not [
-        node for node in tree.body if isinstance(node, ast.ClassDef)
-    ], f"{old.name} declares a class of its own; two declarations of one agent config will drift"
-
-
 def test_the_environment_is_given_a_seed(entry_source: str) -> None:
     """Both reference scripts hand the agent's seed to the environment config; this one must too.
 

@@ -1,10 +1,11 @@
 """The declared task, checked against InstinctMJ's locomotion config.
 
-The counterpart of ``test_parity_static.py``, and the pair is the actual claim. That file checks one
-``TaskSpec`` against main's Isaac Lab config; this one checks the same ``TaskSpec`` against
-InstinctMJ's mjlab config. Neither reference knows about the other, and neither was adjusted to
-meet the declaration -- so agreeing with both is evidence that the declaration carries the task
-rather than a translation of one engine's spelling of it.
+This is now the only structural comparison the declaration has against an outside implementation.
+It had a counterpart on the Isaac side, checking the same ``TaskSpec`` against main's env config,
+and agreeing with two references that knew nothing about each other was the evidence that the
+declaration carried the task rather than one engine's spelling of it. That half went with D3, so
+what remains is one reference -- and it is the one this repository cannot edit, which is most of
+what made it worth having.
 
 Reading rather than importing: InstinctMJ is not installed, per decision D3. The facts come off its
 syntax tree, so these tests state what its source says.

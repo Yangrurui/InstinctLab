@@ -28,8 +28,8 @@ KNOWN_DEAD = {
 }
 """Dangling on main too, in files this repo keeps verbatim.
 
-Left alone rather than deleted: D3 makes these files main's, and the tasks holding them are still
-Isaac-only. Naming them here is what stops a fourth from joining quietly.
+Left alone rather than deleted: these are main's files, the tasks holding them are still Isaac-only,
+and none of them has been adapted yet. Naming them here is what stops a fourth from joining quietly.
 """
 
 

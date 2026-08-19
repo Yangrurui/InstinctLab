@@ -24,6 +24,7 @@ import sys
 
 import pytest
 
+import instinctlab
 import instinctlab.spec
 
 _ENGINE_ROOTS = frozenset({"isaaclab", "isaacsim", "mjlab", "omni", "pxr", "carb", "mujoco", "warp", "usd"})
@@ -84,13 +85,18 @@ def test_spec_imports_with_engines_blocked() -> None:
 
 
 def test_the_task_declaration_loads_without_an_engine() -> None:
-    """The cross-engine declaration sits one directory above a package that needs Isaac Sim.
+    """The declaration of a cross-engine task has to be readable in a process running either engine.
 
-    ``config/g1/__init__`` imports Isaac Lab while registering its Gym ids, so a declaration placed
-    under it would be unreadable in an mjlab process -- and readable everywhere the tests run, since
-    Isaac Lab is installed here. The failure would surface as an import error on a machine that has
-    only mjlab, which is the worst place to find out. So the import is done with both engines cut
-    off, the same way ``instinctlab.spec`` is checked above.
+    Isaac Lab is installed on every machine these tests run on, so an accidental dependency on it
+    would pass here and fail on a machine that has only mjlab -- the worst place to find out. The
+    import is therefore done with both engines cut off, the same way ``instinctlab.spec`` is above.
+
+    The negative control below matters as much as the positive one: without it, a blocker that had
+    quietly stopped blocking would make this test pass while checking nothing. It points at
+    parkour's config, which is Isaac-only and stays that way, rather than at a sibling of the file
+    under test -- the previous control named ``config/g1``, and when that package was deleted the
+    empty directory left behind stayed importable as a namespace package, so the control passed for
+    a reason unrelated to blocking.
     """
 
     class _Blocker:
@@ -102,10 +108,13 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
 
     blocker = _Blocker()
     reloaded = "instinctlab.tasks.locomotion.config"
+    # The control's module is evicted too: a cached copy would import from ``sys.modules`` without
+    # consulting the blocker, and the control would pass without testing anything.
+    isaac_only = "instinctlab.tasks.parkour.config.parkour_env_cfg"
     evicted = {
         name: module
         for name, module in sys.modules.items()
-        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith(reloaded)
+        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith((reloaded, isaac_only))
     }
     for name in evicted:
         del sys.modules[name]
@@ -116,10 +125,12 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
         assert declaration.flat_g1().task_id == "Instinct-Velocity-Flat-G1"
         assert agent.G1FlatPPORunnerCfg().max_iterations > 0
 
-        # The other side of the boundary, so that a blocker which quietly stopped blocking cannot
-        # make the half above pass. This is also the assertion that says where the line is.
+        # The other side of the boundary. An Isaac-only task must still be unreachable here.
+        assert (
+            pathlib.Path(instinctlab.__file__).parent / "tasks/parkour/config/parkour_env_cfg.py"
+        ).is_file(), "the control points at a file that no longer exists, which would make it pass vacuously"
         with pytest.raises(ImportError):
-            importlib.import_module(f"{reloaded}.g1")
+            importlib.import_module(isaac_only)
     finally:
         sys.meta_path.remove(blocker)
         sys.modules.update(evicted)

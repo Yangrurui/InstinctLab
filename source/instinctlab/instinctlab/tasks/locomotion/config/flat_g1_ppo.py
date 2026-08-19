@@ -2,13 +2,12 @@
 
 Moved here from ``config/g1/agents/`` unchanged. The values are main's; the only edit is the
 import of ``configclass``, which now comes from :mod:`instinctlab.utils.configclass` so that this
-module can be read without Isaac Sim on the path. ``tests/test_agent_cfg.py`` pins every field
-against main.
+module can be read without Isaac Sim on the path.
 
-It cannot go back under ``config/g1/agents/``: importing anything there runs ``config/g1/__init__``,
-which registers the Gym ids and imports the Isaac Lab env config, so an mjlab run would need Isaac
-Sim installed to read a learning rate. That package re-exports these classes for main's registration,
-so both paths name one class object rather than two copies that can drift.
+The hyperparameters are still checked against both references even though the env config no longer
+is. ``tests/test_agent_cfg.py`` reads main's copy of this file out of the branch itself, which needs
+nothing installed, and reads InstinctMJ's out of the ``agent.yaml`` its training run wrote -- better
+evidence than its source, since it is what the reference run actually trained with.
 """
 
 from instinctlab.utils.configclass import configclass

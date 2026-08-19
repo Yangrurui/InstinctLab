@@ -1,13 +1,13 @@
 """Where a task id resolves to a :class:`TaskSpec`, for every engine.
 
-Gym's registry cannot serve this purpose. Registering ``Instinct-Locomotion-Flat-G1-v0`` requires
+Gym's registry cannot serve this purpose. Registering ``Instinct-Parkour-Flat-G1-v0`` requires
 importing the Isaac Lab env config that the id points at, so the act of listing what tasks exist
 demands Isaac Sim -- which is exactly wrong for a task that is supposed to be engine-independent.
 
 So task ids live here, mapped to factories rather than to specs. A factory is imported only when
 its task is asked for, which keeps ``instinctlab.tasks.registry`` importable in a bare interpreter
-and keeps listing cheap. The Gym registrations under ``config/`` are untouched; they remain the
-entry point for main's Isaac-only training path.
+and keeps listing cheap. The Isaac-only tasks still register with Gym, in
+``register_legacy_isaac_tasks()``, which is where anything needing those ids has to ask for them.
 """
 
 from __future__ import annotations

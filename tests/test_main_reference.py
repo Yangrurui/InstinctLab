@@ -1,16 +1,22 @@
 """The files that are supposed to *be* main's are checked against main.
 
-Decision D3 makes ``G1FlatEnvCfg`` the single golden: the Isaac path is correct when it reproduces
-main, and ``tests/parity`` measures everything against a dump of it. That argument only holds while
-the file is actually main's, and nothing checked. It had carried twenty-two lines of local edits --
-spawn self-collision, rigid-body and solver settings, plus three scene flags -- since the backend
-cleanup in 4806241, so the golden was a dump of a modified main and every "matches main" result was
-measured against the wrong reference. Four separate audits read this file and none noticed, because
-reading it tells you nothing: it looks like a plausible env config either way.
+This repo is a branch of main and keeps most of its files verbatim -- the Isaac-only tasks, the
+wrappers, the managers. Editing one of them is allowed and sometimes necessary, but doing it
+silently is not: a reader who assumes a file is upstream's will reason about it wrongly, and the one
+time that happened it cost a whole verification apparatus. ``G1FlatEnvCfg`` was the golden every
+Isaac result was measured against, and it had carried twenty-two lines of local edits since 4806241,
+so "matches main" was measured against a modified main. Four separate audits read the file and none
+noticed, because reading it tells you nothing: it looks like a plausible env config either way.
 
 So the reference is consulted rather than remembered. Files listed as untouched must be byte-equal
 to main; files listed as edited must differ, so an entry whose edit was reverted upstream shows up
-instead of sitting here claiming a difference that no longer exists.
+instead of sitting here claiming a difference that no longer exists. And because the last failure
+was a file nobody had listed at all, ``test_no_edit_of_mains_goes_unrecorded`` asks git for the full
+set rather than trusting the tables to be complete.
+
+The locomotion entries are gone from both tables along with the files: that task's Isaac-only
+config, its Gym ids and its MDP package were deleted when D3 was retired, and the cross-engine
+declaration in ``config/flat_g1.py`` is now the only description of it.
 """
 
 from __future__ import annotations
@@ -23,24 +29,21 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 
 UNTOUCHED = (
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py",
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/__init__.py",
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/config/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/__init__.py",
-    "source/instinctlab/instinctlab/tasks/locomotion/mdp/rewards.py",
-    "source/instinctlab/instinctlab/tasks/locomotion/mdp/curriculums.py",
+    "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py",
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py",
+    "source/instinctlab/instinctlab/envs/manager_based_rl_env.py",
+    "source/instinctlab/instinctlab/managers/reward_manager.py",
 )
-"""Main's, verbatim. The golden is dumped from the first of these."""
+"""Main's, verbatim.
+
+The parkour and env entries are here because those are the largest of main's files this repo still
+runs unchanged, and the next adaptation will touch them. Listing them now means the first edit has
+to say why.
+"""
 
 EDITED = {
-    "source/instinctlab/instinctlab/tasks/locomotion/mdp/__init__.py": (
-        "star imports became a lazy __getattr__ with the same precedence, after the retired unified "
-        "stack shadowed feet_air_time_positive_biped with an incompatible signature"
-    ),
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
-        "re-exports flat_g1_ppo so reading a hyperparameter does not require Isaac Sim"
-    ),
     "source/instinctlab/instinctlab/assets/unitree_g1.py": (
         "actuator constants and spawn paths now come from unitree_g1_spec instead of being repeated"
     ),
@@ -82,6 +85,30 @@ EDITED = {
     "source/instinctlab/setup.py": "declares the new packages",
 }
 """Main's, with a deliberate edit. The text says which one."""
+
+REMOVED = {
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py": (
+        "D3 retired: this was the golden every Isaac result was measured against, and the "
+        "cross-engine declaration in config/flat_g1.py is now the only description of the task"
+    ),
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/__init__.py": (
+        "registered the two legacy Gym ids for a task that now has only a TaskSpec"
+    ),
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/__init__.py": (
+        "empty package of a deleted package"
+    ),
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
+        "became config/flat_g1_ppo.py, which no longer sits under a package that imports Isaac Lab"
+    ),
+    "source/instinctlab/instinctlab/tasks/locomotion/mdp/__init__.py": "only flat_env_cfg imported this package",
+    "source/instinctlab/instinctlab/tasks/locomotion/mdp/rewards.py": (
+        "the four terms it held are in instinctlab/mdp/, written to read quantities both engines have"
+    ),
+    "source/instinctlab/instinctlab/tasks/locomotion/mdp/curriculums.py": (
+        "terrain_levels_vel, which the flat task had commented out and nothing else called"
+    ),
+}
+"""Main's, and gone. Deleting upstream's work needs a louder reason than editing it."""
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -144,37 +171,29 @@ def test_no_edit_of_mains_goes_unrecorded(main_ref: str) -> None:
     assert not unrecorded, (
         f"these files of {main_ref}'s were modified without saying why:\n  "
         + "\n  ".join(sorted(unrecorded))
-        + "\n"
-        "Put each in EDITED with the reason, or revert it. Anything reachable from G1FlatEnvCfg or "
-        "the training loop also needs the golden re-dumped."
+        + "\nPut each in EDITED with the reason, or revert it."
     )
 
 
-def test_the_isaac_profile_randomises_friction_the_way_main_does() -> None:
-    """``PROFILE_DEFAULTS['friction_dr']`` restates main's event, so it can fall behind it.
+def test_no_deletion_of_mains_goes_unrecorded(main_ref: str) -> None:
+    """Removing upstream's file is the larger act, and it was the one the tables did not cover.
 
-    The ranges cannot come from the TaskSpec: the two engines randomise friction differently enough
-    that the spec states no range at all, and this profile is where Isaac's shape of it lives. That
-    makes it a second copy of four numbers main also writes, which is the arrangement that produced
-    the self-collision drift. ``check_parity`` would catch it, but only where Isaac Sim is installed.
+    ``--no-renames`` matters here. Git saw the agent config move to ``config/flat_g1_ppo.py`` as a
+    rename at 61% similarity, so it reported neither a deletion nor a modification: the file left
+    its original path without appearing in any of these lists.
     """
-    import ast
+    removed = _git("diff", main_ref, "--name-only", "--diff-filter=D", "--no-renames", "--", "source/", "scripts/")
+    assert removed.returncode == 0, removed.stderr
+    unrecorded = {path for path in removed.stdout.split() if path} - set(REMOVED)
+    assert not unrecorded, (
+        f"these files of {main_ref}'s were deleted without saying why:\n  "
+        + "\n  ".join(sorted(unrecorded))
+        + "\nPut each in REMOVED with the reason, or restore it."
+    )
 
-    from instinctlab.engines.isaacsim.scene import PROFILE_DEFAULTS
 
-    config = REPO / "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py"
-    for node in ast.walk(ast.parse(config.read_text())):
-        if not (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "physics_material"):
-            continue
-        params = next(k.value for k in node.value.keywords if k.arg == "params")  # type: ignore[union-attr]
-        declared = {
-            key.value: ast.literal_eval(value)
-            for key, value in zip(params.keys, params.values)  # type: ignore[union-attr]
-            if isinstance(key, ast.Constant) and key.value != "asset_cfg"
-        }
-        assert declared == dict(PROFILE_DEFAULTS["friction_dr"]), (
-            "the Isaac profile's friction randomisation no longer matches the one G1FlatEnvCfg "
-            f"declares: {PROFILE_DEFAULTS['friction_dr']} vs {declared}"
-        )
-        return
-    raise AssertionError("G1FlatEventsCfg no longer assigns physics_material; this check needs rewriting")
+def test_the_recorded_removals_are_still_removed(main_ref: str) -> None:
+    """An entry describing nothing is worse than no entry, because it reads as coverage."""
+    for path in sorted(REMOVED):
+        assert _git("cat-file", "-e", f"{main_ref}:{path}").returncode == 0, f"{path} was never on {main_ref}"
+        assert not (REPO / path).exists(), f"{path} is back; drop it from REMOVED"

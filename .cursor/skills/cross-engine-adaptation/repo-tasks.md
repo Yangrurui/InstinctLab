@@ -77,7 +77,7 @@ from .rewards import *  # noqa: F401, F403
 from .terminations import *  # noqa: F401, F403
 ```
 
-这与遮蔽了 main 奖励实现、导致 golden 从坏配置里 dump 出来的那个模式**完全同形**（[silent-failures.md](silent-failures.md) 第 5 条），而且仍然活着。星号导入急切绑定名字，**后导入的静默胜出**。
+这与遮蔽了 main 奖励实现、导致 golden 从坏配置里 dump 出来的那个模式**完全同形**（[silent-failures.md](silent-failures.md) 第 5 条），而且仍然活着。星号导入急切绑定名字，**后导入的静默胜出**。当初禁止 locomotion 那个包出现星号导入的静态守卫已随 D3 删除，**所以现在仓库里没有任何检查在防这件事**——适配 parkour 时要自己把守卫带回来。
 
 跨三层做 AST 统计（141 + 174 + 14 个顶层名），实测碰撞 **1 处**：
 
@@ -85,13 +85,13 @@ from .terminations import *  # noqa: F401, F403
 
 今天是良性的（默认行为确实一致），但：**做这次调查的 explore 子 agent 把 parkour 的 `dof_torques_l2` 标成了「来自 Isaac Lab / 星号导入」——它标错了。** 一个专门读这份代码的读者都无法从配置读出实际绑定的是哪一份，这正是危害本身。上游改一次实现、或有人调换两行 import 顺序，行为就会静默改变。
 
-**适配 parkour 时第一件事是把这个 `__init__.py` 改成惰性 `__getattr__` 查找**（`tasks/locomotion/mdp/__init__.py` 已是修好的样板），并重跑一次碰撞统计。碰撞统计脚本很短，值得在动任何 term 之前跑：对每一层的 `.py` 做 AST，收集模块级 `FunctionDef`/`ClassDef` 名，报出现在多于一层的名字。
+**适配 parkour 时第一件事是把这个 `__init__.py` 改成惰性 `__getattr__` 查找**，并重跑一次碰撞统计。（locomotion 那份修好的样板已随 D3 退役删除，可从 `git show main~..:` 一侧的历史里取；形状是：`__all__` 显式列名 + `__getattr__` 按固定优先级顺序在几个模块里依次查找，任何一个名字在多于一个模块里出现就报错而不是静默取第一个。）碰撞统计脚本很短，值得在动任何 term 之前跑：对每一层的 `.py` 做 AST，收集模块级 `FunctionDef`/`ClassDef` 名，报出现在多于一层的名字。
 
 ## 适配一个存量任务的顺序
 
 沿用迁移工作流，但第 1 步已经满足（它本来就跑在 Isaac 上），关键是**不要跳过固定 golden**：
 
-1. **在 Isaac 上按原样真的构造并 step 一次，记录 golden**，含回合长度曲线基线。存量任务最容易在这步翻车——它们已经「在跑」，于是没人验证配置当前是否还建得起来。main 的任务就曾在无人察觉的情况下完全构造不起来。
+1. **在 Isaac 上按原样真的构造并 step 一次，记录 golden**，含回合长度曲线基线。存量任务最容易在这步翻车——它们已经「在跑」，于是没人验证配置当前是否还建得起来。main 的任务就曾在无人察觉的情况下完全构造不起来。**建 golden 的同时写下它什么时候该拆**（[silent-failures.md](silent-failures.md) 第 15 条）：locomotion 那份在迁移完成后已连同白名单与两个脚本一并退役，parkour 这份也该有同样的退场时间。
 2. 先把该任务依赖的**子系统**摸清（对照上面的表），确认这次要抬哪一个、哪些先跳过。
 3. 清理星号导入链，重跑名字碰撞统计。
 4. `instinct-migrate analyze` 出分类报告；表达不了的构造必须报错并计入未转换清单。

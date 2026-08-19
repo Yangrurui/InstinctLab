@@ -26,10 +26,10 @@ __all__ = ["PROFILE_DEFAULTS", "build_scene"]
 PROFILE_DEFAULTS: Mapping[str, Any] = {
     # ``None`` means "leave whatever the robot asset declares". These four used to hold literal
     # copies of the G1's own numbers, described as matching main -- and one of them, self_collision,
-    # did not: main spawns the G1 with it off. The disagreement was settled the wrong way round, by
-    # editing G1FlatEnvCfg, the very file the golden is dumped from, to spawn with self-collision on
-    # so the parity check would agree with this table. Restating asset values here buys nothing and
-    # lets the two drift apart silently, so the asset is now the only place they are written.
+    # did not: main spawned the G1 with it off. The disagreement was settled the wrong way round, by
+    # editing the env config that the parity check measured everything against so it would agree
+    # with this table. Restating asset values here buys nothing and lets the two drift apart
+    # silently, so the asset is now the only place they are written.
     "self_collision": None,
     "solver_position_iterations": None,
     "solver_velocity_iterations": None,

@@ -46,7 +46,7 @@ description: 在 InstinctLab 做适配工作的操作顺序与验收方法——
 
 五步，顺序不能变（详见规则文件「迁移一个 Isaac Lab 项目」）：
 
-1. 先在**它原本的引擎**上按原样跑通，diff 为空，固定基线。这就是该项目的 golden——D3「main 是唯一 golden」是本仓库 locomotion 的特例，泛化形式是「该项目跑在它原本的引擎上」。
+1. 先在**它原本的引擎**上按原样跑通，diff 为空，固定基线。这就是该项目的 golden——泛化形式是「该项目跑在它原本的引擎上」。**建它的同时写下它什么时候该被拆掉**：golden 是迁移期脚手架，迁完之后它就退化成一份要跟着实现同步维护的副本，而副本失效的方式全是静默的。判据见 [silent-failures.md](silent-failures.md) 第 15 条。本仓库 locomotion 的那份（D3）已按此退役。
 2. `instinct-migrate analyze` 出逐项分类报告。
 3. codemod 改写机械部分（import 换 `instinctlab.mdp`、legacy 别名换显式帧名、math 换纯 torch、`sensor_cfg` 换 `SensorRef`）。
 4. 补 per-engine 条目（资产 / sim profile / 动作映射 / DR）。这步主要是 **per-robot** 而非 per-task，一个机器人补完一次后续任务近乎零成本。
@@ -54,7 +54,9 @@ description: 在 InstinctLab 做适配工作的操作顺序与验收方法——
 
 **第 1 步是最常被跳过、代价最高的一步。** 本仓库真实发生过：golden 是从一份根本无法实例化的配置里 dump 的，逐字段比对、静态不变量、白名单过期检查全部照常通过——一把连不上电的尺子，量什么都是准的。所以第 1 步的验收是「真的构造出来并 step 一次」，不是「配置能 import」。
 
-**同一把尺子还被弯折过一次，更难发现。** 编译器与 main 在 `self_collision` 上不一致，而这处差异是靠**把编译器的 spawn 覆盖复制进 `G1FlatEnvCfg`**（golden 的源文件）抹平的。此后对拍永远相等，代价是「≡ main」不再有内容、训练实际跑着与 main 不同的物理。规则：**对拍报差异时先判断哪边错，修参照必须因为参照本来就写错，不能因为改了参照能变绿**；并且凡声称「这个文件是 main 的」，就要有检查去问 main（`tests/test_main_reference.py`）。
+**同一把尺子还被弯折过一次，更难发现。** 编译器与 main 在 `self_collision` 上不一致，而这处差异是靠**把编译器的 spawn 覆盖复制进 `G1FlatEnvCfg`**（golden 的源文件）抹平的。此后对拍永远相等，代价是「≡ main」不再有内容。规则：**对拍报差异时先判断哪边错，修参照必须因为参照本来就写错，不能因为改了参照能变绿**；并且凡声称「这个文件是 main 的」，就要有检查去问 main（`tests/test_main_reference.py`，含删除侧——删掉参照的文件比改它更该有交代）。
+
+**选参照时优先选本仓库改不动的那种**：InstinctMJ 的配置不是依赖也不在本仓库，main 的文件可以用 `git show main:<path>` 现取现执行。改不动的参照弯折不了，而且不必留在工作区。
 
 frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单。**遇到单体 env 项目（HumanoidVerse / PBHC / IsaacGymEnvs 风格）明确报错**，要求先手工重构成 term 结构；禁止自动拆解单体 `compute_reward()`，那只会产出语义已漂移但看起来能跑的结果。
 
@@ -63,9 +65,9 @@ frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单。*
 改一处共享实现 = 同时改所有引擎的行为，所以最小验收固定为三项：
 
 ```bash
-python -m pytest tests/ -q                        # 静态与隔离：spec 不 import 引擎、无星号导入、白名单不过期
+python -m pytest tests/ -q                        # 静态与隔离：spec 不 import 引擎、参照文件仍等于 main
 python scripts/check_mjlab.py                     # mjlab ≡ InstinctMJ（读语法树，不需装引擎）
-python scripts/check_parity.py                    # isaacsim ≡ main（需 Isaac Sim）
+python scripts/probe_terms.py                     # 两引擎逐 term 比值（每个引擎各跑一次，见 verification.md）
 ```
 
 加了跨引擎间接层时额外问一句：**这次运行时解析，在原生实现里是不是初始化期就做完了？** 是的话这层必须自己缓存。没缓存的代价是环境慢十倍而所有数值断言照常通过——`ContactSensorRef` 元素解析就这样让 Isaac 侧从 56,339 掉到 5,699 step/s，GPU 全程空转。

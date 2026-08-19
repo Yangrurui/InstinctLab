@@ -1,19 +1,16 @@
 """Flat-ground G1 velocity tracking, declared once for every engine.
 
-This is main's ``G1FlatEnvCfg`` restated as a :class:`TaskSpec`, and the differences between the two
-files are the whole argument of the design. Nothing here imports an engine, names a joint index, or
-spells a native config class. ``scripts/check_parity.py`` compiles it for Isaac Sim and compares the
-result against main's config field by field; ``tests/test_parity_static.py`` checks the invariants
-that need the golden dump but not the engine.
+This began as a restatement of main's ``G1FlatEnvCfg`` and is now the only description of the task:
+that config, its Gym ids and its MDP package were deleted when D3 was retired, so there is no second
+copy to agree with and no golden dump to diff against. What the two engines produce from this file
+is compared to each other instead -- ``scripts/check_mjlab.py`` against InstinctMJ's own run,
+``scripts/probe_terms.py`` term by term across both -- and ``tests/test_flat_g1_declaration.py``
+holds the properties this file has to have on its own.
 
-Two descriptions of one task therefore live in this package, and which directory a file sits in says
-which is which. ``config/g1/`` is main's: the Isaac-only env config that ``check_parity`` treats as
-the golden, the Gym registrations, and the agent config re-export. This level is the cross-engine
-declaration that both backends compile. The split is not a matter of taste -- ``config/g1/__init__``
-imports Isaac Lab while registering its ids, so anything underneath it needs Isaac Sim on the path,
-and a declaration mjlab has to read cannot live there. ``tests/test_spec_isolation.py`` holds this
-level to that, since the two directories are one character apart and the failure would be an import
-error in an mjlab process rather than anything visible here.
+Nothing here imports an engine, names a joint index, or spells a native config class. That is what
+lets an mjlab process read it, and ``tests/test_spec_isolation.py`` imports it with both engines cut
+off to check, because Isaac Lab is installed wherever the tests run and an accidental dependency on
+it would otherwise surface only on a machine that has just the other engine.
 
 Three of main's rewards are declared by ``kind`` rather than by function, and the distinction is
 about how they are written rather than whether the task has them. Two of them, ``dof_acc_l2`` and

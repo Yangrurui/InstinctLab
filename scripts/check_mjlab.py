@@ -1,10 +1,10 @@
 """Compile the declared flat G1 task for mjlab and run it.
 
-The counterpart of ``check_parity.py``, and deliberately not the same kind of check. There is no
-mjlab golden in this repository: InstinctMJ is the reference implementation but not a dependency,
-so there is no config object to diff against field by field. What can be checked here is what
-actually matters for the claim -- that the same declaration compiles for a second engine without
-being touched, and that the result runs.
+There is no mjlab golden in this repository, and since D3 was retired there is no Isaac one either:
+InstinctMJ is a reference implementation but not a dependency, and main's env config was deleted
+along with the task it configured. So this is not a field-by-field diff against anything. What it
+checks is what actually matters for the claim -- that the one declaration compiles for a second
+engine without being touched, and that the result runs.
 
 The structural comparison against InstinctMJ's config is done by
 ``tests/test_mjlab_reference.py``, which reads its source rather than importing it.
@@ -46,7 +46,7 @@ def main() -> int:
         # back its own order and catches the task naming a different set of joints. It cannot catch
         # the catalog itself being wrong: reverse both and they still agree. That the catalog is the
         # depth-first walk of the URDF is asserted in tests/test_asset_parity.py, and that the task
-        # declares it in tests/test_parity_static.py.
+        # declares it in tests/test_flat_g1_declaration.py.
         names = list(env.action_manager.get_term("joint_pos").target_names)
         catalog = list(spec.robot.joint_names)
         print(f"action dimension: {env.action_manager.total_action_dim}")
