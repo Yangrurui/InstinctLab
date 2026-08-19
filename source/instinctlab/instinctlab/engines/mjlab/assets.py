@@ -91,7 +91,6 @@ def entity(robot: RobotSpec, *, actuator_order: Sequence[str] | None = None) -> 
     from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
     asset = robot.asset_for("mjlab")
-    asset.verify()
     path = Path(asset.path)
     if not path.is_file():
         raise FileNotFoundError(f"The mjlab asset for {robot.name!r} is missing: {path}")

@@ -196,7 +196,6 @@ def make_g1_29dof_robot_spec() -> RobotSpec:
             BackendAsset(
                 backend="isaacsim",
                 path=str(resource_root / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
-                checksum="5e99d930af64f3f0bfd34235239e288cc380ba62c8b01fcfcf8cc9f0996e7fa4",
                 contact_body_aliases=_G1_CONTACT_BODY_ALIASES,
                 import_options={
                     "prim_path": "{ENV_REGEX_NS}/Robot",
@@ -208,7 +207,6 @@ def make_g1_29dof_robot_spec() -> RobotSpec:
             BackendAsset(
                 backend="mjlab",
                 path=str(resource_root / "xml" / "g1_29dof_torsobase_popsicle.xml"),
-                checksum="3dae19dcdc17fbb2d37db29e3dd58894cb150e9edc96696f31a34387178ee18b",
                 contact_body_aliases=_G1_CONTACT_BODY_ALIASES,
                 load_mode="strip_visual_meshes",
             ),

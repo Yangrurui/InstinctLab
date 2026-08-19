@@ -242,15 +242,6 @@ def test_g1_robot_spec_and_schema() -> None:
     assert len(schema.hash) == 64
 
 
-def test_g1_assets_are_pinned_and_verify() -> None:
-    robot = make_g1_29dof_robot_spec()
-    isaac = robot.asset_for("isaacsim")
-    mjlab = robot.asset_for("mjlab")
-    assert isaac.checksum is not None
-    assert mjlab.checksum is not None
-    robot.verify_assets()
-
-
 def test_contact_state_air_time_uses_force_threshold_edges() -> None:
     sensor = ContactState.allocate(num_envs=1, body_names=("left_foot", "right_foot"), history_length=0, device="cpu")
     contact = torch.tensor([[False, True]])

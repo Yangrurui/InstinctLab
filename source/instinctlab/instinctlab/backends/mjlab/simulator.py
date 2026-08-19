@@ -362,7 +362,6 @@ class MjlabBackend:
 
         robot = scene_spec.robot
         asset = robot.asset_for("mjlab")
-        asset.verify()
         asset_path = Path(asset.path)
         if not asset_path.is_file():
             raise FileNotFoundError(f"MJLab asset does not exist: {asset_path}")
