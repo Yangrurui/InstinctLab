@@ -6,6 +6,15 @@ spells a native config class. ``scripts/check_parity.py`` compiles it for Isaac 
 result against main's config field by field; ``tests/test_parity_static.py`` checks the invariants
 that need the golden dump but not the engine.
 
+Two descriptions of one task therefore live in this package, and which directory a file sits in says
+which is which. ``config/g1/`` is main's: the Isaac-only env config that ``check_parity`` treats as
+the golden, the Gym registrations, and the agent config re-export. This level is the cross-engine
+declaration that both backends compile. The split is not a matter of taste -- ``config/g1/__init__``
+imports Isaac Lab while registering its ids, so anything underneath it needs Isaac Sim on the path,
+and a declaration mjlab has to read cannot live there. ``tests/test_spec_isolation.py`` holds this
+level to that, since the two directories are one character apart and the failure would be an import
+error in an mjlab process rather than anything visible here.
+
 Three of main's rewards are declared by ``kind`` rather than by function, and the distinction is
 about how they are written rather than whether the task has them. Two of them, ``dof_acc_l2`` and
 ``dof_torques_l2``, read quantities the two engines report differently enough that a single shared
@@ -288,6 +297,6 @@ def flat_g1() -> TaskSpec:
             },
             events=_events(),
         ),
-        agent=AgentSpec(runner="instinctlab.tasks.locomotion.flat_g1_ppo:G1FlatPPORunnerCfg"),
+        agent=AgentSpec(runner="instinctlab.tasks.locomotion.config.flat_g1_ppo:G1FlatPPORunnerCfg"),
         engines=("isaacsim", "mjlab"),
     )

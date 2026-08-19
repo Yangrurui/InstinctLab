@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.tasks.locomotion.flat_g1_ppo import G1FlatPPORunnerCfg
+from instinctlab.tasks.locomotion.config.flat_g1_ppo import G1FlatPPORunnerCfg
 from instinctlab.utils.configclass import class_to_dict
 
 MAIN_CFG = "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py"

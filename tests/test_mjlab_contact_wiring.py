@@ -46,7 +46,7 @@ def test_standing_on_the_ground_registers_as_contact() -> None:
     """
     from instinctlab.compat import sensors as compat_sensors
     from instinctlab.engines.mjlab.adapter import MjlabAdapter
-    from instinctlab.tasks.locomotion.flat_g1 import flat_g1
+    from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
 
     feet = ContactSensorRef(name="contact_forces", elements=".*_ankle_roll_link")
     compiled = MjlabAdapter().compile(flat_g1(), num_envs=16, device="cuda:0")

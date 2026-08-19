@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.tasks.locomotion.flat_g1 import flat_g1
+from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
 
 REPO = Path(__file__).resolve().parent.parent
 GOLDEN_FILE = REPO / "tests/parity/isaacsim.locomotion_flat.golden.json"
@@ -131,7 +131,7 @@ def test_the_task_declares_no_engine_specific_escape_hatch(task):
 
 def test_the_declaration_imports_no_engine():
     """Static check, because the runtime one would pass on a machine with neither engine."""
-    source = (REPO / "source/instinctlab/instinctlab/tasks/locomotion/flat_g1.py").read_text()
+    source = (REPO / "source/instinctlab/instinctlab/tasks/locomotion/config/flat_g1.py").read_text()
     tree = ast.parse(source)
     imported = set()
     for node in ast.walk(tree):

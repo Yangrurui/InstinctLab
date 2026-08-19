@@ -51,7 +51,7 @@
 | `envs/unified_manager_based_rl_env.py` | 246 | 删除，改用引擎原生 env |
 | `managers/unified.py` | 643 | 删除 |
 | `tasks/locomotion/mdp/unified.py` | 593 | 删除，可移植项在 `instinctlab/mdp/` |
-| `tasks/locomotion/unified_flat_env_cfg.py` | 439 | 删除，任务声明是 `tasks/locomotion/flat_g1.py` |
+| `tasks/locomotion/unified_flat_env_cfg.py` | 439 | 删除，任务声明是 `tasks/locomotion/config/flat_g1.py` |
 | `tasks/locomotion/commands.py` | 123 | 删除，仅服务上者 |
 | `rl/`（3 文件） | 204 | 删除，训练走 `utils/wrappers/instinct_rl/` |
 | `scripts/instinct_rl/{train,play}_unified.py` | 590 | 删除，入口是 `scripts/train.py` |
@@ -390,7 +390,7 @@ L0 测试编译 `TaskSpec` 后与 golden 逐字段比对，diff 必须为空或�
 注意可移植族用 **`func=` 函数引用**（写法与 Isaac Lab 原生 cfg 一致），per-engine 族用 **`kind=` 语义名**。
 
 ```python
-# instinctlab/tasks/locomotion/flat_g1.py — 无任何引擎 import
+# instinctlab/tasks/locomotion/config/flat_g1.py — 无任何引擎 import
 from instinctlab import mdp                     # 可移植 term 库
 
 LOCOMOTION_FLAT_G1 = TaskSpec(
@@ -463,7 +463,7 @@ LOCOMOTION_FLAT_G1 = TaskSpec(
 | P1 | **已完成**。`compat/`：署名词汇表 + denylist + 纯 torch math + `EntityRef` 下降 + 接触传感器读取 + `env` 访问器；`EntityView` 已撤销，见 §12.3.2 | 同一 term 函数在两引擎下读到语义一致的数据；denylist 误用报错；词汇表 / math / 选择器表 / 传感器轴序的每条断言由测试对着已安装引擎复核 |
 | P2 | **已完成**。`spec/`（`capability` / `entity` / `sensor` / `mdp` / `task`）+ `engines/`（`base` / `registry` / `compile`）+ 三级 Requirement；spec 与 engines 机件的 import 隔离测试 | 纯 python 环境可 import spec；mock adapter 端到端编译整个 MdpSpec，跳过 / emulate / strict 三条路径各有测试与变异检验 |
 | P3 | **已完成**（flat G1 部分）。`mdp/`：20 个可移植 term（observations / rewards / terminations）；清出 3 个**不可移植**项交给 per-engine 注册表，见 §12.4.1 | 属性可移植性由 AST 扫描对着 denylist / legacy 别名表 / 两引擎数据类静态把关；term 数值由构造输入的桩验证；变异检验覆盖 |
-| P4 | **已完成**。`engines/isaacsim/`（`terms` / `scene` / `assets` / `adapter`）+ `tasks/locomotion/flat_g1.py` 的引擎无关声明 | 当时 177 处 diff、0 处未解释；编译产物能构造并 step，观测维度与奖励项与 main 一致。当前数字见 §12.5 |
+| P4 | **已完成**。`engines/isaacsim/`（`terms` / `scene` / `assets` / `adapter`）+ `tasks/locomotion/config/flat_g1.py` 的引擎无关声明 | 当时 177 处 diff、0 处未解释；编译产物能构造并 step，观测维度与奖励项与 main 一致。当前数字见 §12.5 |
 | P5 | **已完成**。mjlab adapter：`assets` / `scene` / `events` / `rewards` / `terms` / `adapter`；从 InstinctMJ 移植 `reset_joints_by_scale` / `randomize_body_mass` / `contact_slide` | 同一 TaskSpec 编译通过并实际构造 step；与 InstinctMJ 的 AST 对拍一致；26 个 term 两引擎数值一致，见 §12.6 |
 | P6 | **已完成**。`scripts/train.py --engine` 收敛（`engines.ADAPTERS` + `tasks.registry` 双注册表、manifest 落盘、agent cfg 脱离 Isaac），见 §12.7；unified 栈已退役，删除清单见 §3 | 两引擎从同一入口、同一 task id 起训；isaacsim 4096 env 跑到 56k step/s，mjlab 5000 iter 收敛 |
 | P7 | `migrate/`：analyze + codemod；`mdp/` 补齐到 Isaac 83 核心 term | 拿一个真实开源 Isaac Lab 项目走完 §13 五步 |
@@ -679,7 +679,7 @@ per-engine 的四个族就是迁移的全部不可消除面。其中场景 / 资
 
 ### 12.5 P4 实测：flat G1 编译产物 vs main
 
-`tasks/locomotion/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**314 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，50 条），且编译产物能真实构造并 step——观测维度、16 个奖励项、命令与事件管理器全部正常。
+`tasks/locomotion/config/flat_g1.py` 把 main 的 `G1FlatEnvCfg` 重述成一份不含任何引擎 import 的 `TaskSpec`；`scripts/check_parity.py` 用 `engines/isaacsim/` 编译它，与 golden 逐字段比对。结果：**314 处差异，0 处未解释**（`tests/parity/isaacsim.locomotion_flat.whitelist.json`，50 条），且编译产物能真实构造并 step——观测维度、16 个奖励项、命令与事件管理器全部正常。
 
 > 两次数字变动都记在这里，因为「差异变多」本身需要有人解释。P5 期间三个奖励从「刻意缺席」改为「按引擎注册」，差异由 177 降到 134、白名单由 57 条降到 46 条（见 §12.6）。P6 修 D1 时差异反而涨到 314：把 5 个选择器（动作项 + policy/critic 各两个关节观测）从一个 `.*` 改成逐个列出 29 个关节名，逐字段比对自然多出 173 条**逐元素**差异。条数涨了，未解释数仍是 0，而这 173 条正是 D1 生效的证据。
 
@@ -750,7 +750,7 @@ mjlab 侧的参考实现是 InstinctMJ 的 `G1LocomotionFlatEnvCfg`。它没有�
 
 两个注册表都不 import 被注册的东西：`engines.ADAPTERS` 与 `tasks.registry.TASKS` 存的是点号路径。Gym 注册表做不到这件事——注册 `Instinct-Locomotion-Flat-G1-v0` 就要 import 它指向的 Isaac Lab env cfg，于是「列出有哪些任务」这个动作本身需要 Isaac Sim。
 
-**第一件被逼出来的事：D4 的耦合必须真的断掉，不能只是推迟。** 硬约束 25 原本写的是「`agent_cfg` 惰性解析，耦合待 D4 收尾时移除」。但 mjlab 训练要读 PPO 超参，惰性只是把失败推到第一次访问：`configclass` 住在 `isaaclab.utils`，而这个包的 `__init__` import `mesh` → `pxr`。于是「读一个学习率」需要 Isaac Sim 运行时在路径上。现在 `configclass` 按 `compat/math.py` 的先例整份 vendor 到 `instinctlab/utils/configclass.py`（BSD-3，`tests/test_configclass_vendor.py` 用 AST 逐函数对着上游钉住，另有一条在 Isaac Sim 下比对真实 agent 配置 `to_dict()` 的端到端断言）；agent 配置从 `config/g1/agents/` 移到 `tasks/locomotion/flat_g1_ppo.py`，脱离那条注册 Gym id 的 import 链，main 的旧路径改为 re-export，保证是**同一个类对象**而不是一份会漂移的副本。
+**第一件被逼出来的事：D4 的耦合必须真的断掉，不能只是推迟。** 硬约束 25 原本写的是「`agent_cfg` 惰性解析，耦合待 D4 收尾时移除」。但 mjlab 训练要读 PPO 超参，惰性只是把失败推到第一次访问：`configclass` 住在 `isaaclab.utils`，而这个包的 `__init__` import `mesh` → `pxr`。于是「读一个学习率」需要 Isaac Sim 运行时在路径上。现在 `configclass` 按 `compat/math.py` 的先例整份 vendor 到 `instinctlab/utils/configclass.py`（BSD-3，`tests/test_configclass_vendor.py` 用 AST 逐函数对着上游钉住，另有一条在 Isaac Sim 下比对真实 agent 配置 `to_dict()` 的端到端断言）；agent 配置从 `config/g1/agents/` 移到 `tasks/locomotion/config/flat_g1_ppo.py`，脱离那条注册 Gym id 的 import 链，main 的旧路径改为 re-export，保证是**同一个类对象**而不是一份会漂移的副本。
 
 **第二件：`ContactSensorRef` 的解析必须只做一次。** 首次 4096 env 训练时 Isaac 侧 16.6 秒/迭代、GPU 利用率 1%、CPU 满载——这个形状说明时间花在 Python 里而不是物理里。cProfile 定位到 `omni.physics.tensors` 的 `prim_paths`：21.6 秒里占 18.7 秒，来自 Isaac Lab 的 `ContactSensor.body_names`——它是个**每次访问都从 physics view 重建**的 property，4096 env 下单次约 70 毫秒。三个接触类 term 每次求值都重新解析自己的脚，于是每步付三遍。
 

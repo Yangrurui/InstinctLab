@@ -83,6 +83,48 @@ def test_spec_imports_with_engines_blocked() -> None:
         sys.modules.update(evicted)
 
 
+def test_the_task_declaration_loads_without_an_engine() -> None:
+    """The cross-engine declaration sits one directory above a package that needs Isaac Sim.
+
+    ``config/g1/__init__`` imports Isaac Lab while registering its Gym ids, so a declaration placed
+    under it would be unreadable in an mjlab process -- and readable everywhere the tests run, since
+    Isaac Lab is installed here. The failure would surface as an import error on a machine that has
+    only mjlab, which is the worst place to find out. So the import is done with both engines cut
+    off, the same way ``instinctlab.spec`` is checked above.
+    """
+
+    class _Blocker:
+        def find_module(self, name, path=None):
+            return self if name.split(".")[0] in _ENGINE_ROOTS else None
+
+        def load_module(self, name):  # pragma: no cover - only reached on regression
+            raise ImportError(f"the task declaration must not need {name}")
+
+    blocker = _Blocker()
+    reloaded = "instinctlab.tasks.locomotion.config"
+    evicted = {
+        name: module
+        for name, module in sys.modules.items()
+        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith(reloaded)
+    }
+    for name in evicted:
+        del sys.modules[name]
+    sys.meta_path.insert(0, blocker)
+    try:
+        declaration = importlib.import_module(f"{reloaded}.flat_g1")
+        agent = importlib.import_module(f"{reloaded}.flat_g1_ppo")
+        assert declaration.flat_g1().task_id == "Instinct-Velocity-Flat-G1"
+        assert agent.G1FlatPPORunnerCfg().max_iterations > 0
+
+        # The other side of the boundary, so that a blocker which quietly stopped blocking cannot
+        # make the half above pass. This is also the assertion that says where the line is.
+        with pytest.raises(ImportError):
+            importlib.import_module(f"{reloaded}.g1")
+    finally:
+        sys.meta_path.remove(blocker)
+        sys.modules.update(evicted)
+
+
 def _engine_machinery() -> list[pathlib.Path]:
     """The engine-free part of ``engines/``: its top-level modules, not the per-engine packages."""
     import instinctlab.engines

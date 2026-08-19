@@ -66,7 +66,7 @@ def main() -> int:
     AppLauncher(args)
 
     from instinctlab.engines.isaacsim import IsaacSimAdapter
-    from instinctlab.tasks.locomotion.flat_g1 import flat_g1
+    from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
     from instinctlab.verify.structure import compare, dump, report, unexplained, unused
 
     golden = json.loads(args.golden.read_text())

@@ -122,7 +122,7 @@ def main() -> int:
 
         AppLauncher({"headless": True, "enable_cameras": False})
 
-    from instinctlab.tasks.locomotion.flat_g1 import flat_g1
+    from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
 
     spec = flat_g1()
     if args.engine == "isaacsim":

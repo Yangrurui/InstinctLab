@@ -27,7 +27,7 @@ def main() -> int:
     args = parser.parse_args()
 
     from instinctlab.engines.mjlab import MjlabAdapter
-    from instinctlab.tasks.locomotion.flat_g1 import flat_g1
+    from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
 
     spec = flat_g1()
     compiled = MjlabAdapter().compile(spec, num_envs=args.num_envs, device=args.device)

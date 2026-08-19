@@ -65,7 +65,7 @@ def main() -> None:
 
     if args.which == "compiled":
         from instinctlab.engines.isaacsim import IsaacSimAdapter
-        from instinctlab.tasks.locomotion.flat_g1 import flat_g1
+        from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
 
         compiled = IsaacSimAdapter().compile(flat_g1(), num_envs=args.num_envs, device=args.device)
         env = compiled.make_env()
