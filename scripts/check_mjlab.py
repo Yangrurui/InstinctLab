@@ -41,10 +41,16 @@ def main() -> int:
         # Joint order is decision D1, and the action vector is where it becomes observable. The
         # robot's canonical depth-first order has to be what the action term drives, or a policy
         # trained on one engine drives the wrong joints on the other.
+        #
+        # What this compares is the running engine against the catalog, so it catches mjlab handing
+        # back its own order and catches the task naming a different set of joints. It cannot catch
+        # the catalog itself being wrong: reverse both and they still agree. That the catalog is the
+        # depth-first walk of the URDF is asserted in tests/test_asset_parity.py, and that the task
+        # declares it in tests/test_parity_static.py.
         names = list(env.action_manager.get_term("joint_pos").target_names)
         catalog = list(spec.robot.joint_names)
         print(f"action dimension: {env.action_manager.total_action_dim}")
-        print(f"action order matches the catalog's depth-first order: {names == catalog}")
+        print(f"the engine drives the catalog's joint order: {names == catalog}")
         if names != catalog:
             # Ends the script non-zero rather than printing and carrying on. This was a bare print
             # for a long time, which made the only runtime check of D1 on this engine incapable of

@@ -6,16 +6,23 @@ could be read without Isaac Sim, and a move is exactly when values go missing qu
 imports a hyperparameter by name, so a dropped one shows up as a slightly different learning curve
 weeks later.
 
-Two references, checked differently. Main's values are restated here as literals, because main's
-copy of this file no longer exists to compare against -- the path it lived at re-exports this
-module now, so a diff against it would compare the file with itself. InstinctMJ's are read from the
-``agent.yaml`` its own training run wrote, which is better evidence than its source: it is what the
-reference run actually trained with.
+Two references, checked differently. Main's are read out of ``main`` itself and compared whole:
+its copy of this file is still there, and building it here needs nothing but a substitute for the
+one Isaac Lab import it makes. InstinctMJ's are read from the ``agent.yaml`` its own training run
+wrote, which is better evidence than its source: it is what the reference run actually trained with.
+
+Main's values used to be transcribed into a table here, and the transcription was the flaw. A table
+can only be consulted in one direction -- every entry was looked up in the configuration and found
+to agree -- so a *new* field, one main never had, was invisible. Training would have quietly used a
+hyperparameter the reference does not, which is the failure this file exists to prevent.
 """
 
 from __future__ import annotations
 
 import glob
+import subprocess
+import sys
+import types
 import yaml
 from pathlib import Path
 
@@ -24,33 +31,8 @@ import pytest
 from instinctlab.tasks.locomotion.flat_g1_ppo import G1FlatPPORunnerCfg
 from instinctlab.utils.configclass import class_to_dict
 
-# Main's values, as of the commit that moved this configuration out of the Isaac-only package
-# (a6d2059). Restated rather than derived so that changing the configuration means changing this
-# file too, which is the point.
-MAIN = {
-    "policy.init_noise_std": 1.0,
-    "policy.actor_hidden_dims": [256, 128, 128],
-    "policy.critic_hidden_dims": [256, 128, 128],
-    "policy.activation": "elu",
-    "algorithm.class_name": "PPO",
-    "algorithm.value_loss_coef": 1.0,
-    "algorithm.use_clipped_value_loss": True,
-    "algorithm.clip_param": 0.2,
-    "algorithm.entropy_coef": 0.008,
-    "algorithm.num_learning_epochs": 5,
-    "algorithm.num_mini_batches": 4,
-    "algorithm.learning_rate": 1e-3,
-    "algorithm.schedule": "adaptive",
-    "algorithm.gamma": 0.99,
-    "algorithm.lam": 0.95,
-    "algorithm.desired_kl": 0.01,
-    "algorithm.max_grad_norm": 1.0,
-    "num_steps_per_env": 24,
-    "max_iterations": 5000,
-    "save_interval": 1000,
-    "log_interval": 10,
-    "experiment_name": "g1_locomotion_flat",
-}
+MAIN_CFG = "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py"
+REPO = Path(__file__).resolve().parents[1]
 
 REFERENCE_RUN = "/root/InstinctMJ/logs/instinct_rl/g1_locomotion_flat/*/params/agent.yaml"
 
@@ -70,15 +52,46 @@ def declared() -> dict:
     return _flatten(class_to_dict(G1FlatPPORunnerCfg()))
 
 
-def test_every_hyperparameter_is_mains(declared) -> None:
-    for key, value in MAIN.items():
-        assert declared[key] == value, key
+@pytest.fixture(scope="module")
+def mains() -> dict:
+    """Main's own runner configuration, built from the source on that branch.
+
+    The single Isaac Lab import is swapped for the vendored ``configclass``, which
+    ``tests/test_configclass_vendor.py`` pins against upstream function by function. Nothing else in
+    main's file touches a simulator, so this runs with no engine installed.
+    """
+    shown = subprocess.run(("git", "show", f"main:{MAIN_CFG}"), cwd=REPO, capture_output=True, text=True)
+    assert shown.returncode == 0, f"cannot read {MAIN_CFG} on main: {shown.stderr.strip()}"
+    source = shown.stdout.replace(
+        "from isaaclab.utils import configclass", "from instinctlab.utils.configclass import configclass"
+    )
+    assert "isaaclab" not in source, "main's configuration grew an Isaac Lab import that this cannot substitute"
+
+    # Registered in sys.modules because dataclasses resolves a field's annotations by looking its
+    # class's module back up there; an unregistered module makes that lookup return None.
+    name = "_mains_ppo_cfg"
+    module = types.ModuleType(name)
+    module.__dict__["__name__"] = name
+    sys.modules[name] = module
+    try:
+        exec(compile(source, f"main:{MAIN_CFG}", "exec"), module.__dict__)  # noqa: S102 - the reference, read-only
+        return _flatten(class_to_dict(module.G1FlatPPORunnerCfg()))
+    finally:
+        del sys.modules[name]
 
 
-def test_nothing_was_dropped_in_the_move(declared) -> None:
-    """A field main had that this no longer has would not fail above -- it would be absent."""
-    missing = [key for key in MAIN if key not in declared]
-    assert not missing, f"{missing} disappeared from the configuration"
+def test_the_configuration_is_mains_field_for_field(declared, mains) -> None:
+    """Both directions at once: a changed value, a dropped field and an added one all fail here."""
+    assert declared == mains, {
+        key: (mains.get(key, "<absent on main>"), declared.get(key, "<absent here>"))
+        for key in sorted(set(mains) | set(declared))
+        if mains.get(key, "<absent on main>") != declared.get(key, "<absent here>")
+    }
+
+
+def test_the_comparison_covers_the_whole_configuration(mains) -> None:
+    """A reference that came back empty would make the test above pass without comparing anything."""
+    assert len(mains) >= 30, f"main's configuration flattened to only {len(mains)} fields"
 
 
 def test_the_run_this_trains_matches_the_reference_run(declared) -> None:

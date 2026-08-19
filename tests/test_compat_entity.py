@@ -63,6 +63,10 @@ def test_every_engine_registers_its_selectors() -> None:
     """
     from instinctlab.engines import ADAPTERS
 
+    # Both being empty satisfies the equality below while leaving the same zero cases collected, so
+    # the count is asserted first. This project ships two engines and the parametrized tests are
+    # worth having only while there are engines to run them against.
+    assert len(ADAPTERS) >= 2, f"only {sorted(ADAPTERS)} adapters are known; the comparison below would be vacuous"
     assert set(selector_kinds()) == set(ADAPTERS), (
         f"registered engines {sorted(selector_kinds())} are not the known ones {sorted(ADAPTERS)}; "
         "an engine package registers its selectors when it is imported"

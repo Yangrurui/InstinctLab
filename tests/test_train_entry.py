@@ -182,15 +182,22 @@ def test_the_environment_is_given_a_seed(entry_source: str) -> None:
     seed does not fail or warn its way into a log -- it trains, and the randomised masses, frictions
     and pushes come from wherever the process's RNG happened to be, so the run cannot be repeated
     and two engines given the same declaration are not given the same episodes.
+
+    The value is checked, not just the presence of the assignment. Reading only the target passes on
+    ``compiled.env_cfg.seed = None``, which is the very state this is meant to rule out.
     """
     assignments = {
-        ast.unparse(node.targets[0])
+        ast.unparse(node.targets[0]): ast.unparse(node.value)
         for node in ast.walk(ast.parse(entry_source))
         if isinstance(node, ast.Assign) and node.targets and ast.unparse(node.targets[0]).endswith(".seed")
     }
     assert "compiled.env_cfg.seed" in assignments, (
         "the entry point never seeds the environment; main does this with env_cfg.seed = "
         "agent_cfg.seed and InstinctMJ with cfg.env.seed = seed"
+    )
+    assert assignments["compiled.env_cfg.seed"] == "agent_cfg.seed", (
+        f"the environment is seeded from {assignments['compiled.env_cfg.seed']}, not from the agent's seed; "
+        "the two must agree or --seed changes the policy's initialisation without changing the episodes"
     )
 
 
