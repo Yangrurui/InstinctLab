@@ -1,6 +1,6 @@
 ---
 description: 跨引擎训练架构与 InstinctLab 约束。评估/接入新仿真引擎、扩展 spec 或 engines 层、对比 HumanoidVerse/ProtoMotions/RoboVerse/Isaac Lab 3 时使用。权威设计见 CROSS_ENGINE_DESIGN.md。
-globs: source/instinctlab/instinctlab/spec/**/*.py, source/instinctlab/instinctlab/engines/**/*.py, source/instinctlab/instinctlab/frontends/**/*.py, source/instinctlab/instinctlab/compat/**/*.py, source/instinctlab/instinctlab/mdp/**/*.py, source/instinctlab/instinctlab/migrate/**/*.py, source/instinctlab/instinctlab/sim/**/*.py, source/instinctlab/instinctlab/backends/**/*.py, source/instinctlab/instinctlab/verify/**/*.py, scripts/instinct_rl/train*.py, scripts/instinct_rl/play*.py, CROSS_ENGINE_DESIGN.md, UNIFIED_ENGINE_PLAN.md, MULTI_ENGINE_TRAINING.md
+globs: source/instinctlab/instinctlab/spec/**/*.py, source/instinctlab/instinctlab/engines/**/*.py, source/instinctlab/instinctlab/frontends/**/*.py, source/instinctlab/instinctlab/compat/**/*.py, source/instinctlab/instinctlab/mdp/**/*.py, source/instinctlab/instinctlab/migrate/**/*.py, source/instinctlab/instinctlab/sim/**/*.py, source/instinctlab/instinctlab/backends/**/*.py, source/instinctlab/instinctlab/verify/**/*.py, source/instinctlab/instinctlab/play/**/*.py, scripts/train.py, scripts/play.py, scripts/instinct_rl/train*.py, scripts/instinct_rl/play*.py, CROSS_ENGINE_DESIGN.md, UNIFIED_ENGINE_PLAN.md, MULTI_ENGINE_TRAINING.md
 alwaysApply: false
 ---
 
@@ -28,7 +28,7 @@ alwaysApply: false
 - 原生栈：isaacsim → `isaaclab.ManagerBasedRLEnv`；mjlab → `mjlab.ManagerBasedRlEnv`
 - `verify/`：旧 `SimulatorBackend` 双实现降级至此，做 sim2sim 状态断言，**不在训练热路径**
 
-入口 **`scripts/train.py --engine isaacsim|mjlab --task <id>`**，已完成 ✅。引擎必须在任何 import 之前选定（`AppLauncher` 要先于 `isaaclab` 和 torch），所以先用只认 `--engine` 的 parser 选中适配器、由它补自己的开关、再 `bootstrap`。入口之后没有一处知道自己拿到哪个引擎。两个注册表都存点路径、不 import 被注册者：`engines.ADAPTERS`（`engines.adapter(name)`）与 `tasks.registry.TASKS`（`tasks.registry.spec(id)`）——Gym 注册表做不到，注册一个 id 就要 import 它指向的 Isaac env cfg。agent 配置在 `tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py`，引擎无关。`scripts/instinct_rl/train.py` 是 main 的 Isaac-only 旧入口，仍在。
+入口 **`scripts/train.py --engine isaacsim|mjlab --task <id>`**，已完成 ✅。回放是 **`scripts/play.py`**，同一套选引擎 / bootstrap 顺序；`--viewer viser` 由各 adapter 的 `play()` 实现——两边都走 mjlab 的 `ViserPlayViewer`（Isaac 没有 MuJoCo ``Simulation``，所以把它的 checkpoint 编到同一份 TaskSpec 的 mjlab env 上播，和训练时同一个界面）。两个注册表都存点路径、不 import 被注册者：`engines.ADAPTERS`（`engines.adapter(name)`）与 `tasks.registry.TASKS`（`tasks.registry.spec(id)`）——Gym 注册表做不到，注册一个 id 就要 import 它指向的 Isaac env cfg。agent 配置在 `tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py`，引擎无关。`scripts/instinct_rl/train.py` 是 main 的 Isaac-only 旧入口，仍在。
 
 **unified 栈已删除**（自研 env / managers / MDP / env cfg / `rl/` 包 / `*_unified.py` / `profile_backend.py` 及其测试）。`backends/` 与 `sim/` 契约层保留，服务 `tests/simulators/` 的 sim2sim 断言；它们需要的场景描述抽到了 `verify/scene.py::locomotion_flat_scene`，不再经过任何 MDP。
 

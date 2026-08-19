@@ -176,7 +176,10 @@ def _shared_layer() -> list[pathlib.Path]:
     paths = [p for package in ("spec", "mdp", "compat") for p in (root / package).rglob("*.py")]
     paths += [p for p in (root / "sim").glob("*.py")]
     paths.append(root / "assets" / "unitree_g1_spec.py")
-    return sorted([*paths, *_engine_machinery(), pathlib.Path(__file__).resolve().parents[1] / "scripts" / "train.py"])
+    play = root / "play"
+    paths += [p for p in play.rglob("*.py")] if play.is_dir() else []
+    scripts = pathlib.Path(__file__).resolve().parents[1] / "scripts"
+    return sorted([*paths, *_engine_machinery(), scripts / "train.py", scripts / "play.py"])
 
 
 def _engine_names() -> frozenset[str]:

@@ -23,7 +23,10 @@ import pytest
 import instinctlab.engines as engines
 import instinctlab.tasks.registry as registry
 
-_ENTRY = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "train.py"
+_SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
+_ENTRY = _SCRIPTS / "train.py"
+_PLAY = _SCRIPTS / "play.py"
+_LAUNCHERS = (_ENTRY, _PLAY)
 _ENGINE_ROOTS = frozenset({"isaaclab", "isaacsim", "mjlab", "omni", "pxr", "carb", "mujoco", "warp"})
 
 
@@ -32,34 +35,38 @@ def entry_source() -> str:
     return _ENTRY.read_text()
 
 
-def test_the_entry_point_exists(entry_source: str) -> None:
-    assert "def main(" in entry_source
+@pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
+def test_the_entry_point_exists(launcher: pathlib.Path) -> None:
+    assert "def main(" in launcher.read_text()
 
 
-def test_the_entry_point_imports_no_engine(entry_source: str) -> None:
+@pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
+def test_the_entry_point_imports_no_engine(launcher: pathlib.Path) -> None:
     """Including inside functions: an engine imported anywhere here runs before ``bootstrap``."""
     imported: set[str] = set()
-    for node in ast.walk(ast.parse(entry_source)):
+    for node in ast.walk(ast.parse(launcher.read_text())):
         if isinstance(node, ast.Import):
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             imported.add(node.module.split(".")[0])
     leaked = imported & _ENGINE_ROOTS
-    assert not leaked, f"train.py imports {sorted(leaked)}; the engine is chosen at runtime"
+    assert not leaked, f"{launcher.name} imports {sorted(leaked)}; the engine is chosen at runtime"
 
 
-def test_no_engine_is_named_in_the_entry_point(entry_source: str) -> None:
+@pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
+def test_no_engine_is_named_in_the_entry_point(launcher: pathlib.Path) -> None:
     """A string like ``"mjlab"`` here is a branch waiting to happen.
 
     The engine names appear once, in the registry the launcher reads, and the launcher's own text
     should not repeat them -- with the sole exception of the usage examples in its docstring, which
     are documentation rather than dispatch.
     """
-    tree = ast.parse(entry_source)
+    tree = ast.parse(launcher.read_text())
     docstrings = {
         id(node.body[0].value)
         for node in [tree, *ast.walk(tree)]
-        if getattr(node, "body", None)
+        if isinstance(getattr(node, "body", None), list)
+        and node.body
         and isinstance(node.body[0], ast.Expr)
         and isinstance(node.body[0].value, ast.Constant)
     }
@@ -69,7 +76,7 @@ def test_no_engine_is_named_in_the_entry_point(entry_source: str) -> None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
     }
     named = {name for name in engines.names() if any(name in text for text in literals)}
-    assert not named, f"train.py names {sorted(named)}; dispatch belongs in engines/ADAPTERS"
+    assert not named, f"{launcher.name} names {sorted(named)}; dispatch belongs in engines/ADAPTERS"
 
 
 def test_the_launcher_does_not_construct_the_environment_itself(entry_source: str) -> None:
@@ -89,7 +96,7 @@ def test_every_adapter_satisfies_the_protocol() -> None:
     for name in engines.names():
         adapter = engines.adapter(name)
         assert isinstance(adapter, engines.EngineAdapter)
-        for required in ("add_cli_args", "bootstrap", "compile", "wrap_for_rl", "capabilities"):
+        for required in ("add_cli_args", "bootstrap", "compile", "wrap_for_rl", "capabilities", "play"):
             assert callable(getattr(adapter, required, None)), f"{name} is missing {required}"
 
 
