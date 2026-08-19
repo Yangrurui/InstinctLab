@@ -29,7 +29,7 @@ from __future__ import annotations
 import math
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1_spec import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.isaacsim import make_g1_29dof_robot_spec
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,

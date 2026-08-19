@@ -23,7 +23,7 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import instinctlab.envs.mdp as instinct_mdp
 import instinctlab.tasks.parkour.mdp as mdp
 import instinctlab.terrains as terrain_gen
-from instinctlab.assets.unitree_g1 import beyondmimic_action_scale
+from instinctlab.assets.unitree_g1.isaacsim import beyondmimic_action_scale
 from instinctlab.managers import MultiRewardCfg
 from instinctlab.motion_reference import MotionReferenceManagerCfg
 from instinctlab.sensors import Grid3dPointsGeneratorCfg, NoisyGroupedRayCasterCameraCfg, VolumePointsCfg

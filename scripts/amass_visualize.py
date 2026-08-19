@@ -39,7 +39,7 @@ from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sim import SimulationContext
 from isaaclab.utils import Timer, configclass
 
-from instinctlab.assets.unitree_g1 import G1_29DOF_TORSOBASE_CFG
+from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_TORSOBASE_CFG
 from instinctlab.motion_reference import MotionReferenceManager
 from instinctlab.motion_reference.motion_files.amass_motion_cfg import AmassMotionCfg as AmassMotionCfgBase
 from instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg import motion_reference_cfg

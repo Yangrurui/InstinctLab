@@ -8,7 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.assets.unitree_g1_spec import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.isaacsim import (
+    G1_29DOF_DEFAULT_JOINT_POS,
+    G1_29DOF_DFS_JOINT_NAMES,
+    G1_29DOF_ISAAC_BFS_JOINT_NAMES,
+    g1_symmetric_joint_augmentation,
+    make_g1_29dof_robot_spec,
+)
 
 _RESOURCE_ROOT = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/resources/unitree_g1"
 _URDF_PATH = _RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"
@@ -129,6 +135,113 @@ def test_the_catalog_joint_order_is_the_depth_first_walk() -> None:
     assert list(robot.joint_names) == _urdf_depth_first_joints(_URDF_PATH)
 
 
+def test_the_default_pose_is_written_for_every_joint_in_catalog_order() -> None:
+    """A sparse dict that falls back to zero would make a forgotten hip look like a straight leg."""
+    assert tuple(G1_29DOF_DEFAULT_JOINT_POS) == G1_29DOF_DFS_JOINT_NAMES
+    robot = make_g1_29dof_robot_spec()
+    assert tuple(item.default_pos for item in robot.joint_properties) == tuple(G1_29DOF_DEFAULT_JOINT_POS.values())
+
+
+def test_isaac_bfs_is_the_same_joints_in_a_different_order() -> None:
+    """Otherwise a rename in one list and not the other would look like a remap."""
+    assert set(G1_29DOF_ISAAC_BFS_JOINT_NAMES) == set(G1_29DOF_DFS_JOINT_NAMES)
+    assert G1_29DOF_ISAAC_BFS_JOINT_NAMES != G1_29DOF_DFS_JOINT_NAMES
+
+
+def _mirrored_joint_name(name: str) -> str:
+    if name.startswith("left_"):
+        return "right_" + name[5:]
+    if name.startswith("right_"):
+        return "left_" + name[6:]
+    return name
+
+
+def test_symmetric_augmentation_follows_the_named_order() -> None:
+    """The leftover comment in unitree_g1.py was PhysX BFS; training is DFS.
+
+    Hardcoded indices against the wrong list swap the wrong joints and still look like a
+    valid permutation. Building the tables from names is what makes a reordering fail here
+    instead of in a training curve.
+    """
+    for names in (G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES):
+        mapping, reverse = g1_symmetric_joint_augmentation(names)
+        assert len(mapping) == len(names) == len(reverse)
+        for i, name in enumerate(names):
+            assert names[mapping[i]] == _mirrored_joint_name(name), name
+            assert reverse[i] == (-1 if "roll" in name or "yaw" in name else 1), name
+        twice = [mapping[j] for j in mapping]
+        assert twice == list(range(len(names)))
+
+
+def test_isaac_bfs_augmentation_matches_the_tables_main_shipped() -> None:
+    """Parkour still indexes PhysX BFS. A helper that disagrees with main's lists would
+    silently swap the wrong joints there, which is the failure this rewrite exists to stop.
+    """
+    mapping, reverse = g1_symmetric_joint_augmentation(G1_29DOF_ISAAC_BFS_JOINT_NAMES)
+    assert mapping == (
+        1,
+        0,
+        2,
+        4,
+        3,
+        5,
+        7,
+        6,
+        8,
+        10,
+        9,
+        12,
+        11,
+        14,
+        13,
+        16,
+        15,
+        18,
+        17,
+        20,
+        19,
+        22,
+        21,
+        24,
+        23,
+        26,
+        25,
+        28,
+        27,
+    )
+    assert reverse == (
+        1,
+        1,
+        1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        -1,
+    )
+
+
 def test_robot_spec_limits_match_urdf() -> None:
     _, urdf_joints = _parse_urdf(_URDF_PATH)
     robot = make_g1_29dof_robot_spec()
@@ -140,82 +253,30 @@ def test_robot_spec_limits_match_urdf() -> None:
         assert properties.velocity_limit == pytest.approx(velocity)
 
 
-def _beyondmimic_actuator_block() -> str:
-    text = (Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/unitree_g1.py").read_text()
-    start = text.index("beyondmimic_g1_29dof_actuators = {")
-    end = text.index("beyondmimic_g1_29dof_delayed_actuators")
-    return text[start:end]
+def test_beyondmimic_groups_cover_the_robot_spec() -> None:
+    """Isaac actuator tables are filled from ``RobotSpec``; every joint must have a group."""
+    from instinctlab.assets.unitree_g1.isaacsim import _BEYONDMIMIC_JOINT_GROUPS, _pattern_fields
 
-
-def _resolve_gain(token: str) -> float:
-    from instinctlab.assets import unitree_g1_spec as catalog
-
-    namespace = {
-        name: getattr(catalog, name)
-        for name in (
-            "ARMATURE_4010",
-            "ARMATURE_5020",
-            "ARMATURE_7520_14",
-            "ARMATURE_7520_22",
-            "DAMPING_4010",
-            "DAMPING_5020",
-            "DAMPING_7520_14",
-            "DAMPING_7520_22",
-            "STIFFNESS_4010",
-            "STIFFNESS_5020",
-            "STIFFNESS_7520_14",
-            "STIFFNESS_7520_22",
-        )
-    }
-    return float(eval(token, {"__builtins__": {}}, namespace))
-
-
-def test_beyondmimic_pd_gains_match_robot_spec() -> None:
     robot = make_g1_29dof_robot_spec()
-    block = _beyondmimic_actuator_block()
-    groups = re.split(r'\n    "[^"]+": ImplicitActuatorCfg\(', block)[1:]
-    expected: dict[str, dict[str, float]] = {}
-    for group in groups:
-        patterns = re.findall(r'"(?:\.\*)?[^"]+_joint"', group)
-        patterns = [pattern.strip('"') for pattern in patterns if "joint" in pattern]
-
-        def _field_map(name: str) -> dict[str, str]:
-            match = re.search(rf"{name}=(\{{.*?}}|[^\n,]+)", group, flags=re.S)
-            assert match is not None, name
-            raw = match.group(1).strip()
-            if raw.startswith("{"):
-                return dict(re.findall(r'"(.*?)":\s*([A-Za-z0-9_.*+\- ]+)', raw))
-            return {pattern: raw for pattern in patterns}
-
-        effort = _field_map("effort_limit_sim")
-        velocity = _field_map("velocity_limit_sim")
-        stiffness = _field_map("stiffness")
-        damping = _field_map("damping")
-        armature = _field_map("armature")
+    covered: set[str] = set()
+    for patterns in _BEYONDMIMIC_JOINT_GROUPS.values():
+        fields = _pattern_fields(patterns)
         for pattern in patterns:
-            if pattern not in effort:
-                continue
-            for name in robot.joint_names:
-                if re.fullmatch(pattern, name) is None:
-                    continue
-                kp = _resolve_gain(stiffness[pattern])
-                expected[name] = {
-                    "stiffness": kp,
-                    "damping": _resolve_gain(damping[pattern]),
-                    "armature": _resolve_gain(armature[pattern]),
-                    "effort_limit": _resolve_gain(effort[pattern]),
-                    "velocity_limit": _resolve_gain(velocity[pattern]),
-                    "action_scale": 0.25 * _resolve_gain(effort[pattern]) / kp,
-                }
-    assert set(expected) == set(robot.joint_names)
-    for properties in robot.joint_properties:
-        for field, value in expected[properties.name].items():
-            assert getattr(properties, field) == pytest.approx(value), f"{properties.name}.{field}"
+            matched = [joint for joint in robot.joint_properties if re.fullmatch(pattern, joint.name)]
+            assert matched, pattern
+            for joint in matched:
+                covered.add(joint.name)
+                assert fields["stiffness"][pattern] == pytest.approx(joint.stiffness)
+                assert fields["damping"][pattern] == pytest.approx(joint.damping)
+                assert fields["armature"][pattern] == pytest.approx(joint.armature)
+                assert fields["effort_limit_sim"][pattern] == pytest.approx(joint.effort_limit)
+                assert fields["velocity_limit_sim"][pattern] == pytest.approx(joint.velocity_limit)
+    assert covered == set(robot.joint_names)
 
 
 # --- the sim2sim scene restates the Isaac spawn, so the restatement has to be checked -------------
 
-_ASSETS = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/unitree_g1.py"
+_ASSETS = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/unitree_g1/isaacsim.py"
 
 
 def _popsicle_spawn() -> dict[str, object]:
@@ -227,7 +288,7 @@ def _popsicle_spawn() -> dict[str, object]:
     import ast
 
     tree = ast.parse(_ASSETS.read_text())
-    for node in tree.body:
+    for node in ast.walk(tree):
         targets = getattr(node, "targets", [])
         if not (targets and isinstance(targets[0], ast.Name) and targets[0].id == "G1_29DOF_TORSOBASE_POPSICLE_CFG"):
             continue
@@ -245,7 +306,7 @@ def _popsicle_spawn() -> dict[str, object]:
                     if isinstance(inner.value, ast.Constant)
                 }
         return collected
-    raise AssertionError("G1_29DOF_TORSOBASE_POPSICLE_CFG is no longer a module-level assignment")
+    raise AssertionError("G1_29DOF_TORSOBASE_POPSICLE_CFG is no longer assigned")
 
 
 def test_the_verification_scene_spawns_the_robot_the_task_trains() -> None:
@@ -278,12 +339,7 @@ def test_the_verification_scene_spawns_the_robot_the_task_trains() -> None:
 
 
 def test_the_isaac_config_starts_the_robot_where_the_catalog_says() -> None:
-    """The POPSICLE config writes its own ``joint_pos`` dict; the catalog derives the same numbers.
-
-    Two spellings of one pose. The config is main's and states patterns, the catalog resolves per
-    joint, so neither can simply read the other -- which is what makes this the arrangement rule 38
-    warns about, and why it needs a check rather than a convention.
-    """
+    """The POPSICLE config must take the catalog pose, not restate the numbers."""
     import ast
 
     for node in ast.walk(ast.parse(_ASSETS.read_text())):
@@ -293,27 +349,8 @@ def test_the_isaac_config_starts_the_robot_where_the_catalog_says() -> None:
             continue
         init = next(k.value for k in node.value.keywords if k.arg == "init_state")  # type: ignore[union-attr]
         stated = next(k.value for k in init.keywords if k.arg == "joint_pos")  # type: ignore[union-attr]
-        patterns = {
-            key.value: ast.literal_eval(value)
-            for key, value in zip(stated.keys, stated.values)  # type: ignore[union-attr]
-        }
+        assert isinstance(stated, ast.Call) and getattr(stated.func, "id", None) == "dict"
+        assert getattr(stated.args[0], "id", None) == "G1_29DOF_DEFAULT_JOINT_POS"
         break
     else:
         raise AssertionError("G1_29DOF_TORSOBASE_POPSICLE_CFG no longer states init_state.joint_pos")
-
-    robot = make_g1_29dof_robot_spec()
-    posed = 0
-    for properties in robot.joint_properties:
-        matched = [value for pattern, value in patterns.items() if re.fullmatch(pattern, properties.name)]
-        assert len(matched) <= 1, f"{properties.name} matches {len(matched)} patterns; the pose is ambiguous"
-        expected = matched[0] if matched else 0.0
-        posed += expected != 0.0
-        assert properties.default_pos == pytest.approx(expected), (
-            f"{properties.name} starts at {expected} in G1_29DOF_TORSOBASE_POPSICLE_CFG but at "
-            f"{properties.default_pos} in the catalog, so the two engines start from different poses"
-        )
-
-    # Without this the check is one a broken regex would pass: every joint would fall through to
-    # zero on both sides and compare equal, and a robot that stands with straight legs is exactly
-    # what the pose exists to prevent.
-    assert posed == 12, f"{posed} joints were matched by a pattern, not 12; the pose is not being compared"

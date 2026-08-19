@@ -23,7 +23,7 @@ import instinctlab.tasks.shadowing.whole_body.shadowing_env_cfg as shadowing_cfg
 ##
 # Pre-defined configs
 ##
-from instinctlab.assets.unitree_g1 import (
+from instinctlab.assets.unitree_g1.isaacsim import (
     G1_29DOF_TORSOBASE_POPSICLE_CFG,
     G1_29Dof_TorsoBase_symmetric_augmentation_joint_mapping,
     G1_29Dof_TorsoBase_symmetric_augmentation_joint_reverse_buf,

@@ -16,7 +16,7 @@ import pytorch_kinematics as pk
 
 import isaaclab.utils.math as math_utils
 
-from instinctlab.assets.unitree_g1 import G1_29DOF_TORSOBASE_CFG
+from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_TORSOBASE_CFG
 from instinctlab.utils.humanoid_ik import HumanoidSmplRotationalIK
 
 LINK_OF_INTERESTS = [

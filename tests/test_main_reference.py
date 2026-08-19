@@ -32,23 +32,25 @@ UNTOUCHED = (
     "source/instinctlab/instinctlab/tasks/locomotion/config/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/__init__.py",
-    "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py",
     "source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py",
     "source/instinctlab/instinctlab/envs/manager_based_rl_env.py",
     "source/instinctlab/instinctlab/managers/reward_manager.py",
 )
 """Main's, verbatim.
 
-The parkour and env entries are here because those are the largest of main's files this repo still
-runs unchanged, and the next adaptation will touch them. Listing them now means the first edit has
-to say why.
+The parkour rewards and env entries are here because those are the largest of main's files this
+repo still runs unchanged, and the next adaptation will touch them. Listing them now means the
+first edit has to say why.
 """
 
 EDITED = {
-    "source/instinctlab/instinctlab/assets/unitree_g1.py": (
-        "actuator constants and spawn paths now come from unitree_g1_spec instead of being repeated"
+    "source/instinctlab/instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py": (
+        "imports ArticulationCfg from assets.unitree_g1.isaacsim; keeps PhysX BFS remaps"
     ),
-    "source/instinctlab/instinctlab/assets/__init__.py": "names the two G1 modules",
+    "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py": (
+        "imports beyondmimic_action_scale from assets.unitree_g1.isaacsim"
+    ),
+    "source/instinctlab/instinctlab/assets/__init__.py": "each robot is a package; G1 numbers live in isaacsim.py",
     # The training path, which the parity argument covers just as much as the env config does.
     "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/vecenv_wrapper.py": (
         "num_rewards falls back to 1, because a task whose rewards are one flat container runs on a "
@@ -93,10 +95,28 @@ EDITED = {
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
         "same hyperparameters; configclass is vendored so reading them does not start Isaac Sim"
     ),
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/beyondmimic_plane_cfg.py": (
+        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_shadowing_cfg.py": (
+        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_vae_cfg.py": (
+        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/perceptive_shadowing_cfg.py": (
+        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py": (
+        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+    ),
 }
 """Main's, with a deliberate edit. The text says which one."""
 
 REMOVED = {
+    "source/instinctlab/instinctlab/assets/unitree_g1.py": (
+        "became the unitree_g1 package: numbers and RobotSpec in isaacsim.py"
+    ),
     "source/instinctlab/instinctlab/tasks/locomotion/mdp/__init__.py": "only flat_env_cfg imported this package",
     "source/instinctlab/instinctlab/tasks/locomotion/mdp/rewards.py": (
         "the four terms it held are in instinctlab/mdp/, written to read quantities both engines have"

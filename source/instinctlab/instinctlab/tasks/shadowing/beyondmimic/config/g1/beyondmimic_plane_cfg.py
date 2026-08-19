@@ -12,7 +12,7 @@ import instinctlab.tasks.shadowing.beyondmimic.beyondmimic_env_cfg as beyondmimi
 ##
 # Pre-defined configs
 ##
-from instinctlab.assets.unitree_g1 import (
+from instinctlab.assets.unitree_g1.isaacsim import (
     G1_29DOF_TORSOBASE_POPSICLE_CFG,
     beyondmimic_action_scale,
     beyondmimic_g1_29dof_actuators,

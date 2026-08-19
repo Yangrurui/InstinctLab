@@ -20,7 +20,7 @@ from instinctlab.sim.robot_spec import RobotSpec
 __all__ = ["ARTICULATIONS", "articulation"]
 
 ARTICULATIONS: dict[str, str] = {
-    "popsicle_torsobase_v1": "instinctlab.assets.unitree_g1:G1_29DOF_TORSOBASE_POPSICLE_CFG",
+    "popsicle_torsobase_v1": "instinctlab.assets.unitree_g1.isaacsim:G1_29DOF_TORSOBASE_POPSICLE_CFG",
 }
 """:attr:`RobotSpec.asset_id` -> dotted path of the ``ArticulationCfg`` describing it."""
 

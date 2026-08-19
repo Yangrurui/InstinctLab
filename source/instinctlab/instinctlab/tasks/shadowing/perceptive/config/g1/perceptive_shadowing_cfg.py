@@ -9,7 +9,7 @@ from isaaclab.utils import configclass
 import instinctlab.envs.mdp as instinct_mdp
 import instinctlab.tasks.shadowing.mdp as shadowing_mdp
 import instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg as perceptual_cfg
-from instinctlab.assets.unitree_g1 import (
+from instinctlab.assets.unitree_g1.isaacsim import (
     G1_29DOF_LINKS,
     G1_29DOF_TORSOBASE_POPSICLE_CFG,
     beyondmimic_action_scale,

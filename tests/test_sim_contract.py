@@ -5,7 +5,11 @@ from dataclasses import replace
 
 import pytest
 
-from instinctlab.assets.unitree_g1_spec import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.isaacsim import (
+    G1_29DOF_DFS_JOINT_NAMES,
+    G1_29DOF_ISAAC_BFS_JOINT_NAMES,
+    make_g1_29dof_robot_spec,
+)
 from instinctlab.backends.mock import MockSimulatorBackend
 from instinctlab.sim.backend import CanonicalIndexMap, RuntimeRequirements, SensorReadPhase
 from instinctlab.sim.capabilities import BATCHED_SIMULATION, CONTACT_ACTIVE, JOINT_STATE, ROOT_STATE
@@ -16,41 +20,9 @@ from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec
 from instinctlab.sim.schema import locomotion_flat_schema
 from instinctlab.sim.state import ContactState
 
-ISAAC_BFS_JOINT_NAMES = (
-    "left_shoulder_pitch_joint",
-    "right_shoulder_pitch_joint",
-    "waist_pitch_joint",
-    "left_shoulder_roll_joint",
-    "right_shoulder_roll_joint",
-    "waist_roll_joint",
-    "left_shoulder_yaw_joint",
-    "right_shoulder_yaw_joint",
-    "waist_yaw_joint",
-    "left_elbow_joint",
-    "right_elbow_joint",
-    "left_hip_pitch_joint",
-    "right_hip_pitch_joint",
-    "left_wrist_roll_joint",
-    "right_wrist_roll_joint",
-    "left_hip_roll_joint",
-    "right_hip_roll_joint",
-    "left_wrist_pitch_joint",
-    "right_wrist_pitch_joint",
-    "left_hip_yaw_joint",
-    "right_hip_yaw_joint",
-    "left_wrist_yaw_joint",
-    "right_wrist_yaw_joint",
-    "left_knee_joint",
-    "right_knee_joint",
-    "left_ankle_pitch_joint",
-    "right_ankle_pitch_joint",
-    "left_ankle_roll_joint",
-    "right_ankle_roll_joint",
-)
-
 
 def test_canonical_index_map_round_trip() -> None:
-    mapping = CanonicalIndexMap.build(G1_29DOF_DFS_JOINT_NAMES, ISAAC_BFS_JOINT_NAMES, device="cpu")
+    mapping = CanonicalIndexMap.build(G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES, device="cpu")
     assert not mapping.is_identity
     native = torch.arange(29, dtype=torch.float32).repeat(2, 1)
     canonical = mapping.to_canonical(native)
@@ -69,7 +41,7 @@ def test_canonical_index_map_identity_avoids_reordering() -> None:
 
 
 def test_canonical_index_map_copy_to_canonical_is_in_place() -> None:
-    mapping = CanonicalIndexMap.build(G1_29DOF_DFS_JOINT_NAMES, ISAAC_BFS_JOINT_NAMES, device="cpu")
+    mapping = CanonicalIndexMap.build(G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES, device="cpu")
     native = torch.arange(29, dtype=torch.float32).repeat(2, 1)
     out = torch.zeros_like(native)
     mapping.copy_to_canonical(native, out)

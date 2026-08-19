@@ -5,11 +5,11 @@ from isaaclab.envs import ViewerCfg
 from isaaclab.utils import configclass
 
 import instinctlab.tasks.parkour.mdp as mdp
-from instinctlab.assets.unitree_g1 import (
+from instinctlab.assets.unitree_g1.isaacsim import (
     G1_29DOF_LINKS,
     G1_29DOF_TORSOBASE_POPSICLE_CFG,
-    G1_29Dof_TorsoBase_symmetric_augmentation_joint_mapping,
-    G1_29Dof_TorsoBase_symmetric_augmentation_joint_reverse_buf,
+    G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_mapping,
+    G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_reverse_buf,
     beyondmimic_g1_29dof_actuators,
     beyondmimic_g1_29dof_delayed_actuators,
 )
@@ -47,8 +47,8 @@ motion_reference_cfg = MotionReferenceManagerCfg(
     robot_model_path=G1_CFG.spawn.asset_path,
     reference_prim_path="/World/envs/env_.*/RobotReference/torso_link",
     symmetric_augmentation_link_mapping=[0, 1, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12],
-    symmetric_augmentation_joint_mapping=G1_29Dof_TorsoBase_symmetric_augmentation_joint_mapping,
-    symmetric_augmentation_joint_reverse_buf=G1_29Dof_TorsoBase_symmetric_augmentation_joint_reverse_buf,
+    symmetric_augmentation_joint_mapping=G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_mapping,
+    symmetric_augmentation_joint_reverse_buf=G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_reverse_buf,
     frame_interval_s=0.02,
     update_period=0.02,
     num_frames=10,

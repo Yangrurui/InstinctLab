@@ -411,7 +411,7 @@ from instinctlab import mdp                     # 可移植 term 库
 
 LOCOMOTION_FLAT_G1 = TaskSpec(
     task_id="Instinct-Velocity-Flat-G1",
-    robot=make_g1_29dof_robot_spec(),        # instinctlab.assets.unitree_g1_spec
+    robot=make_g1_29dof_robot_spec(),        # instinctlab.assets.unitree_g1.isaacsim
     engines=("isaacsim", "mjlab"),
     sim=SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0),
     mdp=MdpSpec(
