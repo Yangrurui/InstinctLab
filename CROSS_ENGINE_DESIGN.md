@@ -51,7 +51,7 @@
 | `envs/unified_manager_based_rl_env.py` | 246 | 删除，改用引擎原生 env |
 | `managers/unified.py` | 643 | 删除 |
 | `tasks/locomotion/mdp/unified.py` | 593 | 删除，可移植项在 `instinctlab/mdp/` |
-| `tasks/locomotion/unified_flat_env_cfg.py` | 439 | 删除，任务声明是 `tasks/locomotion/flat_g1.py`（119 行） |
+| `tasks/locomotion/unified_flat_env_cfg.py` | 439 | 删除，任务声明是 `tasks/locomotion/flat_g1.py` |
 | `tasks/locomotion/commands.py` | 123 | 删除，仅服务上者 |
 | `rl/`（3 文件） | 204 | 删除，训练走 `utils/wrappers/instinct_rl/` |
 | `scripts/instinct_rl/{train,play}_unified.py` | 590 | 删除，入口是 `scripts/train.py` |
@@ -97,7 +97,7 @@
 依赖只能向下。
 
 ```
-scripts/train.py  --engine isaacsim|mjlab  --task Instinct-Locomotion-Flat-G1-v0
+scripts/train.py  --engine isaacsim|mjlab  --task Instinct-Velocity-Flat-G1
         │  先按 --engine 选 adapter，adapter.bootstrap()（Isaac 的 AppLauncher 早于 import torch）
         ▼
 instinctlab/spec/            引擎无关声明层（禁止任何引擎 import）
@@ -115,7 +115,7 @@ instinctlab/engines/<name>/  只承载真正需要两份实现的族：
         ▼
 instinct_rl OnPolicyRunner（两侧已是同一 VecEnv 契约，无需改动）
 
-instinctlab/migrate/         迁移工具：analyze（AST 分类报告）+ codemod（确定性改写）
+instinctlab/migrate/         【尚未存在，P7】迁移工具：analyze（AST 分类报告）+ codemod（确定性改写）
 instinctlab/verify/          可选，非热路径：跨引擎状态导出与 sim2sim 断言
 ```
 
@@ -369,22 +369,16 @@ def compile_family(family: str, specs: Mapping[str, TermSpec], ctx: CompileCtx, 
 
 ## 8. 差异白名单
 
-`tests/parity/isaacsim.locomotion_flat.allow.yaml`：
+`tests/parity/isaacsim.locomotion_flat.whitelist.json`，实际落地的是 JSON、按点号路径做键，当前 50 条。形如：
 
-```yaml
-- path: actions.joint_pos.joint_names
-  reason: D1 统一为 DFS 顺序；main 使用 [".*"]（PhysX BFS）
-- path: actions.joint_pos.preserve_order
-  reason: D1 同上
-- path: observations.policy.joint_pos.params.asset_cfg.joint_names
-  reason: D1 同上
-- path: observations.critic.base_lin_vel.func
-  reason: >
-    可移植 term 读 root_link_lin_vel_b，main 读 root_lin_vel_b（= root_com_lin_vel_b 的 legacy 别名）。
-    二者差 ω × R(−com_pos_b)；中枢取 link 量因为它是两引擎都能表达的那个。critic 专用，不入部署策略。
-- path: rewards.track_lin_vel_xy_exp.func
-  reason: >
-    同上，读 root_link_lin_vel_w 而非 COM 别名。这一项会影响策略，不同于 critic 观测，需要在 review 中被明确看到。
+```json
+{
+  "actions.joint_pos.joint_names": "D1 统一为 DFS 顺序；main 使用 [\".*\"]（PhysX BFS）",
+  "actions.joint_pos.preserve_order": "D1 同上",
+  "observations.policy.joint_pos.params.asset_cfg.joint_names": "D1 同上",
+  "observations.critic.base_lin_vel.func": "可移植 term 读 root_link_lin_vel_b，main 读 root_lin_vel_b（= root_com_lin_vel_b 的 legacy 别名）。二者差 ω × R(−com_pos_b)；中枢取 link 量因为它是两引擎都能表达的那个。critic 专用，不入部署策略。",
+  "rewards.track_lin_vel_xy_exp.func": "同上，读 root_link_lin_vel_w 而非 COM 别名。这一项会影响策略，不同于 critic 观测，需要在 review 中被明确看到。"
+}
 ```
 
 L0 测试编译 `TaskSpec` 后与 golden 逐字段比对，diff 必须为空或全部命中白名单。**新增白名单条目必须写 reason 并在 review 中被看到**——这是防止偏差悄悄累积的唯一闸门。
@@ -400,7 +394,7 @@ L0 测试编译 `TaskSpec` 后与 golden 逐字段比对，diff 必须为空或�
 from instinctlab import mdp                     # 可移植 term 库
 
 LOCOMOTION_FLAT_G1 = TaskSpec(
-    task_id="Instinct-Locomotion-Flat-G1-v0",
+    task_id="Instinct-Velocity-Flat-G1",
     robot=make_g1_29dof_robot_spec(),        # instinctlab.assets.unitree_g1_spec
     engines=("isaacsim", "mjlab"),
     sim=SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0),
@@ -554,7 +548,7 @@ spec/sensor.py      ContactSensorRef：声明「测什么」，由 backend 决�
 
 `vocab.py` / `denylist.py` 的每条断言都由 `tests/test_compat_vocab.py` 对着**已安装的引擎**复核，不依赖任何引擎运行时：mjlab 的 `EntityData` 可独立 import，Isaac 的 `ArticulationData` 用 `ast` 读源码（`import isaaclab.assets` 会拉起 `omni`）。写这些测试时纠正了本节此前的三处说法，见下。
 
-**denylist：6 个同名不同义的语义陷阱**，误用必须报错，不得默认放行：
+**denylist：7 个同名不同义的语义陷阱**，误用必须报错，不得默认放行：
 
 | 陷阱 | isaacsim | mjlab |
 |---|---|---|
@@ -564,6 +558,7 @@ spec/sensor.py      ContactSensorRef：声明「测什么」，由 backend 决�
 | `body_link_lin_vel_w`（非根 body） | per-body COM 偏移换算 | 用 root 的 `subtree_com` |
 | 重力向量 | `GRAVITY_VEC_W`（**大写**），从 live sim 重力归一化，跟随任务改重力 | `gravity_vec_w`（小写），entity 构建期硬编码 `[0,0,-1]` |
 | 接触力 | `net_forces_w`，世界系，**仅法向** | 无同名属性。最接近的 `force` 是完整三维接触力，默认在**接触系** |
+| `write_root_state_to_sim` 速度行 | 写的是 COM 速度 | 写的是 link 速度。同样十三个数写进去，两个机器人落在不同状态（本任务的 G1 实测差到 0.85 m/s），此后每个读速度的 term 都对不上。要用两侧都有的 frame-qualified 写入口 |
 
 三处修正（均由测试实证）：
 
@@ -931,7 +926,7 @@ frontend 与 backend 相互独立：一个引擎可以只有 backend（能作为
 
 | 轨 | 范围 | 关键交付物 |
 |---|---|---|
-| A · IR 与中枢 | `spec/` `compat/` `mdp/`；S1 / S2 / S3 | 带语义定义的 `vocab.py`、6 项 denylist、可移植 term 库 |
+| A · IR 与中枢 | `spec/` `compat/` `mdp/`；S1 / S2 / S3 | 带语义定义的 `vocab.py`、7 项 denylist、可移植 term 库 |
 | B · Backend | `engines/<name>/` | `TaskSpec` → 原生 manager cfg 编译器 + 每引擎术语注册表 |
 | C · Frontend | `frontends/<idiom>/` | 项目源码 → `TaskSpec` + 未转换清单 + 置信度报告 |
 | D · 资产管线 | `assets/pipeline/`：URDF / MJCF / USD 互转 + 数值校验（D5） | converters 封装 + validators 对照报告 + manifest provenance |

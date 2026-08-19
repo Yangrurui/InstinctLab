@@ -94,7 +94,7 @@ def main() -> int:
         print(f"\nthe golden no longer matches {golden['source']}, which it is a recording of:")
         for difference in stale_golden:
             print(f"  {difference}")
-        print(f"  re-dump it with scripts/dump_golden.py --cfg {golden['source']}")
+        print(f"  re-dump it with scripts/dump_golden.py --cfg {golden['source']} --out {args.golden}")
     elif args.recheck_golden:
         # Said out loud, because a check that prints nothing when it passes is indistinguishable
         # from one that did not run.

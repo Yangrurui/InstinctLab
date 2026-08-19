@@ -19,7 +19,7 @@ TASKS: dict[str, str] = {
 | **parkour** | `tasks/parkour/` | 10 种程序化子地形 + 深度相机 + 高度扫描 + VolumePoints + 虚拟障碍 + AMP + 自定义 terrain-aware 命令 |
 | **shadowing/beyondmimic** | `tasks/shadowing/beyondmimic/` | motion_reference（单 buffer，平面） |
 | **shadowing/whole_body** | `tasks/shadowing/whole_body/` | 多帧参考（`num_frames=10`）+ MoE policy |
-| **shadowing/perceptive** | `tasks/shadowing/perceptive/` | 上述 + 动作匹配地形 + 深度相机 + 额外 DR |
+| **shadowing/perceptive** | `tasks/shadowing/perceptive/` | 上述 + 动作匹配地形 + 深度相机 + 额外 DR。**含一个独立变体** `Instinct-Perceptive-Vae-G1-v0`（`perceptive_vae_cfg` + `instinct_rl_vae_cfg`），适配时别只看主 id |
 | **shadowing/perceptive_hoi** | `tasks/shadowing/perceptive_hoi/` | 上述 + 6 个 OMOMO kinematic mesh 物体，按参考驱动 |
 
 ## 真正的瓶颈不是任务，是五个共享子系统
@@ -59,7 +59,7 @@ flat G1 的跨引擎产物用朴素 `ManagerBasedRLEnv`，成立的前提是它�
 | `rl/` | **空目录残留**，源码已随 unified 栈删除，仅剩 `__pycache__` | 实测目录内无 `.py` |
 | `tasks/shadowing/mdp/` | **未接线**：8 个文件都被 import 为 `shadowing_mdp`，但零处 `shadowing_mdp.*` 引用；活跃 term 全在 `envs/mdp/` | 实测 grep 零匹配 |
 | `tasks/parkour/mdp/` 的 `sub_terrain_out_of_bounds`、`push_by_setting_velocity_without_stand` | 定义了但配置未使用 | 调查报告 |
-| `whole_body/config/g1/__init__.py` 的 `rsl_rl_cfg_entry_point` | **死链**：指向 `rsl_rl_ppo_cfg:G1ShadowingPPORunnerCfg`，而 `agents/` 里只有 `instinct_rl_ppo_cfg.py`。因为仓库已统一到 `instinct_rl`、没人解析这个 entry point，所以它从不报错 | 实测目录内容与 `__init__.py:13,24` |
+| `rsl_rl_cfg_entry_point` | **死链，三处**：`whole_body` / `perceptive` / `perceptive_hoi` 的 `config/g1/__init__.py:13,24` 都指向不存在的 `rsl_rl_ppo_cfg`，而 `agents/` 里只有 `instinct_rl_ppo_cfg.py`。因为仓库已统一到 `instinct_rl`、没人解析这个 entry point，所以它从不报错。（`beyondmimic` 的那条指向真实存在的 `beyondmimic_ppo_cfg`，不是死链） | 起 Isaac 后逐个 `import_module` 全部 legacy Gym kwargs，三处 `ModuleNotFoundError` |
 
 「零引用」必须用 `Grep` 工具或 `rg` 实测确认——shell 里 `rg` 不可用，`cmd || echo 零引用` 会把命令不存在也报成零引用，产生假阳性。
 

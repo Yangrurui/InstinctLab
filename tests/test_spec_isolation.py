@@ -109,11 +109,20 @@ def test_no_engine_appears_in_the_shared_machinery(source: pathlib.Path) -> None
 
 
 def _shared_layer() -> list[pathlib.Path]:
-    """Everything an engine may not be named in: the IR, the portable terms, compat, the launcher."""
+    """Everything an engine may not be named in: the IR, the portable terms, compat, the launcher.
+
+    ``sim/`` and the robot catalog belong here too and were missing. Both are engine-neutral by
+    construction -- the catalog is what an engine's asset table reads, and ``sim/`` holds the
+    capability registry that exists so shared code does not have to ask which engine it is on. The
+    scan currently finds nothing in either, which is the point of adding them before it does.
+    ``sim/spawners/`` is excluded: it is Isaac Lab's own, loaded lazily, and not shared code.
+    """
     import instinctlab
 
     root = pathlib.Path(instinctlab.__file__).parent
     paths = [p for package in ("spec", "mdp", "compat") for p in (root / package).rglob("*.py")]
+    paths += [p for p in (root / "sim").glob("*.py")]
+    paths.append(root / "assets" / "unitree_g1_spec.py")
     return sorted([*paths, *_engine_machinery(), pathlib.Path(__file__).resolve().parents[1] / "scripts" / "train.py"])
 
 

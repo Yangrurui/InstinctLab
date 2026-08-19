@@ -62,9 +62,11 @@ class EntityRef:
         other: Patterns for selector kinds outside :data:`UNIVERSAL_KINDS`, keyed by kind. A
             backend that cannot express a kind must reject the reference rather than drop it.
         preserve_order: When true the selection follows the order of the patterns; when false it
-            follows the entity's own order. This is the switch decision D1 hangs on, and it is the
-            caller's to make -- an entity's natural order is a depth-first walk of the kinematic
-            tree, which is not the order a policy's action vector is necessarily in.
+            follows the entity's own order. Note what the entity's own order is not: it is whatever
+            the engine built, which is a breadth-first walk under PhysX and model-file order under
+            MuJoCo, and those two disagree. D1's canonical depth-first order is therefore reached
+            only by passing the catalog's joint names explicitly with this flag set -- a bare ``.*``
+            preserves the order of a one-element pattern list and so changes nothing.
     """
 
     entity: str = "robot"

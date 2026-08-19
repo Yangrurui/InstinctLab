@@ -211,3 +211,67 @@ def test_beyondmimic_pd_gains_match_robot_spec() -> None:
     for properties in robot.joint_properties:
         for field, value in expected[properties.name].items():
             assert getattr(properties, field) == pytest.approx(value), f"{properties.name}.{field}"
+
+
+# --- the sim2sim scene restates the Isaac spawn, so the restatement has to be checked -------------
+
+_ASSETS = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/unitree_g1.py"
+
+
+def _popsicle_spawn() -> dict[str, object]:
+    """Read the PhysX spawn properties off ``G1_29DOF_TORSOBASE_POPSICLE_CFG`` without Isaac Sim.
+
+    Importing the module pulls in ``omni``, so the config is read as source. Only literal keywords
+    are collected; the ones that reference the catalog are checked elsewhere.
+    """
+    import ast
+
+    tree = ast.parse(_ASSETS.read_text())
+    for node in tree.body:
+        targets = getattr(node, "targets", [])
+        if not (targets and isinstance(targets[0], ast.Name) and targets[0].id == "G1_29DOF_TORSOBASE_POPSICLE_CFG"):
+            continue
+        spawn = next(
+            keyword.value for keyword in node.value.keywords if keyword.arg == "spawn"  # type: ignore[union-attr]
+        )
+        collected: dict[str, object] = {}
+        for keyword in spawn.keywords:  # type: ignore[union-attr]
+            if isinstance(keyword.value, ast.Constant):
+                collected[str(keyword.arg)] = keyword.value.value
+            elif isinstance(keyword.value, ast.Call) and keyword.arg in ("rigid_props", "articulation_props"):
+                collected[str(keyword.arg)] = {
+                    str(inner.arg): inner.value.value
+                    for inner in keyword.value.keywords
+                    if isinstance(inner.value, ast.Constant)
+                }
+        return collected
+    raise AssertionError("G1_29DOF_TORSOBASE_POPSICLE_CFG is no longer a module-level assignment")
+
+
+def test_the_verification_scene_spawns_the_robot_the_task_trains() -> None:
+    """sim2sim builds its spawn from the RobotSpec, so it restates what the Isaac config declares.
+
+    A restatement drifts. This one carried ``self_collision=True`` while the config sets none, which
+    meant the engines were being compared on a robot neither of them trains, and nothing said so.
+    """
+    from instinctlab.verify.scene import locomotion_flat_scene
+
+    scene = locomotion_flat_scene(num_envs=2).scene
+    stated = dict(scene.backend_options_for("isaacsim")["robot_spawn"])
+    declared = _popsicle_spawn()
+
+    for group in ("rigid_props", "articulation_props"):
+        assert stated[group] == declared[group], (
+            f"the sim2sim scene's {group} no longer matches G1_29DOF_TORSOBASE_POPSICLE_CFG; "
+            "sim2sim would be comparing the engines on a robot the task does not train"
+        )
+
+    # The backend computes this one from the sensor list rather than reading it, which is the right
+    # way round -- but then it has to agree with what the config states.
+    assert bool(scene.contact_sensors) == declared["activate_contact_sensors"]
+
+    rest = {"rigid_props", "articulation_props", "activate_contact_sensors"}
+    assert set(stated) - rest == set(declared) - rest, (
+        "the sim2sim scene and the Isaac config disagree on which spawn keys exist: "
+        f"{sorted(set(stated) - rest)} vs {sorted(set(declared) - rest)}"
+    )

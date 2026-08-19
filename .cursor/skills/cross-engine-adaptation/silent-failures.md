@@ -113,7 +113,7 @@
 
 - `test_asset_parity.py` 比的是关节名的**集合**，顺序不在比较范围内。
 - `probe_terms.py` 逐值对拍前会先把两边**重排到 canonical 序**再比——重排之后无论原始顺序如何都一致，检查对它想验证的东西天然免疫。
-- `check_mjlab.py` 有一条 `action order matches the catalog's depth-first order` 断言，但 mjlab 资产是从 `RobotSpec` 按 DFS 推导的，这条断言在 mjlab 上恒真、是空转的。Isaac 侧没有对应断言。
+- `check_mjlab.py` 有一条 `action order matches the catalog's depth-first order` 断言，但 mjlab 资产是从 `RobotSpec` 按 DFS 推导的，这条断言在 mjlab 上恒真、是空转的。Isaac 侧没有对应断言。（现状：声明层已由 `test_parity_static.py` 钉住 action 与两组 `joint_pos`/`joint_vel` 的名字序列；**运行期仍没有任何检查读 Isaac 实际用的顺序**，只是 `.*` 那条路已被堵死。）
 - 单引擎训练完全正常：观测与动作跑在同一个原生序上，学习问题只是做了个置换，照常收敛。
 
 **三处声称它已生效**：两个引擎 `terms.py` 里 action builder 的 docstring，以及白名单里 `actions.joint_pos.preserve_order` 那条理由——它把一个零效果的差异解释成「这就是 D1 的落点」。**白名单理由也会说谎，而且没人复核它。**
@@ -136,11 +136,13 @@
 
 **这一类已经出现三次，形态各不相同**，所以值得单独列：
 
-| 位置 | 长什么样 | 为什么不会红 |
-|---|---|---|
-| `check_mjlab.py` 的 D1 检查 | `print(f"action order matches...: {names == catalog}")` | 是 `print` 不是 `assert`。它把布尔值印出来，然后继续往下走，脚本末尾固定 `return 0` |
-| `test_no_reward_is_missing` | `assert set(golden) - set(task) == set()` | 单向差。任务多长出一个奖励，优化目标变了，这条照过 |
-| `reference_mjlab.scene_sensors()` | 一个完整的提取器 | 没有任何调用者。读代码的人会以为传感器比过了 |
+**三处都已修**，留在这里是因为形态值得认，不是因为现在还长这样：
+
+| 位置 | 当时长什么样 | 为什么不会红 | 现在 |
+|---|---|---|---|
+| `check_mjlab.py` 的 D1 检查 | `print(f"action order matches...: {names == catalog}")` | 是 `print` 不是 `assert`。它把布尔值印出来，然后继续往下走，脚本末尾固定 `return 0` | 不等就 `raise SystemExit` |
+| `test_no_reward_is_missing` | `assert set(golden) - set(task) == set()` | 单向差。任务多长出一个奖励，优化目标变了，这条照过 | 改成集合相等 |
+| `reference_mjlab.scene_sensors()` | 一个完整的提取器 | 没有任何调用者。读代码的人会以为传感器比过了 | 接上了断言：元件覆盖、history 长度、air time |
 
 再加两种同样常见的：
 
@@ -173,7 +175,9 @@
 
 **根因**：比第 12 条更隐蔽一层。第 12 条是尺子过期，这里是**尺子被主动弯折**。`engines/isaacsim/scene.py` 的 `PROFILE_DEFAULTS` 写着 `self_collision: True`，注释声称「matching main's values」，而 main 其实是 `False`。当初对拍必然报过这处差异，而它被解决的方式是：把编译器那段 `spawn.replace(...)` 原样复制进 `G1FlatEnvCfg`——也就是 golden 的源文件本身。共 22 行。此后两边永远相等。
 
-代价是双重的：一，「Isaac ≡ main」这句话此后再无内容，因为参照已经不是 main；二，0 卡上那次训练实际带着 URDF 自碰撞导入在跑，与 main 的物理不同，而没有任何东西会提示这件事。**四轮独立审计逐行读过这个文件，无一发现**——因为改后的文件本身完全合理，看它一百遍也看不出它不是 main 的。
+代价首先是：「Isaac ≡ main」这句话此后再无内容，因为参照已经不是 main。**四轮独立审计逐行读过这个文件，无一发现**——因为改后的文件本身完全合理，看它一百遍也看不出它不是 main 的。
+
+物理上到底差了多少，事后实测的结论是**没差**，这一点本身值得记：起 Isaac 后遍历 prim 发现，管运行期自碰撞的是 articulation root（`torso_link`）上的 `physxArticulation:enabledSelfCollisions`，它来自 `articulation_props.enabled_self_collisions`，main 本来就设 `True`；被改的 `spawn.self_collision` 是 URDF **导入器**标志，是另一回事。两个引擎因此在自碰撞上本来就一致（mjlab 的 MJCF 也是 `contype/conaffinity=1` 加显式排除）。**发现偏离后不要顺势推断它的后果**——「配置与参照不符」和「物理不同」是两个命题，第二个得单独测。中间一度把它当成「关键跨引擎差异」，是同一种越界。
 
 同一个根因的第二种形态：那 22 行里其余 21 行**是资产数值的逐字复制**（`solver_position_iteration_count=8`、`max_depenetration_velocity=1.0` …），与 `G1_29DOF_TORSOBASE_POPSICLE_CFG` 声明的一模一样。复制当天无害，所以没人反对；它的危害是把「资产说了算」变成了两个数据源，资产一改就静默分叉。现在这些键默认 `None` 表示「沿用资产」，只有任务显式声明才覆盖。
 
@@ -184,6 +188,32 @@
    **手抄参照还会顺带把比较变成单向的**，这是它最不显眼的代价。`tests/test_agent_cfg.py` 曾把 main 的 22 个超参转写成一张 `MAIN` 表，两个测试都是「遍历 MAIN，在配置里查到并比对」——于是配置里**多出**一个 main 没有的超参完全隐形，训练会静默用上参照没有的旋钮。手抄的表天然只能这样用：你没有 main 的全集，就写不出对称断言。改成用 `git show main:` 把那份文件整份执行起来（只替换它唯一的 `configclass` 导入，而 vendored 的 configclass 另有测试逐函数钉住），一句 `declared == mains` 同时覆盖改值、丢字段、多字段三种情况，且不再需要维护任何表。
 2. **对拍报出差异时，先问「哪边错了」，不要默认是实现对、参照错。** 修参照是允许的，但必须是「参照本来就写错了」，不能是「改了参照能让检查变绿」。
 3. **不要把另一处数据的值复制成默认值。** 用「未声明」的哨兵（`None`）表示沿用来源，让来源保持唯一。默认值里出现一个和别处相等的字面量，就是一次未来的静默分叉。
+
+---
+
+## 14. 清单型检查的洞在覆盖，不在条目
+
+**症状**：一份「哪些文件必须与参照一致」的清单，每条都对、每条都在跑、全绿——而出事的那个文件根本不在清单上。
+
+**根因**：`flat_env_cfg.py` 偏离二十二行时，它**不是被豁免的**，是从没被列进去过。手工维护的清单只能保证「列进来的是对的」，对「什么没被列进来」一个字都没说，而漏列不产生任何痕迹。审计读清单时看到的是一排绿勾，看不到旁边的空白。
+
+**通用形态**：凡是检查的范围由人手写死，范围本身就是没被检查的那一层。本轮清出四个同形的：
+
+| 清单 | 范围是怎么定的 | 漏了什么 |
+|---|---|---|
+| `test_main_reference` 的两张表 | 手写文件名 | 改过 main 的 18 个文件里只列了 4 个 |
+| `test_spec_isolation._shared_layer()` | 手写包名 `spec`/`mdp`/`compat` | `sim/` 与新建的资产 catalog 都是共享层，不在扫描内 |
+| 散文里的计数（denylist「N 个陷阱」） | 写的时候数一遍 | 三份文档分别写着 5、6、7，真值是 7，没有任何东西对着源头核 |
+| legacy Gym `kwargs` 的 entry point | 谁想起来谁去 import 一次 | 三处 `rsl_rl_cfg_entry_point` 指向不存在的模块。`gym.register` 只存字符串、不 import，**这类错误需要一个读者才会暴露** |
+
+**规则**：**把问题反过来问。** 不要问「清单上的都对吗」，要问「有什么不在清单上」，而且这个反问必须由机器来做：
+
+- 改动清单 → 让 `git diff main --diff-filter=M` 报出全集，逐个要求在表中有理由；漏列直接红。
+- 扫描范围 → 与其列包名，不如列**豁免**，剩下的全扫。
+- 散文计数 → 用正则从文档里把数字读出来，和 `len(源头)` 比。（本轮加的 `test_the_prose_counts_the_table_it_describes` 覆盖 5 处）
+- 惰性字符串 → 静态解析 f-string 落到文件路径，全仓库一次扫完，比「装了哪个引擎就能测哪个」覆盖得全。已知坏的写进 `KNOWN_DEAD` 并断言**它确实还坏**，否则条目自己会过期。
+
+补充一条：**已知缺陷要显式记名，不要修掉别人的文件。** 那三条死链在 main 上就是坏的，而 D3 要求这些文件保持 main 原样，所以正确处理是登记而非删除——登记之后第四条才没法悄悄混进来。
 
 ---
 
@@ -216,3 +246,5 @@
 14. 我这个默认值/常量，是不是另一处数据的复制？**谁保证两边一起改**？能沿用来源就别复制。
 15. 对拍报差异时我改的是实现还是参照？如果是参照——它凭什么是错的？（「改了就绿」不是理由）
 16. 我声称「这个文件是 main 的」，有检查真的去问过 main 吗？
+17. 我这个检查的**范围**是谁定的？如果是我手写的一份名单，**没被写进名单的东西由谁负责发现**？
+18. 我发现了一处「与参照不符」，就顺口说了它的物理后果吗？那是第二个命题，得单独测。（本轮把一处导入器标志偏离说成了「关键跨引擎差异」，实测两引擎在该行为上一致）

@@ -111,8 +111,12 @@ def locomotion_flat_scene(*, num_envs: int = 2) -> VerificationScene:
                         "replicate_physics": True,
                         "filter_collisions": True,
                     },
+                    # These restate the PhysX properties of G1_29DOF_TORSOBASE_POPSICLE_CFG, because
+                    # this path builds the spawn from the RobotSpec rather than from that config, so
+                    # it cannot read them. A restatement is a second source of truth: it carried a
+                    # self_collision the asset does not set, and sim2sim was silently checking a
+                    # robot the task never trains. test_asset_parity pins the two together now.
                     "robot_spawn": {
-                        "self_collision": True,
                         "rigid_props": {
                             "disable_gravity": False,
                             "retain_accelerations": False,

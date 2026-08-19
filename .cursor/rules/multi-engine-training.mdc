@@ -41,13 +41,15 @@ alwaysApply: false
 
 ## compat denylist（已实现，`instinctlab/compat/denylist.py`）
 
-5 个同名不同义的陷阱，误用必须报错，禁止默认放行：
+7 个同名不同义的陷阱，误用必须报错，禁止默认放行。**这个数字由 `test_compat_vocab.py` 对着 `denylist._ENTRIES` 核对，改条目要一起改这里**：
 
 1. `joint_acc`：Isaac 有限差分 vs mjlab `qacc`
 2. `applied_torque`：Isaac 关节空间 (nv)；mjlab **无同名属性**，等价物是 `qfrc_actuator` (nv)，**不是** `actuator_force`（nu 维执行器空间，假朋友）
 3. `default_root_state` 速度行：Isaac COM 系 vs mjlab link 系
 4. 非根 body 的 `body_link_lin_vel_w`：Isaac per-body COM 偏移 vs mjlab root `subtree_com`。中枢**不提供任何 per-body 速度**；根部用 `root_link_lin_vel_w`
 5. 重力向量：Isaac 叫 **`GRAVITY_VEC_W`（大写）**、从 live sim 重力归一化；mjlab 叫 `gravity_vec_w`、硬编码 `[0,0,-1]`。可移植 term 一律改用 `projected_gravity_b`
+6. 接触力：Isaac `net_forces_w` 是世界系**仅法向**；mjlab 无同名属性，最接近的 `force` 是完整三维、默认在接触系
+7. `write_root_state_to_sim` 速度行：Isaac 写 COM 速度、mjlab 写 link 速度。同样十三个数写进去两个机器人落在不同状态（本任务 G1 实测差到 0.85 m/s），此后每个读速度的 term 都对不上。必须用两侧都有的 `write_root_link_*_to_sim` / `write_root_com_*_to_sim`
 
 **Isaac legacy 别名共 19 个**（13 个指向 COM、6 个指向 link），改写表见 `LEGACY_COM_ALIASES` / `LEGACY_LINK_ALIASES`。最危险的是 **`root_lin_vel_b`**：读起来像 link 量，实际是 `root_com_lin_vel_b`；按直觉改写成 `root_link_lin_vel_b` 就换了物理量，而 mjlab 没有这些别名，下游不会报错。
 
@@ -151,6 +153,8 @@ entry point `instinctlab.engines` 注册，可作独立 pip 包。清单：`boot
 34. 文档或 docstring 声称「由 `tests/xxx.py` 保证」时，必须确认该文件存在。`flat_g1_ppo.py` 曾声称 `tests/test_agent_cfg.py` 钉住了每个超参，而该文件从未被创建。
 35. **退役一层不等于停止使用它**。只要 `__init__.py` 还在 `from .retired import *`，被退役的实现仍是活的，而且**优先于**正版——星号导入急切绑定名字、静默压过下面的惰性查找。unified 的奖励重实现就这样遮蔽了 main 的原版：算术忠实、签名不同，manager 构造期直接拒绝，而没有 import 错误、没有测试会响。`tests/test_parity_static.py` 已禁止 `tasks/locomotion/mdp/__init__.py` 出现星号导入。
 36. **参照实现必须有人定期真的构造一次**。我们对 main 做了逐字段比对、静态不变量、白名单过期检查，唯独没有「把它建起来跑一步」，结果 golden 是从一份无法实例化的配置里 dump 的，而所有验收照常通过。一个连不上电的标尺，量什么都是准的。
-37. **对拍报出差异时，不许通过改参照来消差**，除非参照本来就写错。编译器与 main 在 `self_collision` 上不一致，而这处差异是把编译器的 `spawn.replace(...)` 整段复制进 golden 的源文件 `G1FlatEnvCfg` 抹平的：此后永远相等，而「≡ main」再无内容，训练实际带着 URDF 自碰撞导入在跑。四轮审计逐行读过该文件都没发现——改后的文件本身完全合理。
+37. **对拍报出差异时，不许通过改参照来消差**，除非参照本来就写错。编译器与 main 在 `self_collision` 上不一致，而这处差异是把编译器的 `spawn.replace(...)` 整段复制进 golden 的源文件 `G1FlatEnvCfg` 抹平的：此后永远相等，而「≡ main」再无内容。四轮审计逐行读过该文件都没发现——改后的文件本身完全合理。（后续实测：运行期自碰撞由 articulation root 上的 `physxArticulation:enabledSelfCollisions` 决定，main 本就设 `True`，被改的 `spawn.self_collision` 是 URDF 导入器标志；两引擎在该行为上一致。**「配置偏离参照」和「物理不同」是两个命题**，第二个得单独测，不要顺势推断。）
 38. **默认值不许是另一处数据的字面复制**。`PROFILE_DEFAULTS` 曾把资产已声明的 `solver_position_iteration_count=8`、`max_depenetration_velocity=1.0` 等原样重写一遍，复制当天无害，但把「资产说了算」变成两个数据源。现在这些键默认 `None` 表示沿用资产，只有任务显式声明才覆盖。
 39. 包为了引擎无关而把副作用改成显式函数时，要同时改掉所有依赖那个副作用的调用点。`tasks/__init__.py` 停止在 import 时注册 Gym id、改提供 `register_legacy_isaac_tasks()` 之后，main 的 `train.py` 仍写着 `import instinctlab.tasks  # noqa: F401`，全仓库无人调用新函数——入口连自己的 task id 都找不到。
+40. **检查的范围不许手写死**。手工清单只保证「列进来的是对的」，对漏列一个字都没说，而漏列不留痕迹——`flat_env_cfg.py` 就是从没被列进 `test_main_reference` 而不是被豁免。范围要由机器给出全集：改动清单问 `git diff main --diff-filter=M`（`test_no_edit_of_mains_goes_unrecorded`），扫描范围列豁免而非列成员，散文里的计数用正则读出来和 `len(源头)` 比（`test_the_prose_counts_the_table_it_describes`，覆盖 5 处）。
+41. **惰性字符串要静态解析到底**。`gym.register` 的 `kwargs` 只存字符串、不 import，指向不存在模块的 entry point 注册得干干净净——这类错误需要一个读者才会暴露，三处 `rsl_rl_cfg_entry_point` 因此长期死链。`tests/test_legacy_entry_points.py` 把 f-string 静态展开成文件路径全仓库扫一遍；main 上就坏的登记进 `KNOWN_DEAD` 并断言**它确实还坏**，既不动 main 的文件，也不给第四条留位置。

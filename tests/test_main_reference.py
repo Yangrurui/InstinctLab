@@ -25,6 +25,9 @@ REPO = Path(__file__).resolve().parents[1]
 UNTOUCHED = (
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py",
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/__init__.py",
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/__init__.py",
+    "source/instinctlab/instinctlab/tasks/locomotion/config/__init__.py",
+    "source/instinctlab/instinctlab/tasks/locomotion/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/mdp/rewards.py",
     "source/instinctlab/instinctlab/tasks/locomotion/mdp/curriculums.py",
 )
@@ -42,6 +45,41 @@ EDITED = {
         "actuator constants and spawn paths now come from unitree_g1_spec instead of being repeated"
     ),
     "source/instinctlab/instinctlab/assets/__init__.py": "names the two G1 modules",
+    # The training path, which the parity argument covers just as much as the env config does.
+    "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/vecenv_wrapper.py": (
+        "num_rewards falls back to 1, because a task whose rewards are one flat container runs on a "
+        "plain ManagerBasedRLEnv, which does not declare the attribute InstinctRlEnv does"
+    ),
+    "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/module_cfg.py": (
+        "imports the vendored configclass, so reading a config does not start Isaac Sim"
+    ),
+    "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/rl_cfg.py": "same vendored configclass swap",
+    "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/__init__.py": "resolves wrappers on access",
+    "source/instinctlab/instinctlab/utils/wrappers/__init__.py": (
+        "resolves wrappers on access, so this package does not require every engine to be installed"
+    ),
+    "source/instinctlab/instinctlab/utils/math.py": (
+        "imports compat.math rather than isaaclab.utils.math; test_compat_math pins the two bitwise"
+    ),
+    # Package fronts that used to import Isaac Sim as a side effect of importing InstinctLab.
+    "source/instinctlab/instinctlab/__init__.py": (
+        "stops registering Gym ids on import, so the package is engine-neutral"
+    ),
+    "source/instinctlab/instinctlab/tasks/__init__.py": (
+        "the same registration moved into register_legacy_isaac_tasks()"
+    ),
+    "source/instinctlab/instinctlab/envs/__init__.py": "exports lazily",
+    "source/instinctlab/instinctlab/managers/__init__.py": "exports lazily",
+    "source/instinctlab/instinctlab/sim/__init__.py": (
+        "now fronts the engine-neutral contract; legacy spawners load lazily"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/scripts/play.py": (
+        "calls register_legacy_isaac_tasks() before using a Gym id"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/play.py": (
+        "calls register_legacy_isaac_tasks() before using a Gym id"
+    ),
+    "source/instinctlab/setup.py": "declares the new packages",
 }
 """Main's, with a deliberate edit. The text says which one."""
 
@@ -90,3 +128,53 @@ def test_every_file_here_is_one_main_has(main_ref: str) -> None:
     """Neither list may name a file the release does not have, which would make its entry vacuous."""
     for path in (*UNTOUCHED, *sorted(EDITED)):
         assert _git("cat-file", "-e", f"{main_ref}:{path}").returncode == 0, f"{path} is not on {main_ref}"
+
+
+def test_no_edit_of_mains_goes_unrecorded(main_ref: str) -> None:
+    """The tables above are only as good as their coverage, and coverage was how the last one hid.
+
+    ``flat_env_cfg.py`` was not exempted from a check; it was never listed, and a list nobody is
+    obliged to complete says nothing about what is missing from it. So the question is asked the
+    other way round here: git names every file of main's we touched, and each one has to appear
+    above with a reason. Adding a file to the list is cheap; forgetting to is what costs.
+    """
+    changed = _git("diff", main_ref, "--name-only", "--diff-filter=M", "--", "source/")
+    assert changed.returncode == 0, changed.stderr
+    unrecorded = {path for path in changed.stdout.split() if path} - set(EDITED)
+    assert not unrecorded, (
+        f"these files of {main_ref}'s were modified without saying why:\n  "
+        + "\n  ".join(sorted(unrecorded))
+        + "\n"
+        "Put each in EDITED with the reason, or revert it. Anything reachable from G1FlatEnvCfg or "
+        "the training loop also needs the golden re-dumped."
+    )
+
+
+def test_the_isaac_profile_randomises_friction_the_way_main_does() -> None:
+    """``PROFILE_DEFAULTS['friction_dr']`` restates main's event, so it can fall behind it.
+
+    The ranges cannot come from the TaskSpec: the two engines randomise friction differently enough
+    that the spec states no range at all, and this profile is where Isaac's shape of it lives. That
+    makes it a second copy of four numbers main also writes, which is the arrangement that produced
+    the self-collision drift. ``check_parity`` would catch it, but only where Isaac Sim is installed.
+    """
+    import ast
+
+    from instinctlab.engines.isaacsim.scene import PROFILE_DEFAULTS
+
+    config = REPO / "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py"
+    for node in ast.walk(ast.parse(config.read_text())):
+        if not (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "physics_material"):
+            continue
+        params = next(k.value for k in node.value.keywords if k.arg == "params")  # type: ignore[union-attr]
+        declared = {
+            key.value: ast.literal_eval(value)
+            for key, value in zip(params.keys, params.values)  # type: ignore[union-attr]
+            if isinstance(key, ast.Constant) and key.value != "asset_cfg"
+        }
+        assert declared == dict(PROFILE_DEFAULTS["friction_dr"]), (
+            "the Isaac profile's friction randomisation no longer matches the one G1FlatEnvCfg "
+            f"declares: {PROFILE_DEFAULTS['friction_dr']} vs {declared}"
+        )
+        return
+    raise AssertionError("G1FlatEventsCfg no longer assigns physics_material; this check needs rewriting")
