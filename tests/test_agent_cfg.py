@@ -1,10 +1,10 @@
 """The PPO configuration, pinned against both reference implementations.
 
-Written because ``flat_g1_ppo.py`` claimed in its own docstring that this file pinned every field,
-and this file did not exist. The configuration had been moved out of ``config/g1/agents/`` so it
-could be read without Isaac Sim, and a move is exactly when values go missing quietly: nothing
-imports a hyperparameter by name, so a dropped one shows up as a slightly different learning curve
-weeks later.
+Written because the agent config's docstring claimed that this file pinned every field, and this
+file did not exist. The configuration sits at the same path as main's but imports a vendored
+``configclass`` so it can be read without Isaac Sim; a swap of the decorator is exactly when
+values go missing quietly: nothing imports a hyperparameter by name, so a dropped one shows up as
+a slightly different learning curve weeks later.
 
 Two references, checked differently. Main's are read out of ``main`` itself and compared whole:
 its copy of this file is still there, and building it here needs nothing but a substitute for the
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.tasks.locomotion.config.flat_g1_ppo import G1FlatPPORunnerCfg
+from instinctlab.tasks.locomotion.config.g1.agents.instinct_rl_ppo_cfg import G1FlatPPORunnerCfg
 from instinctlab.utils.configclass import class_to_dict
 
 MAIN_CFG = "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py"

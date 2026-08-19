@@ -120,8 +120,8 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
         del sys.modules[name]
     sys.meta_path.insert(0, blocker)
     try:
-        declaration = importlib.import_module(f"{reloaded}.flat_g1")
-        agent = importlib.import_module(f"{reloaded}.flat_g1_ppo")
+        declaration = importlib.import_module(f"{reloaded}.g1.flat_env_cfg")
+        agent = importlib.import_module(f"{reloaded}.g1.agents.instinct_rl_ppo_cfg")
         assert declaration.flat_g1().task_id == "Instinct-Velocity-Flat-G1"
         assert agent.G1FlatPPORunnerCfg().max_iterations > 0
 

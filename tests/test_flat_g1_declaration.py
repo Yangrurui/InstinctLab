@@ -3,8 +3,8 @@
 This file used to be the engine-free half of a parity check: ``scripts/check_parity.py`` compiled
 the declaration and diffed it against a dump of main's ``G1FlatEnvCfg``, and the assertions here
 covered the parts a field-by-field diff cannot see. That reference is gone. D3 was retired, main's
-Isaac-only config was deleted, and ``config/flat_g1.py`` is now where the task is defined rather
-than where it is restated.
+Isaac-only ``G1FlatEnvCfg`` was replaced, and ``config/g1/flat_env_cfg.py`` is now where the task
+is defined as a ``TaskSpec`` rather than restated against an Isaac env config.
 
 So the questions changed. Nothing here asks whether the declaration agrees with something else --
 there is no longer a something else. What is left are the properties the declaration has to have on
@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
+from instinctlab.tasks.locomotion.config.g1 import flat_g1
 
 REPO = Path(__file__).resolve().parent.parent
-DECLARATION = REPO / "source/instinctlab/instinctlab/tasks/locomotion/config/flat_g1.py"
+DECLARATION = REPO / "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py"
 
 NOT_PORTABLE = {"dof_acc_l2", "dof_torques_l2", "feet_slide"}
 """Rewards each backend implements itself, because the two engines do not measure the quantity the

@@ -132,7 +132,7 @@ def test_the_real_agent_config_converts_identically_either_way() -> None:
     """
     isaaclab_utils = pytest.importorskip("isaaclab.utils", reason="needs a launched Isaac Sim")
 
-    from instinctlab.tasks.locomotion.config import flat_g1_ppo
+    from instinctlab.tasks.locomotion.config.g1.agents import instinct_rl_ppo_cfg as agent_cfg
 
-    theirs = isaaclab_utils.configclass(type("Probe", (flat_g1_ppo.G1FlatPPORunnerCfg,), {}))
-    assert theirs().to_dict() == flat_g1_ppo.G1FlatPPORunnerCfg().to_dict()
+    theirs = isaaclab_utils.configclass(type("Probe", (agent_cfg.G1FlatPPORunnerCfg,), {}))
+    assert theirs().to_dict() == agent_cfg.G1FlatPPORunnerCfg().to_dict()

@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import reference_mjlab as reference
 
 from instinctlab.spec.capability import Requirement
-from instinctlab.tasks.locomotion.config.flat_g1 import FEET_CONTACT, UPPER_BODY_CONTACT, flat_g1
+from instinctlab.tasks.locomotion.config.g1 import FEET_CONTACT, UPPER_BODY_CONTACT, flat_g1
 
 pytestmark = pytest.mark.skipif(not reference.available(), reason="InstinctMJ is not checked out")
 

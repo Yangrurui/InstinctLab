@@ -65,7 +65,7 @@
 
 原文：不引入 InstinctMJ 作为依赖；main 的 `tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义的唯一真值，验收标准是「编译产物与它逐字段 diff，空 diff 或全部命中白名单」。InstinctMJ 只作为「如何在 mjlab 上表达同一任务」的参考实现——其 env 子类、`MultiRewardManager`、`ForceThresholdContactSensor` 按需移植进 `engines/mjlab/`。
 
-**现状**：`tasks/locomotion/config/g1/`、`tasks/locomotion/mdp/`、`tests/parity/`（golden + 50 条白名单）、`scripts/dump_golden.py`、`scripts/check_parity.py`、`verify/structure.py` 已全部删除。`tasks/locomotion/config/flat_g1.py` 是该任务的唯一描述，**没有第二份可比对**。下文 §8（差异白名单）、§10 的 L0 层、§12.7–12.11 的相关叙述按史料读。
+**现状**：Isaac-only 的 Gym 注册、`tasks/locomotion/mdp/`、`tests/parity/`（golden + 50 条白名单）、`scripts/dump_golden.py`、`scripts/check_parity.py`、`verify/structure.py` 已删除。任务目录回到与 main 相同的 `config/g1/` 排布：`flat_env_cfg.py` 是引擎无关的 `TaskSpec`（不再是 `G1FlatEnvCfg`），`agents/instinct_rl_ppo_cfg.py` 用 vendored `configclass` 以免 import Isaac。**没有第二份 env 配置可比对**。下文 §8（差异白名单）、§10 的 L0 层、§12.7–12.11 的相关叙述按史料读。
 
 **退役理由**。golden 在迁移期的作用是证明「重述没丢东西」，这一点已经拿到：314 处差异 0 处未解释，编译产物真实构造、step、训练收敛。迁移结束之后它的性质变了——它不再是外部参照，而是一份必须与实现同步维护的副本，而副本失效的方式恰好是本文反复记录的那一类。这份 golden 自己就中过两次：一次是从一个 main 已经无法实例化的状态 dump 出来的（§12.11），一次是有人把编译器的 spawn 覆盖复制进 golden 的源文件来消差（§12.12）。两次都没有任何检查会响。
 
@@ -77,7 +77,7 @@
 - `tests/test_flat_g1_declaration.py` 把 16 个奖励权重记成快照，并**在文档字符串里标明它是快照不是参照**——记录一次变更需要两处编辑，而不是声称与谁一致。
 - `tests/test_main_reference.py` 保留，并补上了删除侧：`--diff-filter=M` 只看修改，删掉 main 的文件原本完全不报；且必须带 `--no-renames`，否则 git 把「移走」认成改名，两侧都不算。
 
-**代价**，同样明写：此后没有任何东西会告诉你 `flat_g1.py` 偏离了 main 的 locomotion。这是一次有意的取舍，不是遗漏。
+**代价**，同样明写：此后没有任何东西会告诉你 `flat_env_cfg.py` 偏离了 main 的 locomotion。这是一次有意的取舍，不是遗漏。
 
 **泛化（S4）**：golden 是「该项目跑在它原本的引擎上」，每个待迁项目各有各的。但它是**迁移期脚手架，不是常设设施**——判据是「还有没有人负责重新 dump 它」，没有就该退役，留着一把没人校准的尺子比没有尺子更坏。
 
@@ -406,7 +406,7 @@ L0 测试编译 `TaskSpec` 后与 golden 逐字段比对，diff 必须为空或�
 注意可移植族用 **`func=` 函数引用**（写法与 Isaac Lab 原生 cfg 一致），per-engine 族用 **`kind=` 语义名**。
 
 ```python
-# instinctlab/tasks/locomotion/config/flat_g1.py — 无任何引擎 import
+# instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py — 无任何引擎 import
 from instinctlab import mdp                     # 可移植 term 库
 
 LOCOMOTION_FLAT_G1 = TaskSpec(
@@ -768,7 +768,7 @@ mjlab 侧的参考实现是 InstinctMJ 的 `G1LocomotionFlatEnvCfg`。它没有�
 
 两个注册表都不 import 被注册的东西：`engines.ADAPTERS` 与 `tasks.registry.TASKS` 存的是点号路径。Gym 注册表做不到这件事——注册 `Instinct-Locomotion-Flat-G1-v0` 就要 import 它指向的 Isaac Lab env cfg，于是「列出有哪些任务」这个动作本身需要 Isaac Sim。
 
-**第一件被逼出来的事：D4 的耦合必须真的断掉，不能只是推迟。** 硬约束 25 原本写的是「`agent_cfg` 惰性解析，耦合待 D4 收尾时移除」。但 mjlab 训练要读 PPO 超参，惰性只是把失败推到第一次访问：`configclass` 住在 `isaaclab.utils`，而这个包的 `__init__` import `mesh` → `pxr`。于是「读一个学习率」需要 Isaac Sim 运行时在路径上。现在 `configclass` 按 `compat/math.py` 的先例整份 vendor 到 `instinctlab/utils/configclass.py`（BSD-3，`tests/test_configclass_vendor.py` 用 AST 逐函数对着上游钉住，另有一条在 Isaac Sim 下比对真实 agent 配置 `to_dict()` 的端到端断言）；agent 配置从 `config/g1/agents/` 移到 `tasks/locomotion/config/flat_g1_ppo.py`，脱离那条注册 Gym id 的 import 链，main 的旧路径改为 re-export，保证是**同一个类对象**而不是一份会漂移的副本。
+**第一件被逼出来的事：D4 的耦合必须真的断掉，不能只是推迟。** 硬约束 25 原本写的是「`agent_cfg` 惰性解析，耦合待 D4 收尾时移除」。但 mjlab 训练要读 PPO 超参，惰性只是把失败推到第一次访问：`configclass` 住在 `isaaclab.utils`，而这个包的 `__init__` import `mesh` → `pxr`。于是「读一个学习率」需要 Isaac Sim 运行时在路径上。现在 `configclass` 按 `compat/math.py` 的先例整份 vendor 到 `instinctlab/utils/configclass.py`（BSD-3，`tests/test_configclass_vendor.py` 用 AST 逐函数对着上游钉住，另有一条在 Isaac Sim 下比对真实 agent 配置 `to_dict()` 的端到端断言）；agent 配置仍在 `config/g1/agents/instinct_rl_ppo_cfg.py`，但 `g1/__init__.py` 不再注册 Gym id、也不 import `agents`，于是读超参不再经过那条 Isaac Lab import 链。
 
 **第二件：`ContactSensorRef` 的解析必须只做一次。** 首次 4096 env 训练时 Isaac 侧 16.6 秒/迭代、GPU 利用率 1%、CPU 满载——这个形状说明时间花在 Python 里而不是物理里。cProfile 定位到 `omni.physics.tensors` 的 `prim_paths`：21.6 秒里占 18.7 秒，来自 Isaac Lab 的 `ContactSensor.body_names`——它是个**每次访问都从 physics view 重建**的 property，4096 env 下单次约 70 毫秒。三个接触类 term 每次求值都重新解析自己的脚，于是每步付三遍。
 

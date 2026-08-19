@@ -40,7 +40,7 @@ def curve(log: pathlib.Path) -> list[float]:
 
 def horizon() -> int:
     """Steps in a full episode, from the task rather than from a constant written here."""
-    from instinctlab.tasks.locomotion.config.flat_g1 import flat_g1
+    from instinctlab.tasks.locomotion.config.g1 import flat_g1
 
     sim = flat_g1().sim
     return int(round(sim.episode_length_s / sim.step_dt))

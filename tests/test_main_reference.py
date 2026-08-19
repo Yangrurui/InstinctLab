@@ -14,9 +14,9 @@ instead of sitting here claiming a difference that no longer exists. And because
 was a file nobody had listed at all, ``test_no_edit_of_mains_goes_unrecorded`` asks git for the full
 set rather than trusting the tables to be complete.
 
-The locomotion entries are gone from both tables along with the files: that task's Isaac-only
-config, its Gym ids and its MDP package were deleted when D3 was retired, and the cross-engine
-declaration in ``config/flat_g1.py`` is now the only description of it.
+The locomotion MDP package is gone from both tables along with the files: that task's Isaac-only
+rewards lived there and were deleted when D3 was retired. The robot package is back at
+``config/g1/``, but ``flat_env_cfg.py`` is now a ``TaskSpec`` and the Gym ids are gone.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 UNTOUCHED = (
     "source/instinctlab/instinctlab/tasks/locomotion/config/__init__.py",
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/__init__.py",
     "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py",
     "source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py",
@@ -83,23 +84,19 @@ EDITED = {
         "calls register_legacy_isaac_tasks() before using a Gym id"
     ),
     "source/instinctlab/setup.py": "declares the new packages",
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py": (
+        "Isaac EnvCfg replaced by the engine-free TaskSpec; the Gym ids are gone"
+    ),
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/__init__.py": (
+        "no longer registers Gym ids; re-exports the TaskSpec factory so the package stays engine-free"
+    ),
+    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
+        "same hyperparameters; configclass is vendored so reading them does not start Isaac Sim"
+    ),
 }
 """Main's, with a deliberate edit. The text says which one."""
 
 REMOVED = {
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py": (
-        "D3 retired: this was the golden every Isaac result was measured against, and the "
-        "cross-engine declaration in config/flat_g1.py is now the only description of the task"
-    ),
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/__init__.py": (
-        "registered the two legacy Gym ids for a task that now has only a TaskSpec"
-    ),
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/__init__.py": (
-        "empty package of a deleted package"
-    ),
-    "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
-        "became config/flat_g1_ppo.py, which no longer sits under a package that imports Isaac Lab"
-    ),
     "source/instinctlab/instinctlab/tasks/locomotion/mdp/__init__.py": "only flat_env_cfg imported this package",
     "source/instinctlab/instinctlab/tasks/locomotion/mdp/rewards.py": (
         "the four terms it held are in instinctlab/mdp/, written to read quantities both engines have"
@@ -178,9 +175,9 @@ def test_no_edit_of_mains_goes_unrecorded(main_ref: str) -> None:
 def test_no_deletion_of_mains_goes_unrecorded(main_ref: str) -> None:
     """Removing upstream's file is the larger act, and it was the one the tables did not cover.
 
-    ``--no-renames`` matters here. Git saw the agent config move to ``config/flat_g1_ppo.py`` as a
-    rename at 61% similarity, so it reported neither a deletion nor a modification: the file left
-    its original path without appearing in any of these lists.
+    ``--no-renames`` matters here. Git once saw the agent config leave this path as a rename at 61%
+    similarity, so it reported neither a deletion nor a modification: the file left its original
+    path without appearing in any of these lists.
     """
     removed = _git("diff", main_ref, "--name-only", "--diff-filter=D", "--no-renames", "--", "source/", "scripts/")
     assert removed.returncode == 0, removed.stderr

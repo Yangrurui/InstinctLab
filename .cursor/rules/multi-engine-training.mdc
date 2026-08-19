@@ -21,14 +21,14 @@ alwaysApply: false
 - `engines/`：共享机件，**已完成** ✅——`base.py`（`Resolution` / `CompiledTask` / `EngineAdapter` / `UnsupportedTerm`）、`registry.py`（`TermRegistry`，能力矩阵的唯一来源）、`compile.py`（`CompileCtx` / `compile_family` / `compile_mdp`）。这三个模块**同样禁止 import 引擎**，启动器才能在 bootstrap 之前枚举 adapter
 - `engines/<name>/`（backend，作目标）：只承载真正需要两份实现的族。**`engines/isaacsim/` 与 `engines/mjlab/` 均已完成** ✅——各含 `terms.py`（注册表即能力矩阵）、`scene.py`（含该引擎的求解器 profile 默认值）、`assets.py`、`adapter.py`；mjlab 另有 `events.py` / `rewards.py` 放它自己那几份实现。两个包**顶层都不 import 引擎**，builder 函数体内才 import，`contract_report()` 因此能在没装引擎的机器上回答。mjlab 侧资产是从 `RobotSpec` **推导**（MJCF 自带几何，只需补执行器增益），Isaac 侧仍是查表——D5 管线要抹平的就是后者
 - **命令族是 per-engine 的**，尽管它看起来可移植：两边 `UniformVelocityCommandCfg` 语义与多数字段名一致，但 `asset_name` vs `entity_name`，且 mjlab 多出 `rel_world_envs` / `rel_forward_envs` / `init_velocity_prob` / `viz`。共享一个配置对象只能取交集、把 mjlab 的字段静默丢掉；改成共享**语义名** `kind="uniform_velocity"`，各自保留自己的字段
-- **flat G1 的引擎无关声明在 `tasks/locomotion/config/flat_g1.py`**，且是该任务的唯一描述。迁移期它曾对上两份互不知情的参考：Isaac 侧比对 main 的 `G1FlatEnvCfg`（314 处差异全部命中白名单，其中 173 条来自 D1 逐个列出 29 个关节名），mjlab 侧比对 InstinctMJ。**Isaac 那一半已随 D3 退役删除**；mjlab 侧的 `scripts/check_mjlab.py` + `tests/test_mjlab_reference.py` 仍在（读语法树，不 import），观测顺序 / 噪声 / 16 个奖励权重 / 终止 / 事件 / 时序全部一致。两个引擎都能真实构造并 step
+- **flat G1 的引擎无关声明在 `tasks/locomotion/config/g1/flat_env_cfg.py`**，且是该任务的唯一描述。目录排布与 main 相同（`config/g1/` + `agents/`），但 `g1/__init__.py` 不注册 Gym id，以免 import 这条包路径时拉进 Isaac。迁移期它曾对上两份互不知情的参考：Isaac 侧比对 main 的 `G1FlatEnvCfg`（314 处差异全部命中白名单，其中 173 条来自 D1 逐个列出 29 个关节名），mjlab 侧比对 InstinctMJ。**Isaac 那一半已随 D3 退役删除**；mjlab 侧的 `scripts/check_mjlab.py` + `tests/test_mjlab_reference.py` 仍在（读语法树，不 import），观测顺序 / 噪声 / 16 个奖励权重 / 终止 / 事件 / 时序全部一致。两个引擎都能真实构造并 step
 - **两引擎逐值比对：`scripts/compare_terms.py --run`**。两个进程各构造一次环境（Isaac Sim 必须先启 app），把机器人**写**进同一状态后逐项求值。26 项在 float32 精度内一致（最大 4.8e-07），5 项按设计不比且各有理由。写而不 step 是有意的：term 是状态的函数，step 后的一致性掺进了积分器
 - `frontends/<idiom>/`（作来源）：项目源码 → `TaskSpec` + 未转换清单 + 置信度报告
 - `migrate/`：`analyze.py`（AST 分类报告）+ `codemod.py`（确定性改写）
 - 原生栈：isaacsim → `isaaclab.ManagerBasedRLEnv`；mjlab → `mjlab.ManagerBasedRlEnv`
 - `verify/`：旧 `SimulatorBackend` 双实现降级至此，做 sim2sim 状态断言，**不在训练热路径**
 
-入口 **`scripts/train.py --engine isaacsim|mjlab --task <id>`**，已完成 ✅。引擎必须在任何 import 之前选定（`AppLauncher` 要先于 `isaaclab` 和 torch），所以先用只认 `--engine` 的 parser 选中适配器、由它补自己的开关、再 `bootstrap`。入口之后没有一处知道自己拿到哪个引擎。两个注册表都存点路径、不 import 被注册者：`engines.ADAPTERS`（`engines.adapter(name)`）与 `tasks.registry.TASKS`（`tasks.registry.spec(id)`）——Gym 注册表做不到，注册一个 id 就要 import 它指向的 Isaac env cfg。agent 配置在 `tasks/locomotion/config/flat_g1_ppo.py`，引擎无关。`scripts/instinct_rl/train.py` 是 main 的 Isaac-only 旧入口，仍在。
+入口 **`scripts/train.py --engine isaacsim|mjlab --task <id>`**，已完成 ✅。引擎必须在任何 import 之前选定（`AppLauncher` 要先于 `isaaclab` 和 torch），所以先用只认 `--engine` 的 parser 选中适配器、由它补自己的开关、再 `bootstrap`。入口之后没有一处知道自己拿到哪个引擎。两个注册表都存点路径、不 import 被注册者：`engines.ADAPTERS`（`engines.adapter(name)`）与 `tasks.registry.TASKS`（`tasks.registry.spec(id)`）——Gym 注册表做不到，注册一个 id 就要 import 它指向的 Isaac env cfg。agent 配置在 `tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py`，引擎无关。`scripts/instinct_rl/train.py` 是 main 的 Isaac-only 旧入口，仍在。
 
 **unified 栈已删除**（自研 env / managers / MDP / env cfg / `rl/` 包 / `*_unified.py` / `profile_backend.py` 及其测试）。`backends/` 与 `sim/` 契约层保留，服务 `tests/simulators/` 的 sim2sim 断言；它们需要的场景描述抽到了 `verify/scene.py::locomotion_flat_scene`，不再经过任何 MDP。
 
@@ -59,10 +59,10 @@ alwaysApply: false
 
 - **D1 顺序以 DFS 为主**：`RobotSpec.joint_names` / `body_names` 是唯一真值（已由 `tests/test_asset_parity.py` 钉住它确实等于 URDF 的 DFS 前序）。canonical→native 翻译只在 `CompileCtx.entity()` 一处发生。**光发 `preserve_order=True` 不够，必须把关节名逐个列出**：`resolve_matching_names` 按**模式**的顺序排列选择结果，只给一个 `.*` 时模式内部仍按实体自身顺序排，这个标志就成了空操作。动作项与 `joint_pos`/`joint_vel` 两个观测项都要带这份显式名单——只钉动作不钉观测，策略的输入和输出在两个引擎上索引方式不同，等于没钉。`last_action` 读动作管理器整条向量，自动跟随。由 `tests/test_flat_g1_declaration.py` 正向断言（动作项与两个观测项的 `joints` 逐元素等于目录顺序，且 `preserve_order` 为真）。
 - **D2 自研 env / managers 已退役并删除**。删除时暴露出它留下的两处静默断裂：`mdp/__init__.py` 的 `from .unified import *` 遮蔽了 main 的奖励实现（签名不同，manager 构造期即拒绝），以及 `tasks/__init__.py` 不再在 import 时注册 Gym id 而无人调用 `register_legacy_isaac_tasks()`。**main 的任务因此一度完全构造不起来，而所有测试和对拍照常通过**——golden 甚至是从这个状态 dump 的。
-- **D3 已退役（2026-08-19）**。原文是「main 的 `G1FlatEnvCfg` 是任务定义真值，Isaac 侧验收 = 编译产物与它逐字段 diff」。现已删除 `tasks/locomotion/config/g1/`（env cfg、两个 Gym id、agent 转出）、`tasks/locomotion/mdp/`、`tests/parity/`（golden + 白名单）、`scripts/dump_golden.py`、`scripts/check_parity.py`。`config/flat_g1.py` 成为该任务的唯一描述，**没有第二份可比对**。
+- **D3 已退役（2026-08-19）**。原文是「main 的 `G1FlatEnvCfg` 是任务定义真值，Isaac 侧验收 = 编译产物与它逐字段 diff」。现已删除 Isaac-only 的 Gym 注册、`tasks/locomotion/mdp/`、`tests/parity/`（golden + 白名单）、`scripts/dump_golden.py`、`scripts/check_parity.py`。任务目录回到与 main 相同的 `config/g1/` 排布，但 `flat_env_cfg.py` 是 `TaskSpec` 而不是 `G1FlatEnvCfg`，**没有第二份可比对**。
   - **为什么可以退**：迁移期 golden 的作用是证明「重述没有丢东西」，这一点已经拿到（314 处差异 0 处未解释，编译产物真实构造并训练收敛）。迁移结束后它变成一份必须与实现同步维护的副本，而副本的失效方式是最难发现的那种——本项目的 golden 曾经从一个 main 已经构造不起来的状态 dump 出来，并且被反向弯折过一次（见规则 37）。
   - **退了之后剩什么**：mjlab 侧 `tests/test_mjlab_reference.py` 仍在（InstinctMJ 本仓库改不动，这是它最大的价值）；超参仍由 `tests/test_agent_cfg.py` 从 `git show main:` 现取比对——那份文件在 main 分支上永远都在，删本地副本不影响；两引擎互相对拍（`scripts/probe_terms.py`、`scripts/check_mjlab.py`）不受影响；`tests/test_flat_g1_declaration.py` 把 16 个奖励权重记成快照，**标注为快照而非参照**。
-  - **代价，明写**：此后没有任何东西会告诉你 `flat_g1.py` 偏离了 main 的 locomotion。要重新取得这个能力，`git show main:...flat_env_cfg.py` 仍可现取现建（`tests/test_agent_cfg.py` 已在对 PPO 配置用这个手法），但要为它单独付机制成本。
+  - **代价，明写**：此后没有任何东西会告诉你 `flat_env_cfg.py` 偏离了 main 的 locomotion。要重新取得这个能力，`git show main:...flat_env_cfg.py` 仍可现取现建（`tests/test_agent_cfg.py` 已在对 PPO 配置用这个手法），但要为它单独付机制成本。
   - **仍然成立的部分**：凡声称「这个文件是 main 的」，就要有检查去问 main。`tests/test_main_reference.py` 保留并**扩了删除侧**——`--diff-filter=M` 只看修改，删掉 main 的文件曾经完全不报；且必须带 `--no-renames`，否则 git 会把「移走」认成改名而两边都不算。
 
 ## N 引擎扩展：五处待改结构（CROSS_ENGINE_DESIGN §14）
@@ -152,7 +152,7 @@ entry point `instinctlab.engines` 注册，可作独立 pip 包。清单：`boot
 31. 对拍脚本里**能提取但没人断言**的信息等同于没比。`tests/reference_mjlab.py` 曾提供事件 `params`、`reward_functions()`、`scene_sensors()` 而无调用者，读代码的人会以为比过了——质量随机化范围、接触阈值、每个惩罚罚哪几个关节，当时全部无人看守。新增提取器必须同时新增断言。
 32. 比较实体选择器时断言**解析结果**而不是字面量。参照写死两个 body 名、声明写正则模式，是同一个选择当且仅当在实体自己的名字表里解析出同样的名字和同样的顺序。
 33. 配置逐字段对拍不覆盖**消费配置的那个类**。main 用 `InstinctRlEnv`（多奖励路由 + MonitorManager），编译产物用朴素 `ManagerBasedRLEnv`；两者等价的前提（奖励容器不是 `MultiRewardCfg`、monitor 配置为空）必须从参照的声明里读出来断言，不能默认成立——`num_rewards` 从 1 变成向量意味着两边优化的不是同一个目标。
-34. 文档或 docstring 声称「由 `tests/xxx.py` 保证」时，必须确认该文件存在。`flat_g1_ppo.py` 曾声称 `tests/test_agent_cfg.py` 钉住了每个超参，而该文件从未被创建。
+34. 文档或 docstring 声称「由 `tests/xxx.py` 保证」时，必须确认该文件存在。agent 配置曾声称 `tests/test_agent_cfg.py` 钉住了每个超参，而该文件从未被创建。
 35. **退役一层不等于停止使用它**。只要 `__init__.py` 还在 `from .retired import *`，被退役的实现仍是活的，而且**优先于**正版——星号导入急切绑定名字、静默压过下面的惰性查找。unified 的奖励重实现就这样遮蔽了 main 的原版：算术忠实、签名不同，manager 构造期直接拒绝，而没有 import 错误、没有测试会响。当时加的守卫禁止 `tasks/locomotion/mdp/__init__.py` 出现星号导入，该文件与守卫已一并删除（D3）。**现存的星号导入在 `tasks/parkour/mdp/__init__.py`，尚未处理**——见 skill 的 repo-tasks.md。
 36. **参照实现必须有人定期真的构造一次**。我们对 main 做了逐字段比对、静态不变量、白名单过期检查，唯独没有「把它建起来跑一步」，结果 golden 是从一份无法实例化的配置里 dump 的，而所有验收照常通过。一个连不上电的标尺，量什么都是准的。
 37. **对拍报出差异时，不许通过改参照来消差**，除非参照本来就写错。编译器与 main 在 `self_collision` 上不一致，而这处差异是把编译器的 `spawn.replace(...)` 整段复制进 golden 的源文件 `G1FlatEnvCfg` 抹平的：此后永远相等，而「≡ main」再无内容。四轮审计逐行读过该文件都没发现——改后的文件本身完全合理。（后续实测：运行期自碰撞由 articulation root 上的 `physxArticulation:enabledSelfCollisions` 决定，main 本就设 `True`，被改的 `spawn.self_collision` 是 URDF 导入器标志；两引擎在该行为上一致。**「配置偏离参照」和「物理不同」是两个命题**，第二个得单独测，不要顺势推断。）

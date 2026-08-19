@@ -1,8 +1,9 @@
 """PPO configuration for flat-ground G1 locomotion, shared by both engines.
 
-Moved here from ``config/g1/agents/`` unchanged. The values are main's; the only edit is the
-import of ``configclass``, which now comes from :mod:`instinctlab.utils.configclass` so that this
-module can be read without Isaac Sim on the path.
+Lives at the same path as main's copy. The values are main's; the only edit is the import of
+``configclass``, which now comes from :mod:`instinctlab.utils.configclass` so that this module can
+be read without Isaac Sim on the path. ``config/g1/__init__.py`` does not import this package and
+does not register a Gym id, which is what keeps the robot package itself engine-free.
 
 The hyperparameters are still checked against both references even though the env config no longer
 is. ``tests/test_agent_cfg.py`` reads main's copy of this file out of the branch itself, which needs
