@@ -8,7 +8,6 @@ from instinctlab.backends.isaacsim.backend import IsaacSimBackend, _contact_prim
 from instinctlab.sim.backend import CanonicalIndexMap
 from instinctlab.sim.control import ControlMode, JointControlTarget
 from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec
-from instinctlab.tasks.locomotion.mdp.unified import _ids
 
 
 def test_contact_body_aliases_come_from_robot_asset() -> None:
@@ -28,17 +27,6 @@ def test_contact_body_aliases_come_from_robot_asset() -> None:
         )
         == "{ENV_REGEX_NS}/Robot/(torso_link|left_ankle_roll_link|right_ankle_roll_link)"
     )
-
-
-def test_mdp_ids_are_cached_per_device() -> None:
-    names = ("torso_link", "left_ankle_roll_link", "right_ankle_roll_link")
-    selected = ("left_ankle_roll_link", "right_ankle_roll_link")
-
-    first = _ids(names, selected, torch.device("cpu"))
-    second = _ids(names, selected, torch.device("cpu"))
-
-    assert first is second
-    torch.testing.assert_close(first, torch.tensor([1, 2]))
 
 
 def test_isaacsim_engine_options_ignore_mjlab_scope() -> None:

@@ -1,10 +1,9 @@
-"""Engine-neutral managers with lazy Isaac compatibility exports."""
+"""Isaac Lab manager extensions, exported lazily.
 
-from .unified import *
-from .unified import __all__ as _UNIFIED_EXPORTS
-
-_LEGACY_EXPORTS = {"DummyRewardCfg", "MultiRewardCfg", "MultiRewardManager"}
-
+Only the multi-reward pieces live here now; the unified managers they used to sit beside are gone.
+Lazy so that importing this package does not pull in Isaac Sim, which ``InstinctRlEnv`` relies on
+when it asks for ``MultiRewardCfg`` before the app has started.
+"""
 
 def __getattr__(name: str):
     if name in {"DummyRewardCfg", "MultiRewardCfg"}:
@@ -18,4 +17,4 @@ def __getattr__(name: str):
     raise AttributeError(name)
 
 
-__all__ = [*_UNIFIED_EXPORTS, *_LEGACY_EXPORTS]
+__all__ = ["DummyRewardCfg", "MultiRewardCfg", "MultiRewardManager"]

@@ -99,8 +99,12 @@ if args_cli.debug:
     debugpy.wait_for_client()
     debugpy.breakpoint()
 
-# Import extensions to set up environment tasks
-import instinctlab.tasks  # noqa: F401
+# Import extensions to set up environment tasks. Importing the package no longer registers the Gym
+# ids: it has to stay engine-free so the cross-engine launcher can read it before choosing an
+# engine, so registering is an explicit call and safe here, after AppLauncher.
+import instinctlab.tasks  # noqa: E402
+
+instinctlab.tasks.register_legacy_isaac_tasks()
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True

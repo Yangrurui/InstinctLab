@@ -1,48 +1,17 @@
-"""Guard: Manager / MDP must not assign ArticulationState kinematic fields."""
+"""Guard: nothing may assign ArticulationState kinematic fields behind the backend's back.
+
+The AST scan that used to stand here read the unified MDP and manager modules, which are gone.
+The barrier they were scanned against is not: it is enforced at runtime by the state object
+itself, which is what the remaining test exercises.
+"""
 
 from __future__ import annotations
 
-import ast
-import torch
-from pathlib import Path
+import torch  # noqa: F401  -- ArticulationState.allocate needs torch imported
 
 import pytest
 
-from instinctlab.sim.state import KINEMATIC_FIELD_NAMES, ArticulationState, freeze_kinematic_fields
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-_SCAN_PATHS = (
-    _REPO_ROOT / "source/instinctlab/instinctlab/tasks/locomotion/mdp/unified.py",
-    _REPO_ROOT / "source/instinctlab/instinctlab/managers/unified.py",
-)
-
-
-def _assignment_target_name(node: ast.AST) -> str | None:
-    target = node
-    while isinstance(target, ast.Subscript):
-        target = target.value
-    if isinstance(target, ast.Attribute) and target.attr in KINEMATIC_FIELD_NAMES:
-        return target.attr
-    return None
-
-
-def test_mdp_and_managers_do_not_assign_kinematic_fields() -> None:
-    hits: list[str] = []
-    for path in _SCAN_PATHS:
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            targets: list[ast.AST] = []
-            if isinstance(node, ast.Assign):
-                targets = list(node.targets)
-            elif isinstance(node, ast.AnnAssign) and node.target is not None:
-                targets = [node.target]
-            elif isinstance(node, ast.AugAssign):
-                targets = [node.target]
-            for target in targets:
-                name = _assignment_target_name(target)
-                if name is not None:
-                    hits.append(f"{path}:{node.lineno} assigns {name}")
-    assert not hits, "Manager/MDP must use backend.write_*; found:\n" + "\n".join(hits)
+from instinctlab.sim.state import ArticulationState, freeze_kinematic_fields
 
 
 def test_write_barrier_blocks_item_assignment() -> None:

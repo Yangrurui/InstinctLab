@@ -226,3 +226,28 @@ def test_mains_env_subclass_adds_nothing_this_task_uses():
         f"main's monitor config now declares {len(declared)} term(s); the compiled task has no "
         "monitor manager, so whatever they measure would be missing from its logs"
     )
+
+
+MAIN_MDP_PACKAGE = REPO / "source/instinctlab/instinctlab/tasks/locomotion/mdp/__init__.py"
+
+
+def test_mains_mdp_package_exports_one_implementation_per_name():
+    """A second implementation re-exported over this package is how main's task stopped building.
+
+    The retired unified stack put ``from .unified import *`` here. Its terms were faithful in
+    arithmetic and not in signature -- ``feet_air_time_positive_biped`` took a sensor name and body
+    names where main's config passes a ``SceneEntityCfg`` -- so ``G1FlatEnvCfg`` named a function
+    its own params could not satisfy and Isaac Lab's manager rejected it at construction. Nothing
+    imports a term by name, so there was no import error and no failing test; the task simply
+    stopped building, and the golden dump recorded the shadowing implementation as if it were main's.
+
+    A star import is the shape that does this, because it binds names eagerly and silently wins over
+    the lazy lookup below it.
+    """
+    tree = ast.parse(MAIN_MDP_PACKAGE.read_text())
+    starred = [
+        node.module or "."
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names)
+    ]
+    assert not starred, f"{MAIN_MDP_PACKAGE.name} star-imports {starred}, which can shadow a term main declares"

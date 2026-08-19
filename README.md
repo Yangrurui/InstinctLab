@@ -70,11 +70,13 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     python -m pip install -e "source/instinctlab[mjlab]"
     ```
 
-- Train the same locomotion task on either backend:
+- Train the same locomotion task on either engine. One declaration, compiled by the chosen engine's
+  adapter; `--headless` and the other launch flags belong to the engine and are accepted only where
+  it defines them.
 
     ```bash
-    python scripts/instinct_rl/train_unified.py --backend isaacsim --task Instinct-Locomotion-Flat-G1-v0 --headless
-    python scripts/instinct_rl/train_unified.py --backend mjlab --task Instinct-Locomotion-Flat-G1-v0
+    python scripts/train.py --engine isaacsim --task Instinct-Velocity-Flat-G1 --num_envs 4096 --device cuda:0 --headless
+    python scripts/train.py --engine mjlab    --task Instinct-Velocity-Flat-G1 --num_envs 4096 --device cuda:1
     ```
 
 - Legacy Isaac-only tasks still use:

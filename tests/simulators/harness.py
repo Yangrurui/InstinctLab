@@ -12,7 +12,7 @@ import torch
 import pytest
 
 from instinctlab.sim.backend import MaterialProperties, SensorReadPhase
-from instinctlab.tasks.locomotion.unified_flat_env_cfg import locomotion_flat_env_cfg
+from instinctlab.verify.scene import locomotion_flat_scene
 
 
 def require_live_backend(name: str) -> None:
@@ -48,7 +48,7 @@ def initialize_locomotion_backend(
     num_envs: int = 2,
     bootstrap_context: object | None = None,
 ):
-    cfg = locomotion_flat_env_cfg(num_envs=num_envs)
+    cfg = locomotion_flat_scene(num_envs=num_envs)
     backend = make_live_backend(name, bootstrap_context=bootstrap_context)
     try:
         backend.initialize(cfg.scene, cfg.simulation, cfg.requirements)

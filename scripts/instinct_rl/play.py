@@ -68,7 +68,9 @@ from isaaclab.utils.io import load_yaml
 from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 
 # Import extensions to set up environment tasks
-import instinctlab.tasks  # noqa: F401
+import instinctlab.tasks  # noqa: E402
+
+instinctlab.tasks.register_legacy_isaac_tasks()
 from instinctlab.managers.reward_manager import MultiRewardManager
 from instinctlab.utils.wrappers import InstinctRlVecEnvWrapper
 from instinctlab.utils.wrappers.instinct_rl import InstinctRlOnPolicyRunnerCfg

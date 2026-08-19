@@ -15,7 +15,6 @@ from instinctlab.sim.robot_spec import BackendAsset
 from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec
 from instinctlab.sim.schema import locomotion_flat_schema
 from instinctlab.sim.state import ContactState
-from instinctlab.tasks.locomotion.mdp.unified import _material_params_for_backend, _slide_friction_range
 
 ISAAC_BFS_JOINT_NAMES = (
     "left_shoulder_pitch_joint",
@@ -250,28 +249,6 @@ def test_g1_assets_are_pinned_and_verify() -> None:
     assert isaac.checksum is not None
     assert mjlab.checksum is not None
     robot.verify_assets()
-
-
-def test_material_params_are_backend_scoped() -> None:
-    backend_params = {
-        "default": {"shared_random": False, "restitution_range": (0.0, 0.8)},
-        "mjlab": {"shared_random": True, "restitution_range": None},
-        "isaacsim": {"separate_dynamic_friction": True},
-    }
-    mjlab = _material_params_for_backend("mjlab", backend_params, shared_random=True)
-    isaac = _material_params_for_backend("isaacsim", backend_params, shared_random=True)
-    assert mjlab["shared_random"] is True
-    assert mjlab["restitution_range"] is None
-    assert isaac["shared_random"] is False
-    assert isaac["restitution_range"] == (0.0, 0.8)
-    assert isaac["separate_dynamic_friction"] is True
-
-
-def test_instinctmj_material_ranges_merge_to_slide_friction() -> None:
-    assert _slide_friction_range(None, (0.25, 0.8), (0.2, 0.6)) == (0.2, 0.8)
-    assert _slide_friction_range((0.3, 0.7), None, None) == (0.3, 0.7)
-    with pytest.raises(ValueError, match="either friction_range or static/dynamic"):
-        _slide_friction_range((0.3, 0.7), (0.25, 0.8), None)
 
 
 def test_contact_state_air_time_uses_force_threshold_edges() -> None:

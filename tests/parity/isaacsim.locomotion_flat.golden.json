@@ -933,7 +933,7 @@
         "weight": -200.0
       },
       "track_lin_vel_xy_exp": {
-        "func": "instinctlab.tasks.locomotion.mdp.unified.track_lin_vel_xy_yaw_frame_exp",
+        "func": "instinctlab.tasks.locomotion.mdp.rewards.track_lin_vel_xy_yaw_frame_exp",
         "params": {
           "command_name": "base_velocity",
           "std": 0.5
@@ -941,7 +941,7 @@
         "weight": 1.0
       },
       "track_ang_vel_z_exp": {
-        "func": "instinctlab.tasks.locomotion.mdp.unified.track_ang_vel_z_world_exp",
+        "func": "instinctlab.tasks.locomotion.mdp.rewards.track_ang_vel_z_world_exp",
         "params": {
           "command_name": "base_velocity",
           "std": 0.5
@@ -949,7 +949,7 @@
         "weight": 1.0
       },
       "feet_air_time": {
-        "func": "instinctlab.tasks.locomotion.mdp.unified.feet_air_time_positive_biped",
+        "func": "instinctlab.tasks.locomotion.mdp.rewards.feet_air_time_positive_biped",
         "params": {
           "command_name": "base_velocity",
           "sensor_cfg": {
@@ -1004,7 +1004,7 @@
         "weight": -1.0
       },
       "stand_still": {
-        "func": "instinctlab.tasks.locomotion.mdp.unified.stand_still",
+        "func": "instinctlab.tasks.locomotion.mdp.rewards.stand_still",
         "params": {
           "command_name": "base_velocity"
         },

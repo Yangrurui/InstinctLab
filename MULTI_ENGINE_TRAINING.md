@@ -2,6 +2,8 @@
 
 > **架构立场已更新。** 本文第 2 节（既定立场、分层、硬约束、关键代码）与第 7 节描述的是「统一张量 Adapter + 自研 `UnifiedManagerBasedRLEnv`」方案，**已被取代**。当前权威设计是 [`CROSS_ENGINE_DESIGN.md`](CROSS_ENGINE_DESIGN.md)：统一层改为声明式 `TaskSpec`，由每个引擎的 adapter 编译成该引擎的**原生** env 配置。
 >
+> **这些文件已删除**，下文提到它们的地方按史料读，不要照着敲：`envs/unified_manager_based_rl_env.py`、`managers/unified.py`、`tasks/locomotion/mdp/unified.py`、`tasks/locomotion/unified_flat_env_cfg.py`、`rl/` 包、`scripts/instinct_rl/{train,play}_unified.py`、`scripts/profile_backend.py`。训练入口现在是 `scripts/train.py --engine isaacsim|mjlab --task <id>`。`backends/` 与 `sim/` 契约层保留，只服务 `tests/simulators/` 的 sim2sim 断言，场景描述见 `verify/scene.py`。
+>
 > 本文第 3–6、8 节（路径分类、公开框架对照、单引擎产品、与 HumanoidVerse 的差异）仍然有效，作为选型背景保留。
 
 > 给后续任务 agent 用。选型背景以本文为准；实现契约以 [`CROSS_ENGINE_DESIGN.md`](CROSS_ENGINE_DESIGN.md) 为准。

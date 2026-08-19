@@ -40,16 +40,22 @@
 
 ### D2：退役自研 env 与 managers
 
-以下组件退役，改用引擎原生 env + `TaskSpec` 编译：
+以下组件退役，改用引擎原生 env + `TaskSpec` 编译。**已于 2026-08-19 删除**：
 
-| 文件 | 行数 |
-|---|---|
-| `envs/unified_manager_based_rl_env.py` | 246 |
-| `managers/unified.py` | 643 |
-| `tasks/locomotion/mdp/unified.py` | 593 |
-| `tasks/locomotion/unified_flat_env_cfg.py` | 439（改写为 TaskSpec，预计 <150 行） |
+| 文件 | 行数 | 去向 |
+|---|---|---|
+| `envs/unified_manager_based_rl_env.py` | 246 | 删除，改用引擎原生 env |
+| `managers/unified.py` | 643 | 删除 |
+| `tasks/locomotion/mdp/unified.py` | 593 | 删除，可移植项在 `instinctlab/mdp/` |
+| `tasks/locomotion/unified_flat_env_cfg.py` | 439 | 删除，任务声明是 `tasks/locomotion/flat_g1.py`（119 行） |
+| `tasks/locomotion/commands.py` | 123 | 删除，仅服务上者 |
+| `rl/`（3 文件） | 204 | 删除，训练走 `utils/wrappers/instinct_rl/` |
+| `scripts/instinct_rl/{train,play}_unified.py` | 590 | 删除，入口是 `scripts/train.py` |
+| `scripts/profile_backend.py` | 322 | 删除：它测的是 unified env 的 step，对象已不存在 |
 
-`SimulatorBackend` 双实现（`backends/isaacsim/backend.py` 1119 行 + `backends/mjlab/simulator.py` 1464 行）**不作废**，降级为 `instinctlab/verify/` 的状态读写层，用于 sim2sim 断言与 `instinct_onboard` 对齐，退出训练热路径。`scripts/profile_backend.py` 与 `tests/simulators/` 继续服务该层。
+`SimulatorBackend` 双实现（`backends/isaacsim/backend.py` + `backends/mjlab/simulator.py`）**不作废**，作为 sim2sim 状态断言层保留，退出训练热路径，由 `tests/simulators/` 服务。它们需要的场景描述从上述 env cfg 里抽出为 `verify/scene.py::locomotion_flat_scene`——那些行为断言写根状态、step、读传感器，从不经过 MDP，所以拿掉 MDP 之后它们一行没改。
+
+删除过程暴露了这套栈留下的两处**静默断裂**，都是「没有异常、没有测试会响」的类型，记在 §12.11。
 
 ### D3：main 分支是唯一 golden，允许声明的轻微差异
 
@@ -814,6 +820,20 @@ Isaac 侧逐点落在两份参照之间，是健康的；mjlab 侧从头到尾�
 | 本项目 mjlab | 970.30 | 0.015 | 0.350 | 0.571 |
 
 最有说服力的一列是角速度误差：两个 mjlab 跑都落在 0.57–0.58，两个 Isaac 跑都落在 0.64–0.70，线速度误差则相反。**引擎留下了可辨认的指纹，而本项目的两次跑各自带着自己所跑引擎的指纹**——这比「数值接近」更能说明对齐的是引擎行为本身，而不是碰巧调出了相似的结果。
+
+### 12.11 第四件：退役的栈没走干净，把 golden 本身弄坏了
+
+删 unified 栈时才发现，**main 的 `G1FlatEnvCfg` 已经构造不起来了**——而它是 D3 指定的唯一 golden，我们所有 Isaac 侧的验收都以它为准。两处断裂互相独立，都由 unified 改造留下：
+
+**一、`mdp/__init__.py` 的 `from .unified import *` 遮蔽了 main 的奖励实现。** 发布版这里导出的是 `.rewards` 和 isaaclab 的 mdp；unified 改造把它换成星号导入自己的重实现。那些重实现在**算术上忠实**、在**签名上不同**：`feet_air_time_positive_biped` 收 `sensor_name` + `body_names`，而 main 的配置传的是 `sensor_cfg=SceneEntityCfg(...)`。Isaac Lab 的 manager 在构造期按签名校验 term 参数，于是 main 的任务直接被拒。没有 import 错误——没有人按名字 import 一个 term——也没有测试会响。
+
+**二、`tasks/__init__.py` 不再在 import 时注册 Gym id，而没有人调用替代品。** 为了让跨引擎入口能在选定引擎之前读任务表，这个包必须保持引擎无关，注册因此改成显式的 `register_legacy_isaac_tasks()`。但 main 的 `scripts/instinct_rl/train.py` 仍写着 `import instinctlab.tasks  # noqa: F401`，靠副作用注册——全仓库没有一处调用那个函数。main 的入口连自己的 task id 都找不到。
+
+最难受的一点：**golden 是从这个坏掉的状态 dump 的**。它把四个奖励的实现记成 `mdp.unified.*`，而 main 真正跑的那次（2026-08-17，5000 轮）dump 出来的是 `mdp.rewards.*`。也就是说「133 处差异、0 处无法解释」这个结论，比对的对象是一份**无法实例化**的配置。结论本身没被推翻——两版实现数值等价，且我们的 Isaac 训练曲线确实落在 main 的参照跑上——但它当时是**碰巧**成立的。
+
+删除后重新 dump，golden 只有那四行 `func` 改变，parity 仍是 133 处差异、0 处无法解释；main 的任务恢复构造并 step，16 个奖励项齐全。
+
+一般化的教训有两条。**退役一层不等于停止使用它**：只要 `__init__.py` 还在 re-export，被退役的实现就仍然是活的，而且是**优先于**正版的活的。星号导入是这件事的特有形状——它急切绑定名字，且静默压过下面的惰性查找。已加静态测试禁止这个包出现星号导入。以及 **参照实现必须有人定期真的跑一遍**：我们对 main 做了逐字段比对、静态不变量、白名单过期检查，唯独没有「构造它一次」。一个连不上电的标尺，量什么都是准的。
 
 ## 13. 迁移工作流
 
