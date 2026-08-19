@@ -32,13 +32,14 @@ TERMS = TermRegistry("mjlab")
 
 
 def _cfgs() -> dict[str, Any]:
-    from mjlab.managers import EventTermCfg, ObservationTermCfg, RewardTermCfg, TerminationTermCfg
+    from mjlab.managers import CurriculumTermCfg, EventTermCfg, ObservationTermCfg, RewardTermCfg, TerminationTermCfg
 
     return {
         "obs": ObservationTermCfg,
         "reward": RewardTermCfg,
         "done": TerminationTermCfg,
         "event": EventTermCfg,
+        "curriculum": CurriculumTermCfg,
     }
 
 
@@ -62,6 +63,11 @@ def _reward(spec, ctx):
 @TERMS.portable("termination")
 def _termination(spec, ctx):
     return _cfgs()["done"](func=spec.func, time_out=spec.time_out, params=ctx.params(spec))
+
+
+@TERMS.portable("curriculum")
+def _curriculum(spec, ctx):
+    return _cfgs()["curriculum"](func=spec.func, params=ctx.params(spec))
 
 
 @TERMS.reward("contact_slide")

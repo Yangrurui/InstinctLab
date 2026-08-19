@@ -228,6 +228,28 @@ def _events() -> dict[str, EventTermSpec]:
     }
 
 
+def _commands() -> dict[str, CommandTermSpec]:
+    """Velocity command, shared with the rough sibling so the two ranges cannot drift apart."""
+    return {
+        COMMAND: CommandTermSpec(
+            kind="uniform_velocity",
+            params={
+                "entity": "robot",
+                "resampling_time_range": (10.0, 10.0),
+                "rel_standing_envs": 0.2,
+                "rel_heading_envs": 0.5,
+                "heading_command": True,
+                "heading_control_stiffness": 0.5,
+                "debug_vis": True,
+                "lin_vel_x": (-0.5, 1.0),
+                "lin_vel_y": (-0.5, 0.5),
+                "ang_vel_z": (-1.5, 1.5),
+                "heading": (-math.pi, math.pi),
+            },
+        )
+    }
+
+
 def _action_scale(robot: RobotSpec) -> dict[str, float]:
     """Per-joint action scale, taken from the robot catalog rather than from the engine.
 
@@ -267,24 +289,7 @@ def flat_g1() -> TaskSpec:
                     params={"scale": _action_scale(robot), "use_default_offset": True},
                 )
             },
-            commands={
-                COMMAND: CommandTermSpec(
-                    kind="uniform_velocity",
-                    params={
-                        "entity": "robot",
-                        "resampling_time_range": (10.0, 10.0),
-                        "rel_standing_envs": 0.2,
-                        "rel_heading_envs": 0.5,
-                        "heading_command": True,
-                        "heading_control_stiffness": 0.5,
-                        "debug_vis": True,
-                        "lin_vel_x": (-0.5, 1.0),
-                        "lin_vel_y": (-0.5, 0.5),
-                        "ang_vel_z": (-1.5, 1.5),
-                        "heading": (-math.pi, math.pi),
-                    },
-                )
-            },
+            commands=_commands(),
             rewards={"rewards": _rewards()},
             terminations={
                 "time_out": DoneTermSpec(func=mdp.time_out, time_out=True),

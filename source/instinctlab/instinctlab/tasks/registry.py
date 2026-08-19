@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 TASKS: dict[str, str] = {
     "Instinct-Velocity-Flat-G1": "instinctlab.tasks.locomotion.config.g1:flat_g1",
+    "Instinct-Velocity-Rough-G1": "instinctlab.tasks.locomotion.config.g1:rough_g1",
 }
 """Task id -> dotted path of the factory returning its :class:`TaskSpec`.
 

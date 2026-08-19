@@ -35,7 +35,15 @@ from instinctlab.sim.robot_spec import RobotSpec
 from .mdp import MdpSpec
 from .sensor import ContactSensorRef
 
-__all__ = ["AgentSpec", "SceneSpec", "SimSpec", "TaskSpec", "TerrainSpec"]
+__all__ = [
+    "AgentSpec",
+    "SceneSpec",
+    "SimSpec",
+    "SubTerrainSpec",
+    "TaskSpec",
+    "TerrainGeneratorSpec",
+    "TerrainSpec",
+]
 
 
 @dataclass(frozen=True)
@@ -85,17 +93,84 @@ class SimSpec:
 
 
 @dataclass(frozen=True)
+class SubTerrainSpec:
+    """One tile type in a generated grid, named by intent rather than by a native class.
+
+    ``kind`` is a semantic name -- ``pyramid_stairs``, ``random_rough`` -- that each adapter maps
+    onto its own primitive. Isaac Lab builds stairs as a triangle mesh; mjlab builds them from
+    boxes. The numbers in ``params`` are the ones both mappings understand (step height, slope,
+    noise amplitude). A field only one engine has does not belong here.
+    """
+
+    kind: str
+    proportion: float = 1.0
+    params: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.kind:
+            raise ValueError("SubTerrainSpec.kind must name a terrain type.")
+        if self.proportion <= 0.0:
+            raise ValueError(f"SubTerrainSpec.proportion must be positive, got {self.proportion}.")
+        object.__setattr__(self, "params", dict(self.params))
+
+
+@dataclass(frozen=True)
+class TerrainGeneratorSpec:
+    """A grid of sub-terrains. The layout is portable; how each tile is built is not.
+
+    ``num_rows`` is difficulty under curriculum on both engines. ``num_cols`` is not the same
+    number: Isaac Lab distributes columns by ``proportion``, mjlab ignores ``num_cols`` in
+    curriculum mode and gives each tile type exactly one column, using ``proportion`` only for
+    spawn weights. Stating both is still right -- each adapter reads what its generator means --
+    and pretending they agree would be the worse lie.
+    """
+
+    size: tuple[float, float] = (8.0, 8.0)
+    border_width: float = 20.0
+    num_rows: int = 10
+    num_cols: int = 20
+    curriculum: bool = False
+    max_init_level: int | None = 5
+    horizontal_scale: float = 0.1
+    vertical_scale: float = 0.005
+    slope_threshold: float = 0.75
+    seed: int | None = None
+    sub_terrains: Mapping[str, SubTerrainSpec] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "sub_terrains", dict(self.sub_terrains))
+        if self.size[0] <= 0.0 or self.size[1] <= 0.0:
+            raise ValueError(f"Terrain patch size must be positive, got {self.size}.")
+        if self.num_rows < 1 or self.num_cols < 1:
+            raise ValueError(f"Terrain grid must be at least 1x1, got {self.num_rows}x{self.num_cols}.")
+        if not self.sub_terrains:
+            raise ValueError("A generator with no sub-terrains produces an empty world.")
+
+
+@dataclass(frozen=True)
 class TerrainSpec:
-    """The ground. Flat unless a task says otherwise."""
+    """The ground. Flat unless a task says otherwise.
+
+    ``kind`` is open. ``"plane"`` and ``"generator"`` are portable recipes this module can
+    describe; ``"rough"`` is not -- it means "this engine's own reference rough", and each
+    adapter fills that from its own parkour grid. An unknown value fails in the adapter rather
+    than here, so a third engine can add a kind without editing this module. ``generator``
+    requires :attr:`generator`; a plane or a reference rough must not carry one.
+    """
 
     kind: str = "plane"
     static_friction: float = 1.0
     dynamic_friction: float = 1.0
     restitution: float = 0.0
+    generator: TerrainGeneratorSpec | None = None
     params: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "params", dict(self.params))
+        if self.kind in {"plane", "rough"} and self.generator is not None:
+            raise ValueError(f"kind={self.kind!r} cannot carry a generator.")
+        if self.kind == "generator" and self.generator is None:
+            raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
 
 
 @dataclass(frozen=True)

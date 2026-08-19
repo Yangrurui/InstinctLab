@@ -121,8 +121,10 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
     sys.meta_path.insert(0, blocker)
     try:
         declaration = importlib.import_module(f"{reloaded}.g1.flat_env_cfg")
+        rough = importlib.import_module(f"{reloaded}.g1.rough_env_cfg")
         agent = importlib.import_module(f"{reloaded}.g1.agents.instinct_rl_ppo_cfg")
         assert declaration.flat_g1().task_id == "Instinct-Velocity-Flat-G1"
+        assert rough.rough_g1().task_id == "Instinct-Velocity-Rough-G1"
         assert agent.G1FlatPPORunnerCfg().max_iterations > 0
 
         # The other side of the boundary. An Isaac-only task must still be unreachable here.

@@ -17,11 +17,23 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab.spec.sensor import ContactSensorRef
-from instinctlab.spec.task import SceneSpec, TerrainSpec
+from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
 
 from .assets import articulation
 
-__all__ = ["PROFILE_DEFAULTS", "build_scene"]
+__all__ = ["GENERATOR_KINDS", "PROFILE_DEFAULTS", "build_scene"]
+
+GENERATOR_KINDS: frozenset[str] = frozenset(
+    {
+        "pyramid_stairs",
+        "pyramid_stairs_inv",
+        "boxes",
+        "random_rough",
+        "hf_pyramid_slope",
+        "hf_pyramid_slope_inv",
+    }
+)
+"""Semantic tile kinds this adapter can lower onto Isaac Lab terrain configs."""
 
 PROFILE_DEFAULTS: Mapping[str, Any] = {
     # ``None`` means "leave whatever the robot asset declares". These four used to hold literal
@@ -50,26 +62,101 @@ The rest default to the asset's own values; a task overrides one by naming it.
 _ROBOT_PRIM = "{ENV_REGEX_NS}/Robot"
 
 
-def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
+def _physics_material(spec: TerrainSpec) -> Any:
     from isaaclab.sim import RigidBodyMaterialCfg
+
+    return RigidBodyMaterialCfg(
+        friction_combine_mode="multiply",
+        restitution_combine_mode="multiply",
+        static_friction=spec.static_friction,
+        dynamic_friction=spec.dynamic_friction,
+        restitution=spec.restitution,
+    )
+
+
+def _visual_material() -> Any:
+    from isaaclab.sim import MdlFileCfg
+    from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+
+    return MdlFileCfg(
+        mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+        project_uvw=True,
+        texture_scale=(0.25, 0.25),
+    )
+
+
+def _sub_terrain(kind: str, proportion: float, params: Mapping[str, Any]) -> Any:
+    """One Isaac Lab tile config. Imports stay in the function so the module stays engine-free."""
+    import isaaclab.terrains as terrain_gen
+
+    classes = {
+        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg,
+        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg,
+        "boxes": terrain_gen.MeshRandomGridTerrainCfg,
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg,
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg,
+        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg,
+    }
+    try:
+        cls = classes[kind]
+    except KeyError:
+        raise NotImplementedError(
+            f"The Isaac Sim adapter has no generator tile {kind!r}. It builds {sorted(classes)}."
+        ) from None
+    return cls(proportion=proportion, **params)
+
+
+def _generator(spec: TerrainGeneratorSpec) -> Any:
+    from isaaclab.terrains import TerrainGeneratorCfg
+
+    return TerrainGeneratorCfg(
+        seed=spec.seed,
+        curriculum=spec.curriculum,
+        size=spec.size,
+        border_width=spec.border_width,
+        num_rows=spec.num_rows,
+        num_cols=spec.num_cols,
+        horizontal_scale=spec.horizontal_scale,
+        vertical_scale=spec.vertical_scale,
+        slope_threshold=spec.slope_threshold,
+        use_cache=False,
+        sub_terrains={
+            name: _sub_terrain(tile.kind, tile.proportion, tile.params) for name, tile in spec.sub_terrains.items()
+        },
+    )
+
+
+def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     from isaaclab.terrains import TerrainImporterCfg
 
-    if spec.kind != "plane":
-        raise NotImplementedError(
-            f"The Isaac Sim adapter builds 'plane' terrain; the task asked for {spec.kind!r}. "
-            "Generated terrain is P6 work."
+    del profile
+    if spec.kind == "plane":
+        return TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="plane",
+            collision_group=-1,
+            physics_material=_physics_material(spec),
+            debug_vis=False,
         )
-    return TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="plane",
-        collision_group=-1,
-        physics_material=RigidBodyMaterialCfg(
-            friction_combine_mode="multiply",
-            restitution_combine_mode="multiply",
-            static_friction=spec.static_friction,
-            dynamic_friction=spec.dynamic_friction,
-        ),
-        debug_vis=False,
+    if spec.kind == "generator":
+        if spec.generator is None:
+            raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
+        return TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="generator",
+            terrain_generator=_generator(spec.generator),
+            max_init_terrain_level=spec.generator.max_init_level,
+            collision_group=-1,
+            physics_material=_physics_material(spec),
+            visual_material=_visual_material(),
+            debug_vis=False,
+        )
+    if spec.kind == "rough":
+        from .rough import rough_importer_cfg
+
+        return rough_importer_cfg(spec)
+    raise NotImplementedError(
+        f"The Isaac Sim adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
     )
 
 

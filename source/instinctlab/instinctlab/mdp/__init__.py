@@ -18,6 +18,7 @@ not a coincidence to be relied on.
 
 from __future__ import annotations
 
+from .curriculums import terrain_levels_vel
 from .observations import (
     base_ang_vel,
     base_lin_vel,
@@ -60,6 +61,7 @@ __all__ = [
     "lin_vel_z_l2",
     "projected_gravity",
     "stand_still",
+    "terrain_levels_vel",
     "time_out",
     "track_ang_vel_z_world_exp",
     "track_lin_vel_xy_yaw_frame_exp",

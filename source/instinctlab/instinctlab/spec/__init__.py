@@ -27,7 +27,7 @@ from .mdp import (
     TermSpec,
 )
 from .sensor import ContactSensorRef
-from .task import AgentSpec, SceneSpec, SimSpec, TaskSpec, TerrainSpec
+from .task import AgentSpec, SceneSpec, SimSpec, SubTerrainSpec, TaskSpec, TerrainGeneratorSpec, TerrainSpec
 
 __all__ = [
     "UNIVERSAL_KINDS",
@@ -47,7 +47,9 @@ __all__ = [
     "RewardTermSpec",
     "SceneSpec",
     "SimSpec",
+    "SubTerrainSpec",
     "TaskSpec",
+    "TerrainGeneratorSpec",
     "TerrainSpec",
     "TermSpec",
 ]

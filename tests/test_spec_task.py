@@ -27,7 +27,10 @@ from instinctlab.spec import (
     RewardTermSpec,
     SceneSpec,
     SimSpec,
+    SubTerrainSpec,
     TaskSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
 )
 
 
@@ -209,6 +212,33 @@ def test_a_task_must_name_at_least_one_engine_and_may_not_repeat_one():
         _task(engines=())
     with pytest.raises(ValueError, match="repeats engines"):
         _task(engines=("mjlab", "mjlab"))
+
+
+def test_a_plane_cannot_carry_a_generator():
+    generator = TerrainGeneratorSpec(sub_terrains={"flat": SubTerrainSpec(kind="random_rough")})
+    with pytest.raises(ValueError, match="cannot carry a generator"):
+        TerrainSpec(kind="plane", generator=generator)
+
+
+def test_a_generator_must_carry_a_recipe():
+    with pytest.raises(ValueError, match="needs a TerrainGeneratorSpec"):
+        TerrainSpec(kind="generator")
+
+
+def test_a_reference_rough_cannot_carry_a_recipe():
+    generator = TerrainGeneratorSpec(sub_terrains={"flat": SubTerrainSpec(kind="random_rough")})
+    with pytest.raises(ValueError, match="cannot carry a generator"):
+        TerrainSpec(kind="rough", generator=generator)
+
+
+def test_a_generator_with_no_tiles_is_rejected():
+    with pytest.raises(ValueError, match="no sub-terrains"):
+        TerrainGeneratorSpec(sub_terrains={})
+
+
+def test_a_tile_proportion_must_be_positive():
+    with pytest.raises(ValueError, match="proportion must be positive"):
+        SubTerrainSpec(kind="random_rough", proportion=0.0)
 
 
 def test_duplicate_sensor_names_are_rejected():

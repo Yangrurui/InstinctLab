@@ -20,11 +20,23 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab.spec.sensor import ContactSensorRef
-from instinctlab.spec.task import SceneSpec, TerrainSpec
+from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
 
 from .assets import entity as build_entity
 
-__all__ = ["PROFILE_DEFAULTS", "build_scene"]
+__all__ = ["GENERATOR_KINDS", "PROFILE_DEFAULTS", "build_scene"]
+
+GENERATOR_KINDS: frozenset[str] = frozenset(
+    {
+        "pyramid_stairs",
+        "pyramid_stairs_inv",
+        "boxes",
+        "random_rough",
+        "hf_pyramid_slope",
+        "hf_pyramid_slope_inv",
+    }
+)
+"""Semantic tile kinds this adapter can lower onto mjlab terrain configs."""
 
 PROFILE_DEFAULTS: Mapping[str, Any] = {
     "solver": "newton",
@@ -46,14 +58,71 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
 """Solver settings a task does not state, matching InstinctMJ's values for flat locomotion."""
 
 
+def _sub_terrain(kind: str, proportion: float, params: Mapping[str, Any], generator: TerrainGeneratorSpec) -> Any:
+    """One mjlab tile config. Imports stay in the function so the module stays engine-free."""
+    import mjlab.terrains as terrain_gen
+
+    fields = dict(params)
+    if kind in {"random_rough", "hf_pyramid_slope", "hf_pyramid_slope_inv"}:
+        fields.setdefault("horizontal_scale", generator.horizontal_scale)
+        fields.setdefault("vertical_scale", generator.vertical_scale)
+    if kind == "hf_pyramid_slope_inv":
+        fields["inverted"] = True
+        return terrain_gen.HfPyramidSlopedTerrainCfg(proportion=proportion, **fields)
+    classes = {
+        "pyramid_stairs": terrain_gen.BoxPyramidStairsTerrainCfg,
+        "pyramid_stairs_inv": terrain_gen.BoxInvertedPyramidStairsTerrainCfg,
+        "boxes": terrain_gen.BoxRandomGridTerrainCfg,
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg,
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg,
+    }
+    try:
+        cls = classes[kind]
+    except KeyError:
+        raise NotImplementedError(
+            f"The mjlab adapter has no generator tile {kind!r}. It builds {sorted(GENERATOR_KINDS)}."
+        ) from None
+    return cls(proportion=proportion, **fields)
+
+
+def _generator(spec: TerrainGeneratorSpec) -> Any:
+    from mjlab.terrains import TerrainGeneratorCfg
+
+    return TerrainGeneratorCfg(
+        seed=spec.seed,
+        curriculum=spec.curriculum,
+        size=spec.size,
+        border_width=spec.border_width,
+        num_rows=spec.num_rows,
+        num_cols=spec.num_cols,
+        add_lights=True,
+        sub_terrains={
+            name: _sub_terrain(tile.kind, tile.proportion, tile.params, spec)
+            for name, tile in spec.sub_terrains.items()
+        },
+    )
+
+
 def _terrain(spec: TerrainSpec) -> Any:
     from mjlab.terrains import TerrainEntityCfg
 
-    if spec.kind != "plane":
-        raise NotImplementedError(
-            f"The mjlab adapter builds 'plane' terrain; the task asked for {spec.kind!r}. Generated terrain is P6 work."
+    if spec.kind == "plane":
+        return TerrainEntityCfg(terrain_type="plane")
+    if spec.kind == "generator":
+        if spec.generator is None:
+            raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
+        return TerrainEntityCfg(
+            terrain_type="generator",
+            terrain_generator=_generator(spec.generator),
+            max_init_terrain_level=spec.generator.max_init_level,
         )
-    return TerrainEntityCfg(terrain_type="plane")
+    if spec.kind == "rough":
+        from .rough import rough_importer_cfg
+
+        return rough_importer_cfg(spec)
+    raise NotImplementedError(
+        f"The mjlab adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
+    )
 
 
 def _contact_sensor(sensor: ContactSensorRef) -> Any:

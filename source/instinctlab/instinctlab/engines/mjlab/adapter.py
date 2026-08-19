@@ -112,7 +112,7 @@ class MjlabAdapter:
         return merged
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
-        from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
+        from mjlab.envs import ManagerBasedRlEnvCfg
         from mjlab.sim import MujocoCfg, SimulationCfg
 
         profile = self.profile(spec)
@@ -134,6 +134,30 @@ class MjlabAdapter:
         )
         mdp = compile_mdp(spec.mdp, ctx, TERMS)
 
+        sim_kwargs: dict[str, Any] = {
+            "njmax": profile["njmax"],
+            "mujoco": MujocoCfg(
+                timestep=spec.sim.physics_dt,
+                solver=profile["solver"],
+                iterations=profile["iterations"],
+                ls_iterations=profile["ls_iterations"],
+                ccd_iterations=profile["ccd_iterations"],
+            ),
+        }
+        if spec.scene.terrain.kind == "generator":
+            # InstinctMJ / mjlab's own G1 rough raises both; the plane defaults underflow a
+            # generated grid and drop contacts without raising.
+            sim_kwargs["nconmax"] = 70
+            sim_kwargs["contact_sensor_maxmatch"] = 500
+        elif spec.scene.terrain.kind == "rough":
+            # InstinctMJ parkour's constraint budget for the Perlin grid. The leftover
+            # ``generator`` path above is Isaac Lab's six-tile recipe and needs its own numbers.
+            # Flat locomotion's njmax=300 overflows this model (put_data asked for 495).
+            sim_kwargs["nconmax"] = 128
+            sim_kwargs["njmax"] = 700
+            sim_kwargs["contact_sensor_maxmatch"] = 128
+        from .env import TerrainAwareRlEnv
+
         env_cfg = ManagerBasedRlEnvCfg(
             scene=build_scene(spec.scene, spec.robot, profile, num_envs=num_envs),
             observations=_observation_groups(mdp["observations"]),
@@ -146,20 +170,11 @@ class MjlabAdapter:
             decimation=spec.sim.decimation,
             episode_length_s=spec.sim.episode_length_s,
             is_finite_horizon=spec.sim.is_finite_horizon,
-            sim=SimulationCfg(
-                njmax=profile["njmax"],
-                mujoco=MujocoCfg(
-                    timestep=spec.sim.physics_dt,
-                    solver=profile["solver"],
-                    iterations=profile["iterations"],
-                    ls_iterations=profile["ls_iterations"],
-                    ccd_iterations=profile["ccd_iterations"],
-                ),
-            ),
+            sim=SimulationCfg(**sim_kwargs),
         )
         return CompiledTask(
-            env_factory=lambda: ManagerBasedRlEnv(cfg=env_cfg, device=device),
-            env_cls=ManagerBasedRlEnv,
+            env_factory=lambda: TerrainAwareRlEnv(cfg=env_cfg, device=device),
+            env_cls=TerrainAwareRlEnv,
             env_cfg=env_cfg,
             resolution=resolution,
             agent_factory=lambda: spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),

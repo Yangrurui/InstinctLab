@@ -394,6 +394,44 @@ def test_illegal_contact_asks_the_sensor_rather_than_thresholding_a_force():
     assert "threshold" not in inspect.signature(mdp.illegal_contact).parameters
 
 
+def test_terrain_levels_vel_promotes_and_demotes():
+    """Walked past half a tile: up. Walked less than half the commanded distance: down."""
+
+    class _Generator:
+        size = (8.0, 8.0)
+
+    class _Terrain:
+        def __init__(self):
+            self.cfg = type("Cfg", (), {"terrain_generator": _Generator()})()
+            self.terrain_levels = torch.tensor([3.0, 3.0, 3.0])
+            self.calls: list = []
+
+        def update_env_origins(self, env_ids, move_up, move_down):
+            self.calls.append((env_ids.clone(), move_up.clone(), move_down.clone()))
+
+    robot = _Entity(root_link_pos_w=torch.tensor([[5.0, 0.0, 0.8], [0.2, 0.0, 0.8], [0.0, 0.0, 0.8]]))
+    env = _Env(
+        entities={"robot": robot},
+        commands={"base_velocity": torch.tensor([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])},
+    )
+    env.scene.terrain = _Terrain()
+    env.scene.env_origins = torch.zeros(3, 3)
+    env.max_episode_length_s = 20.0
+
+    mean = mdp.terrain_levels_vel(env, torch.tensor([0, 1, 2]), "base_velocity")
+    assert mean.item() == pytest.approx(3.0)
+    env_ids, move_up, move_down = env.scene.terrain.calls[0]
+    assert move_up.tolist() == [True, False, False]
+    assert move_down.tolist() == [False, True, False]
+
+
+def test_terrain_levels_vel_refuses_a_plane():
+    env = _Env()
+    env.scene.terrain = type("Plane", (), {"cfg": type("Cfg", (), {"terrain_generator": None})()})()
+    with pytest.raises(RuntimeError, match="no generator"):
+        mdp.terrain_levels_vel(env, torch.tensor([0]), "base_velocity")
+
+
 """
 The terms that are deliberately absent.
 """

@@ -192,8 +192,15 @@ class IsaacSimAdapter:
         )
         mdp = compile_mdp(spec.mdp, ctx, TERMS)
 
+        scene = build_scene(spec.scene, spec.robot, profile, num_envs=num_envs, sensor_period=spec.sim.physics_dt)
+        sim = SimulationCfg(dt=spec.sim.physics_dt, render_interval=spec.sim.decimation, device=device)
+        if spec.scene.terrain.kind in {"generator", "rough"}:
+            # Mesh tiles create far more contact patches than a plane; Isaac Lab's own rough
+            # locomotion raises this, and leaving the default silently drops contacts.
+            sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+            sim.physics_material = scene.terrain.physics_material
         env_cfg = ManagerBasedRLEnvCfg(
-            scene=build_scene(spec.scene, spec.robot, profile, num_envs=num_envs, sensor_period=spec.sim.physics_dt),
+            scene=scene,
             observations=_observation_groups(mdp["observations"]),
             actions=_container(mdp["actions"]),
             rewards=_rewards(mdp["rewards"]),
@@ -204,7 +211,7 @@ class IsaacSimAdapter:
             decimation=spec.sim.decimation,
             episode_length_s=spec.sim.episode_length_s,
             is_finite_horizon=spec.sim.is_finite_horizon,
-            sim=SimulationCfg(dt=spec.sim.physics_dt, render_interval=spec.sim.decimation, device=device),
+            sim=sim,
         )
         return CompiledTask(
             env_cls=ManagerBasedRLEnv,

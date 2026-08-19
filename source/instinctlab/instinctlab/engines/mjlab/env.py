@@ -1,0 +1,61 @@
+"""mjlab env whose Scene honors terrain ``cfg.class_type``.
+
+mjlab's ``Scene._add_terrain`` always constructs ``TerrainEntity``, so a
+``FiledTerrainGenerator`` / Instinct importer never runs -- the same hole InstinctMJ
+patched with ``InstinctScene``. This module is imported only from the adapter's
+``compile`` body.
+"""
+
+from __future__ import annotations
+
+import warnings
+
+from mjlab.envs import ManagerBasedRlEnv
+from mjlab.scene import Scene
+from mjlab.terrains import TerrainEntity
+from mjlab.utils.spec import non_default_option_fields
+
+from .terrains.terrain_importer_cfg import TerrainImporterCfg
+
+__all__ = ["TerrainAwareRlEnv", "TerrainAwareScene"]
+
+
+class TerrainAwareScene(Scene):
+    """``Scene`` that uses ``terrain_cfg.class_type`` when the importer declares one."""
+
+    def _add_terrain(self) -> None:
+        if self._cfg.terrain is None:
+            return
+        terrain_cfg = self._cfg.terrain
+        terrain_cfg.num_envs = self._cfg.num_envs
+        terrain_cfg.env_spacing = self._cfg.env_spacing
+        if isinstance(terrain_cfg, TerrainImporterCfg):
+            terrain = terrain_cfg.class_type(terrain_cfg, device=self._device)
+        else:
+            terrain = TerrainEntity(terrain_cfg, device=self._device)
+        self._terrain = terrain
+        self._entities["terrain"] = terrain
+        non_default = non_default_option_fields(terrain.spec.option)
+        if non_default:
+            fields = ", ".join(non_default)
+            warnings.warn(
+                f"Terrain has non-default <option> fields ({fields}) that will not be"
+                " propagated by MjSpec.attach(). Use MujocoCfg instead.",
+                stacklevel=2,
+            )
+        frame = self._spec.worldbody.add_frame()
+        self._spec.attach(terrain.spec, prefix="", frame=frame)
+
+
+class TerrainAwareRlEnv(ManagerBasedRlEnv):
+    """``ManagerBasedRlEnv`` that constructs :class:`TerrainAwareScene`."""
+
+    def __init__(self, cfg, device: str, render_mode: str | None = None, **kwargs) -> None:
+        import mjlab.envs.manager_based_rl_env as env_mod
+
+        previous = env_mod.Scene
+        env_mod.Scene = TerrainAwareScene
+        try:
+            super().__init__(cfg, device, render_mode=render_mode, **kwargs)
+        finally:
+            env_mod.Scene = previous

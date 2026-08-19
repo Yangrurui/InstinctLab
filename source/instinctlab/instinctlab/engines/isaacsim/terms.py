@@ -71,6 +71,13 @@ def _termination(spec, ctx):
     return _import_cfgs()["done"](func=spec.func, time_out=spec.time_out, params=ctx.params(spec))
 
 
+@TERMS.portable("curriculum")
+def _curriculum(spec, ctx):
+    from isaaclab.managers import CurriculumTermCfg
+
+    return CurriculumTermCfg(func=spec.func, params=ctx.params(spec))
+
+
 def _sensor_entity(ref, ctx):
     """A ``SceneEntityCfg`` naming a declared sensor and the elements a term wants from it.
 
