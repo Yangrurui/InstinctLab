@@ -168,7 +168,7 @@ def test_the_moved_agent_config_is_still_the_one_main_registers() -> None:
         if isinstance(node, ast.ImportFrom) and any(alias.name == "G1FlatPPORunnerCfg" for alias in node.names)
     }
     assert sources == {
-        "instinctlab.tasks.locomotion.agents.flat_g1_ppo"
+        "instinctlab.tasks.locomotion.flat_g1_ppo"
     }, "main's registration must re-export the moved definition rather than declare its own"
     assert not [
         node for node in tree.body if isinstance(node, ast.ClassDef)

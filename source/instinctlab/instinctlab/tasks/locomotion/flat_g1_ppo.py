@@ -4,6 +4,11 @@ Moved here from ``config/g1/agents/`` unchanged. The values are main's; the only
 import of ``configclass``, which now comes from :mod:`instinctlab.utils.configclass` so that this
 module can be read without Isaac Sim on the path. ``tests/test_agent_cfg.py`` pins every field
 against main.
+
+It cannot go back under ``config/g1/agents/``: importing anything there runs ``config/g1/__init__``,
+which registers the Gym ids and imports the Isaac Lab env config, so an mjlab run would need Isaac
+Sim installed to read a learning rate. That package re-exports these classes for main's registration,
+so both paths name one class object rather than two copies that can drift.
 """
 
 from instinctlab.utils.configclass import configclass

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1_spec import make_g1_29dof_robot_spec
 from instinctlab.backends.mjlab.simulator import (
     MjlabBackend,
     _enable_effort_actuator,

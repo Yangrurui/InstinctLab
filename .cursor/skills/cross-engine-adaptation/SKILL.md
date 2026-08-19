@@ -54,6 +54,8 @@ description: 在 InstinctLab 做适配工作的操作顺序与验收方法——
 
 **第 1 步是最常被跳过、代价最高的一步。** 本仓库真实发生过：golden 是从一份根本无法实例化的配置里 dump 的，逐字段比对、静态不变量、白名单过期检查全部照常通过——一把连不上电的尺子，量什么都是准的。所以第 1 步的验收是「真的构造出来并 step 一次」，不是「配置能 import」。
 
+**同一把尺子还被弯折过一次，更难发现。** 编译器与 main 在 `self_collision` 上不一致，而这处差异是靠**把编译器的 spawn 覆盖复制进 `G1FlatEnvCfg`**（golden 的源文件）抹平的。此后对拍永远相等，代价是「≡ main」不再有内容、训练实际跑着与 main 不同的物理。规则：**对拍报差异时先判断哪边错，修参照必须因为参照本来就写错，不能因为改了参照能变绿**；并且凡声称「这个文件是 main 的」，就要有检查去问 main（`tests/test_main_reference.py`）。
+
 frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单。**遇到单体 env 项目（HumanoidVerse / PBHC / IsaacGymEnvs 风格）明确报错**，要求先手工重构成 term 结构；禁止自动拆解单体 `compute_reward()`，那只会产出语义已漂移但看起来能跑的结果。
 
 ## 工作流 D：改动共享层（`spec/` / `compat/` / `mdp/`）

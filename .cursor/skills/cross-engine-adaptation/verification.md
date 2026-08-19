@@ -61,7 +61,10 @@ python scripts/check_mjlab.py                      # mjlab ≡ InstinctMJ，读�
 
 # 需要 Isaac Sim
 python scripts/check_parity.py                     # isaacsim ≡ main，逐字段 + 构造 + step
-python scripts/dump_golden.py                      # 重新生成 golden（改动 main 的任务后）
+# 重新生成 golden（改动 main 的任务后）。--cfg/--out 必填，check_parity 失败时会打出该跑哪条
+python scripts/dump_golden.py \
+  --cfg instinctlab.tasks.locomotion.config.g1.flat_env_cfg:G1FlatEnvCfg \
+  --out tests/parity/isaacsim.locomotion_flat.golden.json
 
 # 逐值对拍（两进程，各跑一次再 diff）
 python scripts/probe_terms.py --engine mjlab   --out /tmp/mjlab.json

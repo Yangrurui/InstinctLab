@@ -23,24 +23,6 @@ import instinctlab.tasks.locomotion.mdp as locomotion_mdp
 from instinctlab.assets.unitree_g1 import G1_29DOF_TORSOBASE_POPSICLE_CFG, beyondmimic_action_scale
 
 G1_CFG = G1_29DOF_TORSOBASE_POPSICLE_CFG
-_G1_FLAT_SPAWN = G1_CFG.spawn.replace(
-    self_collision=True,
-    activate_contact_sensors=True,
-    rigid_props=sim_utils.RigidBodyPropertiesCfg(
-        disable_gravity=False,
-        retain_accelerations=False,
-        linear_damping=0.0,
-        angular_damping=0.0,
-        max_linear_velocity=1000.0,
-        max_angular_velocity=1000.0,
-        max_depenetration_velocity=1.0,
-    ),
-    articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-        enabled_self_collisions=True,
-        solver_position_iteration_count=8,
-        solver_velocity_iteration_count=4,
-    ),
-)
 
 
 # ============================================================================
@@ -50,9 +32,6 @@ _G1_FLAT_SPAWN = G1_CFG.spawn.replace(
 
 @configclass
 class G1FlatSceneCfg(InteractiveSceneCfg):
-    lazy_sensor_update = True
-    replicate_physics = True
-    filter_collisions = True
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="plane",
@@ -65,7 +44,7 @@ class G1FlatSceneCfg(InteractiveSceneCfg):
         ),
         debug_vis=False,
     )
-    robot = G1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot", spawn=_G1_FLAT_SPAWN)
+    robot = G1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",

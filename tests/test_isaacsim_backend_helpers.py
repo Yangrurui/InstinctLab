@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from types import SimpleNamespace
 
-from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1_spec import make_g1_29dof_robot_spec
 from instinctlab.backends.isaacsim.backend import IsaacSimBackend, _contact_prim_path
 from instinctlab.sim.backend import CanonicalIndexMap
 from instinctlab.sim.control import ControlMode, JointControlTarget

@@ -401,7 +401,7 @@ from instinctlab import mdp                     # 可移植 term 库
 
 LOCOMOTION_FLAT_G1 = TaskSpec(
     task_id="Instinct-Locomotion-Flat-G1-v0",
-    robot=ASSETS.make("unitree_g1_29dof"),
+    robot=make_g1_29dof_robot_spec(),        # instinctlab.assets.unitree_g1_spec
     engines=("isaacsim", "mjlab"),
     sim=SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0),
     mdp=MdpSpec(
@@ -755,7 +755,7 @@ mjlab 侧的参考实现是 InstinctMJ 的 `G1LocomotionFlatEnvCfg`。它没有�
 
 两个注册表都不 import 被注册的东西：`engines.ADAPTERS` 与 `tasks.registry.TASKS` 存的是点号路径。Gym 注册表做不到这件事——注册 `Instinct-Locomotion-Flat-G1-v0` 就要 import 它指向的 Isaac Lab env cfg，于是「列出有哪些任务」这个动作本身需要 Isaac Sim。
 
-**第一件被逼出来的事：D4 的耦合必须真的断掉，不能只是推迟。** 硬约束 25 原本写的是「`agent_cfg` 惰性解析，耦合待 D4 收尾时移除」。但 mjlab 训练要读 PPO 超参，惰性只是把失败推到第一次访问：`configclass` 住在 `isaaclab.utils`，而这个包的 `__init__` import `mesh` → `pxr`。于是「读一个学习率」需要 Isaac Sim 运行时在路径上。现在 `configclass` 按 `compat/math.py` 的先例整份 vendor 到 `instinctlab/utils/configclass.py`（BSD-3，`tests/test_configclass_vendor.py` 用 AST 逐函数对着上游钉住，另有一条在 Isaac Sim 下比对真实 agent 配置 `to_dict()` 的端到端断言）；agent 配置从 `config/g1/agents/` 移到 `tasks/locomotion/agents/`，脱离那条注册 Gym id 的 import 链，main 的旧路径改为 re-export，保证是**同一个类对象**而不是一份会漂移的副本。
+**第一件被逼出来的事：D4 的耦合必须真的断掉，不能只是推迟。** 硬约束 25 原本写的是「`agent_cfg` 惰性解析，耦合待 D4 收尾时移除」。但 mjlab 训练要读 PPO 超参，惰性只是把失败推到第一次访问：`configclass` 住在 `isaaclab.utils`，而这个包的 `__init__` import `mesh` → `pxr`。于是「读一个学习率」需要 Isaac Sim 运行时在路径上。现在 `configclass` 按 `compat/math.py` 的先例整份 vendor 到 `instinctlab/utils/configclass.py`（BSD-3，`tests/test_configclass_vendor.py` 用 AST 逐函数对着上游钉住，另有一条在 Isaac Sim 下比对真实 agent 配置 `to_dict()` 的端到端断言）；agent 配置从 `config/g1/agents/` 移到 `tasks/locomotion/flat_g1_ppo.py`，脱离那条注册 Gym id 的 import 链，main 的旧路径改为 re-export，保证是**同一个类对象**而不是一份会漂移的副本。
 
 **第二件：`ContactSensorRef` 的解析必须只做一次。** 首次 4096 env 训练时 Isaac 侧 16.6 秒/迭代、GPU 利用率 1%、CPU 满载——这个形状说明时间花在 Python 里而不是物理里。cProfile 定位到 `omni.physics.tensors` 的 `prim_paths`：21.6 秒里占 18.7 秒，来自 Isaac Lab 的 `ContactSensor.body_names`——它是个**每次访问都从 physics view 重建**的 property，4096 env 下单次约 70 毫秒。三个接触类 term 每次求值都重新解析自己的脚，于是每步付三遍。
 

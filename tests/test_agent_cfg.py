@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.tasks.locomotion.agents.flat_g1_ppo import G1FlatPPORunnerCfg
+from instinctlab.tasks.locomotion.flat_g1_ppo import G1FlatPPORunnerCfg
 from instinctlab.utils.configclass import class_to_dict
 
 # Main's values, as of the commit that moved this configuration out of the Isaac-only package

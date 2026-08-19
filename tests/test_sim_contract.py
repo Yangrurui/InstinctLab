@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1_spec import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
 from instinctlab.backends.mock import MockSimulatorBackend
 from instinctlab.sim.backend import CanonicalIndexMap, RuntimeRequirements, SensorReadPhase
 from instinctlab.sim.capabilities import BATCHED_SIMULATION, CONTACT_ACTIVE, JOINT_STATE, ROOT_STATE

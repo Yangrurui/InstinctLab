@@ -28,7 +28,7 @@ alwaysApply: false
 - 原生栈：isaacsim → `isaaclab.ManagerBasedRLEnv`；mjlab → `mjlab.ManagerBasedRlEnv`
 - `verify/`：旧 `SimulatorBackend` 双实现降级至此，做 sim2sim 状态断言，**不在训练热路径**
 
-入口 **`scripts/train.py --engine isaacsim|mjlab --task <id>`**，已完成 ✅。引擎必须在任何 import 之前选定（`AppLauncher` 要先于 `isaaclab` 和 torch），所以先用只认 `--engine` 的 parser 选中适配器、由它补自己的开关、再 `bootstrap`。入口之后没有一处知道自己拿到哪个引擎。两个注册表都存点路径、不 import 被注册者：`engines.ADAPTERS`（`engines.adapter(name)`）与 `tasks.registry.TASKS`（`tasks.registry.spec(id)`）——Gym 注册表做不到，注册一个 id 就要 import 它指向的 Isaac env cfg。agent 配置在 `tasks/locomotion/agents/`，引擎无关，`config/g1/agents/` 保留为 re-export。`scripts/instinct_rl/train.py` 是 main 的 Isaac-only 旧入口，仍在。
+入口 **`scripts/train.py --engine isaacsim|mjlab --task <id>`**，已完成 ✅。引擎必须在任何 import 之前选定（`AppLauncher` 要先于 `isaaclab` 和 torch），所以先用只认 `--engine` 的 parser 选中适配器、由它补自己的开关、再 `bootstrap`。入口之后没有一处知道自己拿到哪个引擎。两个注册表都存点路径、不 import 被注册者：`engines.ADAPTERS`（`engines.adapter(name)`）与 `tasks.registry.TASKS`（`tasks.registry.spec(id)`）——Gym 注册表做不到，注册一个 id 就要 import 它指向的 Isaac env cfg。agent 配置在 `tasks/locomotion/flat_g1_ppo.py`，引擎无关，`config/g1/agents/` 保留为 re-export。`scripts/instinct_rl/train.py` 是 main 的 Isaac-only 旧入口，仍在。
 
 **unified 栈已删除**（自研 env / managers / MDP / env cfg / `rl/` 包 / `*_unified.py` / `profile_backend.py` 及其测试）。`backends/` 与 `sim/` 契约层保留，服务 `tests/simulators/` 的 sim2sim 断言；它们需要的场景描述抽到了 `verify/scene.py::locomotion_flat_scene`，不再经过任何 MDP。
 
@@ -57,7 +57,7 @@ alwaysApply: false
 
 - **D1 顺序以 DFS 为主**：`RobotSpec.joint_names` / `body_names` 是唯一真值（已由 `tests/test_asset_parity.py` 钉住它确实等于 URDF 的 DFS 前序）。canonical→native 翻译只在 `CompileCtx.entity()` 一处发生。**光发 `preserve_order=True` 不够，必须把关节名逐个列出**：`resolve_matching_names` 按**模式**的顺序排列选择结果，只给一个 `.*` 时模式内部仍按实体自身顺序排，这个标志就成了空操作。动作项与 `joint_pos`/`joint_vel` 两个观测项都要带这份显式名单——只钉动作不钉观测，策略的输入和输出在两个引擎上索引方式不同，等于没钉。`last_action` 读动作管理器整条向量，自动跟随。相对 main 的差异（main 用 `.*` 因而接受 PhysX 的 BFS 序）在白名单里，内容由 `tests/test_parity_static.py` 正向断言。
 - **D2 自研 env / managers 已退役并删除**。删除时暴露出它留下的两处静默断裂：`mdp/__init__.py` 的 `from .unified import *` 遮蔽了 main 的奖励实现（签名不同，manager 构造期即拒绝），以及 `tasks/__init__.py` 不再在 import 时注册 Gym id 而无人调用 `register_legacy_isaac_tasks()`。**main 的任务因此一度完全构造不起来，而所有测试和对拍照常通过**——golden 甚至是从这个状态 dump 的。
-- **D3 main 是唯一 golden**：`tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义真值。不依赖 InstinctMJ（未安装），仅作 mjlab 表达方式的参考——`tests/reference_mjlab.py` 读它的语法树而非 import 它。验收 = diff 为空或命中白名单。**泛化形式**：golden 是「该项目跑在它原本的引擎上」，D3 是本仓库 locomotion 项目的特例。
+- **D3 main 是唯一 golden**：`tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义真值，**且必须逐字节等于 main**——它一度带着 22 行本地改动（编译器那段 spawn 覆盖被复制了进来，用以抹平 `self_collision` 的差异），于是「≡ main」变成自证。`tests/test_main_reference.py` 直接 `git show main:<path>` 比对这批文件，有意改动的另立一表并断言其确实仍不同。不依赖 InstinctMJ（未安装），仅作 mjlab 表达方式的参考——`tests/reference_mjlab.py` 读它的语法树而非 import 它。验收 = diff 为空或命中白名单。**泛化形式**：golden 是「该项目跑在它原本的引擎上」，D3 是本仓库 locomotion 项目的特例。
 
 ## N 引擎扩展：五处待改结构（CROSS_ENGINE_DESIGN §14）
 
@@ -151,4 +151,6 @@ entry point `instinctlab.engines` 注册，可作独立 pip 包。清单：`boot
 34. 文档或 docstring 声称「由 `tests/xxx.py` 保证」时，必须确认该文件存在。`flat_g1_ppo.py` 曾声称 `tests/test_agent_cfg.py` 钉住了每个超参，而该文件从未被创建。
 35. **退役一层不等于停止使用它**。只要 `__init__.py` 还在 `from .retired import *`，被退役的实现仍是活的，而且**优先于**正版——星号导入急切绑定名字、静默压过下面的惰性查找。unified 的奖励重实现就这样遮蔽了 main 的原版：算术忠实、签名不同，manager 构造期直接拒绝，而没有 import 错误、没有测试会响。`tests/test_parity_static.py` 已禁止 `tasks/locomotion/mdp/__init__.py` 出现星号导入。
 36. **参照实现必须有人定期真的构造一次**。我们对 main 做了逐字段比对、静态不变量、白名单过期检查，唯独没有「把它建起来跑一步」，结果 golden 是从一份无法实例化的配置里 dump 的，而所有验收照常通过。一个连不上电的标尺，量什么都是准的。
-37. 包为了引擎无关而把副作用改成显式函数时，要同时改掉所有依赖那个副作用的调用点。`tasks/__init__.py` 停止在 import 时注册 Gym id、改提供 `register_legacy_isaac_tasks()` 之后，main 的 `train.py` 仍写着 `import instinctlab.tasks  # noqa: F401`，全仓库无人调用新函数——入口连自己的 task id 都找不到。
+37. **对拍报出差异时，不许通过改参照来消差**，除非参照本来就写错。编译器与 main 在 `self_collision` 上不一致，而这处差异是把编译器的 `spawn.replace(...)` 整段复制进 golden 的源文件 `G1FlatEnvCfg` 抹平的：此后永远相等，而「≡ main」再无内容，训练实际带着 URDF 自碰撞导入在跑。四轮审计逐行读过该文件都没发现——改后的文件本身完全合理。
+38. **默认值不许是另一处数据的字面复制**。`PROFILE_DEFAULTS` 曾把资产已声明的 `solver_position_iteration_count=8`、`max_depenetration_velocity=1.0` 等原样重写一遍，复制当天无害，但把「资产说了算」变成两个数据源。现在这些键默认 `None` 表示沿用资产，只有任务显式声明才覆盖。
+39. 包为了引擎无关而把副作用改成显式函数时，要同时改掉所有依赖那个副作用的调用点。`tasks/__init__.py` 停止在 import 时注册 Gym id、改提供 `register_legacy_isaac_tasks()` 之后，main 的 `train.py` 仍写着 `import instinctlab.tasks  # noqa: F401`，全仓库无人调用新函数——入口连自己的 task id 都找不到。

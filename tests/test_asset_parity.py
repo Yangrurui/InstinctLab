@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1_spec import make_g1_29dof_robot_spec
 
 _RESOURCE_ROOT = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/resources/unitree_g1"
 _URDF_PATH = _RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"
@@ -141,16 +141,14 @@ def test_robot_spec_limits_match_urdf() -> None:
 
 
 def _beyondmimic_actuator_block() -> str:
-    text = (
-        Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/unitree_g1_isaac.py"
-    ).read_text()
+    text = (Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/unitree_g1.py").read_text()
     start = text.index("beyondmimic_g1_29dof_actuators = {")
     end = text.index("beyondmimic_g1_29dof_delayed_actuators")
     return text[start:end]
 
 
 def _resolve_gain(token: str) -> float:
-    from instinctlab.assets import unitree_g1 as catalog
+    from instinctlab.assets import unitree_g1_spec as catalog
 
     namespace = {
         name: getattr(catalog, name)

@@ -24,10 +24,16 @@ from .assets import articulation
 __all__ = ["PROFILE_DEFAULTS", "build_scene"]
 
 PROFILE_DEFAULTS: Mapping[str, Any] = {
-    "self_collision": True,
-    "solver_position_iterations": 8,
-    "solver_velocity_iterations": 4,
-    "max_depenetration_velocity": 1.0,
+    # ``None`` means "leave whatever the robot asset declares". These four used to hold literal
+    # copies of the G1's own numbers, described as matching main -- and one of them, self_collision,
+    # did not: main spawns the G1 with it off. The disagreement was settled the wrong way round, by
+    # editing G1FlatEnvCfg, the very file the golden is dumped from, to spawn with self-collision on
+    # so the parity check would agree with this table. Restating asset values here buys nothing and
+    # lets the two drift apart silently, so the asset is now the only place they are written.
+    "self_collision": None,
+    "solver_position_iterations": None,
+    "solver_velocity_iterations": None,
+    "max_depenetration_velocity": None,
     "friction_dr": {
         "static_friction_range": (0.25, 0.8),
         "dynamic_friction_range": (0.2, 0.6),
@@ -35,7 +41,11 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
         "num_buckets": 64,
     },
 }
-"""Solver settings a task does not state, matching main's values for the flat locomotion task."""
+"""Engine settings a task may state through ``spec.sim.profiles['isaacsim']``.
+
+``friction_dr`` is main's randomisation for the flat locomotion task and has no asset to come from.
+The rest default to the asset's own values; a task overrides one by naming it.
+"""
 
 _ROBOT_PRIM = "{ENV_REGEX_NS}/Robot"
 
@@ -95,6 +105,34 @@ def _sky_light() -> Any:
     )
 
 
+def _spawn_overrides(spawn: Any, spec: SceneSpec, profile: Mapping[str, Any]) -> dict[str, Any]:
+    """What this task changes about the robot's spawn, and nothing else.
+
+    Anything the profile leaves at ``None`` is not mentioned, so the asset's value survives instead
+    of being overwritten with a restatement of itself that can fall out of step with it.
+    """
+    overrides: dict[str, Any] = {"activate_contact_sensors": bool(spec.contact_sensors)}
+    if profile["self_collision"] is not None:
+        overrides["self_collision"] = profile["self_collision"]
+
+    if profile["max_depenetration_velocity"] is not None:
+        overrides["rigid_props"] = spawn.rigid_props.replace(
+            max_depenetration_velocity=profile["max_depenetration_velocity"]
+        )
+
+    solver = {
+        field: profile[key]
+        for field, key in (
+            ("solver_position_iteration_count", "solver_position_iterations"),
+            ("solver_velocity_iteration_count", "solver_velocity_iterations"),
+        )
+        if profile[key] is not None
+    }
+    if solver:
+        overrides["articulation_props"] = spawn.articulation_props.replace(**solver)
+    return overrides
+
+
 def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_envs: int, sensor_period: float) -> Any:
     """An ``InteractiveSceneCfg`` holding the robot, terrain, sensors and light.
 
@@ -103,27 +141,9 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
     are found exactly as declared ones are.
     """
     from isaaclab.scene import InteractiveSceneCfg
-    from isaaclab.sim import ArticulationRootPropertiesCfg, RigidBodyPropertiesCfg
 
     articulation_cfg = articulation(robot)
-    spawn = articulation_cfg.spawn.replace(
-        self_collision=profile["self_collision"],
-        activate_contact_sensors=bool(spec.contact_sensors),
-        rigid_props=RigidBodyPropertiesCfg(
-            disable_gravity=False,
-            retain_accelerations=False,
-            linear_damping=0.0,
-            angular_damping=0.0,
-            max_linear_velocity=1000.0,
-            max_angular_velocity=1000.0,
-            max_depenetration_velocity=profile["max_depenetration_velocity"],
-        ),
-        articulation_props=ArticulationRootPropertiesCfg(
-            enabled_self_collisions=profile["self_collision"],
-            solver_position_iteration_count=profile["solver_position_iterations"],
-            solver_velocity_iteration_count=profile["solver_velocity_iterations"],
-        ),
-    )
+    spawn = articulation_cfg.spawn.replace(**_spawn_overrides(articulation_cfg.spawn, spec, profile))
 
     scene = InteractiveSceneCfg(num_envs=num_envs, env_spacing=spec.env_spacing)
     scene.lazy_sensor_update = True

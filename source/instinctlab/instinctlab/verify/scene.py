@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from instinctlab.assets import ASSETS
+from instinctlab.assets.unitree_g1_spec import make_g1_29dof_robot_spec
 from instinctlab.sim.backend import JOINT_ACC_SOURCES, RuntimeRequirements
 from instinctlab.sim.capabilities import (
     BATCHED_SIMULATION,
@@ -84,7 +84,7 @@ def locomotion_flat_scene(*, num_envs: int = 2) -> VerificationScene:
         scene=SceneSpec(
             num_envs=num_envs,
             env_spacing=2.5,
-            robot=ASSETS.make("unitree_g1_29dof"),
+            robot=make_g1_29dof_robot_spec(),
             terrain=TerrainSpec(terrain_type="plane", sliding_friction=1.0, restitution=0.0),
             contact_sensors=(
                 ContactSensorSpec(

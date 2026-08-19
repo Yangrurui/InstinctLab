@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 
 from instinctlab import mdp
-from instinctlab.assets import ASSETS
+from instinctlab.assets.unitree_g1_spec import make_g1_29dof_robot_spec
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
@@ -237,7 +237,7 @@ def _action_scale(robot: RobotSpec) -> dict[str, float]:
 
 def flat_g1() -> TaskSpec:
     """The task."""
-    robot = ASSETS.make("unitree_g1_29dof")
+    robot = make_g1_29dof_robot_spec()
     joints = _canonical_joints(robot)
     return TaskSpec(
         task_id="Instinct-Velocity-Flat-G1",
@@ -288,6 +288,6 @@ def flat_g1() -> TaskSpec:
             },
             events=_events(),
         ),
-        agent=AgentSpec(runner="instinctlab.tasks.locomotion.agents.flat_g1_ppo:G1FlatPPORunnerCfg"),
+        agent=AgentSpec(runner="instinctlab.tasks.locomotion.flat_g1_ppo:G1FlatPPORunnerCfg"),
         engines=("isaacsim", "mjlab"),
     )

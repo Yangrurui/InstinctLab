@@ -163,7 +163,7 @@
             }
           },
           "collider_type": "convex_hull",
-          "self_collision": true,
+          "self_collision": false,
           "replace_cylinders_with_capsules": true,
           "collision_from_visuals": false,
           "func": "isaaclab.sim.spawners.from_files.from_files.spawn_from_urdf",
