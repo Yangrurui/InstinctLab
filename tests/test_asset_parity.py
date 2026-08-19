@@ -88,6 +88,47 @@ def test_urdf_and_mjcf_mass_com_and_joint_limits_match() -> None:
             assert effort == pytest.approx(mj_effort, abs=1e-5), name
 
 
+def _urdf_depth_first_joints(path: Path) -> list[str]:
+    """The movable joints in a pre-order walk of the kinematic tree, children in file order."""
+    root = ET.parse(path).getroot()
+    children: dict[str, list[tuple[str, str, str]]] = {}
+    linked: set[str] = set()
+    for joint in root.findall("joint"):
+        parent = joint.find("parent")
+        child = joint.find("child")
+        if parent is None or child is None:
+            continue
+        parent_link = parent.get("link") or ""
+        child_link = child.get("link") or ""
+        children.setdefault(parent_link, []).append((joint.get("name") or "", child_link, joint.get("type") or ""))
+        linked.add(child_link)
+    base = next(link.get("name") or "" for link in root.findall("link") if (link.get("name") or "") not in linked)
+
+    order: list[str] = []
+
+    def walk(link: str) -> None:
+        for name, child_link, kind in children.get(link, ()):
+            if kind != "fixed":
+                order.append(name)
+            walk(child_link)
+
+    walk(base)
+    return order
+
+
+def test_the_catalog_joint_order_is_the_depth_first_walk() -> None:
+    """Decision D1's premise, which nothing else checks.
+
+    Every other assertion about joints compares *sets*, so the canonical list could be reordered --
+    or quietly regenerated from a tool that walks the tree breadth-first -- without a single test
+    noticing. The order is the load-bearing part: it is what the action term and the joint
+    observations are told to select by, and therefore what makes those vectors mean the same thing
+    on two engines whose native orders are neither this one nor each other's.
+    """
+    robot = make_g1_29dof_robot_spec()
+    assert list(robot.joint_names) == _urdf_depth_first_joints(_URDF_PATH)
+
+
 def test_robot_spec_limits_match_urdf() -> None:
     _, urdf_joints = _parse_urdf(_URDF_PATH)
     robot = make_g1_29dof_robot_spec()

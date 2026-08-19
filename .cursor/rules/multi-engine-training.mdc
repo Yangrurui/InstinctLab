@@ -55,7 +55,7 @@ alwaysApply: false
 
 ## 三个已定决策
 
-- **D1 顺序以 DFS 为主**：`RobotSpec.joint_names` / `body_names` 是唯一真值，两个 adapter 都发 `preserve_order=True`，由引擎按名解析。canonical→native 翻译只在 `CompileCtx.entity()` 一处发生。isaacsim 相对 main 的 BFS 顺序是已接受偏差，见差异白名单。
+- **D1 顺序以 DFS 为主**：`RobotSpec.joint_names` / `body_names` 是唯一真值（已由 `tests/test_asset_parity.py` 钉住它确实等于 URDF 的 DFS 前序）。canonical→native 翻译只在 `CompileCtx.entity()` 一处发生。**光发 `preserve_order=True` 不够，必须把关节名逐个列出**：`resolve_matching_names` 按**模式**的顺序排列选择结果，只给一个 `.*` 时模式内部仍按实体自身顺序排，这个标志就成了空操作。动作项与 `joint_pos`/`joint_vel` 两个观测项都要带这份显式名单——只钉动作不钉观测，策略的输入和输出在两个引擎上索引方式不同，等于没钉。`last_action` 读动作管理器整条向量，自动跟随。相对 main 的差异（main 用 `.*` 因而接受 PhysX 的 BFS 序）在白名单里，内容由 `tests/test_parity_static.py` 正向断言。
 - **D2 自研 env / managers 已退役并删除**。删除时暴露出它留下的两处静默断裂：`mdp/__init__.py` 的 `from .unified import *` 遮蔽了 main 的奖励实现（签名不同，manager 构造期即拒绝），以及 `tasks/__init__.py` 不再在 import 时注册 Gym id 而无人调用 `register_legacy_isaac_tasks()`。**main 的任务因此一度完全构造不起来，而所有测试和对拍照常通过**——golden 甚至是从这个状态 dump 的。
 - **D3 main 是唯一 golden**：`tasks/locomotion/config/g1/flat_env_cfg.py::G1FlatEnvCfg` 是任务定义真值。不依赖 InstinctMJ（未安装），仅作 mjlab 表达方式的参考——`tests/reference_mjlab.py` 读它的语法树而非 import 它。验收 = diff 为空或命中白名单。**泛化形式**：golden 是「该项目跑在它原本的引擎上」，D3 是本仓库 locomotion 项目的特例。
 

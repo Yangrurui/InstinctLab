@@ -27,7 +27,11 @@
 
 ### D1：关节/body 顺序以 DFS 为主
 
-`RobotSpec.joint_names` / `body_names` 的 DFS 名序是唯一真值。两个引擎的 term 配置都发出 `preserve_order=True`，由引擎自己按名解析出索引。
+`RobotSpec.joint_names` / `body_names` 的 DFS 名序是唯一真值。两个引擎的 term 配置都**逐个列出关节名**并发出 `preserve_order=True`，由引擎自己按名解析出索引。
+
+**只发 `preserve_order=True` 而选择器写 `.*` 是无效的**，这一点代价不小才弄清楚：`resolve_matching_names` 按**模式**的先后排列选择结果，单个 `.*` 意味着所有关节都落在同一个模式里，模式内部仍按实体自身顺序排列——于是 `preserve_order` 真假结果完全相同，Isaac 侧留在 PhysX 的 BFS 序、mjlab 侧留在模型文件的顺序。落点有两处而非一处：动作项和 `joint_pos`/`joint_vel` 两个观测项都要带这份名单，只钉一侧会让策略的输入与输出在两个引擎上索引方式不同。`last_action` 读动作管理器的整条向量，自动跟随动作项。
+
+验收上这件事**没有任何既有检查能看见**：`test_asset_parity.py` 比的是关节名集合，`probe_terms.py` 当时会先把两边重排到 canonical 序再比。现在 `test_asset_parity.py` 断言目录序等于 URDF 的 DFS 前序、`test_parity_static.py` 正向断言三个选择器都持有完整名单，而 `probe_terms.py` 不再重排——两引擎的 `joint_pos` / `joint_vel` / `actions` 实测差为**精确的 0**。
 
 已验证两侧都支持这一机制：
 

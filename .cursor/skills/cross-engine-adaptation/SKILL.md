@@ -1,0 +1,84 @@
+---
+name: cross-engine-adaptation
+description: 在 InstinctLab 做适配工作的操作顺序与验收方法——接入新仿真引擎、把仓库存量任务（parkour / shadowing / beyondmimic / perceptive / HOI）迁入跨引擎栈、导入外部项目、或改动 spec/compat/mdp/engines 共享层。含静默退化故障目录（无异常、无失败测试、训练照常收敛的那一类）、各层检查的盲区、存量任务适配地图与死代码清单。当提到接入/新增引擎、适配/迁移任务、motion tracking 跨引擎、跨引擎对拍、引擎升级、term 移植、parity/golden 时使用。
+---
+
+# 跨引擎适配
+
+约束清单在 [`.cursor/rules/multi-engine-training.mdc`](../../rules/multi-engine-training.mdc)（按 glob 自动附加），权威设计在 [`CROSS_ENGINE_DESIGN.md`](../../../CROSS_ENGINE_DESIGN.md)。**本 skill 不重复它们**，只给操作顺序、每步的验收，以及怎么发现那些不会报错的错。
+
+## 先记住这个项目的 bug 长什么样
+
+双引擎打通期间所有严重缺陷都是同一形状：**没有异常、没有失败的测试、训练照常收敛、奖励曲线照常上升**。没有一个是靠「跑起来报错」发现的。
+
+代价最大的那个跑满 5000 轮才被看见：给 mjlab 接触传感器声明 `fields=("force",)`，漏了 `found`，于是 `illegal_contact` 永不触发、`feet_air_time` 恒为零，回合只能超时结束。传感器构造成功，环境正常 step，策略照常收敛。
+
+由此得到本 skill 的第一条操作原则：**适配工作的默认假设是「它已经悄悄错了」，验收的任务是逼它显形，而不是确认它没报错。** 完整目录与每个 bug 的实际发现路径见 [silent-failures.md](silent-failures.md)。
+
+## 工作流 A：接入一个新引擎
+
+不要先写代码。先回答 [new-engine.md](new-engine.md) 的审问清单——那里每一个问题都对应 isaacsim/mjlab 之间一处真实咬过人的分歧（速度参考系、四元数序、接触量纲、选择器种类、字段默认值……）。答案写进 `compat/vocab.py` 的 spoke 映射和 denylist，**再**动手。
+
+顺序：
+
+1. **审问引擎**，产出该引擎的语义档案。未确认的项不许猜，标记为待验证。
+2. `engines/<name>/` 建包：`terms.py`（注册表即能力矩阵）/ `scene.py`（含该引擎参考实现的求解器 profile 默认值）/ `assets.py` / `adapter.py`。包**顶层不得 import 引擎**，builder 函数体内才 import。
+3. 能力声明从 `terms.py` 的 `provides=` 推导，禁止手写。缺失术语走 OPTIONAL 跳过，不必先补齐全部。
+4. `contract_report()` golden 入库——它必须能在没装该引擎的机器上回答。
+5. 逐值对拍：`scripts/probe_terms.py --engine <name> --out /tmp/<name>.json`，与已通过的引擎 diff。**写状态而非 step**，理由见脚本 docstring。
+6. 行为探针（S5 conformance suite）：自由落体 / 静态保持 / PD 阶跃 / 接触冲量 / 摩擦滑移。单点数值对拍看不见任何时间轴上的量（接触时长、空中时间、curriculum），只有探针能。
+7. 短训练，对**回合长度曲线**，不只对奖励曲线。
+
+第 1 步偷的懒会在第 7 步以「训练能跑但学出来的东西不对」的形式回来，而那时已经没有便宜的定位手段了。
+
+## 工作流 B：适配本仓库的存量任务
+
+跨引擎栈里目前**只有 `Instinct-Velocity-Flat-G1` 一个任务**。parkour 与 4 个 shadowing 变体仍是 Isaac-only。
+
+开工前先读 [repo-tasks.md](repo-tasks.md)，它给出还剩什么、每个任务的具体障碍、以及**哪些东西看起来要适配其实是死代码**（已实测：`actuators/` 零引用、`rl/` 是空目录残留、`tasks/shadowing/mdp/` 整包未接线）。
+
+两个决定成败的判断：
+
+- **成本按子系统摊，不按任务摊。** 逐个任务看会得出「每个都很难」的错误结论。这些任务共享同一批 Isaac 耦合子系统（`motion_reference/` / `sensors/` / `terrains/` / `monitors/`+`managers/` / `envs/mdp/`），瓶颈全在子系统里。抬一次 `motion_reference`，4 个 shadowing 变体同时受益。**推荐顺序按子系统排**，入口选 beyondmimic（平面、单 motion buffer、无视觉）。这与迁移工作流里「第 4 步主要是 per-robot 而非 per-task」是同一个成本结构。
+- **flat G1 的结论不能沿用。** 「编译产物用朴素 `ManagerBasedRLEnv` 等价于 main 的 `InstinctRlEnv`」成立的前提是奖励容器不是 `MultiRewardCfg` 且 monitor 为空——**这两个前提对存量任务全部不成立**。必须重新做一次规则 33 的断言。
+
+## 工作流 C：迁移一个外部项目
+
+五步，顺序不能变（详见规则文件「迁移一个 Isaac Lab 项目」）：
+
+1. 先在**它原本的引擎**上按原样跑通，diff 为空，固定基线。这就是该项目的 golden——D3「main 是唯一 golden」是本仓库 locomotion 的特例，泛化形式是「该项目跑在它原本的引擎上」。
+2. `instinct-migrate analyze` 出逐项分类报告。
+3. codemod 改写机械部分（import 换 `instinctlab.mdp`、legacy 别名换显式帧名、math 换纯 torch、`sensor_cfg` 换 `SensorRef`）。
+4. 补 per-engine 条目（资产 / sim profile / 动作映射 / DR）。这步主要是 **per-robot** 而非 per-task，一个机器人补完一次后续任务近乎零成本。
+5. L0 → L1 → 目标引擎 smoke 与短训练。
+
+**第 1 步是最常被跳过、代价最高的一步。** 本仓库真实发生过：golden 是从一份根本无法实例化的配置里 dump 的，逐字段比对、静态不变量、白名单过期检查全部照常通过——一把连不上电的尺子，量什么都是准的。所以第 1 步的验收是「真的构造出来并 step 一次」，不是「配置能 import」。
+
+frontend 遇到 IR 表达不了的构造必须报错并计入未转换清单。**遇到单体 env 项目（HumanoidVerse / PBHC / IsaacGymEnvs 风格）明确报错**，要求先手工重构成 term 结构；禁止自动拆解单体 `compute_reward()`，那只会产出语义已漂移但看起来能跑的结果。
+
+## 工作流 D：改动共享层（`spec/` / `compat/` / `mdp/`）
+
+改一处共享实现 = 同时改所有引擎的行为，所以最小验收固定为三项：
+
+```bash
+python -m pytest tests/ -q                        # 静态与隔离：spec 不 import 引擎、无星号导入、白名单不过期
+python scripts/check_mjlab.py                     # mjlab ≡ InstinctMJ（读语法树，不需装引擎）
+python scripts/check_parity.py                    # isaacsim ≡ main（需 Isaac Sim）
+```
+
+加了跨引擎间接层时额外问一句：**这次运行时解析，在原生实现里是不是初始化期就做完了？** 是的话这层必须自己缓存。没缓存的代价是环境慢十倍而所有数值断言照常通过——`ContactSensorRef` 元素解析就这样让 Isaac 侧从 56,339 掉到 5,699 step/s，GPU 全程空转。
+
+各层检查分别能看见什么、对什么天然失明，以及怎么审计自己的检查，见 [verification.md](verification.md)。
+
+## 三条最容易犯的元错误
+
+1. **能提取但没人断言的信息等同于没比。** `tests/reference_mjlab.py` 曾提供事件 `params`、`reward_functions()`、`scene_sensors()` 而无任何调用者——读代码的人会以为比过了。新增提取器必须同时新增断言。
+2. **退役一层不等于停止使用它。** 只要 `__init__.py` 还有 `from .retired import *`，被退役的实现仍是活的，而且星号导入急切绑定名字、**优先于**下面的惰性查找，静默压过正版。
+3. **文档声称「由 `tests/xxx.py` 保证」时先确认该文件存在。** 已经出现过声称被钉住、而那个测试文件从未被创建的情况。
+
+## 参考文件
+
+- [silent-failures.md](silent-failures.md) —— 静默退化故障目录：症状、为何无信号、实际发现路径、可迁移规则
+- [new-engine.md](new-engine.md) —— 新引擎审问清单 + isaacsim/mjlab 已知答案对照表
+- [repo-tasks.md](repo-tasks.md) —— 存量任务适配地图：五个共享子系统、推荐顺序、死代码清单、parkour 星号导入链实测
+- [verification.md](verification.md) —— 分层验收、各层盲区、覆盖率审计与变异检验

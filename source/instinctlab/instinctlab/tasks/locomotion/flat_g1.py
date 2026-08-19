@@ -58,7 +58,22 @@ UPPER_BODY_CONTACT = ContactSensorRef(
 COMMAND = "base_velocity"
 
 
-def _policy_observations(*, corrupt: bool) -> ObsGroupSpec:
+def _canonical_joints(robot: RobotSpec) -> EntityRef:
+    """Every joint, named explicitly, in the canonical depth-first order. Decision D1 lives here.
+
+    A lone ``".*"`` selects the same twenty-nine joints, so it is tempting to write. It does not
+    order them: ``preserve_order`` orders a selection by the *patterns* it was given, and one
+    pattern leaves the entity's own order in place -- PhysX's breadth-first walk on Isaac Sim, the
+    model file's order on mjlab, neither of which is the depth-first order this project declares.
+    Naming the joints is what makes the joint axis mean the same thing on both engines.
+
+    Both the action term and the two joint observations take this, because pinning one without the
+    other would leave a policy whose inputs and outputs are indexed differently per engine.
+    """
+    return EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
+
+
+def _policy_observations(*, corrupt: bool, joints: EntityRef) -> ObsGroupSpec:
     """The policy's inputs, and the critic's when the noise is switched off.
 
     One function for both groups because they differ in exactly two ways -- the critic sees base
@@ -70,8 +85,10 @@ def _policy_observations(*, corrupt: bool) -> ObsGroupSpec:
         "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, noise=noise(-0.2, 0.2)),
         "projected_gravity": ObsTermSpec(func=mdp.projected_gravity, noise=noise(-0.05, 0.05)),
         "velocity_commands": ObsTermSpec(func=mdp.generated_commands, params={"command_name": COMMAND}),
-        "joint_pos": ObsTermSpec(func=mdp.joint_pos_rel, noise=noise(-0.01, 0.01)),
-        "joint_vel": ObsTermSpec(func=mdp.joint_vel, noise=noise(-1.5, 1.5)),
+        "joint_pos": ObsTermSpec(func=mdp.joint_pos_rel, noise=noise(-0.01, 0.01), params={"asset_cfg": joints}),
+        "joint_vel": ObsTermSpec(func=mdp.joint_vel, noise=noise(-1.5, 1.5), params={"asset_cfg": joints}),
+        # ``last_action`` reads the action manager's whole vector, so it follows the action term's
+        # order and needs no selector of its own.
         "actions": ObsTermSpec(func=mdp.last_action),
     }
     if not corrupt:
@@ -219,6 +236,7 @@ def _action_scale(robot: RobotSpec) -> dict[str, float]:
 def flat_g1() -> TaskSpec:
     """The task."""
     robot = ASSETS.make("unitree_g1_29dof")
+    joints = _canonical_joints(robot)
     return TaskSpec(
         task_id="Instinct-Velocity-Flat-G1",
         robot=robot,
@@ -231,13 +249,13 @@ def flat_g1() -> TaskSpec:
         sim=SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0),
         mdp=MdpSpec(
             observations={
-                "policy": _policy_observations(corrupt=True),
-                "critic": _policy_observations(corrupt=False),
+                "policy": _policy_observations(corrupt=True, joints=joints),
+                "critic": _policy_observations(corrupt=False, joints=joints),
             },
             actions={
                 "joint_pos": ActionTermSpec(
                     kind="joint_position",
-                    target=EntityRef("robot", joints=".*", preserve_order=True),
+                    target=joints,
                     params={"scale": _action_scale(robot), "use_default_offset": True},
                 )
             },

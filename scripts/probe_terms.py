@@ -54,14 +54,18 @@ def _state(num_joints: int, device: str) -> dict[str, torch.Tensor]:
 
 
 def _canonical_joint_order(env, catalog: list[str]) -> torch.Tensor:
-    """Indices that put this engine's joint axis into the catalog's depth-first order.
+    """Indices that put this engine's raw joint buffers into the catalog's depth-first order.
 
-    The one piece of bookkeeping this comparison cannot do without. Both engines expose joint data
-    in whatever order their own model description produced -- PhysX walks the tree breadth-first,
-    MuJoCo keeps the file's order -- and neither is decision D1's order. The action term is told to
-    preserve the declared order, but observations read the whole joint axis and therefore come back
-    in the engine's order. Reindexing here is what makes an element-by-element comparison mean
-    anything.
+    Needed only for writing state. The engines store joint data in whatever order their own model
+    description produced -- PhysX walks the tree breadth-first, MuJoCo keeps the file's order, and
+    neither is decision D1's order -- so putting both robots into the same sampled state means
+    permuting it into each engine's order on the way in.
+
+    Reading needs no such step: the task selects the joint axis by name in the canonical order for
+    both the action term and the joint observations, so the terms already return it. That is the
+    point of D1, and it is why this comparison can diff the readings directly. A term that came back
+    in the engine's order would now show up as a difference, which is the correct outcome rather
+    than something to reindex away.
     """
     names = list(env.scene["robot"].joint_names)
     missing = set(catalog) - set(names)
@@ -93,12 +97,16 @@ def _write_state(env, state: dict[str, torch.Tensor], order: torch.Tensor) -> No
 
 
 def _force_action_and_command(env, state: dict[str, torch.Tensor], order: torch.Tensor) -> None:
-    """Overwrite the last action and the sampled command, which are buffers rather than physics."""
-    engine_order = torch.argsort(order)
+    """Overwrite the last action and the sampled command, which are buffers rather than physics.
+
+    The action buffer is indexed by the term's own selection, which names the joints in the
+    canonical order, so the sampled action goes in unpermuted.
+    """
+    del order
     term = next(iter(env.action_manager._terms.values()))
     for attr in ("_raw_actions", "_raw_action"):
         if hasattr(term, attr):
-            getattr(term, attr)[:] = state["action"][:, engine_order]
+            getattr(term, attr)[:] = state["action"]
     command_term = env.command_manager._terms["base_velocity"]
     for attr in ("vel_command_b", "_vel_command_b", "command"):
         buffer = getattr(command_term, attr, None)
@@ -182,15 +190,15 @@ def _evaluate(env, spec, order: torch.Tensor) -> dict[str, list]:
     """Every portable term the task declares, evaluated on the written state.
 
     Terms are called through the compiled configs so that the parameters compared are the ones a
-    run would use, not a second set written for the test.
+    run would use, not a second set written for the test. Readings are recorded as the terms return
+    them: the joint axis is selected by name in the canonical order, so there is nothing to undo.
     """
+    del order
     readings: dict[str, list] = {}
 
     def record(label: str, value: torch.Tensor, joint_axis: bool) -> None:
-        tensor = value.detach().float()
-        if joint_axis and tensor.shape[-1] == order.numel():
-            tensor = tensor[:, order]
-        readings[label] = tensor.cpu().tolist()
+        del joint_axis
+        readings[label] = value.detach().float().cpu().tolist()
 
     for group_name, group in (
         env.observation_manager._group_obs_term_cfgs.items()

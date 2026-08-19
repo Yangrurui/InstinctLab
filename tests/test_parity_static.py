@@ -251,3 +251,34 @@ def test_mains_mdp_package_exports_one_implementation_per_name():
         if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names)
     ]
     assert not starred, f"{MAIN_MDP_PACKAGE.name} star-imports {starred}, which can shadow a term main declares"
+
+
+def test_the_joint_axis_is_pinned_to_the_canonical_order():
+    """Decision D1, asserted where it is actually decided rather than where it is documented.
+
+    Selecting with a lone ``".*"`` picks the same twenty-nine joints, and ``preserve_order=True``
+    next to it looks like it settles their order. It does not: ``resolve_matching_names`` orders a
+    selection by the *patterns* it was given, so a single pattern falls back to the entity's own
+    order and the flag becomes a no-op. The task therefore has to name every joint, and the
+    difference is invisible in every check that does not compare sequences -- the asset test compares
+    sets, and the term-value comparison reindexes both engines to this order before diffing, so it
+    would agree either way.
+
+    Both the action term and the two joint observations are checked, because pinning one without the
+    other leaves a policy whose inputs and outputs are indexed differently per engine.
+    """
+    spec = flat_g1()
+    canonical = tuple(spec.robot.joint_names)
+
+    selectors = {"actions.joint_pos": spec.mdp.actions["joint_pos"].target}
+    for group, group_spec in spec.mdp.observations.items():
+        for name in ("joint_pos", "joint_vel"):
+            selectors[f"observations.{group}.{name}"] = group_spec.terms[name].params["asset_cfg"]
+
+    for path, ref in selectors.items():
+        assert ref is not None, f"{path} selects no entity"
+        assert tuple(ref.joints) == canonical, (
+            f"{path} selects {list(ref.joints)!r}; a lone pattern leaves the engine's own order in "
+            "place, so the joints have to be named in the canonical depth-first order"
+        )
+        assert ref.preserve_order is True, f"{path} names the joints but does not ask for their order"
