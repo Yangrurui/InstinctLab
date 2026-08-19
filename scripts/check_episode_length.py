@@ -50,17 +50,22 @@ def _summarise(name: str, values: list[float], limit: int) -> str:
     head = ", ".join(f"{v:.1f}" for v in values[:3])
     tail = ", ".join(f"{v:.1f}" for v in values[-3:])
     pinned = sum(1 for v in values if abs(v - limit) < 0.5)
-    return f"{name}: {len(values)} iterations, first [{head}], last [{tail}], {pinned} at the {limit}-step limit"
+    return f"{name}: {len(values)} logged points, first [{head}], last [{tail}], {pinned} at the {limit}-step limit"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("logs", nargs="+", type=pathlib.Path)
     parser.add_argument(
-        "--min-iterations",
+        "--min-points",
+        dest="min_points",
         type=int,
         default=10,
-        help="Refuse to judge a run shorter than this, since early episodes are legitimately long.",
+        help=(
+            "Refuse to judge a run with fewer logged points than this, since early episodes are "
+            "legitimately long. The runner logs one point per ten training iterations, so the "
+            "default asks for roughly a hundred iterations before it will call a run pinned."
+        ),
     )
     args = parser.parse_args()
 
@@ -72,8 +77,8 @@ def main() -> int:
             failures.append(f"{log}: no episode lengths in it; is this a training log?")
             continue
         print(_summarise(log.name, values, limit))
-        if len(values) < args.min_iterations:
-            print(f"  too short to judge ({len(values)} < {args.min_iterations} iterations)")
+        if len(values) < args.min_points:
+            print(f"  too short to judge ({len(values)} < {args.min_points} logged points)")
             continue
         if all(abs(value - limit) < 0.5 for value in values):
             failures.append(

@@ -83,3 +83,5 @@ python scripts/train.py --engine mjlab    --task Instinct-Velocity-Flat-G1
 - **必须对回合长度曲线，不只对奖励曲线。** 奖励是各项加权和，一项恒零仍会平滑上升、看起来在学；回合长度直接暴露终止是否活着。
 - **满屏精确的 `0.0000` 是信号不是噪声。** 只在 reset 那步产出的日志，在终止失效时会被 wrapper 补零。
 - 与参照对的是**形状与量级**，不是逐点数值。导入外部项目的验收标准是**可比性能**，不是复现原论文数字（D4）。
+- **同名指标在两个引擎里量纲可以不同，不要直接并排读。** `Episode_Termination/base_contact` 在 Isaac 侧是比例（`0.0275`，与 `time_out` 加起来约 1），在 mjlab 侧是计数（`161.75`）——mjlab 的 `termination_manager.py` 记的是 `torch.count_nonzero`。两边都对、都各自忠于参照，但摆在一起看会得出错误结论。判断「终止是否活着」要看**回合长度**，那是同一个量纲。
+- **`python scripts/check_episode_length.py <log>` 每十个训练迭代才有一个数据点**（runner 的记录频率），所以 `--min-points 10` 实际要求约一百个迭代。短跑出来的「too short to judge」不是通过。
