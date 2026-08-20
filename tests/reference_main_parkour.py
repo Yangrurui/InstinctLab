@@ -11,7 +11,9 @@ effective tables, because training never ran the base ``ParkourEnvCfg`` alone.
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -633,6 +635,61 @@ def effective_robot_actuators() -> dict[str, Any]:
         "robot_symbol": robot_symbol,
         "declared_in_base": G1_DELAYED_ACTUATORS in ast.unparse(module),
     }
+
+
+def actuator_joint_velocity_limits(joint_names: Sequence[str]) -> dict[str, float]:
+    """Per-joint velocity limit from the actuator table the registered task actually runs.
+
+    main never spells ``velocity_limit``; it sets ``velocity_limit_sim`` and lets Isaac Lab
+    fall back (``ActuatorBase.__init__``: ``velocity_limit = _parse_joint_parameter(
+    cfg.velocity_limit, self.velocity_limit_sim)``), which is what ends up in
+    ``soft_joint_vel_limits`` and therefore in main's ``dof_vel_limits`` penalty. We hard-code
+    the same numbers as a literal tuple on our term instead of reading them off the robot, so
+    the two only agree as long as somebody keeps them agreeing -- hence this reader.
+
+    Groups may give one scalar for every joint they match or a regex→value mapping.
+    """
+    table = effective_robot_actuators()["table"]
+    assets = ast.parse(_git_show(ASSETS_CFG))
+    node = next(
+        (
+            n
+            for n in assets.body
+            if isinstance(n, ast.Assign)
+            and len(n.targets) == 1
+            and isinstance(n.targets[0], ast.Name)
+            and n.targets[0].id == table
+            and isinstance(n.value, ast.Dict)
+        ),
+        None,
+    )
+    if node is None:
+        raise LookupError(f"main's {ASSETS_CFG} has no dict literal named {table!r}")
+
+    limits: dict[str, float] = {}
+    for group in node.value.values:
+        if not isinstance(group, ast.Call):
+            raise LookupError(f"{table} holds a non-call entry: {ast.unparse(group)}")
+        kwargs = _kwargs(group)
+        patterns = kwargs.get("joint_names_expr")
+        spec = kwargs.get("velocity_limit_sim")
+        if patterns is None or spec is None:
+            raise LookupError(f"{table} entry {ast.unparse(group.func)} lacks joint_names_expr/velocity_limit_sim")
+        matched = [j for p in patterns for j in joint_names if re.fullmatch(p, j)]
+        if not matched:
+            raise LookupError(f"{table} entry matches no joint of the {len(joint_names)} given: {patterns}")
+        for joint in matched:
+            if isinstance(spec, dict):
+                hits = [v for p, v in spec.items() if re.fullmatch(p, joint)]
+                if len(hits) != 1:
+                    raise LookupError(f"{joint!r} matches {len(hits)} velocity_limit_sim patterns in {table}")
+                limits[joint] = float(hits[0])
+            else:
+                limits[joint] = float(spec)
+    missing = [j for j in joint_names if j not in limits]
+    if missing:
+        raise LookupError(f"{table} leaves {missing} without a velocity limit")
+    return limits
 
 
 def _articulation_actuators(cfg_symbol: str) -> str:

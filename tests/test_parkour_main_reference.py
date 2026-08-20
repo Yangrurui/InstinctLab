@@ -394,6 +394,40 @@ def test_documented_drifts_are_still_present(task) -> None:
     assert main_ref.effective_robot_actuators()["delayed"] is False
 
 
+def test_dof_vel_limits_match_mains_actuator_table(task) -> None:
+    """Our literal 29 limits against the ones main's penalty reads off the robot.
+
+    Not a drift row, a *latent* one. main computes ``soft_ratio * soft_joint_vel_limits``,
+    which Isaac Lab fills from the actuator table (``velocity_limit`` unset falls back to
+    ``velocity_limit_sim``). We pass the numbers in as a literal tuple, so today's agreement
+    is a coincidence maintained by hand: change one actuator on main and nothing here would
+    notice. The observed 3.36x on ``Episode_Reward/dof_vel_limits`` had this as its most
+    plausible mechanism until these were compared and found equal, which leaves that ratio
+    as noise on a term worth about -0.001.
+    """
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
+
+    term = task.mdp.rewards["rewards"]["dof_vel_limits"]
+    ours = dict(zip(term.params["asset_cfg"].joints, term.params["limits"], strict=True))
+    theirs = main_ref.actuator_joint_velocity_limits(G1_29DOF_DFS_JOINT_NAMES)
+    assert ours == theirs, {j: (ours[j], theirs[j]) for j in ours if ours[j] != theirs[j]}
+    assert term.params["soft_ratio"] == main_ref.reward_params()["dof_vel_limits"]["soft_ratio"] == 0.9
+
+
+def test_the_actuator_limit_reader_refuses_a_table_it_cannot_expand() -> None:
+    """A reader that silently drops a joint would make the comparison above vacuous.
+
+    Both ways it can go blind are made loud: a joint no actuator group claims, and a group
+    that claims nothing at all (which is what a renamed joint on their side looks like).
+    """
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
+
+    with pytest.raises(LookupError, match="without a velocity limit"):
+        main_ref.actuator_joint_velocity_limits([*G1_29DOF_DFS_JOINT_NAMES, "no_such_joint"])
+    with pytest.raises(LookupError, match="matches no joint"):
+        main_ref.actuator_joint_velocity_limits(["left_knee_joint"])
+
+
 def test_the_velocity_frame_reader_refuses_what_it_cannot_resolve() -> None:
     """A reader that guesses is worse than no reader: it puts a wrong value into a drift row.
 
