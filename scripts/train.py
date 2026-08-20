@@ -117,7 +117,11 @@ def main() -> None:
     compiled.env_cfg.seed = agent_cfg.seed
 
     env = compiled.make_env()
+    from instinctlab.utils.terrain_split_log import attach_terrain_split, dump_contact_peaks, snapshot_contact_budget
+
+    snapshot_contact_budget(env, os.path.join(log_dir, "overflow_after_construction.json"))
     env = engine.wrap_for_rl(env)
+    env = attach_terrain_split(env)
 
     from instinct_rl.runners import OnPolicyRunner
 
@@ -133,6 +137,10 @@ def main() -> None:
         init_at_random_ep_len=getattr(agent_cfg, "init_at_random_ep_len", False),
     )
 
+    snapshot_contact_budget(env, os.path.join(log_dir, "overflow_late_training.json"))
+    dump_contact_peaks(env, os.path.join(log_dir, "overflow_peaks.json"))
+    if getattr(runner, "writer", None) is not None:
+        runner.writer.close()
     env.close()
     if app is not None:
         app.close()
