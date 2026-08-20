@@ -121,7 +121,30 @@ def test_the_mjlab_sensor_refuses_to_clock_without_the_force_field() -> None:
 
 @pytest.mark.isaacsim
 def test_isaac_carries_the_declared_threshold_onto_its_own_field() -> None:
-    """Isaac already defaulted to 1 N; passing it explicitly is what keeps the two tied."""
+    """Isaac already defaulted to 1 N; passing it explicitly is what keeps the two tied.
+
+    Starts Kit itself. It did not, and since it is the only ``isaacsim`` test in this file
+    there was nothing else to start one: importing ``isaaclab.sensors`` without a running
+    app raises ``ModuleNotFoundError: No module named 'carb'``, so the test could not pass
+    under any invocation. It looked like an environment problem rather than a broken test,
+    which is how it survived being written and read.
+    """
+    import argparse
+    import sys
+
+    pytest.importorskip("isaaclab")
+    from isaaclab.app import AppLauncher
+
+    parser = argparse.ArgumentParser()
+    AppLauncher.add_app_launcher_args(parser)
+    argv = ["--headless", "--device", "cpu"]
+    previous = sys.argv
+    sys.argv = [previous[0], *argv]
+    try:
+        AppLauncher(parser.parse_args(argv))
+    finally:
+        sys.argv = previous
+
     from instinctlab.engines.isaacsim.scene import _contact_sensor
 
     ref = ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True, air_time_force_threshold=2.5)

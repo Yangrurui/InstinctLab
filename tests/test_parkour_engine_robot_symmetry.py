@@ -339,8 +339,25 @@ def test_camera_hit_list_does_not_name_a_merged_away_link() -> None:
 
 
 @pytest.mark.isaacsim
-def test_isaac_compiled_robot_matches_mjlab_on_the_actuation_axes(spec, mjlab_robot) -> None:
-    """Kit session: the Isaac half of the symmetry table."""
+def test_isaac_compiled_robot_matches_mjlab_on_the_actuation_axes(spec) -> None:
+    """Kit session: the Isaac half of the symmetry table.
+
+    Against ``spec``, not against a live ``mjlab_robot``, and the difference is the whole
+    reason this test used to be impossible to pass. Isaac Sim and mjlab need different warp
+    builds -- Isaac's extensions want the 1.8.2 it bundles in ``extscache/omni.warp.core``,
+    mujoco_warp wants site-packages 1.16.0, and ``warp.types.array`` exists only in the
+    former. Whichever lands in ``sys.modules`` first wins the process, which is why
+    ``pytest.ini`` says the two cannot share one. Taking ``mjlab_robot`` here imported
+    mjlab's warp during fixture setup, before the test body ever reached ``AppLauncher``,
+    so every Isaac extension then failed to start and the test failed on an environment
+    error that had nothing to do with what it was checking.
+
+    Comparing to ``spec`` loses nothing: the two axes it borrowed from mjlab are the spawn
+    height and the soft joint limit, both of which are ``spec`` values that
+    ``test_spawn_z_matches_on_both_sides`` and ``test_soft_joint_limit_factor_matches``
+    already pin on the mjlab side. The symmetry holds through the declaration both engines
+    read, which is the only place it can hold when they cannot be alive together.
+    """
     pytest.importorskip("isaaclab")
     import argparse
     import sys
@@ -360,11 +377,46 @@ def test_isaac_compiled_robot_matches_mjlab_on_the_actuation_axes(spec, mjlab_ro
     from instinctlab.engines.isaacsim import IsaacSimAdapter
 
     isaac_robot = IsaacSimAdapter().compile(spec, num_envs=16, device="cuda:0").env_cfg.scene.robot
-    assert isaac_robot.init_state.pos[2] == pytest.approx(mjlab_robot.init_state.pos[2])
+    assert isaac_robot.init_state.pos[2] == pytest.approx(spec.robot.default_root_pos[2]) == SPAWN_Z
     assert isaac_robot.spawn.merge_fixed_joints is True
     assert isaac_robot.spawn.asset_path.endswith(SHOE_URDF)
-    assert isaac_robot.soft_joint_pos_limit_factor == mjlab_robot.articulation.soft_joint_pos_limit_factor
+    assert isaac_robot.soft_joint_pos_limit_factor == spec.robot.soft_joint_pos_limit_factor == SOFT_LIMIT
     actuator_types = {type(cfg).__name__ for cfg in isaac_robot.actuators.values()}
     assert actuator_types == {"DelayedPDActuatorCfg"}
     delays = {(cfg.min_delay, cfg.max_delay) for cfg in isaac_robot.actuators.values()}
-    assert delays == {(0, 2)}
+    assert delays == {(0, 2)} == {spec.robot.actuator_delay}
+    # One actuator config per motor bus, so a whole leg draws one lag. Isaac has no
+    # fusion mechanism -- two configs are two independent draws -- so unlike mjlab the
+    # bus and the config have to be the same object here.
+    assert set(isaac_robot.actuators) == {name for name, _ in spec.robot.actuator_groups()}
+
+
+def test_no_engine_marked_test_asks_for_the_other_engines_fixture() -> None:
+    """The structural version of "Isaac and MJLab cannot share a process".
+
+    ``pytest.ini`` states the rule and gives the per-file invocation, but nothing enforced
+    it inside a file, and a test that requests a fixture from the other engine breaks the
+    rule during setup -- before its own body can launch anything. Such a test cannot pass
+    under any invocation, and it fails on an unrelated environment error, so it reads as
+    machine trouble rather than as a broken test. This one sat red long enough to get
+    written into a handoff note as "hangs on this box".
+
+    Checked statically, on the signature, because the dynamic version would need exactly
+    the process this rule forbids.
+    """
+    import ast
+
+    source = Path(__file__).read_text()
+    engine_of = {"mjlab_robot": "mjlab"}
+    offenders = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+            continue
+        marks = {
+            ast.unparse(d).rsplit(".", 1)[-1].split("(")[0] for d in node.decorator_list if "mark" in ast.unparse(d)
+        }
+        engines = marks & {"mjlab", "isaacsim"}
+        wanted = {engine_of[a.arg] for a in node.args.args if a.arg in engine_of}
+        if engines and wanted - engines:
+            offenders.append((node.name, sorted(engines), sorted(wanted)))
+    assert not offenders, offenders
