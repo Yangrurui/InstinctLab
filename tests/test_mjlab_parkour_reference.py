@@ -390,14 +390,18 @@ def test_amp_symmetric_augmentation_is_instinctmj_only(task) -> None:
     assert task.scene.motion_references[0].clip.endswith(".npz")
 
 
-def test_train_pipeline_tf32_differs_from_instinctmj_by_design() -> None:
-    """InstinctMJ calls configure_torch_backends(); our mjlab adapter intentionally does not."""
-    import argparse
+def test_train_pipeline_configures_torch_like_instinctmj() -> None:
+    """Both call the same helper. This was a drift until the reference was read rather than assumed.
+
+    The behavioural half -- that the flags actually flip -- is in
+    ``tests/test_train_entry.py::test_mjlab_bootstrap_actually_turns_tf32_matmul_on``.
+    """
+    import inspect
 
     assert mj_ref.train_script_calls_configure_torch_backends()
     from instinctlab.engines.mjlab import adapter as mj_adapter
 
-    assert mj_adapter.MjlabAdapter.bootstrap(argparse.Namespace()) is None
+    assert "configure_torch_backends" in inspect.getsource(mj_adapter.MjlabAdapter.bootstrap)
 
 
 def test_ppo_runner_fields_match_instinctmj(our_agent) -> None:

@@ -206,21 +206,68 @@ def _assignments(path: pathlib.Path) -> dict[str, object]:
     }
 
 
-def test_each_engine_reproduces_its_references_torch_settings() -> None:
-    """The one place the two references disagree, so neither the launcher nor a default can decide.
+def _calls(path: pathlib.Path) -> set[str]:
+    return {
+        ast.unparse(node.func)
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
 
-    Main's training script enables TF32 matmul; InstinctMJ's touches nothing. TF32 changes the
-    arithmetic of every matmul in the policy update, so a run that sets it and a run that does not
-    are not the same run -- and putting the flags in the shared launcher would make one engine wrong
-    whichever way it went. They live in each adapter's bootstrap instead.
+
+def test_each_engine_reproduces_its_references_torch_settings() -> None:
+    """Each engine's bootstrap must reproduce the torch stack its own reference trained on.
+
+    The references spell the same intent differently: main assigns the flags in its training
+    script, InstinctMJ calls ``configure_torch_backends()`` (default ``allow_tf32=True``). This
+    test used to assert that InstinctMJ "leaves torch at its defaults" and that the mjlab adapter
+    therefore sets nothing. That was false, and because the test passed, mjlab trained with matmul
+    TF32 off against a reference that trains with it on -- and against our own Isaac side, which
+    sets it. Every two-engine comparison carried that asymmetry.
+
+    The flags stay in each adapter rather than the launcher: the launcher runs for both engines and
+    would have to be wrong for one of them.
     """
     engines_dir = pathlib.Path(engines.__file__).parent
     isaac = _assignments(engines_dir / "isaacsim" / "adapter.py")
-    mjlab = _assignments(engines_dir / "mjlab" / "adapter.py")
+    mjlab_adapter = engines_dir / "mjlab" / "adapter.py"
 
     assert isaac == TORCH_BACKEND_FLAGS, f"the Isaac adapter sets {isaac}, main sets {TORCH_BACKEND_FLAGS}"
-    assert not mjlab, f"the mjlab adapter sets {mjlab}; InstinctMJ leaves torch at its defaults"
+    assert not _assignments(mjlab_adapter), (
+        "the mjlab adapter assigns torch flags directly; call InstinctMJ's own "
+        "configure_torch_backends() so this engine follows whatever that helper means"
+    )
+    assert "configure_torch_backends" in _calls(mjlab_adapter), (
+        "the mjlab adapter does not call configure_torch_backends(); InstinctMJ's training script "
+        "does, so mjlab would train with matmul TF32 off while its reference has it on"
+    )
     assert not _assignments(_ENTRY), "torch backend settings in the launcher apply to every engine"
+
+
+def test_mjlab_bootstrap_actually_turns_tf32_matmul_on() -> None:
+    """Reading the call is not the same as the flag flipping. torch's default here is off."""
+    import argparse
+    import torch
+
+    pytest.importorskip("mjlab")
+    from instinctlab.engines.mjlab import MjlabAdapter
+
+    before = (
+        torch.backends.cuda.matmul.allow_tf32,
+        torch.backends.cudnn.allow_tf32,
+        torch.backends.cudnn.benchmark,
+    )
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        MjlabAdapter.bootstrap(argparse.Namespace())
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+        assert torch.backends.cudnn.allow_tf32 is True
+        assert torch.backends.cudnn.benchmark is True
+    finally:
+        (
+            torch.backends.cuda.matmul.allow_tf32,
+            torch.backends.cudnn.allow_tf32,
+            torch.backends.cudnn.benchmark,
+        ) = before
 
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]

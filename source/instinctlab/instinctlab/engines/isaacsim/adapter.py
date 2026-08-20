@@ -134,10 +134,11 @@ class IsaacSimAdapter:
         """Start Isaac Sim. Nothing under ``isaaclab`` may be imported before this returns.
 
         The torch backend settings are main's, from its own training script, and they are set here
-        rather than in the launcher because the two references disagree: InstinctMJ sets none of
-        them, so the mjlab adapter deliberately leaves torch alone. Reproducing a reference run
-        means reproducing the stack it ran on, and TF32 matmul changes both the arithmetic of the
-        policy update and its speed.
+        rather than in the launcher because the two references spell the same intent differently:
+        main assigns the flags, InstinctMJ calls ``configure_torch_backends()``. Both end up with
+        TF32 matmul on; they differ on ``cudnn.benchmark``, which main leaves off. Reproducing a
+        reference run means reproducing the stack it ran on, and TF32 matmul changes both the
+        arithmetic of the policy update and its speed.
         """
         from isaaclab.app import AppLauncher
 

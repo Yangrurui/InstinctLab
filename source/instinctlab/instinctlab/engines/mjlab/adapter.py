@@ -83,12 +83,23 @@ class MjlabAdapter:
 
     @staticmethod
     def bootstrap(args: argparse.Namespace) -> object | None:
-        """Nothing to start. Present because the protocol has it, and doing nothing is the answer.
+        """No simulator to start, but the torch backend has to match the reference stack.
 
-        Torch is left at its defaults on purpose. The Isaac Sim adapter enables TF32 matmul here
-        because main's training script does; InstinctMJ's does not, and this engine's reference is
-        InstinctMJ.
+        This used to return without touching torch, on the stated grounds that InstinctMJ leaves
+        torch at its defaults. It does not: its training script calls
+        ``mjlab.utils.torch.configure_torch_backends()``, whose default is ``allow_tf32=True``.
+        The claim was wrong and a passing test pinned it, so mjlab trained with matmul TF32 off
+        (the torch default) against a reference that trains with it on -- and against our own
+        Isaac side, which sets it. Every matmul in the policy and discriminator update ran on
+        different arithmetic than either reference, and every two-engine comparison carried that
+        asymmetry.
+
+        Calling the reference's own helper, rather than assigning the flags here, keeps this
+        engine on whatever stack mjlab decides that helper means.
         """
+        from mjlab.utils.torch import configure_torch_backends
+
+        configure_torch_backends()
         return None
 
     @staticmethod
