@@ -43,6 +43,14 @@ DELIBERATE = {
         "256",
         "20-column grid overflowed 128 (host mj_forward ncon=164). Per-world budget, not a task term.",
     ),
+    "sim/njmax": (
+        "700",
+        "768",
+        (
+            "Resting pose peaked at nefc=691; put_data refused 700. 768 is ~11% headroom. "
+            "InstinctMJ still writes 700 for the 10-column grid."
+        ),
+    ),
     "viz": (
         "collision_debug_vis / debug_vis on",
         "omitted",
@@ -267,7 +275,8 @@ def test_sim_timings_match_and_solver_diffs_are_the_documented_ones(task, compil
     assert task.sim.physics_dt == 0.005
     assert task.sim.decimation == 4
     assert task.sim.episode_length_s == overrides["episode_length_s"] == 20.0
-    assert compiled.env_cfg.sim.njmax == overrides["njmax"] == 700
+    assert compiled.env_cfg.sim.njmax == 768
+    assert overrides["njmax"] == 700
     assert compiled.env_cfg.sim.contact_sensor_maxmatch == overrides["contact_sensor_maxmatch"] == 128
     assert compiled.env_cfg.sim.mujoco.iterations == overrides["iterations"] == 10
     assert compiled.env_cfg.sim.mujoco.ls_iterations == overrides["ls_iterations"] == 20
@@ -371,7 +380,7 @@ def test_agent_shared_hyperparameters_match_except_documented_normalizers(our_ag
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
     assert len(KNOWN_DRIFTS) == 10
-    assert len(DELIBERATE) == 5
+    assert len(DELIBERATE) == 6
     for table in (KNOWN_DRIFTS, DELIBERATE):
         for path, (theirs, ours, reason) in table.items():
             assert theirs != ours, path
@@ -404,6 +413,7 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     assert task.scene.volume_point("leg_volume_points").velocity == "attach_link"
     assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == 20
     assert compiled.env_cfg.sim.nconmax == 256
+    assert compiled.env_cfg.sim.njmax == 768
 
 
 def test_every_extractor_has_a_caller() -> None:
