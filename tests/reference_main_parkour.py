@@ -348,23 +348,52 @@ def command_params() -> dict[str, Any]:
     raise LookupError("base_velocity command missing on main")
 
 
+def _constant(node: ast.AST) -> Any:
+    """Evaluate a literal, or an arithmetic expression over literals such as ``10 * 2**15``."""
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError):
+        pass
+    if isinstance(node, ast.BinOp):
+        left, right = _constant(node.left), _constant(node.right)
+        for op, apply in ((ast.Pow, lambda a, b: a**b), (ast.Mult, lambda a, b: a * b)):
+            if isinstance(node.op, op):
+                return apply(left, right)
+    raise ValueError(f"not a constant expression: {ast.unparse(node)}")
+
+
+SIM_PARAM_TARGETS = {
+    "decimation": "self.decimation",
+    "episode_length_s": "self.episode_length_s",
+    "physics_dt": "self.sim.dt",
+    "gpu_max_rigid_patch_count": "self.sim.physx.gpu_max_rigid_patch_count",
+    "gpu_collision_stack_size": "self.sim.physx.gpu_collision_stack_size",
+}
+
+
 def sim_params() -> dict[str, Any]:
-    """Literals set in ParkourEnvCfg.__post_init__ on main."""
+    """Values assigned in ``ParkourEnvCfg.__post_init__`` on main.
+
+    Read off the assignment nodes rather than by matching substrings in the unparsed source.
+    ``ast.unparse`` normalises ``2**29`` to ``2 ** 29``, so the substring probes this used to run
+    missed every power of two and returned ``None`` for it. ``gpu_collision_stack_size`` was one:
+    its drift row then reported main's value as the string ``"None"`` and still passed, because the
+    row only has to differ from ours. A parser that answers "absent" when it cannot parse is worse
+    than one that raises, so unknown expressions now raise instead.
+    """
     for node in _parkour_module().body:
         if isinstance(node, ast.ClassDef) and node.name == "ParkourEnvCfg":
             for item in node.body:
                 if isinstance(item, ast.FunctionDef) and item.name == "__post_init__":
-                    src = ast.unparse(item)
-                    break
-            else:
-                raise LookupError("ParkourEnvCfg.__post_init__ missing")
-            return {
-                "decimation": 4 if "decimation = 4" in src else None,
-                "episode_length_s": 20.0 if "episode_length_s = 20.0" in src else None,
-                "physics_dt": 0.005 if "sim.dt = 0.005" in src else None,
-                "gpu_max_rigid_patch_count": 10 * 2**15 if "gpu_max_rigid_patch_count = 10 * 2**15" in src else None,
-                "gpu_collision_stack_size": 2**29 if "gpu_collision_stack_size = 2**29" in src else None,
-            }
+                    assigned = {
+                        ast.unparse(target): _constant(stmt.value)
+                        for stmt in ast.walk(item)
+                        if isinstance(stmt, ast.Assign)
+                        for target in stmt.targets
+                        if ast.unparse(target) in SIM_PARAM_TARGETS.values()
+                    }
+                    return {name: assigned.get(target) for name, target in SIM_PARAM_TARGETS.items()}
+            raise LookupError("ParkourEnvCfg.__post_init__ missing")
     raise LookupError("ParkourEnvCfg missing on main")
 
 

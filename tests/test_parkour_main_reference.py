@@ -154,6 +154,22 @@ def test_main_reference_resolves() -> None:
     assert main_ref.sim_params()["physics_dt"] == 0.005
 
 
+def test_every_sim_param_parses_out_of_main() -> None:
+    """A reference reader that answers ``None`` when it fails to parse pins nothing.
+
+    ``sim_params`` used to probe for substrings in the unparsed source, and ``ast.unparse`` writes
+    ``2 ** 29`` where the file writes ``2**29``. Every power of two therefore read as absent, so the
+    ``gpu_collision_stack_size`` drift row reported main's value as the string ``"None"`` -- and
+    passed, because a row only has to differ from ours.
+    """
+    params = main_ref.sim_params()
+    assert set(params) == set(main_ref.SIM_PARAM_TARGETS)
+    unparsed = sorted(name for name, value in params.items() if value is None)
+    assert not unparsed, f"{unparsed} did not parse out of main's ParkourEnvCfg.__post_init__"
+    assert params["gpu_collision_stack_size"] == 2**29
+    assert params["gpu_max_rigid_patch_count"] == 10 * 2**15
+
+
 def test_reward_names_match_main(task) -> None:
     declared = set(task.mdp.rewards["rewards"])
     reference = set(main_ref.reward_names())
