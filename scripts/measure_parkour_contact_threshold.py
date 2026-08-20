@@ -7,6 +7,15 @@ actions, modest ``num_envs`` so the two engine runs are comparable.
 
     python scripts/measure_parkour_contact_threshold.py --engine mjlab --device cuda:2
     python scripts/measure_parkour_contact_threshold.py --engine isaacsim --device cuda:1
+
+Measured on mjlab (16 envs, 80 steps, seed 42, zero actions): the compiled
+``undesired_contacts`` fires at 0.109 mean count/env, matching the 1 N gate
+exactly and not the 0.130 of the duration gate -- the threshold is wired, not
+merely declared. The criteria disagree on 0.78% of (env, element) slots; of
+the slots the duration gate calls contact, 16% carry less than 1 N (median
+12.7 N). So the change is real but small. ``base_contact`` is *not* covered
+by this probe: with zero actions the robot does not fall, torso samples come
+out ``n=0``, and the termination path stays unmeasured.
 """
 
 from __future__ import annotations
