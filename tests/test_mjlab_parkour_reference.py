@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import inspect
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -124,21 +125,23 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
     # of four, and feet_air_time was scoring a different gait on each of our engines.
     # The threshold is now ContactSensorRef.air_time_force_threshold and both backends
     # map it onto their own field; see tests/test_contact_air_time_threshold.py.
-    "actuation/delay_lag_groups": (
-        "one lag draw for the whole leg (hip pitch/roll/yaw + knee); ankles, waist, waist_yaw, arms separate",
-        "lag groups follow our PD-tuple grouping: leg split across two draws, ankles share with waist",
-        (
-            "Both sides run 0-2 step lags with delay_per_env_phase=False, but mjlab fuses actuators"
-            " whose delay settings match into one DelayBuffer, so delay_update_period -- not the"
-            " actuator split -- decides which joints draw the SAME lag. InstinctMJ hands its two leg"
-            " groups one shared constant and gives everything else its own (_PERIOD_LEGS, then four"
-            " siblings at +1..+4), which is deliberate. We derive the period from a PD-tuple group"
-            " index, so hip pitch/yaw and hip roll/knee land on different draws: a leg of ours can"
-            " run its hip and knee at different lags, theirs cannot. Undecided, and a plausible"
-            " contributor to our 25-35% higher root_height rate -- an internally inconsistent leg"
-            " destabilises more than a uniformly late one. Deciding it needs a training A/B."
-        ),
-    ),
+    # "actuation/delay_lag_groups" was here until the lag partition was aligned. mjlab fuses
+    # actuators whose delay settings match onto one DelayBuffer, so delay_update_period -- not
+    # the config split -- decides which joints draw the SAME lag, and we were deriving it from
+    # a PD-gain group index. That put one leg's hip pitch/yaw on a different draw from its hip
+    # roll/knee and bound the ankles to the waist: a partition neither reference has, and a
+    # plant where a leg can be internally inconsistently late. The bus is now declared once on
+    # the robot (JointProperties.actuator_group) and both engines wire the lag off it; see
+    # test_lag_partition_matches_instinctmj.
+    #
+    # The row also guessed at a consequence -- "a plausible contributor to our 25-35% higher
+    # root_height rate" -- and that guess was wrong. Two seeds each side at 256/700: root_height
+    # 1.871 -> 2.052 (against InstinctMJ's 1.384, so 1.35x -> 1.48x) and episode length 136.5 ->
+    # 122.1. Both moves are smaller than the spread between the two seeds *within* each arm
+    # (post 1.91/2.20, pre 1.98/1.76), so the honest reading is no detectable effect, and
+    # certainly not the closure the hypothesis predicted. The alignment is kept because the
+    # partition is a physical fact both references declare and we were the odd one out on it,
+    # not because it bought anything measurable. Our higher fall rate remains unexplained.
     "motion/source": (
         "AmassMotionCfg yaml filter → parkour_motion_without_run.yaml",
         "MotionReferenceRef clip=…parkour_motion_without_run_retargetted.npz",
@@ -543,7 +546,7 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 2
+    assert len(KNOWN_DRIFTS) == 1
     assert len(DELIBERATE) == 8
     assert len(REFERENCE_DIVERGENCE) == 3
     assert "agent/normalizers" not in KNOWN_DRIFTS
@@ -569,21 +572,67 @@ def test_documented_drifts_are_still_present(task, compiled) -> None:
     assert task.scene.motion_references[0].clip.endswith(".npz")
     assert mj_ref.motion_source()["symmetric_augmentation_link_mapping"] is not None
 
-    # actuation/delay_lag_groups: the partition, on both sides. Asserting "we group by PD tuple"
-    # alone would stay green if they regrouped, and the row is about the difference between the
-    # two partitions -- specifically whether one leg can draw two different lags.
-    from instinctlab.engines.mjlab.assets import grouped_actuators
 
-    ours_groups = {frozenset(names) for names, _ in grouped_actuators(task.robot.joint_properties)}
-    ours_leg = [g for g in ours_groups if any("hip" in j or "knee" in j for j in g)]
-    assert len(ours_leg) == 2, sorted(sorted(g) for g in ours_leg)
-    theirs_groups = mj_ref.delayed_actuator_lag_groups()
-    theirs_leg = [g for g in theirs_groups if any("hip" in p or "knee" in p for p in g)]
-    assert len(theirs_leg) == 1, sorted(sorted(g) for g in theirs_leg)
-    assert theirs_leg[0] == frozenset({".*_hip_pitch_joint", ".*_hip_yaw_joint", ".*_hip_roll_joint", ".*_knee_joint"})
-    # ...and ours puts the ankles with the waist, where theirs keeps them apart.
-    assert any({"left_ankle_pitch_joint", "waist_pitch_joint"} <= g for g in ours_groups)
-    assert all(not ({".*_ankle_pitch_joint", "waist_pitch_joint"} <= g) for g in theirs_groups)
+def _lag_partition(robot) -> set[frozenset[str]]:
+    """Which joints share one lag draw, read off the wiring rather than the declaration.
+
+    Goes through ``_torque_delay_kwargs`` because that is what decides fusion: mjlab merges
+    actuators whose delay settings match, so two configs split for gain reasons land on one
+    buffer iff they were handed the same period. Reading ``actuator_group`` directly would
+    assert the declaration against itself and stay green if the wiring stopped using it.
+    """
+    from instinctlab.engines.mjlab.assets import _torque_delay_kwargs, grouped_actuators
+
+    by_period: dict[int, set[str]] = {}
+    for names, _, group in grouped_actuators(robot.joint_properties):
+        period = _torque_delay_kwargs(robot, group)["delay_update_period"]
+        by_period.setdefault(int(period), set()).update(names)
+    return {frozenset(members) for members in by_period.values()}
+
+
+def test_lag_partition_matches_instinctmj(task) -> None:
+    """The motor buses that share an actuation lag, joint for joint, against theirs.
+
+    Their side is patterns and ours is names, so theirs is expanded against our joint list --
+    which also catches a rename on either side, since an unmatched pattern leaves a joint out
+    and the partitions stop being equal.
+    """
+    from tests import reference_mjlab_parkour as mj_ref
+
+    joints = list(task.robot.joint_names)
+    theirs = {
+        frozenset(name for name in joints if any(re.fullmatch(pattern, name) for pattern in group))
+        for group in mj_ref.delayed_actuator_lag_groups()
+    }
+    assert frozenset() not in theirs, "a reference pattern group matched no joint of ours"
+    assert set().union(*theirs) == set(joints), sorted(set(joints) - set().union(*theirs))
+    assert _lag_partition(task.robot) == theirs, {
+        "ours": sorted(sorted(g) for g in _lag_partition(task.robot)),
+        "theirs": sorted(sorted(g) for g in theirs),
+    }
+    # The property the alignment was for: no leg spans two draws, on either side.
+    leg = {j for j in joints if "_hip_" in j or "_knee_" in j}
+    assert sum(1 for g in theirs if g & leg) == 1
+    assert sum(1 for g in _lag_partition(task.robot) if g & leg) == 1
+
+
+def test_isaac_and_mjlab_agree_on_the_motor_buses() -> None:
+    """One physical fact, two places that state it -- pinned to each other.
+
+    Isaac builds its actuators from ``_BEYONDMIMIC_JOINT_GROUPS`` patterns and mjlab wires the
+    lag off ``JointProperties.actuator_group``. Both already match InstinctMJ today; nothing
+    stops one from being edited alone, and the result would be two engines with different lag
+    correlation and no failing test.
+    """
+    from instinctlab.assets.unitree_g1.isaacsim import _BEYONDMIMIC_JOINT_GROUPS, make_g1_29dof_robot_spec
+
+    robot = make_g1_29dof_robot_spec()
+    isaac = {
+        name: frozenset(j for j in robot.joint_names if any(re.fullmatch(p, j) for p in patterns))
+        for name, patterns in _BEYONDMIMIC_JOINT_GROUPS.items()
+    }
+    ours = {name: frozenset(members) for name, members in robot.actuator_groups()}
+    assert ours == isaac, {k: (sorted(ours.get(k, ())), sorted(isaac.get(k, ()))) for k in ours.keys() | isaac.keys()}
 
 
 def test_every_extractor_has_a_caller() -> None:
@@ -673,4 +722,4 @@ def test_the_prose_counts_the_drift_table() -> None:
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {2}
+    assert counts == {len(KNOWN_DRIFTS)} == {1}

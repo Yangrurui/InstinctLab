@@ -111,7 +111,12 @@ def test_mjlab_actuators_hold_the_hub_episode_delay(spec, mjlab_robot) -> None:
     assert lags == {(0, 2)}
     periods = [act.delay_update_period for act in mjlab_robot.articulation.actuators]
     assert all(period >= DELAY_RESET_ONLY_PERIOD for period in periods)
-    assert len(set(periods)) == len(periods)
+    # Distinct periods, once. It read as "keep mjlab from fusing groups", but fusion is the
+    # only way two configs can share a lag draw, and the G1's legs need exactly that -- they
+    # are one motor bus over two gain sets. What the period has to track is the bus, so the
+    # count of distinct periods is the count of buses, not the count of configs.
+    assert len(set(periods)) == len(spec.robot.actuator_groups()) == 5
+    assert len(periods) == 7
     assert all(act.delay_per_env_phase is False for act in mjlab_robot.articulation.actuators)
     assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in mjlab_robot.articulation.actuators)
 

@@ -24,44 +24,57 @@ __all__ = ["DELAY_RESET_ONLY_PERIOD", "entity", "grouped_actuators"]
 # Isaac DelayedPD draws one lag in reset and holds it for the episode. mjlab's
 # DelayBuffer resamples every physics step when delay_update_period == 0 — a
 # same-name-different-meaning trap, see compat/denylist.py ``actuator_delay``.
-# A period larger than any episode's step count recovers the hub (per-episode)
-# draw; distinct periods keep mjlab from fusing groups onto one shared lag.
+# A period larger than any episode's step count recovers the hub (per-episode) draw.
 # delay_per_env_phase must be False so the draw lands on the first post-reset
 # step (a random phase would skip step 0 and leave the lag at its reset value 0).
+#
+# The period also decides *which joints share a draw*: mjlab fuses actuators whose delay
+# settings match onto one DelayBuffer. So it is keyed by the robot's declared
+# ``actuator_group``, not by the config split -- a motor bus can need two configs because
+# mjlab wants uniform gains per config, and those two must still land on one lag.
 DELAY_RESET_ONLY_PERIOD = 1_000_000
 
 
-def _torque_delay_kwargs(robot: RobotSpec, group_index: int) -> dict[str, int | bool]:
-    """Hub torque delay: physics steps, inclusive, one draw per episode per group."""
+def _torque_delay_kwargs(robot: RobotSpec, group: str) -> dict[str, int | bool]:
+    """Hub torque delay: physics steps, inclusive, one draw per episode per motor group."""
     lo, hi = robot.actuator_delay
     if lo == 0 and hi == 0:
         return {}
+    groups = [name for name, _ in robot.actuator_groups()]
     return {
         "delay_min_lag": lo,
         "delay_max_lag": hi,
-        "delay_update_period": DELAY_RESET_ONLY_PERIOD + group_index,
+        "delay_update_period": DELAY_RESET_ONLY_PERIOD + groups.index(group),
         "delay_per_env_phase": False,
     }
 
 
-def grouped_actuators(joints: Iterable[JointProperties]) -> tuple[tuple[tuple[str, ...], JointProperties], ...]:
-    """Collapse joints sharing PD gains into one actuator config each, in declaration order.
+def grouped_actuators(
+    joints: Iterable[JointProperties],
+) -> tuple[tuple[tuple[str, ...], JointProperties, str], ...]:
+    """One config per (motor group, PD gain set), in declaration order.
 
-    Grouping rather than one actuator per joint: mjlab does not fuse identical actuator configs, so
-    a per-joint config multiplies the control writes for no behavioural difference. The gains stay
-    per-joint identical -- only the batching changes -- and the first joint of each group carries
-    them.
+    Two keys, because the two things they stand for are different. mjlab needs uniform gains
+    within a config, so a motor bus whose joints carry different gains has to be split -- the
+    G1's legs are one bus over two gain sets. But the bus is what decides the actuation lag,
+    and the split configs have to come back together on it, which they do through a shared
+    ``delay_update_period``.
+
+    Keying on gains alone, as this did, silently re-partitioned the robot: one leg across two
+    lag draws, ankles bound to the waist. Nothing failed; the plant was just different from
+    both references.
     """
-    groups: dict[tuple[float, float, float, float], list[str]] = {}
-    heads: dict[tuple[float, float, float, float], JointProperties] = {}
-    order: list[tuple[float, float, float, float]] = []
+    groups: dict[tuple[str, tuple[float, float, float, float]], list[str]] = {}
+    heads: dict[tuple[str, tuple[float, float, float, float]], JointProperties] = {}
+    order: list[tuple[str, tuple[float, float, float, float]]] = []
     for joint in joints:
-        key = (float(joint.stiffness), float(joint.damping), float(joint.effort_limit), float(joint.armature))
+        gains = (float(joint.stiffness), float(joint.damping), float(joint.effort_limit), float(joint.armature))
+        key = (joint.actuator_group, gains)
         if key not in groups:
             groups[key], heads[key] = [], joint
             order.append(key)
         groups[key].append(joint.name)
-    return tuple((tuple(groups[key]), heads[key]) for key in order)
+    return tuple((tuple(groups[key]), heads[key], key[0]) for key in order)
 
 
 def _without_visual_meshes(xml: str) -> str:
@@ -124,9 +137,9 @@ def entity(robot: RobotSpec, *, actuator_order: Sequence[str] | None = None) -> 
             damping=head.damping,
             effort_limit=head.effort_limit,
             armature=head.armature,
-            **_torque_delay_kwargs(robot, group_index),
+            **_torque_delay_kwargs(robot, group),
         )
-        for group_index, (names, head) in enumerate(grouped_actuators(robot.joint_properties))
+        for names, head, group in grouped_actuators(robot.joint_properties)
     )
     return EntityCfg(
         init_state=EntityCfg.InitialStateCfg(

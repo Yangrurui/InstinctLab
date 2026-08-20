@@ -263,7 +263,27 @@ def _g1_joint_properties(name: str) -> JointProperties:
         effort_limit=effort_limit,
         velocity_limit=velocity_limit,
         action_scale=0.25 * effort_limit / stiffness,
+        actuator_group=_g1_actuator_group(name),
     )
+
+
+def _g1_actuator_group(name: str) -> str:
+    """Which motor bus a joint hangs off, as both references declare it.
+
+    main's ``beyondmimic_g1_29dof_actuators`` and InstinctMJ's delayed cfgs agree on this
+    partition down to the membership: the whole leg on one, feet, waist, waist_yaw, arms.
+    It deliberately does not follow the PD gains -- ``legs`` spans two gain sets and ``arms``
+    spans two, which is exactly why gain-keyed grouping produces a different plant.
+    """
+    if "_hip_" in name or "_knee_" in name:
+        return "legs"
+    if "_ankle_" in name:
+        return "feet"
+    if name == "waist_yaw_joint":
+        return "waist_yaw"
+    if name in {"waist_pitch_joint", "waist_roll_joint"}:
+        return "waist"
+    return "arms"
 
 
 def make_g1_29dof_robot_spec() -> RobotSpec:

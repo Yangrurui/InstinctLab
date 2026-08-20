@@ -25,6 +25,11 @@ allocated. A guard that cannot be shown to fire on a real overflow is
 not a guard: mjlab was shown on HFIELD at ``horizontal_scale=0.05``;
 Isaac was shown on the 16 KiB stack above.
 
+Not every overflow bit is a budget of ours. ``EPA_HORIZON`` is a fixed
+upstream scratch buffer inside one contact pair's penetration refinement
+(``MJ_MAX_EPAHORIZON = 24``), not a model option; see ``_UNTUNABLE_FLAGS``
+for why it is counted rather than fatal, and what makes it fatal anyway.
+
 Escape hatch (not the default): ``INSTINCTLAB_ALLOW_CONTACT_OVERFLOW=1``, or
 ``--allow_contact_overflow`` on ``scripts/train.py``.
 """
@@ -51,6 +56,26 @@ _warned_allow = False
 
 # HFIELD overflow is a compile-time pair cap, not nconmax/njmax.
 _MJ_MAX_CON_PAIR = 50
+
+# EPA_HORIZON is the one overflow bit that is not a budget of ours. The others say we
+# allocated too little and are now dropping contacts or constraints every step, which is
+# both systematic and fixable by raising a number. This one says a single contact pair's
+# penetration refinement ran out of a scratch buffer whose size is the upstream literal
+# ``MJ_MAX_EPAHORIZON = 24`` -- not a model option, nothing on our side to raise. EPA bails
+# on that pair for that step; the rest of the world is unaffected.
+#
+# Treating them alike cost a run: one such event, in 1 of 256 worlds, in one step out of
+# ~3.3M world-steps, killed a 700-iteration job at iteration 545. A guard that aborts on a
+# 3e-7 event nobody can fix teaches people to pass --allow_contact_overflow, which switches
+# off the budget checks too -- the guard would have disabled itself.
+#
+# So it is counted rather than fatal, and only up to a point: a *rate* this high is a
+# different claim from a one-off, and the ceiling is set far above anything numerical
+# noise produces so that crossing it means something real.
+_UNTUNABLE_FLAGS = frozenset({"EPA_HORIZON"})
+_UNTUNABLE_FATAL_RATE = 0.01
+_UNTUNABLE_MIN_SAMPLES = 200
+_UNTUNABLE_STATE_ATTR = "_instinctlab_untunable_overflow"
 
 
 class ContactOverflowError(RuntimeError):
@@ -90,6 +115,16 @@ def check_contact_overflow(env: Any, *, phase: str) -> dict[str, Any] | None:
     set; ``None`` when the env is clean or has no overflow signal. ``phase``
     is ``\"construction\"`` or ``\"step\"`` and is written into the message.
     """
+    raw = getattr(env, "unwrapped", env)
+    state = getattr(raw, _UNTUNABLE_STATE_ATTR, None)
+    if state is None:
+        state = {"steps": 0, "events": 0, "warned": False}
+        try:
+            setattr(raw, _UNTUNABLE_STATE_ATTR, state)
+        except AttributeError:  # slotted env; the rate ceiling degrades to per-call
+            pass
+    state["steps"] += 1
+
     snapshot = None
     if overflow_bits_set(env):
         snapshot = _mjlab_snapshot(env)
@@ -100,11 +135,50 @@ def check_contact_overflow(env: Any, *, phase: str) -> dict[str, Any] | None:
     if snapshot is None:
         return None
 
+    flags = set(snapshot.get("overflow_flags") or ())
+    untunable_only = bool(flags) and flags <= _UNTUNABLE_FLAGS
+    if untunable_only:
+        state["events"] += 1
+        rate = state["events"] / max(state["steps"], 1)
+        snapshot = {**snapshot, "untunable_events": state["events"], "untunable_rate": rate}
+        noisy = state["steps"] >= _UNTUNABLE_MIN_SAMPLES and rate > _UNTUNABLE_FATAL_RATE
+        message = _format_untunable_message(snapshot, phase=phase, fatal=noisy)
+        if not noisy:
+            if not state["warned"]:
+                state["warned"] = True
+                print(f"[instinctlab] {message}", flush=True)
+            return snapshot
+        if overflow_allowed():
+            _warn_allowed(message)
+            return snapshot
+        raise ContactOverflowError(message, snapshot)
+
     message = format_overflow_message(snapshot, phase=phase)
     if overflow_allowed():
         _warn_allowed(message)
         return snapshot
     raise ContactOverflowError(message, snapshot)
+
+
+def _format_untunable_message(snapshot: dict[str, Any], *, phase: str, fatal: bool) -> str:
+    flags = ", ".join(snapshot.get("overflow_flags") or ())
+    events, steps_rate = snapshot["untunable_events"], snapshot["untunable_rate"]
+    head = (
+        f"mujoco_warp {phase} overflow: {flags} in "
+        f"{snapshot.get('worlds_with_overflow')} of {snapshot.get('nworld')} worlds "
+        f"({events} checked steps affected, {steps_rate:.2%} of them). "
+        "EPA ran out of its horizon buffer while refining one contact pair and returned "
+        "that pair unrefined; the buffer is the upstream constant MJ_MAX_EPAHORIZON=24, "
+        "so no nconmax / njmax change affects it."
+    )
+    if not fatal:
+        return head + " Rare enough to be numerical, so this is a note, not a failure; the rate is watched."
+    return (
+        head
+        + f" That is past {_UNTUNABLE_FATAL_RATE:.0%} of steps, which is no longer a numerical "
+        "one-off -- deep or degenerate penetration is now routine, and contact depths "
+        f"are unreliable. To proceed anyway set {ALLOW_ENV}=1 or pass --allow_contact_overflow."
+    )
 
 
 def format_overflow_message(snapshot: dict[str, Any], *, phase: str) -> str:

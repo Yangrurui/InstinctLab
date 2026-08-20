@@ -183,6 +183,50 @@ def test_hfield_message_names_the_compile_time_cap(monkeypatch) -> None:
     assert "raising nconmax does not clear it" in str(caught.value)
 
 
+_EPA = 1 << 8
+
+
+def test_a_rare_epa_horizon_is_reported_and_survived(monkeypatch, capsys) -> None:
+    """The bit we cannot fix must not end the run at a rate nobody could act on.
+
+    One event in 545 iterations of a 700-iteration job is what actually happened, and the
+    old guard's only options were "die" or "--allow_contact_overflow", which would have
+    switched off the nconmax / njmax checks along with it.
+    """
+    pytest.importorskip("mujoco_warp")
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_env(overflow=[_EPA, 0, 0], nacon=10, nefc=[10, 10, 10])
+    snapshot = check_contact_overflow(env, phase="step")
+    assert snapshot is not None and snapshot["untunable_events"] == 1
+    note = capsys.readouterr().out
+    assert "EPA_HORIZON" in note and "MJ_MAX_EPAHORIZON=24" in note
+    assert "not a failure" in note
+    # ...and it says so once, not once per step.
+    for _ in range(5):
+        check_contact_overflow(env, phase="step")
+    assert capsys.readouterr().out == ""
+
+
+def test_epa_horizon_becomes_fatal_once_it_stops_being_rare(monkeypatch) -> None:
+    """A rate is a different claim from a one-off; past the ceiling it is real degradation."""
+    pytest.importorskip("mujoco_warp")
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_env(overflow=[_EPA], nacon=10, nefc=[10])
+    with pytest.raises(ContactOverflowError, match="no longer a numerical") as caught:
+        for _ in range(300):
+            check_contact_overflow(env, phase="step")
+    assert "MJ_MAX_EPAHORIZON=24" in str(caught.value)
+
+
+def test_epa_horizon_alongside_a_budget_bit_is_still_fatal(monkeypatch) -> None:
+    """The concession is for the bit we cannot raise, and does not cover the ones we can."""
+    pytest.importorskip("mujoco_warp")
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_env(overflow=[_EPA | (1 << 0)], nacon=10, nefc=[900])
+    with pytest.raises(ContactOverflowError, match="Raise sim.nconmax"):
+        check_contact_overflow(env, phase="step")
+
+
 def test_escape_hatch_warns_and_does_not_raise(monkeypatch, capsys) -> None:
     monkeypatch.setenv(ALLOW_ENV, "1")
     import instinctlab.utils.contact_overflow as mod

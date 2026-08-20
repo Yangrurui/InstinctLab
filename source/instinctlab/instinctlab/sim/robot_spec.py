@@ -52,6 +52,21 @@ class JointProperties:
     effort_limit: float
     velocity_limit: float
     action_scale: float
+    actuator_group: str = ""
+    """Which joints share one actuation-lag draw, when ``RobotSpec.actuator_delay`` is set.
+
+    Physical, not an engine detail: it says which joints hang off the same motor bus, so the
+    lag they see is the same sample rather than independent ones. It has to live here because
+    both engines need the same answer — a leg whose hip and knee run at different lags is a
+    different plant from one that is uniformly late, and that difference is not something an
+    adapter should invent.
+
+    Grouping joints by their PD gains instead is the obvious shortcut and it is wrong: gains
+    and wiring are not the same partition. On the G1 it splits one leg across two draws (hip
+    pitch/yaw carry different gains from hip roll/knee) while binding the ankles to the waist,
+    which is neither reference's layout — both InstinctMJ and main declare legs / feet / waist /
+    waist_yaw / arms.
+    """
 
 
 @dataclass(frozen=True)
@@ -126,6 +141,26 @@ class RobotSpec:
                 "RobotSpec.actuator_delay must be inclusive physics-step bounds with "
                 f"0 <= min <= max, got {self.actuator_delay!r}"
             )
+        if hi > 0:
+            ungrouped = [item.name for item in self.joint_properties if not item.actuator_group]
+            if ungrouped:
+                raise ValueError(
+                    f"RobotSpec {self.name!r} declares a {self.actuator_delay} lag but leaves "
+                    f"{ungrouped} without an actuator_group. Falling back to a per-joint or "
+                    "per-gain grouping would pick the lag correlation silently, and it is the "
+                    "kind of choice that changes the plant without changing any number in a log."
+                )
+
+    def actuator_groups(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """``(group, joints)`` in first-appearance order, for adapters wiring the lag."""
+        order: list[str] = []
+        members: dict[str, list[str]] = {}
+        for item in self.joint_properties:
+            if item.actuator_group not in members:
+                members[item.actuator_group] = []
+                order.append(item.actuator_group)
+            members[item.actuator_group].append(item.name)
+        return tuple((group, tuple(members[group])) for group in order)
 
     def asset_for(self, backend: str) -> BackendAsset:
         for asset in self.assets:
