@@ -19,6 +19,20 @@ Warp device mismatch, not a missing package.
 
 Engine packages are imported only inside ``run`` (never at module import time), so
 ``--help`` and offline tests stay engine-free.
+
+Camera causal A/B (ours factory only) — same checkpoint/seed/terrain, only hit semantics change::
+
+    python scripts/probe_parkour_plant_parity.py run --side ours --mode policy_eval \\
+        --checkpoint logs/mjlab/g1_parkour/.../model_700.pt --camera-semantics native \\
+        --seed 42 --num-envs 256 --steps 500 --eval-warmup-steps 50 --device cuda:2 \\
+        --out /tmp/cam_ab_native.json
+    python scripts/probe_parkour_plant_parity.py run --side ours --mode policy_eval \\
+        --checkpoint logs/mjlab/g1_parkour/.../model_700.pt --camera-semantics instinctmj_geom_groups \\
+        --seed 42 --num-envs 256 --steps 500 --eval-warmup-steps 50 --device cuda:2 \\
+        --out /tmp/cam_ab_instinctmj.json
+
+``instinctmj_geom_groups`` patches the live pinhole sensor in-process (groups 0/1/2,
+no body-mesh hop) and restores on exit; production ``engines/mjlab/camera.py`` is untouched.
 """
 
 from __future__ import annotations
@@ -355,6 +369,273 @@ def module_top_level_engine_imports(module_path: Path) -> list[str]:
 
 def output_schema_keys() -> frozenset[str]:
     return frozenset({"metadata", "static", "steps"})
+
+
+def policy_eval_schema_keys() -> frozenset[str]:
+    return frozenset({"metadata", "static", "eval"})
+
+
+CAMERA_SEMANTICS_NATIVE = "native"
+CAMERA_SEMANTICS_INSTINCTMJ = "instinctmj_geom_groups"
+CAMERA_SEMANTICS_CHOICES = (CAMERA_SEMANTICS_NATIVE, CAMERA_SEMANTICS_INSTINCTMJ)
+INSTINCTMJ_CAMERA_GEOM_GROUPS = (0, 1, 2)
+
+
+def instinctmj_reference_camera_geom_groups() -> tuple[int, ...]:
+    """mjlab ``RayCastSensorCfg.include_geom_groups`` default used by InstinctMJ parkour."""
+    return INSTINCTMJ_CAMERA_GEOM_GROUPS
+
+
+def geom_groups_camera_mask(mj_model, groups: tuple[int, ...], device: str):
+    """All geoms whose MuJoCo group is in ``groups`` — InstinctMJ stock raycast semantics."""
+    import torch
+
+    ngeom = int(mj_model.ngeom)
+    mask = torch.zeros(ngeom, device=device, dtype=torch.bool)
+    group_arr = mj_model.geom_group
+    for geom_id in range(ngeom):
+        if int(group_arr[geom_id]) in groups:
+            mask[geom_id] = True
+    if not bool(mask.any()):
+        raise RuntimeError(f"geom group mask empty for groups={groups}")
+    return mask
+
+
+def filter_first_hit_no_hop(self) -> None:
+    """Accept first in-mask hit only; no body-list hop (InstinctMJ / stock mjlab groups)."""
+    import torch
+
+    import warp as wp
+
+    assert self._distances is not None and self._hit_pos_w is not None
+    assert self._ray_geomid is not None
+    geom_ids = wp.to_torch(self._ray_geomid).to(dtype=torch.long)
+    distances = self._distances
+    hit_pos = self._hit_pos_w
+    inf = torch.full_like(distances, float("inf"))
+    inf3 = torch.full_like(hit_pos, float("inf"))
+    hit = distances >= 0.0
+    allowed = torch.zeros_like(hit)
+    valid_ids = geom_ids.clamp(min=0, max=self._allowed_geom_mask.numel() - 1)
+    allowed[hit] = self._allowed_geom_mask[valid_ids[hit]]
+    accept = hit & allowed & (distances > self._min_distance)
+    self._distances = torch.where(accept, distances, inf)
+    self._hit_pos_w = torch.where(accept.unsqueeze(-1), hit_pos, inf3)
+
+
+def camera_semantics_metadata(sensor, semantics: str) -> dict[str, Any]:
+    """Runtime dump proving which camera filter is active."""
+    base = _collect_camera_runtime_from_sensor(sensor) if sensor is not None else {"available": False}
+    base["semantics"] = semantics
+    base["instinctmj_reference_groups"] = list(INSTINCTMJ_CAMERA_GEOM_GROUPS)
+    return base
+
+
+def _collect_camera_runtime_from_sensor(sensor) -> dict[str, Any]:
+    cfg = getattr(sensor, "cfg", None)
+    info: dict[str, Any] = {"available": True, "sensor_name": getattr(cfg, "name", CAMERA_NAME)}
+    if cfg is not None:
+        for attr in (
+            "include_geom_groups",
+            "origin_offset",
+            "origin_offset_rot",
+            "image_height",
+            "image_width",
+            "min_distance",
+            "image_plane_max",
+        ):
+            if hasattr(cfg, attr):
+                value = getattr(cfg, attr)
+                info[f"cfg_{attr}"] = list(value) if isinstance(value, tuple) else value
+    mask = getattr(sensor, "_allowed_geom_mask", None)
+    hop = getattr(sensor, "_filter_and_continue", None)
+    hop_name = getattr(hop, "__name__", None) if hop is not None else None
+    if mask is not None:
+        import torch
+
+        count = int(mask.sum().item()) if isinstance(mask, torch.Tensor) else int(mask.sum())
+        info["allowed_geom_count"] = count
+        if hop_name == "filter_first_hit_no_hop":
+            info["camera_filter"] = "geom_groups_no_hop"
+            info["hop_max"] = 0
+        else:
+            info["camera_filter"] = "body_mesh_mask_with_hop"
+            info["hop_max"] = 6
+    else:
+        groups = getattr(cfg, "include_geom_groups", None) if cfg is not None else None
+        info["camera_filter"] = "geom_groups"
+        info["include_geom_groups"] = list(groups) if groups is not None else None
+    return info
+
+
+class _CameraSemanticsPatch:
+    """Restore native camera hop/mask after a probe arm finishes."""
+
+    def __init__(self, sensor, semantics: str):
+        self.sensor = sensor
+        self.semantics = semantics
+        self._orig_mask = None
+        self._orig_filter = None
+
+    def apply(self, mj_model, device: str) -> None:
+        if self.semantics == CAMERA_SEMANTICS_NATIVE:
+            return
+        if self.semantics != CAMERA_SEMANTICS_INSTINCTMJ:
+            raise ValueError(f"unknown camera semantics {self.semantics!r}")
+        self._orig_mask = self.sensor._allowed_geom_mask.clone()
+        self._orig_filter = self.sensor._filter_and_continue
+        self.sensor._allowed_geom_mask = geom_groups_camera_mask(mj_model, INSTINCTMJ_CAMERA_GEOM_GROUPS, device)
+        import types
+
+        self.sensor._filter_and_continue = types.MethodType(filter_first_hit_no_hop, self.sensor)
+        setattr(self.sensor, "_probe_camera_semantics", self.semantics)
+
+    def restore(self) -> None:
+        if self._orig_mask is None:
+            return
+        self.sensor._allowed_geom_mask = self._orig_mask
+        self.sensor._filter_and_continue = self._orig_filter
+        if hasattr(self.sensor, "_probe_camera_semantics"):
+            delattr(self.sensor, "_probe_camera_semantics")
+
+    def metadata(self) -> dict[str, Any]:
+        return camera_semantics_metadata(self.sensor, self.semantics)
+
+
+def apply_camera_semantics(env, semantics: str) -> _CameraSemanticsPatch:
+    sensor = env.scene.sensors.get(CAMERA_NAME)
+    if sensor is None:
+        raise RuntimeError(f"no camera sensor {CAMERA_NAME!r} on env")
+    patch = _CameraSemanticsPatch(sensor, semantics)
+    patch.apply(env.sim.mj_model, str(env.device))
+    return patch
+
+
+def summarize_policy_eval(
+    episodes: list[dict[str, Any]],
+    *,
+    control_steps: int,
+    num_envs: int,
+    warmup_steps: int,
+) -> dict[str, Any]:
+    """Episode/fall aggregates for causal camera A/B (not TensorBoard tail)."""
+    import statistics
+
+    counted = [event for event in episodes if int(event.get("control_step", -1)) >= warmup_steps]
+    lengths = [int(event["episode_length"]) for event in counted]
+    term_counts: dict[str, int] = {}
+    root_height = 0
+    for event in counted:
+        reasons = event.get("termination_reasons", {})
+        for name, fired in reasons.items():
+            if fired:
+                term_counts[name] = term_counts.get(name, 0) + 1
+        if reasons.get("root_height"):
+            root_height += 1
+    env_steps = max(control_steps, 1) * max(num_envs, 1)
+    return {
+        "completed_episodes": len(counted),
+        "warmup_steps": warmup_steps,
+        "control_steps": control_steps,
+        "num_envs": num_envs,
+        "total_env_steps": env_steps,
+        "mean_episode_length": float(statistics.mean(lengths)) if lengths else None,
+        "median_episode_length": float(statistics.median(lengths)) if lengths else None,
+        "termination_counts": term_counts,
+        "root_height_count": root_height,
+        "root_height_rate_per_1000_env_steps": root_height * 1000.0 / env_steps,
+    }
+
+
+def classify_episode_termination(
+    *,
+    termination_reasons: dict[str, bool],
+    truncated: bool,
+) -> str:
+    """Primary reason label for one finished episode."""
+    if truncated and not any(termination_reasons.values()):
+        return "time_out"
+    for name, fired in termination_reasons.items():
+        if fired and name != "time_out":
+            return name
+    if termination_reasons.get("time_out"):
+        return "time_out"
+    if truncated:
+        return "time_out"
+    return "unknown"
+
+
+def snapshot_pre_reset_episodes(env, env_ids, *, control_step: int) -> list[dict[str, Any]]:
+    """Capture terminal kinematics/reasons at ``_reset_idx`` — before buffers are cleared."""
+    import torch
+
+    ids = env_ids if isinstance(env_ids, torch.Tensor) else torch.as_tensor(env_ids, device=env.device)
+    if ids.numel() == 0:
+        return []
+    if ids.ndim == 0:
+        ids = ids.unsqueeze(0)
+    term_mgr = env.termination_manager
+    active = term_mgr.active_terms if isinstance(term_mgr.active_terms, list) else term_mgr.active_terms()
+    robot = env.scene["robot"] if hasattr(env.scene, "__getitem__") else env.scene.robot
+    events: list[dict[str, Any]] = []
+    for idx in ids.tolist():
+        reasons = {name: bool(term_mgr.get_term(name)[idx].item()) for name in active}
+        root_z = float(robot.data.root_link_pos_w[idx, 2].item())
+        origin_z = float(env.scene.env_origins[idx, 2].item())
+        truncated = (
+            bool(env.reset_time_outs[idx].item())
+            if hasattr(env, "reset_time_outs")
+            else bool(term_mgr.time_outs[idx].item())
+        )
+        events.append(
+            {
+                "env_index": int(idx),
+                "control_step": int(control_step),
+                "episode_length": int(env.episode_length_buf[idx].item()),
+                "terminated": (
+                    bool(env.reset_terminated[idx].item())
+                    if hasattr(env, "reset_terminated")
+                    else bool(term_mgr.terminated[idx].item())
+                ),
+                "truncated": truncated,
+                "termination_reasons": reasons,
+                "primary_reason": classify_episode_termination(termination_reasons=reasons, truncated=truncated),
+                "root_height_margin": root_height_margin(root_z, origin_z),
+                "root_z": root_z,
+                "origin_z": origin_z,
+            }
+        )
+    return events
+
+
+class EpisodeEvalRecorder:
+    """Hooks ``_reset_idx`` so done/reason are read before auto_reset clears them."""
+
+    def __init__(self) -> None:
+        self.episodes: list[dict[str, Any]] = []
+        self._control_step = -1
+        self._orig_reset_idx = None
+        self._env = None
+
+    def bind(self, env, *, control_step: int) -> None:
+        self._control_step = control_step
+        target = getattr(env, "unwrapped", env)
+        if self._env is not target:
+            self._env = target
+            if self._orig_reset_idx is None:
+                self._orig_reset_idx = target._reset_idx
+
+                def wrapped_reset_idx(env_ids):
+                    self.episodes.extend(snapshot_pre_reset_episodes(target, env_ids, control_step=self._control_step))
+                    return self._orig_reset_idx(env_ids)
+
+                target._reset_idx = wrapped_reset_idx
+
+    def unbind(self) -> None:
+        if self._env is not None and self._orig_reset_idx is not None:
+            self._env._reset_idx = self._orig_reset_idx
+        self._env = None
+        self._orig_reset_idx = None
 
 
 # ---------------------------------------------------------------------------
@@ -710,34 +991,8 @@ def _collect_camera_runtime(env) -> dict[str, Any]:
     sensor = env.scene.sensors.get(CAMERA_NAME)
     if sensor is None:
         return {"available": False, "reason": f"no sensor {CAMERA_NAME!r}"}
-    cfg = getattr(sensor, "cfg", None)
-    info: dict[str, Any] = {"available": True, "sensor_name": CAMERA_NAME}
-    if cfg is not None:
-        for attr in (
-            "include_geom_groups",
-            "origin_offset",
-            "origin_offset_rot",
-            "image_height",
-            "image_width",
-            "min_distance",
-            "image_plane_max",
-        ):
-            if hasattr(cfg, attr):
-                value = getattr(cfg, attr)
-                info[f"cfg_{attr}"] = list(value) if isinstance(value, tuple) else value
-    mask = getattr(sensor, "_allowed_geom_mask", None)
-    if mask is not None:
-        import torch
-
-        info["allowed_geom_count"] = int(mask.sum().item()) if isinstance(mask, torch.Tensor) else int(mask.sum())
-        info["camera_filter"] = "body_mesh_mask_with_hop"
-        info["hop_max"] = 6
-    else:
-        groups = getattr(cfg, "include_geom_groups", None) if cfg is not None else None
-        info["camera_filter"] = "geom_groups"
-        info["include_geom_groups"] = list(groups) if groups is not None else None
-        info["mesh_prim_paths"] = list(getattr(cfg, "mesh_prim_paths", []) or [])
-    return info
+    semantics = getattr(sensor, "_probe_camera_semantics", CAMERA_SEMANTICS_NATIVE)
+    return camera_semantics_metadata(sensor, semantics)
 
 
 def _collect_static(env, *, side: str, task_id: str, source_path: str | None) -> dict[str, Any]:
@@ -969,9 +1224,17 @@ def _inference_action(policy, obs):
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
+    if args.mode == "policy_eval":
+        if args.side != "ours":
+            raise SystemExit("policy_eval runs only on --side ours (same mjlab factory)")
+        if args.checkpoint is None:
+            raise SystemExit("--checkpoint is required for --mode policy_eval")
+        if args.camera_semantics not in CAMERA_SEMANTICS_CHOICES:
+            raise SystemExit(f"--camera-semantics must be one of {CAMERA_SEMANTICS_CHOICES}")
+        return
     if args.mode == "live_policy" and args.checkpoint is None:
         raise SystemExit("--checkpoint is required for --mode live_policy")
-    if args.mode != "live_policy" and args.checkpoint is not None:
+    if args.mode not in {"live_policy", "policy_eval"} and args.checkpoint is not None:
         raise SystemExit(f"--checkpoint is not used with --mode {args.mode}")
     if args.out is None:
         raise SystemExit("--out is required")
@@ -979,6 +1242,141 @@ def _validate_run_args(args: argparse.Namespace) -> None:
         raise SystemExit("--action-npz is not used with --mode dump")
     if args.steps < 0:
         raise SystemExit("--steps must be >= 0")
+    if getattr(args, "camera_semantics", CAMERA_SEMANTICS_NATIVE) != CAMERA_SEMANTICS_NATIVE and args.side != "ours":
+        raise SystemExit("--camera-semantics override is only supported on --side ours")
+
+
+def _build_ours_eval(
+    *,
+    num_envs: int,
+    device: str,
+    seed: int,
+):
+    """Training cfg with obs noise off and friction DR off; terminations and auto_reset stay on."""
+    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
+
+    spec = parkour_target_g1()
+    MjlabAdapter.bootstrap(argparse.Namespace(device=device))
+    compiled = MjlabAdapter().compile(spec, num_envs=num_envs, device=device)
+    compiled.env_cfg.seed = seed
+    _silence_observation_noise(compiled.env_cfg)
+    _disable_friction_randomization(compiled.env_cfg)
+    if hasattr(compiled.env_cfg, "auto_reset"):
+        compiled.env_cfg.auto_reset = True
+    env = compiled.make_env()
+    return env, compiled, spec
+
+
+def run_policy_eval(args: argparse.Namespace) -> int:
+    _validate_run_args(args)
+    if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
+        sys.path.pop(0)
+
+    import numpy as np
+
+    from instinct_rl.runners import OnPolicyRunner
+
+    from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import MjlabVecEnvWrapper
+
+    env, compiled, spec = _build_ours_eval(num_envs=args.num_envs, device=args.device, seed=args.seed)
+    camera_patch = apply_camera_semantics(env, args.camera_semantics)
+    camera_meta = camera_patch.metadata()
+
+    agent_cfg = compiled.agent_cfg
+    policy_group = getattr(agent_cfg, "policy_observation_group", "policy")
+    critic_group = getattr(agent_cfg, "critic_observation_group", "critic")
+    wrapper = MjlabVecEnvWrapper(env, policy_group=policy_group, critic_group=critic_group)
+    agent_cfg.device = args.device
+    runner = OnPolicyRunner(wrapper, agent_cfg.to_dict(), log_dir=None, device=args.device)
+    try:
+        runner.load(str(args.checkpoint))
+    except Exception as exc:
+        camera_patch.restore()
+        env.close()
+        raise SystemExit(f"checkpoint load failed for {args.checkpoint}: {exc}") from exc
+    policy = runner.get_inference_policy(device=args.device)
+
+    recorder = EpisodeEvalRecorder()
+    static = _collect_static(
+        env, side="ours", task_id=OURS_TASK_ID, source_path=str(Path(__file__).resolve().parents[1])
+    )
+    static["camera"] = camera_meta
+
+    post_reset_depth_native = None
+    post_reset_depth_processed = None
+    if args.verify_camera:
+        _refresh_sensors_and_obs(env)
+        post_reset_depth_native = _raw_depth_tensor(env)
+        post_reset_depth_processed = _processed_depth_tensor(env)
+
+    for step in range(args.steps):
+        recorder.bind(env, control_step=step)
+        obs, _ = wrapper.get_observations()
+        action = _inference_action(policy, obs)
+        wrapper.step(action)
+
+    episodes = recorder.episodes
+    recorder.unbind()
+    summary = summarize_policy_eval(
+        episodes,
+        control_steps=args.steps,
+        num_envs=args.num_envs,
+        warmup_steps=args.eval_warmup_steps,
+    )
+
+    payload: dict[str, Any] = {
+        "metadata": {
+            "side": "ours",
+            "mode": "policy_eval",
+            "camera_semantics": args.camera_semantics,
+            "seed": args.seed,
+            "steps": args.steps,
+            "eval_warmup_steps": args.eval_warmup_steps,
+            "num_envs": args.num_envs,
+            "task_id": OURS_TASK_ID,
+            "commit": _repo_commit(Path(__file__).resolve().parents[1]),
+            "checkpoint": str(args.checkpoint),
+            "disable_obs_noise": True,
+            "friction_fixed": True,
+            "disable_terminations": False,
+            "auto_reset": bool(getattr(env.cfg, "auto_reset", True)),
+            "camera_runtime": camera_meta,
+        },
+        "static": static,
+        "eval": {
+            "episodes": episodes,
+            "summary": summary,
+            "verify_camera": {
+                "post_reset_depth_raw": (
+                    _torch_summary(post_reset_depth_native) if post_reset_depth_native is not None else None
+                ),
+                "post_reset_depth_processed": (
+                    _torch_summary(post_reset_depth_processed) if post_reset_depth_processed is not None else None
+                ),
+            },
+        },
+    }
+    companion = args.out.with_suffix(".npz")
+    np.savez(
+        companion,
+        episode_length=np.array([event["episode_length"] for event in episodes], dtype=np.int32),
+        root_height_margin=np.array([event["root_height_margin"] for event in episodes], dtype=np.float64),
+        primary_reason=np.array([event["primary_reason"] for event in episodes], dtype=object),
+    )
+    payload["companion_npz"] = str(companion)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    print(
+        f"wrote {args.out}: {summary['completed_episodes']} episodes after warmup, "
+        f"root_height={summary['root_height_count']} "
+        f"({summary['root_height_rate_per_1000_env_steps']:.3f}/1000 env-steps), "
+        f"mean_len={summary['mean_episode_length']}",
+        flush=True,
+    )
+    camera_patch.restore()
+    env.close()
+    return 0
 
 
 def run_probe(args: argparse.Namespace) -> int:
@@ -1022,6 +1420,10 @@ def run_probe(args: argparse.Namespace) -> int:
     else:
         raise SystemExit(f"unknown side {side!r}")
 
+    camera_patch = None
+    if side == "ours" and getattr(args, "camera_semantics", CAMERA_SEMANTICS_NATIVE) != CAMERA_SEMANTICS_NATIVE:
+        camera_patch = apply_camera_semantics(env, args.camera_semantics)
+
     wrapper = None
     policy = None
     env.reset()
@@ -1059,6 +1461,8 @@ def run_probe(args: argparse.Namespace) -> int:
     action_term = _action_term(env)
     joint_order = _joint_names(env)
     static = _collect_static(env, side=side, task_id=task_id, source_path=source_path)
+    if camera_patch is not None:
+        static["camera"] = camera_patch.metadata()
     arrays: dict[str, Any] = {}
     steps: list[dict[str, Any]] = []
 
@@ -1149,6 +1553,7 @@ def run_probe(args: argparse.Namespace) -> int:
             "friction_fixed": args.friction_fixed,
             "state_npz": payload_state_npz,
             "state_npz_loaded": str(incoming_state) if incoming_state is not None else None,
+            "camera_semantics": getattr(args, "camera_semantics", CAMERA_SEMANTICS_NATIVE),
         },
         "static": static,
         "steps": steps,
@@ -1160,6 +1565,8 @@ def run_probe(args: argparse.Namespace) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     print(f"wrote {args.out} ({len(steps)} step records, companion={companion.name})", flush=True)
+    if camera_patch is not None:
+        camera_patch.restore()
     env.close()
     return 0
 
@@ -1170,7 +1577,7 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
 
     run = sub.add_parser("run", help="collect one rollout (default)")
     run.add_argument("--side", required=True, choices=("ours", "instinctmj"))
-    run.add_argument("--mode", required=True, choices=("dump", "frozen_action", "live_policy"))
+    run.add_argument("--mode", required=True, choices=("dump", "frozen_action", "live_policy", "policy_eval"))
     run.add_argument("--checkpoint", type=Path, default=None)
     run.add_argument("--device", default="cuda:0")
     run.add_argument("--num-envs", type=int, default=2)
@@ -1195,6 +1602,26 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Disable startup physics_material DR. Does not write a numeric friction; both sides keep the MJCF default."
         ),
+    )
+    run.add_argument(
+        "--camera-semantics",
+        choices=CAMERA_SEMANTICS_CHOICES,
+        default=CAMERA_SEMANTICS_NATIVE,
+        help=(
+            "Ours-side camera hit filter override for causal A/B. "
+            "native=body mesh mask+hop; instinctmj_geom_groups=groups (0,1,2), no hop."
+        ),
+    )
+    run.add_argument(
+        "--eval-warmup-steps",
+        type=int,
+        default=0,
+        help="policy_eval: exclude episodes ending before this control step from summary.",
+    )
+    run.add_argument(
+        "--verify-camera",
+        action="store_true",
+        help="policy_eval: record post-reset depth digest proving camera semantics are live.",
     )
 
     compare = sub.add_parser("compare", help="diff two probe JSON outputs")
@@ -1234,6 +1661,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(report, indent=1))
         return 0 if report["passed"] else 1
+    if args.mode == "policy_eval":
+        return run_policy_eval(args)
     return run_probe(args)
 
 

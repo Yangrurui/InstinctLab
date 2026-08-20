@@ -123,6 +123,105 @@ def test_compare_reports_first_consecutive_exceedance(probe, tmp_path):
 
 def test_output_schema_keys(probe):
     assert probe.output_schema_keys() == frozenset({"metadata", "static", "steps"})
+    assert probe.policy_eval_schema_keys() == frozenset({"metadata", "static", "eval"})
+
+
+def test_instinctmj_reference_camera_uses_groups_012(probe):
+    assert probe.instinctmj_reference_camera_geom_groups() == (0, 1, 2)
+
+
+def test_native_camera_metadata_keeps_hop(probe):
+    class _Sensor:
+        cfg = type("Cfg", (), {"name": "camera", "include_geom_groups": None})()
+        _allowed_geom_mask = __import__("torch").ones(10, dtype=bool)
+
+        def _filter_and_continue(self):
+            return None
+
+    meta = probe.camera_semantics_metadata(_Sensor(), probe.CAMERA_SEMANTICS_NATIVE)
+    assert meta["camera_filter"] == "body_mesh_mask_with_hop"
+    assert meta["hop_max"] == 6
+
+
+def test_instinctmj_camera_metadata_records_no_hop(probe):
+    import types
+
+    class _Sensor:
+        cfg = type("Cfg", (), {"name": "camera"})()
+        _allowed_geom_mask = __import__("torch").ones(100, dtype=bool)
+
+        def _filter_and_continue(self):
+            return None
+
+    sensor = _Sensor()
+    sensor._filter_and_continue = types.MethodType(probe.filter_first_hit_no_hop, sensor)
+    meta = probe.camera_semantics_metadata(sensor, probe.CAMERA_SEMANTICS_INSTINCTMJ)
+    assert meta["camera_filter"] == "geom_groups_no_hop"
+    assert meta["hop_max"] == 0
+
+
+def test_summarize_policy_eval_counts_root_height(probe):
+    episodes = [
+        {"control_step": 10, "episode_length": 50, "termination_reasons": {"root_height": True}},
+        {"control_step": 20, "episode_length": 80, "termination_reasons": {"time_out": True}},
+        {"control_step": 5, "episode_length": 30, "termination_reasons": {"root_height": True}},
+    ]
+    summary = probe.summarize_policy_eval(episodes, control_steps=100, num_envs=4, warmup_steps=10)
+    assert summary["completed_episodes"] == 2
+    assert summary["root_height_count"] == 1
+    assert summary["root_height_rate_per_1000_env_steps"] == pytest.approx(1 * 1000.0 / (100 * 4))
+    assert summary["mean_episode_length"] == pytest.approx(65.0)
+
+
+def test_snapshot_pre_reset_reads_term_dones(probe):
+    import torch
+
+    class _TermMgr:
+        active_terms = ["root_height", "time_out"]
+
+        @staticmethod
+        def get_term(name):
+            if name == "root_height":
+                return torch.tensor([True, False])
+            return torch.tensor([False, True])
+
+        @property
+        def terminated(self):
+            return torch.tensor([True, False])
+
+        @property
+        def time_outs(self):
+            return torch.tensor([False, True])
+
+    class _Data:
+        root_link_pos_w = torch.tensor([[0.0, 0.0, 0.6], [0.0, 0.0, 1.0]])
+
+    class _Robot:
+        data = _Data()
+
+    class _Scene:
+        env_origins = torch.tensor([[0.0, 0.0, 0.1], [0.0, 0.0, 0.0]])
+        robot = _Robot()
+
+    class _Env:
+        device = "cpu"
+        termination_manager = _TermMgr()
+        reset_terminated = torch.tensor([True, False])
+        reset_time_outs = torch.tensor([False, True])
+        episode_length_buf = torch.tensor([12, 34])
+        scene = _Scene()
+
+    events = probe.snapshot_pre_reset_episodes(_Env(), torch.tensor([0, 1]), control_step=7)
+    assert events[0]["episode_length"] == 12
+    assert events[0]["termination_reasons"]["root_height"] is True
+    assert events[0]["primary_reason"] == "root_height"
+    assert events[1]["primary_reason"] == "time_out"
+    assert events[0]["control_step"] == 7
+
+
+def test_classify_episode_termination_prefers_failure_over_timeout(probe):
+    reasons = {"root_height": True, "time_out": True}
+    assert probe.classify_episode_termination(termination_reasons=reasons, truncated=True) == "root_height"
 
 
 def test_cli_help_without_engine():
