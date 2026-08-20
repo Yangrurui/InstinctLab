@@ -18,6 +18,9 @@ import pytest
 
 from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
 from instinctlab.engines.motion_reference import (
+    ChainInventory,
+    MotionClip,
+    MotionReferenceRuntime,
     SymmetricMappingError,
     apply_symmetric_augmentation,
     augment_ang_vel_buffer,
@@ -387,3 +390,113 @@ def test_one_mask_mirrors_every_spatial_field_or_none() -> None:
     torch.testing.assert_close(buffers.joint_pos[1], original_unmasked_joints)
     torch.testing.assert_close(buffers.link_pos_w[1], original_unmasked_links)
     torch.testing.assert_close(buffers.base_pos_w[1, 0], torch.tensor([1.0, 0.3, 0.9]))
+
+
+def _asymmetric_clip(nframes: int = 5, fps: float = 50.0) -> MotionClip:
+    """Joint 0 raised, joint 1 still. A swap is visible; equal joints would hide it."""
+    n_joints, n_links = 2, 1
+    joint_pos = torch.zeros(nframes, n_joints)
+    joint_pos[:, 0] = 0.8
+    zeros3 = torch.zeros(nframes, 3)
+    zeros4 = torch.zeros(nframes, 4)
+    zeros4[:, 0] = 1.0
+    zeros_l3 = torch.zeros(nframes, n_links, 3)
+    zeros_l4 = torch.zeros(nframes, n_links, 4)
+    zeros_l4[..., 0] = 1.0
+    zeros3[:, 1] = 0.3
+    return MotionClip(
+        path="tiny",
+        source_joint_names=("left_hip_pitch_joint", "right_hip_pitch_joint"),
+        joint_names=("left_hip_pitch_joint", "right_hip_pitch_joint"),
+        joint_index_map=(0, 1),
+        link_names=("root",),
+        joint_pos=joint_pos,
+        joint_vel=torch.zeros_like(joint_pos),
+        base_pos_w=zeros3,
+        base_quat_w=zeros4,
+        base_lin_vel_w=torch.zeros(nframes, 3),
+        base_ang_vel_w=torch.zeros(nframes, 3),
+        link_pos_b=zeros_l3,
+        link_quat_b=zeros_l4,
+        link_pos_w=zeros_l3,
+        link_quat_w=zeros_l4,
+        link_lin_vel_b=zeros_l3,
+        link_ang_vel_b=zeros_l3,
+        link_lin_vel_w=zeros_l3,
+        link_ang_vel_w=zeros_l3,
+        framerate=fps,
+        inventory=ChainInventory("tiny", "root", ("left_hip_pitch_joint", "right_hip_pitch_joint"), ("root",), "urdf"),
+    )
+
+
+def _runtime(num_envs: int = 64, enabled: bool = True) -> MotionReferenceRuntime:
+    joints = ("left_hip_pitch_joint", "right_hip_pitch_joint")
+    links = ("root",)
+    aug = SymmetricAugmentationSpec.from_left_right(joints, links) if enabled else None
+    ref = MotionReferenceRef(
+        name="motion_reference",
+        clip="tiny.npz",
+        joints=joints,
+        links=links,
+        num_frames=1,
+        start_range=(0.0, 0.0),
+        symmetric_augmentation=aug,
+    )
+    return MotionReferenceRuntime.from_clip(ref, _asymmetric_clip(), num_envs, "cpu")
+
+
+def test_same_seed_two_runtimes_match() -> None:
+    """Both engines hold this runtime. Same seed is the cross-engine contract."""
+    ids = torch.arange(64)
+    left = _runtime(64)
+    right = _runtime(64)
+    left.reset(ids, generator=torch.Generator().manual_seed(7))
+    right.reset(ids, generator=torch.Generator().manual_seed(7))
+    assert torch.equal(left.mask, right.mask)
+    torch.testing.assert_close(left.buffers.joint_pos, right.buffers.joint_pos)
+    torch.testing.assert_close(left.buffers.base_pos_w, right.buffers.base_pos_w)
+    ratio = float(left.mask.float().mean())
+    assert 0.30 < ratio < 0.70
+    mirrored = left.mask
+    assert bool(mirrored.any()) and bool((~mirrored).any())
+    assert torch.allclose(left.buffers.joint_pos[mirrored, 0, 1], torch.tensor(0.8))
+    assert torch.allclose(left.buffers.joint_pos[mirrored, 0, 0], torch.tensor(0.0))
+    assert torch.allclose(left.buffers.joint_pos[~mirrored, 0, 0], torch.tensor(0.8))
+    assert torch.allclose(left.buffers.base_pos_w[mirrored, 0, 1], torch.tensor(-0.3))
+    assert torch.allclose(left.buffers.base_pos_w[~mirrored, 0, 1], torch.tensor(0.3))
+
+
+def test_a_second_refresh_does_not_double_mirror() -> None:
+    runtime = _runtime(4)
+    ids = torch.arange(4)
+    runtime.reset(ids, generator=torch.Generator().manual_seed(1))
+    first = runtime.buffers.joint_pos.clone()
+    runtime.refresh(ids)
+    torch.testing.assert_close(runtime.buffers.joint_pos, first)
+
+
+def test_disabled_runtime_never_mirrors() -> None:
+    runtime = _runtime(16, enabled=False)
+    ids = torch.arange(16)
+    runtime.reset(ids, generator=torch.Generator().manual_seed(0))
+    assert not bool(runtime.mask.any())
+    assert torch.allclose(runtime.buffers.joint_pos[:, 0, 0], torch.tensor(0.8))
+    assert torch.allclose(runtime.buffers.base_pos_w[:, 0, 1], torch.tensor(0.3))
+
+
+def test_both_engines_delegate_to_the_shared_runtime() -> None:
+    import instinctlab.engines
+
+    root = Path(instinctlab.engines.__file__).parent
+    for name in ("isaacsim", "mjlab"):
+        source = (root / name / "motion_reference.py").read_text()
+        tree = ast.parse(source)
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith("motion_reference"):
+                imported.update(alias.name for alias in node.names)
+        assert "MotionReferenceRuntime" in imported, name
+        assert "MotionReferenceRuntime.create" in source, name
+        assert "def augment_joint_buffer" not in source
+        assert "_symmetric_augment_joint_buffer" not in source
+        assert "torch.randint" not in source
