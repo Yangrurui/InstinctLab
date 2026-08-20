@@ -330,6 +330,7 @@ def isaac_observation_term_flatten_history_default() -> bool:
 MAIN_PARKOUR_REWARDS = "source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py"
 MAIN_POSE_VELOCITY = "source/instinctlab/instinctlab/tasks/parkour/mdp/commands/pose_velocity_command.py"
 ISAAC_MDP_REWARDS = Path("/root/IsaacLab/source/isaaclab/isaaclab/envs/mdp/rewards.py")
+ISAAC_MDP_OBSERVATIONS = Path("/root/IsaacLab/source/isaaclab/isaaclab/envs/mdp/observations.py")
 
 _ROOT_VELOCITY_SPELLINGS = ("root_lin_vel_b", "root_link_lin_vel_b", "root_com_lin_vel_b")
 
@@ -372,6 +373,7 @@ def velocity_frame_spellings() -> dict[str, str]:
         "track_lin_vel_xy_exp": _velocity_spelling_in(ISAAC_MDP_REWARDS.read_text(), "track_lin_vel_xy_exp"),
         "dont_wait": _velocity_spelling_in(_git_show(MAIN_PARKOUR_REWARDS), "dont_wait"),
         "command_metrics": _velocity_spelling_in(_git_show(MAIN_POSE_VELOCITY), "_update_metrics"),
+        "base_lin_vel": _velocity_spelling_in(ISAAC_MDP_OBSERVATIONS.read_text(), "base_lin_vel"),
     }
 
 

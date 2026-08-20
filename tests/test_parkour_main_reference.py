@@ -372,7 +372,10 @@ def test_documented_drifts_are_still_present(task) -> None:
     assert main_ref.action_kwargs()["joint_names"] == [".*"]
     assert task.mdp.observations["critic"].terms["base_lin_vel"].func is base_lin_vel
     assert "root_link_lin_vel_b" in inspect.getsource(base_lin_vel)
+    # Same name on both sides, different quantity behind it -- which is the whole row, so the
+    # name match alone would have been the vacuous form of this assertion.
     assert main_ref.observation_functions("critic")["base_lin_vel"] == "base_lin_vel"
+    assert theirs["base_lin_vel"] == "root_lin_vel_b"
     source = main_ref.motion_reference_source()
     assert (
         source.get("symmetric_augmentation_link_mapping") is not None or "symmetric_augmentation_link_mapping" in source
