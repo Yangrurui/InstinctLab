@@ -56,14 +56,6 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
             " looser gate (~few % higher pass rate)."
         ),
     ),
-    "sim/physx/gpu_collision_stack_size": (
-        str(main_ref.sim_params()["gpu_collision_stack_size"]),
-        "Isaac Lab default (unset in adapter)",
-        (
-            "Main raises gpu_collision_stack_size to 2**29 for deep terrain contact stacks; omitting can drop contacts"
-            " on worst tiles (episode length would cap at timeout)."
-        ),
-    ),
     "env/entry_class": (
         "InstinctRlEnv",
         "ManagerBasedRLEnv",
@@ -319,13 +311,14 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 
 
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
-    assert len(KNOWN_DRIFTS) >= 9
+    assert len(KNOWN_DRIFTS) >= 8
     assert "dataset_exhausted" in DELIBERATE_OMISSIONS
     assert "reward/undesired_contacts/threshold" not in KNOWN_DRIFTS
     assert "scene/robot/urdf" not in KNOWN_DRIFTS
     assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
     assert "scene/robot/merge_fixed_joints" not in KNOWN_DRIFTS
     assert "scene/robot/actuators" not in KNOWN_DRIFTS
+    assert "sim/physx/gpu_collision_stack_size" not in KNOWN_DRIFTS
     assert "obs/joint_axis" in KNOWN_DRIFTS
     assert "obs/base_lin_vel_frame" in KNOWN_DRIFTS
     assert "amp/symmetric_augmentation" in KNOWN_DRIFTS
@@ -560,7 +553,7 @@ def test_compiled_isaac_robot_matches_main_plant_and_keeps_documented_sim_drifts
     assert actuator_types == {"DelayedPDActuatorCfg"}
     assert {(cfg.min_delay, cfg.max_delay) for cfg in robot.actuators.values()} == {(0, 2)}
     assert sim.physx.gpu_max_rigid_patch_count == 10 * 2**15
-    assert getattr(sim.physx, "gpu_collision_stack_size", None) in (None, 2**28, 2**26)
+    assert sim.physx.gpu_collision_stack_size == 2**29
     assert compiled.env_cls.__name__ == "ManagerBasedRLEnv"
     assert compiled.env_cfg.episode_length_s == 20.0
     assert compiled.env_cfg.decimation == 4
