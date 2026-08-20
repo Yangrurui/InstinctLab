@@ -126,6 +126,9 @@ def test_output_schema_keys(probe):
     assert probe.policy_eval_schema_keys() == frozenset({"metadata", "static", "eval"})
     assert "terrain_mapping" in probe.policy_eval_eval_keys()
     assert "per_terrain" in probe.policy_eval_summary_keys()
+    assert "episode_length_stat_scope" in probe.policy_eval_summary_keys()
+    assert "completed_episode_mean_length" in probe.policy_eval_summary_keys()
+    assert "termination_rate_per_1000_env_steps" in probe.policy_eval_summary_keys()
     assert "termination_rates_per_1000_env_steps" in probe.policy_eval_summary_keys()
 
 
@@ -194,8 +197,12 @@ def test_summarize_policy_eval_counts_root_height(probe):
     assert summary["completed_episodes"] == 2
     assert summary["root_height_count"] == 1
     assert summary["root_height_rate_per_1000_env_steps"] == pytest.approx(1 * 1000.0 / (100 * 4))
+    assert summary["termination_rate_per_1000_env_steps"] == pytest.approx(2 * 1000.0 / (100 * 4))
     assert summary["termination_rates_per_1000_env_steps"]["root_height"] == pytest.approx(2.5)
     assert summary["mean_episode_length"] == pytest.approx(65.0)
+    assert summary["completed_episode_mean_length"] == pytest.approx(65.0)
+    assert summary["completed_episode_median_length"] == pytest.approx(65.0)
+    assert "right-censored" in summary["episode_length_stat_scope"]
     assert summary["per_terrain"]["pyramid_stairs"]["completed_episodes"] == 1
     assert summary["per_terrain"]["perlin_rough"]["mean_episode_length"] == pytest.approx(80.0)
     assert "0" not in summary["per_terrain"]

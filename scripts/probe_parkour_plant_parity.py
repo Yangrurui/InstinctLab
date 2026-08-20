@@ -398,8 +398,12 @@ def policy_eval_summary_keys() -> frozenset[str]:
             "num_envs",
             "total_env_steps",
             "episodes_still_running_at_horizon",
+            "episode_length_stat_scope",
             "mean_episode_length",
             "median_episode_length",
+            "completed_episode_mean_length",
+            "completed_episode_median_length",
+            "termination_rate_per_1000_env_steps",
             "termination_counts",
             "termination_rates_per_1000_env_steps",
             "primary_reason_counts",
@@ -710,6 +714,8 @@ def summarize_policy_eval(
             if event.get("root_height_margin") is not None:
                 bucket["fall_margins"].append(float(event["root_height_margin"]))
     env_steps = max(control_steps, 1) * max(num_envs, 1)
+    completed_mean_length = _mean_or_none([float(x) for x in lengths])
+    completed_median_length = _median_or_none([float(x) for x in lengths])
     per_terrain = {
         name: {
             "completed_episodes": len(bucket["lengths"]),
@@ -728,8 +734,17 @@ def summarize_policy_eval(
         "num_envs": num_envs,
         "total_env_steps": env_steps,
         "episodes_still_running_at_horizon": num_envs,
-        "mean_episode_length": _mean_or_none([float(x) for x in lengths]),
-        "median_episode_length": _median_or_none([float(x) for x in lengths]),
+        "episode_length_stat_scope": (
+            "completed episodes only; right-censored episodes at the evaluation horizon are excluded, "
+            "and episodes crossing warmup may include pre-measurement steps"
+        ),
+        # Backward-compatible names. Consumers should prefer the explicit aliases below and
+        # termination_rate_per_1000_env_steps for fixed-horizon factory/policy comparisons.
+        "mean_episode_length": completed_mean_length,
+        "median_episode_length": completed_median_length,
+        "completed_episode_mean_length": completed_mean_length,
+        "completed_episode_median_length": completed_median_length,
+        "termination_rate_per_1000_env_steps": len(counted) * 1000.0 / env_steps,
         "termination_counts": term_counts,
         "termination_rates_per_1000_env_steps": {
             name: count * 1000.0 / env_steps for name, count in term_counts.items()
@@ -828,6 +843,8 @@ def analyze_policy_eval_2x2(arms: list[dict[str, Any]]) -> dict[str, Any]:
     def _delta(ours_like: dict[str, Any], other: dict[str, Any], *, label: str) -> dict[str, Any]:
         s0, s1 = ours_like["summary"], other["summary"]
         len0, len1 = s0.get("mean_episode_length"), s1.get("mean_episode_length")
+        term0 = s0.get("termination_rate_per_1000_env_steps")
+        term1 = s1.get("termination_rate_per_1000_env_steps")
         rh0, rh1 = s0.get("root_height_rate_per_1000_env_steps"), s1.get("root_height_rate_per_1000_env_steps")
         shares1 = terrain_name_shares(s1.get("per_terrain") or {})
         shares0 = terrain_name_shares(s0.get("per_terrain") or {})
@@ -843,6 +860,10 @@ def analyze_policy_eval_2x2(arms: list[dict[str, Any]]) -> dict[str, Any]:
             "mean_len_left": len0,
             "mean_len_right": len1,
             "mean_len_delta": None if len0 is None or len1 is None else float(len0) - float(len1),
+            "mean_len_scope": "completed episodes only; not censoring-safe",
+            "termination_rate_left": term0,
+            "termination_rate_right": term1,
+            "termination_rate_delta": None if term0 is None or term1 is None else float(term0) - float(term1),
             "root_height_rate_left": rh0,
             "root_height_rate_right": rh1,
             "root_height_rate_delta": None if rh0 is None or rh1 is None else float(rh0) - float(rh1),
@@ -1793,9 +1814,10 @@ def run_policy_eval(args: argparse.Namespace) -> int:
     args.out.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     print(
         f"wrote {args.out}: side={side} {summary['completed_episodes']} episodes after warmup, "
+        f"all_term={summary['termination_rate_per_1000_env_steps']:.3f}/1000 env-steps, "
         f"root_height={summary['root_height_count']} "
         f"({summary['root_height_rate_per_1000_env_steps']:.3f}/1000 env-steps), "
-        f"mean_len={summary['mean_episode_length']} "
+        f"completed_only_mean_len={summary['completed_episode_mean_length']} "
         f"terrain={terrain_mapping.get('allocation') or terrain_mapping.get('reason')}",
         flush=True,
     )
