@@ -33,6 +33,16 @@ Camera causal A/B (ours factory only) — same checkpoint/seed/terrain, only hit
 
 ``instinctmj_geom_groups`` patches the live pinhole sensor in-process (groups 0/1/2,
 no body-mesh hop) and restores on exit; production ``engines/mjlab/camera.py`` is untouched.
+
+Cross-factory policy_eval (native camera; InstinctMJ must use its training venv)::
+
+    python scripts/probe_parkour_plant_parity.py run --side ours --mode policy_eval \\
+        --checkpoint <ckpt> --seed 42 --num-envs 256 --steps 500 --eval-warmup-steps 50 \\
+        --device cuda:2 --out /tmp/eval_ours_ours_s42.json
+    CUDA_VISIBLE_DEVICES=0 /root/InstinctMJ/.venv/bin/python \\
+        scripts/probe_parkour_plant_parity.py run --side instinctmj --mode policy_eval \\
+        --checkpoint <ckpt> --seed 42 --num-envs 256 --steps 500 --eval-warmup-steps 50 \\
+        --device cuda:0 --out /tmp/eval_ours_ref_s42.json
 """
 
 from __future__ import annotations
@@ -375,6 +385,33 @@ def policy_eval_schema_keys() -> frozenset[str]:
     return frozenset({"metadata", "static", "eval"})
 
 
+def policy_eval_eval_keys() -> frozenset[str]:
+    return frozenset({"episodes", "summary", "terrain_mapping", "verify_camera"})
+
+
+def policy_eval_summary_keys() -> frozenset[str]:
+    return frozenset(
+        {
+            "completed_episodes",
+            "warmup_steps",
+            "control_steps",
+            "num_envs",
+            "total_env_steps",
+            "episodes_still_running_at_horizon",
+            "mean_episode_length",
+            "median_episode_length",
+            "termination_counts",
+            "termination_rates_per_1000_env_steps",
+            "primary_reason_counts",
+            "root_height_count",
+            "root_height_rate_per_1000_env_steps",
+            "root_height_margin",
+            "per_terrain",
+            "unresolved_terrain_episodes",
+        }
+    )
+
+
 CAMERA_SEMANTICS_NATIVE = "native"
 CAMERA_SEMANTICS_INSTINCTMJ = "instinctmj_geom_groups"
 CAMERA_SEMANTICS_CHOICES = (CAMERA_SEMANTICS_NATIVE, CAMERA_SEMANTICS_INSTINCTMJ)
@@ -511,6 +548,123 @@ def apply_camera_semantics(env, semantics: str) -> _CameraSemanticsPatch:
     return patch
 
 
+def curriculum_column_indices(proportions: list[float], num_cols: int) -> list[int]:
+    """Isaac Lab curriculum assignment: column ``j`` is the first type with cdf > j/n + 0.001."""
+    import numpy as np
+
+    weights = np.asarray(proportions, dtype=np.float64)
+    if weights.size == 0:
+        raise RuntimeError("curriculum column assignment needs at least one sub-terrain proportion.")
+    weights = weights / weights.sum()
+    cumulative = np.cumsum(weights)
+    indices: list[int] = []
+    for index in range(num_cols):
+        matches = np.where(index / num_cols + 0.001 < cumulative)[0]
+        if matches.size == 0:
+            raise RuntimeError(
+                f"curriculum column {index} of {num_cols} matched no sub-terrain. "
+                f"Normalized proportions: {weights.tolist()}."
+            )
+        indices.append(int(np.min(matches)))
+    return indices
+
+
+def _actual_column_count(terrain) -> int | None:
+    patches = getattr(terrain, "flat_patches", None)
+    if patches and "target" in patches:
+        return int(patches["target"].shape[1])
+    origins = getattr(terrain, "terrain_origins", None)
+    if origins is not None:
+        return int(origins.shape[1])
+    return None
+
+
+def _sub_terrain_kind(cfg: object) -> str:
+    return type(cfg).__name__
+
+
+def resolve_terrain_name_mapping(terrain) -> dict[str, Any]:
+    """Dump column-id → sub-terrain name from the live grid. Never invent names."""
+    if terrain is None:
+        return {"available": False, "reason": "scene has no terrain object"}
+    cfg = getattr(terrain, "cfg", None)
+    generator = getattr(cfg, "terrain_generator", None) if cfg is not None else None
+    if generator is None:
+        return {"available": False, "reason": "terrain.cfg.terrain_generator missing; refusing bare column ids"}
+    names = list(getattr(generator, "sub_terrains", {}) or {})
+    if not names:
+        return {"available": False, "reason": "terrain_generator.sub_terrains is empty"}
+    n_cols = _actual_column_count(terrain)
+    if n_cols is None:
+        return {"available": False, "reason": "cannot read column count (no flat_patches['target'] or terrain_origins)"}
+    curriculum = bool(getattr(generator, "curriculum", False))
+    if not curriculum:
+        return {
+            "available": False,
+            "reason": "non-curriculum grid mixes types inside a column; names are unresolvable",
+            "num_cols": n_cols,
+            "sub_terrain_names": names,
+        }
+    sub = generator.sub_terrains
+    proportions = [float(sub[name].proportion) for name in names]
+    kinds = [_sub_terrain_kind(sub[name]) for name in names]
+    if n_cols == len(names):
+        allocation = "one_column_per_type"
+        column_to_name = list(names)
+        column_to_kind = list(kinds)
+    else:
+        allocation = "isaac_cumulative_proportion"
+        try:
+            indices = curriculum_column_indices(proportions, n_cols)
+        except RuntimeError as exc:
+            return {"available": False, "reason": str(exc), "num_cols": n_cols, "sub_terrain_names": names}
+        column_to_name = [names[index] for index in indices]
+        column_to_kind = [kinds[index] for index in indices]
+    return {
+        "available": True,
+        "allocation": allocation,
+        "num_cols": n_cols,
+        "declared_num_cols": getattr(generator, "num_cols", None),
+        "sub_terrain_names": names,
+        "sub_terrain_kinds": kinds,
+        "proportions": proportions,
+        "column_to_name": column_to_name,
+        "column_to_kind": column_to_kind,
+        "columns": [
+            {"column": index, "name": column_to_name[index], "kind": column_to_kind[index]} for index in range(n_cols)
+        ],
+    }
+
+
+def _scene_terrain(env):
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        return None
+    terrain = getattr(scene, "terrain", None)
+    if terrain is not None:
+        return terrain
+    if hasattr(scene, "__getitem__"):
+        try:
+            return scene["terrain"]
+        except Exception:
+            return None
+    return None
+
+
+def _mean_or_none(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
+def _median_or_none(values: list[float]) -> float | None:
+    import statistics
+
+    if not values:
+        return None
+    return float(statistics.median(values))
+
+
 def summarize_policy_eval(
     episodes: list[dict[str, Any]],
     *,
@@ -518,13 +672,20 @@ def summarize_policy_eval(
     num_envs: int,
     warmup_steps: int,
 ) -> dict[str, Any]:
-    """Episode/fall aggregates for causal camera A/B (not TensorBoard tail)."""
-    import statistics
-
+    """Episode/fall aggregates. Per-terrain keys are names, never bare column ids."""
     counted = [event for event in episodes if int(event.get("control_step", -1)) >= warmup_steps]
     lengths = [int(event["episode_length"]) for event in counted]
     term_counts: dict[str, int] = {}
+    primary_counts: dict[str, int] = {}
     root_height = 0
+    margins = [float(event["root_height_margin"]) for event in counted if event.get("root_height_margin") is not None]
+    fall_margins = [
+        float(event["root_height_margin"])
+        for event in counted
+        if event.get("termination_reasons", {}).get("root_height") and event.get("root_height_margin") is not None
+    ]
+    per_terrain_acc: dict[str, dict[str, Any]] = {}
+    unresolved = 0
     for event in counted:
         reasons = event.get("termination_reasons", {})
         for name, fired in reasons.items():
@@ -532,18 +693,171 @@ def summarize_policy_eval(
                 term_counts[name] = term_counts.get(name, 0) + 1
         if reasons.get("root_height"):
             root_height += 1
+        primary = str(event.get("primary_reason") or "unknown")
+        primary_counts[primary] = primary_counts.get(primary, 0) + 1
+        terrain_name = event.get("terrain_name")
+        if not terrain_name:
+            unresolved += 1
+            terrain_name = "<unresolved>"
+        bucket = per_terrain_acc.setdefault(
+            terrain_name, {"lengths": [], "margins": [], "fall_margins": [], "root_height": 0}
+        )
+        bucket["lengths"].append(int(event["episode_length"]))
+        if event.get("root_height_margin") is not None:
+            bucket["margins"].append(float(event["root_height_margin"]))
+        if reasons.get("root_height"):
+            bucket["root_height"] += 1
+            if event.get("root_height_margin") is not None:
+                bucket["fall_margins"].append(float(event["root_height_margin"]))
     env_steps = max(control_steps, 1) * max(num_envs, 1)
+    per_terrain = {
+        name: {
+            "completed_episodes": len(bucket["lengths"]),
+            "mean_episode_length": _mean_or_none(bucket["lengths"]),
+            "median_episode_length": _median_or_none(bucket["lengths"]),
+            "root_height_count": bucket["root_height"],
+            "mean_root_height_margin": _mean_or_none(bucket["margins"]),
+            "mean_root_height_margin_at_fall": _mean_or_none(bucket["fall_margins"]),
+        }
+        for name, bucket in per_terrain_acc.items()
+    }
     return {
         "completed_episodes": len(counted),
         "warmup_steps": warmup_steps,
         "control_steps": control_steps,
         "num_envs": num_envs,
         "total_env_steps": env_steps,
-        "mean_episode_length": float(statistics.mean(lengths)) if lengths else None,
-        "median_episode_length": float(statistics.median(lengths)) if lengths else None,
+        "episodes_still_running_at_horizon": num_envs,
+        "mean_episode_length": _mean_or_none([float(x) for x in lengths]),
+        "median_episode_length": _median_or_none([float(x) for x in lengths]),
         "termination_counts": term_counts,
+        "termination_rates_per_1000_env_steps": {
+            name: count * 1000.0 / env_steps for name, count in term_counts.items()
+        },
+        "primary_reason_counts": primary_counts,
         "root_height_count": root_height,
         "root_height_rate_per_1000_env_steps": root_height * 1000.0 / env_steps,
+        "root_height_margin": {
+            "mean": _mean_or_none(margins),
+            "median": _median_or_none(margins),
+            "mean_at_root_height_term": _mean_or_none(fall_margins),
+            "n_at_root_height_term": len(fall_margins),
+        },
+        "per_terrain": per_terrain,
+        "unresolved_terrain_episodes": unresolved,
+    }
+
+
+def terrain_name_shares(per_terrain: dict[str, Any]) -> dict[str, float]:
+    usable = {
+        name: int(row.get("completed_episodes") or 0)
+        for name, row in per_terrain.items()
+        if name and name != "<unresolved>"
+    }
+    total = sum(usable.values())
+    if total <= 0:
+        return {}
+    return {name: count / total for name, count in usable.items()}
+
+
+def reweight_mean_length_to_mix(per_terrain: dict[str, Any], target_shares: dict[str, float]) -> dict[str, Any]:
+    """Reweight this factory's per-name mean lengths onto another factory's name mix."""
+    shared = [
+        name
+        for name in target_shares
+        if name in per_terrain and per_terrain[name].get("mean_episode_length") is not None
+    ]
+    if not shared:
+        return {"available": False, "reason": "no shared named terrains with a mean length"}
+    mass = sum(target_shares[name] for name in shared)
+    if mass <= 0:
+        return {"available": False, "reason": "target mix has zero mass on shared names"}
+    value = 0.0
+    weights: dict[str, float] = {}
+    for name in shared:
+        weight = target_shares[name] / mass
+        weights[name] = weight
+        value += weight * float(per_terrain[name]["mean_episode_length"])
+    dropped = sorted(set(target_shares) - set(shared))
+    return {
+        "available": True,
+        "value": value,
+        "shared_names": shared,
+        "weights": weights,
+        "dropped_target_names": dropped,
+    }
+
+
+def analyze_policy_eval_2x2(arms: list[dict[str, Any]]) -> dict[str, Any]:
+    """Factory effect (same ckpt, swap factory) vs policy effect (same factory, swap ckpt)."""
+    rows = []
+    for arm in arms:
+        meta = arm.get("metadata", {})
+        summary = arm.get("eval", {}).get("summary", {})
+        mapping = arm.get("eval", {}).get("terrain_mapping", {})
+        rows.append(
+            {
+                "side": meta.get("side"),
+                "checkpoint": meta.get("checkpoint"),
+                "seed": meta.get("seed"),
+                "summary": summary,
+                "terrain_mapping": mapping,
+            }
+        )
+    factory_pairs = []
+    policy_pairs = []
+    for left in rows:
+        for right in rows:
+            if left is right:
+                continue
+            if (
+                left["checkpoint"] == right["checkpoint"]
+                and left["seed"] == right["seed"]
+                and left["side"] != right["side"]
+            ):
+                if left["side"] == "ours" and right["side"] == "instinctmj":
+                    factory_pairs.append((left, right))
+            if (
+                left["side"] == right["side"]
+                and left["seed"] == right["seed"]
+                and left["checkpoint"] != right["checkpoint"]
+            ):
+                if (left["checkpoint"] or "") < (right["checkpoint"] or ""):
+                    policy_pairs.append((left, right))
+
+    def _delta(ours_like: dict[str, Any], other: dict[str, Any], *, label: str) -> dict[str, Any]:
+        s0, s1 = ours_like["summary"], other["summary"]
+        len0, len1 = s0.get("mean_episode_length"), s1.get("mean_episode_length")
+        rh0, rh1 = s0.get("root_height_rate_per_1000_env_steps"), s1.get("root_height_rate_per_1000_env_steps")
+        shares1 = terrain_name_shares(s1.get("per_terrain") or {})
+        shares0 = terrain_name_shares(s0.get("per_terrain") or {})
+        re_ours = reweight_mean_length_to_mix(s0.get("per_terrain") or {}, shares1)
+        re_ref = reweight_mean_length_to_mix(s1.get("per_terrain") or {}, shares0)
+        return {
+            "kind": label,
+            "seed": ours_like["seed"],
+            "left_side": ours_like["side"],
+            "right_side": other["side"],
+            "left_checkpoint": ours_like["checkpoint"],
+            "right_checkpoint": other["checkpoint"],
+            "mean_len_left": len0,
+            "mean_len_right": len1,
+            "mean_len_delta": None if len0 is None or len1 is None else float(len0) - float(len1),
+            "root_height_rate_left": rh0,
+            "root_height_rate_right": rh1,
+            "root_height_rate_delta": None if rh0 is None or rh1 is None else float(rh0) - float(rh1),
+            "completed_left": s0.get("completed_episodes"),
+            "completed_right": s1.get("completed_episodes"),
+            "reweighted_left_len_onto_right_mix": re_ours,
+            "reweighted_right_len_onto_left_mix": re_ref,
+            "left_terrain_allocation": (ours_like.get("terrain_mapping") or {}).get("allocation"),
+            "right_terrain_allocation": (other.get("terrain_mapping") or {}).get("allocation"),
+        }
+
+    return {
+        "n_arms": len(rows),
+        "factory_effect_same_ckpt": [_delta(left, right, label="factory") for left, right in factory_pairs],
+        "policy_effect_same_factory": [_delta(left, right, label="policy") for left, right in policy_pairs],
     }
 
 
@@ -565,7 +879,13 @@ def classify_episode_termination(
     return "unknown"
 
 
-def snapshot_pre_reset_episodes(env, env_ids, *, control_step: int) -> list[dict[str, Any]]:
+def snapshot_pre_reset_episodes(
+    env,
+    env_ids,
+    *,
+    control_step: int,
+    terrain_mapping: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Capture terminal kinematics/reasons at ``_reset_idx`` — before buffers are cleared."""
     import torch
 
@@ -577,6 +897,10 @@ def snapshot_pre_reset_episodes(env, env_ids, *, control_step: int) -> list[dict
     term_mgr = env.termination_manager
     active = term_mgr.active_terms if isinstance(term_mgr.active_terms, list) else term_mgr.active_terms()
     robot = env.scene["robot"] if hasattr(env.scene, "__getitem__") else env.scene.robot
+    terrain = _scene_terrain(env)
+    column_to_name = None
+    if terrain_mapping and terrain_mapping.get("available"):
+        column_to_name = list(terrain_mapping.get("column_to_name") or [])
     events: list[dict[str, Any]] = []
     for idx in ids.tolist():
         reasons = {name: bool(term_mgr.get_term(name)[idx].item()) for name in active}
@@ -587,6 +911,18 @@ def snapshot_pre_reset_episodes(env, env_ids, *, control_step: int) -> list[dict
             if hasattr(env, "reset_time_outs")
             else bool(term_mgr.time_outs[idx].item())
         )
+        type_id = None
+        level = None
+        terrain_name = None
+        if terrain is not None:
+            types = getattr(terrain, "terrain_types", None)
+            levels = getattr(terrain, "terrain_levels", None)
+            if types is not None:
+                type_id = int(types[idx].item())
+            if levels is not None:
+                level = int(levels[idx].item())
+            if type_id is not None and column_to_name is not None and 0 <= type_id < len(column_to_name):
+                terrain_name = column_to_name[type_id]
         events.append(
             {
                 "env_index": int(idx),
@@ -603,6 +939,9 @@ def snapshot_pre_reset_episodes(env, env_ids, *, control_step: int) -> list[dict
                 "root_height_margin": root_height_margin(root_z, origin_z),
                 "root_z": root_z,
                 "origin_z": origin_z,
+                "terrain_type_id": type_id,
+                "terrain_level": level,
+                "terrain_name": terrain_name,
             }
         )
     return events
@@ -611,8 +950,9 @@ def snapshot_pre_reset_episodes(env, env_ids, *, control_step: int) -> list[dict
 class EpisodeEvalRecorder:
     """Hooks ``_reset_idx`` so done/reason are read before auto_reset clears them."""
 
-    def __init__(self) -> None:
+    def __init__(self, terrain_mapping: dict[str, Any] | None = None) -> None:
         self.episodes: list[dict[str, Any]] = []
+        self.terrain_mapping = terrain_mapping
         self._control_step = -1
         self._orig_reset_idx = None
         self._env = None
@@ -626,7 +966,14 @@ class EpisodeEvalRecorder:
                 self._orig_reset_idx = target._reset_idx
 
                 def wrapped_reset_idx(env_ids):
-                    self.episodes.extend(snapshot_pre_reset_episodes(target, env_ids, control_step=self._control_step))
+                    self.episodes.extend(
+                        snapshot_pre_reset_episodes(
+                            target,
+                            env_ids,
+                            control_step=self._control_step,
+                            terrain_mapping=self.terrain_mapping,
+                        )
+                    )
                     return self._orig_reset_idx(env_ids)
 
                 target._reset_idx = wrapped_reset_idx
@@ -1225,12 +1572,12 @@ def _inference_action(policy, obs):
 
 def _validate_run_args(args: argparse.Namespace) -> None:
     if args.mode == "policy_eval":
-        if args.side != "ours":
-            raise SystemExit("policy_eval runs only on --side ours (same mjlab factory)")
         if args.checkpoint is None:
             raise SystemExit("--checkpoint is required for --mode policy_eval")
         if args.camera_semantics not in CAMERA_SEMANTICS_CHOICES:
             raise SystemExit(f"--camera-semantics must be one of {CAMERA_SEMANTICS_CHOICES}")
+        if args.side != "ours" and args.camera_semantics != CAMERA_SEMANTICS_NATIVE:
+            raise SystemExit("--camera-semantics override is only supported on --side ours")
         return
     if args.mode == "live_policy" and args.checkpoint is None:
         raise SystemExit("--checkpoint is required for --mode live_policy")
@@ -1268,6 +1615,45 @@ def _build_ours_eval(
     return env, compiled, spec
 
 
+def _build_instinctmj_eval(
+    *,
+    num_envs: int,
+    device: str,
+    seed: int,
+    root: Path,
+):
+    """InstinctMJ *training* factory (play=False). Terminations and auto_reset stay on."""
+    _ensure_instinctmj_root(root)
+    try:
+        import instinct_mj.tasks  # noqa: F401
+        from instinct_mj.envs import InstinctRlEnv
+        from instinct_mj.tasks.registry import load_env_cfg
+    except ModuleNotFoundError as exc:
+        raise SystemExit(f"{exc}\n{instinctmj_python_hint()}") from exc
+
+    env_cfg = load_env_cfg(INSTINCTMJ_TASK_ID, play=False)
+    if env_cfg is None:
+        raise SystemExit(f"{INSTINCTMJ_TASK_ID} train factory returned None; play=False is required")
+    env_cfg.seed = seed
+    env_cfg.scene.num_envs = num_envs
+    _silence_observation_noise(env_cfg)
+    _disable_friction_randomization(env_cfg)
+    if hasattr(env_cfg, "auto_reset"):
+        env_cfg.auto_reset = True
+    from mjlab.utils.torch import configure_torch_backends
+
+    configure_torch_backends()
+    if device not in {"cuda:0", "cpu"}:
+        print(
+            "[WARN] InstinctMJ training uses CUDA_VISIBLE_DEVICES=<n> and --device cuda:0. "
+            f"You passed {device}; Warp often then raycasts on cuda:0 and faults. "
+            f"Prefer: CUDA_VISIBLE_DEVICES=0 {DEFAULT_INSTINCTMJ_PYTHON} ... --device cuda:0",
+            flush=True,
+        )
+    env = InstinctRlEnv(cfg=env_cfg, device=device)
+    return env, env_cfg
+
+
 def run_policy_eval(args: argparse.Namespace) -> int:
     _validate_run_args(args)
     if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
@@ -1277,31 +1663,63 @@ def run_policy_eval(args: argparse.Namespace) -> int:
 
     from instinct_rl.runners import OnPolicyRunner
 
-    from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import MjlabVecEnvWrapper
+    side = args.side
+    instinctmj_root = Path(os.environ.get("INSTINCTMJ_ROOT", DEFAULT_INSTINCTMJ_ROOT))
+    camera_patch = None
+    compiled = None
+    if side == "ours":
+        from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import MjlabVecEnvWrapper
 
-    env, compiled, spec = _build_ours_eval(num_envs=args.num_envs, device=args.device, seed=args.seed)
-    camera_patch = apply_camera_semantics(env, args.camera_semantics)
-    camera_meta = camera_patch.metadata()
+        env, compiled, _spec = _build_ours_eval(num_envs=args.num_envs, device=args.device, seed=args.seed)
+        camera_patch = apply_camera_semantics(env, args.camera_semantics)
+        camera_meta = camera_patch.metadata()
+        agent_cfg = compiled.agent_cfg
+        wrapper = MjlabVecEnvWrapper(
+            env,
+            policy_group=getattr(agent_cfg, "policy_observation_group", "policy"),
+            critic_group=getattr(agent_cfg, "critic_observation_group", "critic"),
+        )
+        task_id = OURS_TASK_ID
+        source_path = Path(__file__).resolve().parents[1]
+    elif side == "instinctmj":
+        read_instinctmj_train_registration(instinctmj_train_task_source(instinctmj_root))
+        from instinct_mj.rl import InstinctRlVecEnvWrapper
+        from instinct_mj.tasks.registry import load_instinct_rl_cfg
 
-    agent_cfg = compiled.agent_cfg
-    policy_group = getattr(agent_cfg, "policy_observation_group", "policy")
-    critic_group = getattr(agent_cfg, "critic_observation_group", "critic")
-    wrapper = MjlabVecEnvWrapper(env, policy_group=policy_group, critic_group=critic_group)
+        env, _env_cfg = _build_instinctmj_eval(
+            num_envs=args.num_envs, device=args.device, seed=args.seed, root=instinctmj_root
+        )
+        camera_meta = _collect_camera_runtime(env)
+        camera_meta["semantics"] = CAMERA_SEMANTICS_NATIVE
+        agent_cfg = load_instinct_rl_cfg(INSTINCTMJ_TASK_ID)
+        wrapper = InstinctRlVecEnvWrapper(
+            env,
+            policy_group=agent_cfg.policy_observation_group,
+            critic_group=agent_cfg.critic_observation_group,
+        )
+        task_id = INSTINCTMJ_TASK_ID
+        source_path = instinctmj_root
+    else:
+        raise SystemExit(f"unknown side {side!r}")
+
     agent_cfg.device = args.device
+    obs_format = wrapper.get_obs_format()
     runner = OnPolicyRunner(wrapper, agent_cfg.to_dict(), log_dir=None, device=args.device)
     try:
         runner.load(str(args.checkpoint))
     except Exception as exc:
-        camera_patch.restore()
+        if camera_patch is not None:
+            camera_patch.restore()
         env.close()
         raise SystemExit(f"checkpoint load failed for {args.checkpoint}: {exc}") from exc
     policy = runner.get_inference_policy(device=args.device)
+    checkpoint_loaded = True
 
-    recorder = EpisodeEvalRecorder()
-    static = _collect_static(
-        env, side="ours", task_id=OURS_TASK_ID, source_path=str(Path(__file__).resolve().parents[1])
-    )
+    terrain_mapping = resolve_terrain_name_mapping(_scene_terrain(getattr(env, "unwrapped", env)))
+    recorder = EpisodeEvalRecorder(terrain_mapping=terrain_mapping)
+    static = _collect_static(env, side=side, task_id=task_id, source_path=str(source_path))
     static["camera"] = camera_meta
+    static["terrain_mapping"] = terrain_mapping
 
     post_reset_depth_native = None
     post_reset_depth_processed = None
@@ -1327,16 +1745,20 @@ def run_policy_eval(args: argparse.Namespace) -> int:
 
     payload: dict[str, Any] = {
         "metadata": {
-            "side": "ours",
+            "side": side,
             "mode": "policy_eval",
-            "camera_semantics": args.camera_semantics,
+            "camera_semantics": args.camera_semantics if side == "ours" else CAMERA_SEMANTICS_NATIVE,
             "seed": args.seed,
             "steps": args.steps,
             "eval_warmup_steps": args.eval_warmup_steps,
             "num_envs": args.num_envs,
-            "task_id": OURS_TASK_ID,
-            "commit": _repo_commit(Path(__file__).resolve().parents[1]),
+            "task_id": task_id,
+            "commit": _repo_commit(source_path),
             "checkpoint": str(args.checkpoint),
+            "checkpoint_loaded": checkpoint_loaded,
+            "obs_format": {
+                group: {key: list(shape) for key, shape in terms.items()} for group, terms in obs_format.items()
+            },
             "disable_obs_noise": True,
             "friction_fixed": True,
             "disable_terminations": False,
@@ -1347,6 +1769,7 @@ def run_policy_eval(args: argparse.Namespace) -> int:
         "eval": {
             "episodes": episodes,
             "summary": summary,
+            "terrain_mapping": terrain_mapping,
             "verify_camera": {
                 "post_reset_depth_raw": (
                     _torch_summary(post_reset_depth_native) if post_reset_depth_native is not None else None
@@ -1363,18 +1786,21 @@ def run_policy_eval(args: argparse.Namespace) -> int:
         episode_length=np.array([event["episode_length"] for event in episodes], dtype=np.int32),
         root_height_margin=np.array([event["root_height_margin"] for event in episodes], dtype=np.float64),
         primary_reason=np.array([event["primary_reason"] for event in episodes], dtype=object),
+        terrain_name=np.array([event.get("terrain_name") or "" for event in episodes], dtype=object),
     )
     payload["companion_npz"] = str(companion)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     print(
-        f"wrote {args.out}: {summary['completed_episodes']} episodes after warmup, "
+        f"wrote {args.out}: side={side} {summary['completed_episodes']} episodes after warmup, "
         f"root_height={summary['root_height_count']} "
         f"({summary['root_height_rate_per_1000_env_steps']:.3f}/1000 env-steps), "
-        f"mean_len={summary['mean_episode_length']}",
+        f"mean_len={summary['mean_episode_length']} "
+        f"terrain={terrain_mapping.get('allocation') or terrain_mapping.get('reason')}",
         flush=True,
     )
-    camera_patch.restore()
+    if camera_patch is not None:
+        camera_patch.restore()
     env.close()
     return 0
 
@@ -1633,9 +2059,12 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
     compare.add_argument("--action-tol", type=float, default=DEFAULT_THRESHOLDS["action"])
     compare.add_argument("--depth-tol", type=float, default=DEFAULT_THRESHOLDS["depth"])
 
+    analyze = sub.add_parser("analyze-eval", help="factory vs policy effects from policy_eval JSON arms")
+    analyze.add_argument("arms", type=Path, nargs="+")
+
     # Allow omitting the ``run`` subcommand for backward-compatible ergonomics.
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] not in {"run", "compare", "-h", "--help"}:
+    if argv and argv[0] not in {"run", "compare", "analyze-eval", "-h", "--help"}:
         argv = ["run", *argv]
     ns = parser.parse_args(argv)
     if ns.command is None:
@@ -1645,6 +2074,11 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse(argv)
+    if args.command == "analyze-eval":
+        arms = [json.loads(path.read_text(encoding="utf-8")) for path in args.arms]
+        report = analyze_policy_eval_2x2(arms)
+        print(json.dumps(report, indent=1))
+        return 0
     if args.command == "compare":
         left = json.loads(args.left.read_text(encoding="utf-8"))
         right = json.loads(args.right.read_text(encoding="utf-8"))

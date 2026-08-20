@@ -124,6 +124,9 @@ def test_compare_reports_first_consecutive_exceedance(probe, tmp_path):
 def test_output_schema_keys(probe):
     assert probe.output_schema_keys() == frozenset({"metadata", "static", "steps"})
     assert probe.policy_eval_schema_keys() == frozenset({"metadata", "static", "eval"})
+    assert "terrain_mapping" in probe.policy_eval_eval_keys()
+    assert "per_terrain" in probe.policy_eval_summary_keys()
+    assert "termination_rates_per_1000_env_steps" in probe.policy_eval_summary_keys()
 
 
 def test_instinctmj_reference_camera_uses_groups_012(probe):
@@ -162,15 +165,41 @@ def test_instinctmj_camera_metadata_records_no_hop(probe):
 
 def test_summarize_policy_eval_counts_root_height(probe):
     episodes = [
-        {"control_step": 10, "episode_length": 50, "termination_reasons": {"root_height": True}},
-        {"control_step": 20, "episode_length": 80, "termination_reasons": {"time_out": True}},
-        {"control_step": 5, "episode_length": 30, "termination_reasons": {"root_height": True}},
+        {
+            "control_step": 10,
+            "episode_length": 50,
+            "termination_reasons": {"root_height": True},
+            "primary_reason": "root_height",
+            "root_height_margin": -0.1,
+            "terrain_name": "pyramid_stairs",
+        },
+        {
+            "control_step": 20,
+            "episode_length": 80,
+            "termination_reasons": {"time_out": True},
+            "primary_reason": "time_out",
+            "root_height_margin": 0.4,
+            "terrain_name": "perlin_rough",
+        },
+        {
+            "control_step": 5,
+            "episode_length": 30,
+            "termination_reasons": {"root_height": True},
+            "primary_reason": "root_height",
+            "root_height_margin": -0.2,
+            "terrain_name": "pyramid_stairs",
+        },
     ]
     summary = probe.summarize_policy_eval(episodes, control_steps=100, num_envs=4, warmup_steps=10)
     assert summary["completed_episodes"] == 2
     assert summary["root_height_count"] == 1
     assert summary["root_height_rate_per_1000_env_steps"] == pytest.approx(1 * 1000.0 / (100 * 4))
+    assert summary["termination_rates_per_1000_env_steps"]["root_height"] == pytest.approx(2.5)
     assert summary["mean_episode_length"] == pytest.approx(65.0)
+    assert summary["per_terrain"]["pyramid_stairs"]["completed_episodes"] == 1
+    assert summary["per_terrain"]["perlin_rough"]["mean_episode_length"] == pytest.approx(80.0)
+    assert "0" not in summary["per_terrain"]
+    assert summary["root_height_margin"]["mean_at_root_height_term"] == pytest.approx(-0.1)
 
 
 def test_snapshot_pre_reset_reads_term_dones(probe):
@@ -217,6 +246,8 @@ def test_snapshot_pre_reset_reads_term_dones(probe):
     assert events[0]["primary_reason"] == "root_height"
     assert events[1]["primary_reason"] == "time_out"
     assert events[0]["control_step"] == 7
+    assert events[0]["terrain_name"] is None
+    assert events[0]["terrain_type_id"] is None
 
 
 def test_classify_episode_termination_prefers_failure_over_timeout(probe):
@@ -438,3 +469,179 @@ def test_compare_single_step_dump_is_not_vacuous_pass(probe):
     fail = report["first_consecutive_two_step_exceedance"]
     assert fail["field"] == "depth_processed"
     assert "single-step" in fail.get("reason", "")
+
+
+@pytest.mark.skipif(not INSTINCTMJ_REG.is_file(), reason="InstinctMJ not checked out")
+def test_instinctmj_policy_eval_uses_play_false(probe):
+    import inspect
+
+    source = inspect.getsource(probe._build_instinctmj_eval)
+    assert "play=False" in source.replace(" ", "")
+    assert "play=True" not in source.replace(" ", "")
+    info = probe.read_instinctmj_train_registration(INSTINCTMJ_REG)
+    assert info["play_false_in_env_cfg_factory"] is True
+
+
+def test_resolve_terrain_mapping_one_column_per_type(probe):
+    class _Tile:
+        proportion = 0.5
+
+    class _Gen:
+        curriculum = True
+        num_cols = 20
+        sub_terrains = {"stairs": _Tile(), "perlin": _Tile()}
+
+    class _Cfg:
+        terrain_generator = _Gen()
+
+    class _Terrain:
+        cfg = _Cfg()
+        terrain_origins = __import__("numpy").zeros((10, 2, 3))
+
+    mapping = probe.resolve_terrain_name_mapping(_Terrain())
+    assert mapping["available"] is True
+    assert mapping["allocation"] == "one_column_per_type"
+    assert mapping["column_to_name"] == ["stairs", "perlin"]
+    assert mapping["declared_num_cols"] == 20
+    assert mapping["num_cols"] == 2
+
+
+def test_resolve_terrain_mapping_isaac_proportion(probe):
+    class _Tile:
+        def __init__(self, proportion):
+            self.proportion = proportion
+
+    class _Gen:
+        curriculum = True
+        num_cols = 4
+        sub_terrains = {"a": _Tile(0.25), "b": _Tile(0.75)}
+
+    class _Cfg:
+        terrain_generator = _Gen()
+
+    class _Terrain:
+        cfg = _Cfg()
+        terrain_origins = __import__("numpy").zeros((3, 4, 3))
+
+    mapping = probe.resolve_terrain_name_mapping(_Terrain())
+    assert mapping["available"] is True
+    assert mapping["allocation"] == "isaac_cumulative_proportion"
+    assert mapping["num_cols"] == 4
+    assert set(mapping["column_to_name"]) == {"a", "b"}
+    assert mapping["column_to_name"].count("b") > mapping["column_to_name"].count("a")
+
+
+def test_resolve_terrain_mapping_refuses_non_curriculum(probe):
+    class _Gen:
+        curriculum = False
+        num_cols = 4
+        sub_terrains = {"a": type("T", (), {"proportion": 1.0})()}
+
+    class _Terrain:
+        cfg = type("C", (), {"terrain_generator": _Gen()})()
+        terrain_origins = __import__("numpy").zeros((2, 4, 3))
+
+    mapping = probe.resolve_terrain_name_mapping(_Terrain())
+    assert mapping["available"] is False
+    assert "unresolvable" in mapping["reason"]
+
+
+def test_snapshot_maps_terrain_id_to_name(probe):
+    import torch
+
+    class _TermMgr:
+        active_terms = ["root_height"]
+
+        @staticmethod
+        def get_term(name):
+            return torch.tensor([True])
+
+        @property
+        def terminated(self):
+            return torch.tensor([True])
+
+        @property
+        def time_outs(self):
+            return torch.tensor([False])
+
+    class _Tile:
+        proportion = 1.0
+
+    class _Gen:
+        curriculum = True
+        num_cols = 2
+        sub_terrains = {"perlin_rough": _Tile(), "pyramid_stairs": _Tile()}
+
+    class _Terrain:
+        cfg = type("C", (), {"terrain_generator": _Gen()})()
+        terrain_origins = np.zeros((2, 2, 3))
+        terrain_types = torch.tensor([1])
+        terrain_levels = torch.tensor([3])
+
+    class _Env:
+        device = "cpu"
+        termination_manager = _TermMgr()
+        reset_terminated = torch.tensor([True])
+        reset_time_outs = torch.tensor([False])
+        episode_length_buf = torch.tensor([40])
+        scene = type(
+            "S",
+            (),
+            {
+                "robot": type(
+                    "R", (), {"data": type("D", (), {"root_link_pos_w": torch.tensor([[0.0, 0.0, 0.6]])})()}
+                )(),
+                "env_origins": torch.tensor([[0.0, 0.0, 0.0]]),
+                "terrain": _Terrain(),
+            },
+        )()
+
+    mapping = probe.resolve_terrain_name_mapping(_Terrain())
+    events = probe.snapshot_pre_reset_episodes(_Env(), torch.tensor([0]), control_step=12, terrain_mapping=mapping)
+    assert events[0]["terrain_type_id"] == 1
+    assert events[0]["terrain_name"] == "pyramid_stairs"
+    assert events[0]["terrain_level"] == 3
+    assert events[0]["primary_reason"] == "root_height"
+
+
+def test_reweight_and_2x2_effects(probe):
+    ours = {
+        "metadata": {"side": "ours", "checkpoint": "/ckpt/ours.pt", "seed": 42},
+        "eval": {
+            "summary": {
+                "mean_episode_length": 100.0,
+                "root_height_rate_per_1000_env_steps": 8.0,
+                "completed_episodes": 10,
+                "per_terrain": {
+                    "stairs": {"completed_episodes": 8, "mean_episode_length": 120.0},
+                    "perlin": {"completed_episodes": 2, "mean_episode_length": 20.0},
+                },
+            },
+            "terrain_mapping": {"allocation": "isaac_cumulative_proportion"},
+        },
+    }
+    ref = {
+        "metadata": {"side": "instinctmj", "checkpoint": "/ckpt/ours.pt", "seed": 42},
+        "eval": {
+            "summary": {
+                "mean_episode_length": 80.0,
+                "root_height_rate_per_1000_env_steps": 5.0,
+                "completed_episodes": 10,
+                "per_terrain": {
+                    "stairs": {"completed_episodes": 5, "mean_episode_length": 90.0},
+                    "perlin": {"completed_episodes": 5, "mean_episode_length": 70.0},
+                },
+            },
+            "terrain_mapping": {"allocation": "one_column_per_type"},
+        },
+    }
+    reweighted = probe.reweight_mean_length_to_mix(
+        ours["eval"]["summary"]["per_terrain"], {"stairs": 0.5, "perlin": 0.5}
+    )
+    assert reweighted["available"] is True
+    assert reweighted["value"] == pytest.approx(70.0)
+    report = probe.analyze_policy_eval_2x2([ours, ref])
+    assert len(report["factory_effect_same_ckpt"]) == 1
+    pair = report["factory_effect_same_ckpt"][0]
+    assert pair["mean_len_delta"] == pytest.approx(20.0)
+    assert pair["reweighted_left_len_onto_right_mix"]["value"] == pytest.approx(70.0)
