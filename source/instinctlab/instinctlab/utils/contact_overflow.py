@@ -1,4 +1,4 @@
-"""Refuse to run on mujoco_warp contact or constraint overflow.
+"""Refuse to run when the engine dropped contacts and kept stepping.
 
 mujoco_warp already sets ``opt.warn_overflow = True`` in ``put_model``. That
 only ``wp.printf``s from the kernels. mjlab captures CUDA graphs for ``step``,
@@ -7,19 +7,23 @@ it is a line in a 100k-line log, not a failed run. Contacts past ``nconmax``
 and constraints past ``njmax`` are dropped. Training continues on silently
 wrong physics and still converges.
 
-This module polls ``d.overflow`` — one device-to-host of ``nworld`` ints.
-Measured isolated cost is 24 µs per read at 8 worlds (the array is
-kilobytes even at 4096). An ``env.step`` is tens of milliseconds and already
-synchronises for observations, so the extra read is in the noise (~0.08% of
-a 30 ms step). Cadence is therefore every environment step, not a sample:
-a run that dies at iteration 900 with a nameable overflow is better than
-one that finishes on dropped contacts.
+PhysX GPU is the same shape with a louder log. Isaac Sim 5.1 / omni.physx
+107.3 still cannot grow ``gpu_collision_stack_size``. Overflow writes
+``PxGpuDynamicsMemoryConfig::collisionStackSize buffer overflow detected
+... Contacts have been dropped.`` to carb, then ``env.step`` returns
+successfully. Measured 2026-08-20 on cuda:1: parkour, 16 envs, stack
+``2**14`` (16 KiB). ``PhysicsSceneStats.gpu_mem_collision_stack_size``
+reported 813424 bytes needed — the same number the error asked for —
+while the USD attribute stayed 16384. Contact-sensor force went to 0.
+The shipped ``2**29`` run on the same task needed 912488 bytes at 16
+envs and 18319520 bytes at 256 envs (linear to ~293 MiB at 4096, above
+Isaac Lab's ``2**26`` default and below main's ``2**29``).
 
-The kernels set the same bits this reads. A guard that cannot be shown to
-fire on those bits is not a guard, so it was shown: parkour on mjlab at
-``horizontal_scale=0.05`` (16 envs) constructs clean and raises ``HFIELD``
-on the first step, while the same probe at the shipped 0.07 is clean over
-150 steps. That overflow is real physics being dropped, not a synthetic bit.
+mjlab side polls ``d.overflow`` (24 µs at 8 worlds). Isaac side polls
+``IPhysxStatistics.get_physx_scene_statistics`` and compares needed vs
+allocated. A guard that cannot be shown to fire on a real overflow is
+not a guard: mjlab was shown on HFIELD at ``horizontal_scale=0.05``;
+Isaac was shown on the 16 KiB stack above.
 
 Escape hatch (not the default): ``INSTINCTLAB_ALLOW_CONTACT_OVERFLOW=1``, or
 ``--allow_contact_overflow`` on ``scripts/train.py``.
@@ -50,7 +54,7 @@ _MJ_MAX_CON_PAIR = 50
 
 
 class ContactOverflowError(RuntimeError):
-    """mujoco_warp dropped contacts or constraints. Physics is no longer the model."""
+    """The engine dropped contacts or constraints. Physics is no longer the model."""
 
     def __init__(self, message: str, snapshot: dict[str, Any]):
         super().__init__(message)
@@ -62,45 +66,15 @@ def overflow_allowed() -> bool:
 
 
 def contact_budget_snapshot(env: Any) -> dict[str, Any] | None:
-    """Read overflow / nacon / nefc, or ``None`` if this env is not mujoco_warp."""
-    raw = getattr(env, "unwrapped", env)
-    sim = getattr(raw, "sim", None)
-    wp_data = getattr(sim, "wp_data", None)
-    if wp_data is None or not hasattr(wp_data, "overflow"):
-        return None
-
-    overflow = _as_numpy(wp_data.overflow).astype(np.int64, copy=False)
-    nworld = int(overflow.size)
-    mask = int(overflow.max()) if nworld else 0
-    n_set = int(np.count_nonzero(overflow))
-    cfg = getattr(sim, "cfg", None)
-    nconmax = getattr(cfg, "nconmax", None) if cfg is not None else None
-    njmax = getattr(cfg, "njmax", None) if cfg is not None else None
-
-    result: dict[str, Any] = {
-        "available": True,
-        "nworld": nworld,
-        "worlds_with_overflow": n_set,
-        "any_overflow": n_set > 0,
-        "overflow_max": mask,
-        "overflow_flags": decode_overflow(mask),
-        "nconmax": nconmax,
-        "njmax": njmax,
-    }
-    nacon = getattr(wp_data, "nacon", None)
-    if nacon is not None:
-        nacon_v = _as_numpy(nacon)
-        result["nacon"] = int(nacon_v.reshape(-1)[0]) if nacon_v.size else None
-    nefc = getattr(wp_data, "nefc", None)
-    if nefc is not None:
-        nefc_v = _as_numpy(nefc)
-        result["nefc_max"] = int(nefc_v.max()) if nefc_v.size else None
-        result["nefc_mean"] = float(nefc_v.mean()) if nefc_v.size else None
-    return result
+    """Read the engine's overflow / budget snapshot, or ``None`` if neither applies."""
+    mjlab = _mjlab_snapshot(env)
+    if mjlab is not None:
+        return mjlab
+    return _isaac_snapshot(env)
 
 
 def overflow_bits_set(env: Any) -> bool:
-    """Hot-path read: only the overflow bitmask, no nacon/nefc."""
+    """Hot-path read: only the mujoco_warp overflow bitmask, no nacon/nefc."""
     raw = getattr(env, "unwrapped", env)
     wp_data = getattr(getattr(raw, "sim", None), "wp_data", None)
     if wp_data is None or not hasattr(wp_data, "overflow"):
@@ -110,17 +84,22 @@ def overflow_bits_set(env: Any) -> bool:
 
 
 def check_contact_overflow(env: Any, *, phase: str) -> dict[str, Any] | None:
-    """Raise :class:`ContactOverflowError` if any world has an overflow bit.
+    """Raise :class:`ContactOverflowError` if this env dropped contacts.
 
-    Returns the snapshot when the env is mujoco_warp and clean; ``None`` when
-    the env has no ``wp_data.overflow`` (Isaac, stubs). ``phase`` is
-    ``\"construction\"`` or ``\"step\"`` and is written into the message.
+    Returns the snapshot when the env overflowed and the escape hatch is
+    set; ``None`` when the env is clean or has no overflow signal. ``phase``
+    is ``\"construction\"`` or ``\"step\"`` and is written into the message.
     """
-    if not overflow_bits_set(env):
+    snapshot = None
+    if overflow_bits_set(env):
+        snapshot = _mjlab_snapshot(env)
+    else:
+        isaac = _isaac_snapshot(env)
+        if isaac is not None and isaac["any_overflow"]:
+            snapshot = isaac
+    if snapshot is None:
         return None
 
-    snapshot = contact_budget_snapshot(env)
-    assert snapshot is not None
     message = format_overflow_message(snapshot, phase=phase)
     if overflow_allowed():
         _warn_allowed(message)
@@ -129,6 +108,12 @@ def check_contact_overflow(env: Any, *, phase: str) -> dict[str, Any] | None:
 
 
 def format_overflow_message(snapshot: dict[str, Any], *, phase: str) -> str:
+    if snapshot.get("engine") == "isaacsim":
+        return _format_isaac_message(snapshot, phase=phase)
+    return _format_mjlab_message(snapshot, phase=phase)
+
+
+def _format_mjlab_message(snapshot: dict[str, Any], *, phase: str) -> str:
     flags = snapshot.get("overflow_flags") or [f"bits=0x{int(snapshot.get('overflow_max', 0)):x}"]
     nworld = snapshot.get("nworld")
     n_set = snapshot.get("worlds_with_overflow")
@@ -170,17 +155,154 @@ def format_overflow_message(snapshot: dict[str, Any], *, phase: str) -> str:
     )
 
 
+def _format_isaac_message(snapshot: dict[str, Any], *, phase: str) -> str:
+    reasons = snapshot.get("overflow_reasons") or ["PhysX GPU buffer"]
+    stack_needed = snapshot.get("gpu_mem_collision_stack_size")
+    stack_alloc = snapshot.get("gpu_collision_stack_size")
+    patch_needed = snapshot.get("gpu_mem_rigid_patch_count")
+    patch_alloc = snapshot.get("gpu_max_rigid_patch_count")
+    stack_line = (
+        f"collision stack needed {stack_needed} bytes vs allocated {stack_alloc}"
+        if stack_needed is not None and stack_alloc is not None
+        else "collision stack occupancy unavailable"
+    )
+    patch_line = (
+        f"rigid patches needed {patch_needed} vs allocated {patch_alloc}"
+        if patch_needed is not None and patch_alloc is not None
+        else "rigid patch occupancy unavailable"
+    )
+    return (
+        f"PhysX {phase} overflow: {', '.join(reasons)}. {stack_line}. {patch_line}. "
+        "GPU PhysX cannot grow these buffers; it logs a PhysX error, drops "
+        "contacts, and the step still succeeds, so training will converge on "
+        "truncated physics. Raise sim.physx.gpu_collision_stack_size "
+        "(main parkour uses 2**29) and/or gpu_max_rigid_patch_count "
+        f"(main parkour uses 10 * 2**15). To proceed anyway set {ALLOW_ENV}=1 "
+        "or pass --allow_contact_overflow."
+    )
+
+
+def _mjlab_snapshot(env: Any) -> dict[str, Any] | None:
+    raw = getattr(env, "unwrapped", env)
+    sim = getattr(raw, "sim", None)
+    wp_data = getattr(sim, "wp_data", None)
+    if wp_data is None or not hasattr(wp_data, "overflow"):
+        return None
+
+    overflow = _as_numpy(wp_data.overflow).astype(np.int64, copy=False)
+    nworld = int(overflow.size)
+    mask = int(overflow.max()) if nworld else 0
+    n_set = int(np.count_nonzero(overflow))
+    cfg = getattr(sim, "cfg", None)
+    nconmax = getattr(cfg, "nconmax", None) if cfg is not None else None
+    njmax = getattr(cfg, "njmax", None) if cfg is not None else None
+
+    result: dict[str, Any] = {
+        "available": True,
+        "engine": "mjlab",
+        "nworld": nworld,
+        "worlds_with_overflow": n_set,
+        "any_overflow": n_set > 0,
+        "overflow_max": mask,
+        "overflow_flags": decode_overflow(mask),
+        "nconmax": nconmax,
+        "njmax": njmax,
+    }
+    nacon = getattr(wp_data, "nacon", None)
+    if nacon is not None:
+        nacon_v = _as_numpy(nacon)
+        result["nacon"] = int(nacon_v.reshape(-1)[0]) if nacon_v.size else None
+    nefc = getattr(wp_data, "nefc", None)
+    if nefc is not None:
+        nefc_v = _as_numpy(nefc)
+        result["nefc_max"] = int(nefc_v.max()) if nefc_v.size else None
+        result["nefc_mean"] = float(nefc_v.mean()) if nefc_v.size else None
+    return result
+
+
+def _isaac_physx_cfg(env: Any) -> Any | None:
+    raw = getattr(env, "unwrapped", env)
+    sim_cfg = getattr(getattr(raw, "cfg", None), "sim", None)
+    physx = getattr(sim_cfg, "physx", None)
+    if physx is None or not hasattr(physx, "gpu_collision_stack_size"):
+        return None
+    device = str(getattr(sim_cfg, "device", "") or getattr(raw, "device", "") or "")
+    if device and not device.startswith("cuda"):
+        return None
+    return raw
+
+
+def _read_isaac_stats(raw: Any) -> Any | None:
+    override = getattr(raw, "_physx_scene_stats", None)
+    if override is not None:
+        return override
+    try:
+        import omni.physx
+        from omni.physx.bindings._physx import PhysicsSceneStats
+        from pxr import PhysicsSchemaTools, UsdUtils
+    except ImportError:
+        return None
+    sim = getattr(raw, "sim", None)
+    stage = getattr(sim, "stage", None)
+    if stage is None:
+        return None
+    sim_cfg = raw.cfg.sim
+    stats = PhysicsSceneStats()
+    try:
+        ok = omni.physx.get_physx_statistics_interface().get_physx_scene_statistics(
+            UsdUtils.StageCache.Get().GetId(stage).ToLongInt(),
+            PhysicsSchemaTools.sdfPathToInt(sim_cfg.physics_prim_path),
+            stats,
+        )
+    except Exception:
+        return None
+    return stats if ok else None
+
+
+def _isaac_snapshot(env: Any) -> dict[str, Any] | None:
+    raw = _isaac_physx_cfg(env)
+    if raw is None:
+        return None
+    physx = raw.cfg.sim.physx
+    stats = _read_isaac_stats(raw)
+    if stats is None:
+        return None
+    allocated_stack = int(physx.gpu_collision_stack_size)
+    allocated_patches = int(getattr(physx, "gpu_max_rigid_patch_count", 0) or 0)
+    needed_stack = int(getattr(stats, "gpu_mem_collision_stack_size", 0) or 0)
+    needed_patches = int(getattr(stats, "gpu_mem_rigid_patch_count", 0) or 0)
+    reasons: list[str] = []
+    if allocated_stack and needed_stack > allocated_stack:
+        reasons.append("collision stack")
+    if allocated_patches and needed_patches > allocated_patches:
+        reasons.append("rigid patch count")
+    return {
+        "available": True,
+        "engine": "isaacsim",
+        "any_overflow": bool(reasons),
+        "overflow_reasons": reasons,
+        "gpu_collision_stack_size": allocated_stack,
+        "gpu_mem_collision_stack_size": needed_stack,
+        "gpu_max_rigid_patch_count": allocated_patches,
+        "gpu_mem_rigid_patch_count": needed_patches,
+        "gpu_mem_rigid_contact_count": int(getattr(stats, "gpu_mem_rigid_contact_count", 0) or 0),
+    }
+
+
 def attach_overflow_guard(env: Any) -> Any:
     """Wrap ``step`` so overflow is checked after every environment step.
 
-    No-op when the env has no ``wp_data.overflow``. The mjlab env class also
-    checks itself; this wrapper is for VecEnv stacks that replace ``step``.
+    No-op when the env has neither mujoco_warp ``d.overflow`` nor an Isaac
+    PhysX GPU budget. The mjlab env class also checks itself; this wrapper
+    is for VecEnv stacks that replace ``step``.
     """
     raw = getattr(env, "unwrapped", env)
     wp_data = getattr(getattr(raw, "sim", None), "wp_data", None)
-    if wp_data is None or not hasattr(wp_data, "overflow"):
-        return env
-    return OverflowGuardVecEnv(env)
+    if wp_data is not None and hasattr(wp_data, "overflow"):
+        return OverflowGuardVecEnv(env)
+    if _isaac_physx_cfg(env) is not None:
+        return OverflowGuardVecEnv(env)
+    return env
 
 
 class OverflowGuardVecEnv:
@@ -191,6 +313,10 @@ class OverflowGuardVecEnv:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.env, name)
+
+    @property
+    def unwrapped(self):
+        return getattr(self.env, "unwrapped", self.env)
 
     @property
     def episode_length_buf(self):

@@ -78,8 +78,10 @@ def _parse() -> tuple[argparse.Namespace, list[str]]:
         action="store_true",
         default=False,
         help=(
-            "Do not refuse when mujoco_warp d.overflow is set. Contacts and "
-            "constraints are still dropped. Sets INSTINCTLAB_ALLOW_CONTACT_OVERFLOW=1."
+            "Do not refuse when mujoco_warp d.overflow is set, or when PhysX "
+            "GPU collision-stack / patch occupancy exceeds the allocated "
+            "budget. Contacts are still dropped. Sets "
+            "INSTINCTLAB_ALLOW_CONTACT_OVERFLOW=1."
         ),
     )
 

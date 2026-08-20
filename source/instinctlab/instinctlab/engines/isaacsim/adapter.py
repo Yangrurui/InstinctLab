@@ -154,10 +154,16 @@ class IsaacSimAdapter:
 
     @staticmethod
     def wrap_for_rl(env: Any) -> Any:
-        """Wrap with main's Isaac wrapper, so training reads the same tensors main's does."""
+        """Wrap with main's Isaac wrapper, so training reads the same tensors main's does.
+
+        PhysX GPU overflow is checked here: construction first, then after every
+        wrapped step. The log line PhysX already prints is not a failed run.
+        """
+        from instinctlab.utils.contact_overflow import attach_overflow_guard, check_contact_overflow
         from instinctlab.utils.wrappers.instinct_rl.vecenv_wrapper import InstinctRlVecEnvWrapper
 
-        return InstinctRlVecEnvWrapper(env)
+        check_contact_overflow(env, phase="construction")
+        return InstinctRlVecEnvWrapper(attach_overflow_guard(env))
 
     def capabilities(self) -> CapabilitySet:
         return TERMS.capabilities()

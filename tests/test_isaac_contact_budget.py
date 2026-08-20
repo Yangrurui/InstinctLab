@@ -81,3 +81,13 @@ def test_collision_stack_raise_sits_in_the_mesh_terrain_branch() -> None:
 
 def test_aligned_collision_stack_is_not_a_known_drift() -> None:
     assert "sim/physx/gpu_collision_stack_size" not in KNOWN_DRIFTS
+
+
+def test_adapter_wrap_for_rl_refuses_physx_overflow() -> None:
+    tree = ast.parse(ADAPTER.read_text())
+    cls = next(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef) and node.name == "IsaacSimAdapter")
+    wrap = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == "wrap_for_rl")
+    body = ast.unparse(wrap)
+    assert "check_contact_overflow" in body
+    assert 'phase="construction"' in body or "phase='construction'" in body
+    assert "attach_overflow_guard" in body

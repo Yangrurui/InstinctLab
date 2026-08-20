@@ -72,6 +72,85 @@ def test_isaac_like_env_is_a_no_op() -> None:
     assert attach_overflow_guard(env) is env
 
 
+def _fake_isaac_env(
+    *, needed_stack: int, allocated_stack: int, needed_patches: int = 10, allocated_patches: int = 327680
+):
+    env = SimpleNamespace(
+        cfg=SimpleNamespace(
+            sim=SimpleNamespace(
+                device="cuda:1",
+                physics_prim_path="/physicsScene",
+                physx=SimpleNamespace(
+                    gpu_collision_stack_size=allocated_stack,
+                    gpu_max_rigid_patch_count=allocated_patches,
+                ),
+            )
+        ),
+        sim=SimpleNamespace(),
+        device="cuda:1",
+        _physx_scene_stats=SimpleNamespace(
+            gpu_mem_collision_stack_size=needed_stack,
+            gpu_mem_rigid_patch_count=needed_patches,
+            gpu_mem_rigid_contact_count=needed_patches * 3,
+        ),
+    )
+    env.unwrapped = env
+    return env
+
+
+def test_isaac_construction_refuses_when_needed_stack_exceeds_budget(monkeypatch) -> None:
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_isaac_env(needed_stack=813424, allocated_stack=2**14)
+    with pytest.raises(ContactOverflowError, match="PhysX construction overflow") as caught:
+        check_contact_overflow(env, phase="construction")
+    text = str(caught.value)
+    assert "collision stack" in text
+    assert "813424" in text
+    assert "16384" in text
+    assert "drops contacts" in text
+    assert ALLOW_ENV in text
+    assert caught.value.snapshot["any_overflow"] is True
+    assert caught.value.snapshot["engine"] == "isaacsim"
+
+
+def test_isaac_clean_budget_does_not_raise(monkeypatch) -> None:
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_isaac_env(needed_stack=912488, allocated_stack=2**29)
+    assert check_contact_overflow(env, phase="construction") is None
+    snapshot = contact_budget_snapshot(env)
+    assert snapshot is not None
+    assert snapshot["any_overflow"] is False
+    assert snapshot["gpu_mem_collision_stack_size"] == 912488
+
+
+def test_isaac_guard_wrapper_raises_after_step(monkeypatch) -> None:
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_isaac_env(needed_stack=100, allocated_stack=2**29)
+
+    def _step(actions):
+        env._physx_scene_stats.gpu_mem_collision_stack_size = 2**29 + 1
+        return "obs", "rew", "done", {}
+
+    env.step = _step
+    env.episode_length_buf = None
+    wrapped = attach_overflow_guard(env)
+    assert wrapped is not env
+    with pytest.raises(ContactOverflowError, match="step overflow"):
+        wrapped.step(None)
+
+
+def test_isaac_adapter_wrap_for_rl_checks_overflow() -> None:
+    source = (REPO / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py").read_text()
+    tree = ast.parse(source)
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "IsaacSimAdapter")
+    wrap = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "wrap_for_rl")
+    body = ast.unparse(wrap)
+    assert "check_contact_overflow" in body
+    assert "construction" in body
+    assert "attach_overflow_guard" in body
+    assert "InstinctRlVecEnvWrapper" in body
+
+
 def test_construction_refuses_when_a_world_has_overflow(monkeypatch) -> None:
     monkeypatch.delenv(ALLOW_ENV, raising=False)
     env = _fake_env(overflow=[0, 1 << 3, 0], nacon=4200, nefc=[100, 200, 80], nconmax=256, njmax=768)
