@@ -5,10 +5,17 @@ initial condition, without changing task behaviour. Run once per side and diff:
 
     python scripts/probe_parkour_plant_parity.py run --side ours --mode dump \\
         --num-envs 2 --steps 0 --seed 42 --device cuda:2 --out /tmp/ours_dump.json
-    python scripts/probe_parkour_plant_parity.py run --side instinctmj --mode dump \\
-        --state-npz /tmp/ours_state.npz --num-envs 2 --seed 42 --device cuda:2 \\
+    CUDA_VISIBLE_DEVICES=0 /root/InstinctMJ/.venv/bin/python \\
+        scripts/probe_parkour_plant_parity.py run --side instinctmj --mode dump \\
+        --state-npz /tmp/ours_dump.state.npz --num-envs 2 --seed 42 --device cuda:0 \\
         --out /tmp/mj_dump.json
     python scripts/probe_parkour_plant_parity.py compare /tmp/ours_dump.json /tmp/mj_dump.json
+
+InstinctMJ **must** use ``/root/InstinctMJ/.venv/bin/python`` (the ``instinct-train``
+interpreter) and the training GPU convention ``CUDA_VISIBLE_DEVICES=<n> --device cuda:0``.
+The current process's site-packages are the wrong stack; a missing ``coacd`` there is
+not a missing project dependency. Passing ``--device cuda:1`` inside that venv is a
+Warp device mismatch, not a missing package.
 
 Engine packages are imported only inside ``run`` (never at module import time), so
 ``--help`` and offline tests stay engine-free.
@@ -29,6 +36,7 @@ from typing import Any
 OURS_TASK_ID = "Instinct-Parkour-Target-G1"
 INSTINCTMJ_TASK_ID = "Instinct-Parkour-Target-Amp-G1-v0"
 DEFAULT_INSTINCTMJ_ROOT = Path("/root/InstinctMJ")
+DEFAULT_INSTINCTMJ_PYTHON = DEFAULT_INSTINCTMJ_ROOT / ".venv/bin/python"
 CAMERA_NAME = "camera"
 ROOT_HEIGHT_MINIMUM = 0.5
 
@@ -37,7 +45,23 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "root_z": 1e-3,
     "qfrc": 0.05,
     "action": 1e-3,
+    "depth": 0.02,
 }
+
+# Causal order for first-divergence: observation → command → torque → kinematics.
+COMPARE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("depth_processed", "depth"),
+    ("depth_raw", "depth"),
+    ("raw_action", "action"),
+    ("processed_action", "action"),
+    ("qfrc_actuator", "qfrc"),
+    ("qpos", "qpos"),
+    ("qvel", "qpos"),
+    ("root_link_pos_w", "root_z"),
+)
+REQUIRED_STEP_FIELDS: frozenset[str] = frozenset(
+    {"raw_action", "processed_action", "qpos", "qfrc_actuator", "root_link_pos_w"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +88,22 @@ def _as_float_list(value: Any) -> list[float]:
     return [float(x) for x in value]
 
 
-def _max_abs_diff(left: Any, right: Any) -> float:
+def permute_by_names(values: Any, src_names: list[str], dst_names: list[str]) -> Any:
+    """Reorder the last axis of ``values`` from ``src_names`` into ``dst_names``."""
+    import numpy as np
+
+    if list(src_names) == list(dst_names):
+        return values
+    missing = [name for name in dst_names if name not in src_names]
+    extra = [name for name in src_names if name not in dst_names]
+    if missing or extra:
+        raise ValueError(f"name sets differ: missing={missing!r} extra={extra!r}")
+    index = [src_names.index(name) for name in dst_names]
+    arr = np.asarray(values)
+    return arr[..., index]
+
+
+def _max_abs_diff(left: Any, right: Any, *, treat_nonfinite_as: float | None = None) -> float:
     import numpy as np
 
     la = np.asarray(left, dtype=np.float64).reshape(-1)
@@ -73,6 +112,9 @@ def _max_abs_diff(left: Any, right: Any) -> float:
         raise ValueError(f"shape mismatch: {la.shape} vs {ra.shape}")
     if la.size == 0:
         return 0.0
+    if treat_nonfinite_as is not None:
+        la = np.where(np.isfinite(la), la, treat_nonfinite_as)
+        ra = np.where(np.isfinite(ra), ra, treat_nonfinite_as)
     return float(np.max(np.abs(la - ra)))
 
 
@@ -138,6 +180,46 @@ def _step_array(payload: dict[str, Any], field: str, step_index: int) -> Any | N
     return embedded
 
 
+def _step_origins_z(payload: dict[str, Any], step_index: int) -> Any | None:
+    arr = _step_array(payload, "env_origins_z", step_index)
+    if arr is not None:
+        return arr
+    step = next((item for item in payload.get("steps", []) if item.get("step_index") == step_index), None)
+    if step is None:
+        return None
+    return step.get("env_origins_z")
+
+
+def _relative_root_z(pos: Any, origins_z: Any | None) -> Any:
+    import numpy as np
+
+    z = np.asarray(pos, dtype=float)
+    if z.ndim >= 2:
+        z = z[:, 2]
+    elif z.size >= 3:
+        z = np.asarray([z[2]], dtype=float)
+    if origins_z is None:
+        return z
+    return z - np.asarray(origins_z, dtype=float).reshape(-1)[: z.size]
+
+
+def first_field_exceedance(diffs: list[float], threshold: float, step_indices: list[int]) -> dict[str, Any] | None:
+    """Two consecutive steps when possible; a single snapshot (dump) fails on one exceedance."""
+    if len(diffs) < 2:
+        for i, diff in enumerate(diffs):
+            if diff > threshold:
+                return {
+                    "first_step_index": step_indices[i],
+                    "diffs": [diff],
+                    "reason": "single-step exceedance (dump/snapshot has no second step)",
+                }
+        return None
+    hit = first_consecutive_two_step_exceedance(diffs, threshold)
+    if hit is None:
+        return None
+    return {"first_step_index": step_indices[hit], "diffs": diffs[hit : hit + 2]}
+
+
 def compare_rollout_payloads(
     left: dict[str, Any],
     right: dict[str, Any],
@@ -145,71 +227,70 @@ def compare_rollout_payloads(
     thresholds: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Compare two probe JSON outputs. Raises on name mismatch; reports first consecutive-two-step exceedance."""
-    thresholds = dict(DEFAULT_THRESHOLDS if thresholds is None else thresholds)
+    thresholds = dict(DEFAULT_THRESHOLDS if thresholds is None else {**DEFAULT_THRESHOLDS, **thresholds})
     static_l = left.get("static", {})
     static_r = right.get("static", {})
-    align_names_or_fail(list(static_l.get("joint_names", [])), list(static_r.get("joint_names", [])), label="joint")
-    align_names_or_fail(
-        list(static_l.get("action_target_names", [])),
-        list(static_r.get("action_target_names", [])),
-        label="action_target",
-    )
+    joint_l = list(static_l.get("joint_names", []))
+    joint_r = list(static_r.get("joint_names", []))
+    if set(joint_l) != set(joint_r):
+        raise ValueError(f"joint name sets differ: left={joint_l!r} right={joint_r!r}")
+    action_l = list(static_l.get("action_target_names", []))
+    action_r = list(static_r.get("action_target_names", []))
+    if set(action_l) != set(action_r):
+        raise ValueError(f"action name sets differ: left={action_l!r} right={action_r!r}")
 
     steps_l = sorted({int(s["step_index"]) for s in left.get("steps", []) if "step_index" in s})
     steps_r = sorted({int(s["step_index"]) for s in right.get("steps", []) if "step_index" in s})
     if steps_l != steps_r:
         raise ValueError(f"step indices differ: left={steps_l} right={steps_r}")
 
-    field_threshold = {
-        "qpos": thresholds["qpos"],
-        "qvel": thresholds["qpos"],
-        "qfrc_actuator": thresholds["qfrc"],
-        "raw_action": thresholds["action"],
-        "processed_action": thresholds["action"],
-        "root_link_pos_w": thresholds["root_z"],
-    }
-
-    per_field_diffs: dict[str, list[float]] = {name: [] for name in field_threshold}
+    named_joint = {"qpos", "qvel", "qfrc_actuator"}
+    named_action = {"raw_action", "processed_action"}
+    per_field_diffs: dict[str, list[float]] = {name: [] for name, _ in COMPARE_FIELDS}
     per_step_report: list[dict[str, Any]] = []
+    missing_required: dict[str, Any] | None = None
 
     for step_index in steps_l:
         row: dict[str, Any] = {"step_index": step_index, "fields": {}}
-        for field, tol in field_threshold.items():
+        for field, thresh_key in COMPARE_FIELDS:
+            tol = thresholds[thresh_key]
             lv = _step_array(left, field, step_index)
             rv = _step_array(right, field, step_index)
-            if lv is None and rv is None:
-                row["fields"][field] = {"status": "both_missing"}
-                per_field_diffs[field].append(0.0)
-                continue
             if lv is None or rv is None:
-                row["fields"][field] = {"status": "one_missing", "left": lv is not None, "right": rv is not None}
-                per_field_diffs[field].append(float("inf"))
+                row["fields"][field] = {"status": "missing", "left": lv is not None, "right": rv is not None}
+                per_field_diffs[field].append(float("inf") if field in REQUIRED_STEP_FIELDS else 0.0)
+                if field in REQUIRED_STEP_FIELDS and missing_required is None and step_index >= 0:
+                    missing_required = {
+                        "field": field,
+                        "first_step_index": step_index,
+                        "reason": "required tensor missing; refusing to treat None as agreement",
+                    }
                 continue
-            diff = _max_abs_diff(lv, rv)
-            if field == "root_link_pos_w":
+            if field in named_joint:
+                rv = permute_by_names(rv, joint_r, joint_l)
+            elif field in named_action:
+                rv = permute_by_names(rv, action_r, action_l)
+            if field.startswith("depth"):
+                diff = _max_abs_diff(lv, rv, treat_nonfinite_as=1.0e6)
+            elif field == "root_link_pos_w":
                 import numpy as np
 
-                lz = np.asarray(lv, dtype=float)
-                rz = np.asarray(rv, dtype=float)
-                if lz.ndim >= 2:
-                    diff = float(np.max(np.abs(lz[:, 2] - rz[:, 2])))
-                else:
-                    diff = abs(float(lz[2]) - float(rz[2]))
+                lz = _relative_root_z(lv, _step_origins_z(left, step_index))
+                rz = _relative_root_z(rv, _step_origins_z(right, step_index))
+                diff = float(np.max(np.abs(lz - rz)))
+            else:
+                diff = _max_abs_diff(lv, rv)
             per_field_diffs[field].append(diff)
             row["fields"][field] = {"max_abs_diff": diff, "threshold": tol, "exceeds": diff > tol}
         per_step_report.append(row)
 
-    first_failure: dict[str, Any] | None = None
-    for field, diffs in per_field_diffs.items():
-        hit = first_consecutive_two_step_exceedance(diffs, field_threshold[field])
-        if hit is not None:
-            first_failure = {
-                "field": field,
-                "first_step_index": hit,
-                "threshold": field_threshold[field],
-                "diffs": diffs[hit : hit + 2],
-            }
-            break
+    first_failure: dict[str, Any] | None = missing_required
+    if first_failure is None:
+        for field, thresh_key in COMPARE_FIELDS:
+            hit = first_field_exceedance(per_field_diffs[field], thresholds[thresh_key], steps_l)
+            if hit is not None:
+                first_failure = {"field": field, "threshold": thresholds[thresh_key], **hit}
+                break
 
     return {
         "steps_compared": len(steps_l),
@@ -292,12 +373,25 @@ def _repo_commit(repo: Path) -> str | None:
         return None
 
 
+def instinctmj_python_hint(current: str | None = None) -> str:
+    """Tell the caller to use InstinctMJ's training venv, not this interpreter."""
+    exe = current or sys.executable
+    return (
+        f"InstinctMJ side must use {DEFAULT_INSTINCTMJ_PYTHON} "
+        "(the interpreter behind instinct-train) with CUDA_VISIBLE_DEVICES=<n> "
+        f"and --device cuda:0. Current executable is {exe}. "
+        "Do not pip-install missing modules into this env. Example:\n"
+        f"  CUDA_VISIBLE_DEVICES=0 {DEFAULT_INSTINCTMJ_PYTHON} {Path(__file__).resolve()} "
+        "run --side instinctmj --mode dump --device cuda:0 --num-envs 2 --steps 0 "
+        "--out /tmp/mj_dump.json"
+    )
+
+
 def _ensure_instinctmj_root(root: Path) -> Path:
     src = root / "src"
     if not src.is_dir():
         raise RuntimeError(
-            f"InstinctMJ reference tree not found at {root}. "
-            "Set INSTINCTMJ_ROOT or install instinct_mj; refusing to fall back to ours."
+            f"InstinctMJ reference tree not found at {root}. Set INSTINCTMJ_ROOT; refusing to fall back to ours."
         )
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
@@ -313,6 +407,14 @@ def _silence_observation_noise(env_cfg: object) -> None:
 
 
 def _disable_terminations(env_cfg: object) -> None:
+    """Null every termination term so nothing can fire.
+
+    This is the plant-compare switch: without it, ``auto_reset`` (mjlab default True)
+    replaces a dying env in-place, and a post-step ``root_z``/``qpos`` sample is the
+    *next* spawn while ``termination_manager.terminated`` still describes the previous
+    body. The probe always sets ``auto_reset=False`` as well, so flag and kinematics
+    stay on the same control step even if a term is left enabled.
+    """
     terms = env_cfg.terminations
     if isinstance(terms, dict):
         for key in list(terms.keys()):
@@ -320,6 +422,15 @@ def _disable_terminations(env_cfg: object) -> None:
         return
     for key in list(vars(terms)):
         setattr(terms, key, None)
+
+
+def _prepare_probe_env_cfg(env_cfg: object, *, disable_terminations: bool, friction_fixed: bool) -> None:
+    if hasattr(env_cfg, "auto_reset"):
+        env_cfg.auto_reset = False
+    if disable_terminations:
+        _disable_terminations(env_cfg)
+    if friction_fixed:
+        _disable_friction_randomization(env_cfg)
 
 
 def _disable_friction_randomization(env_cfg: object) -> None:
@@ -345,15 +456,12 @@ def _build_ours(
     from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 
     spec = parkour_target_g1()
+    MjlabAdapter.bootstrap(argparse.Namespace(device=device))
     compiled = MjlabAdapter().compile(spec, num_envs=num_envs, device=device)
     compiled.env_cfg.seed = seed
     if disable_obs_noise:
         _silence_observation_noise(compiled.env_cfg)
-    if disable_terminations:
-        _disable_terminations(compiled.env_cfg)
-    if friction_fixed:
-        _disable_friction_randomization(compiled.env_cfg)
-    MjlabAdapter.bootstrap(argparse.Namespace(device=device))
+    _prepare_probe_env_cfg(compiled.env_cfg, disable_terminations=disable_terminations, friction_fixed=friction_fixed)
     env = compiled.make_env()
     return env, compiled, spec
 
@@ -369,22 +477,31 @@ def _build_instinctmj(
     root: Path,
 ):
     _ensure_instinctmj_root(root)
-    import instinct_mj.tasks  # noqa: F401
-    from instinct_mj.envs import InstinctRlEnv
-    from instinct_mj.tasks.registry import load_env_cfg
+    try:
+        import instinct_mj.tasks  # noqa: F401
+        from instinct_mj.envs import InstinctRlEnv
+        from instinct_mj.tasks.registry import load_env_cfg
+    except ModuleNotFoundError as exc:
+        raise SystemExit(f"{exc}\n{instinctmj_python_hint()}") from exc
 
     env_cfg = load_env_cfg(INSTINCTMJ_TASK_ID, play=False)
+    if env_cfg is None:
+        raise SystemExit(f"{INSTINCTMJ_TASK_ID} train factory returned None; play=False is required")
     env_cfg.seed = seed
     env_cfg.scene.num_envs = num_envs
     if disable_obs_noise:
         _silence_observation_noise(env_cfg)
-    if disable_terminations:
-        _disable_terminations(env_cfg)
-    if friction_fixed:
-        _disable_friction_randomization(env_cfg)
+    _prepare_probe_env_cfg(env_cfg, disable_terminations=disable_terminations, friction_fixed=friction_fixed)
     from mjlab.utils.torch import configure_torch_backends
 
     configure_torch_backends()
+    if device not in {"cuda:0", "cpu"}:
+        print(
+            "[WARN] InstinctMJ training uses CUDA_VISIBLE_DEVICES=<n> and --device cuda:0. "
+            f"You passed {device}; Warp often then raycasts on cuda:0 and faults. "
+            f"Prefer: CUDA_VISIBLE_DEVICES=0 {DEFAULT_INSTINCTMJ_PYTHON} ... --device cuda:0",
+            flush=True,
+        )
     env = InstinctRlEnv(cfg=env_cfg, device=device)
     return env, env_cfg
 
@@ -402,25 +519,34 @@ def _joint_names(env) -> list[str]:
     return list(env.scene["robot"].joint_names)
 
 
-def _canonical_to_native_order(env, names: list[str]):
+def _native_indices_for_names(env, names: list[str]):
+    """Column indices into ``robot.data.joint_*`` for ``names`` (name order, not argsort)."""
     import torch
 
     native = _joint_names(env)
     missing = set(names) - set(native)
     if missing:
         raise RuntimeError(f"robot missing joints from state npz: {sorted(missing)}")
-    return torch.tensor([native.index(name) for name in names], device=env.device)
+    return torch.tensor([native.index(name) for name in names], device=env.device, dtype=torch.long)
+
+
+def _action_buffers(action_term) -> tuple[Any, Any]:
+    """Return (raw, processed) tensors. mjlab exposes ``raw_action`` but only ``_processed_actions``."""
+    raw = getattr(action_term, "raw_action", None)
+    if raw is None:
+        raw = getattr(action_term, "_raw_actions", None)
+    processed = getattr(action_term, "_processed_actions", None)
+    if processed is None:
+        processed = getattr(action_term, "processed_actions", None)
+    return raw, processed
 
 
 def _capture_state(env, joint_order: list[str]) -> dict[str, Any]:
-    import torch
-
     robot = env.scene["robot"]
     data = robot.data
-    native_ids = _canonical_to_native_order(env, joint_order)
-    engine_order = torch.argsort(native_ids)
-    qpos = data.joint_pos[:, engine_order].detach().cpu().numpy()
-    qvel = data.joint_vel[:, engine_order].detach().cpu().numpy()
+    native_ids = _native_indices_for_names(env, joint_order)
+    qpos = data.joint_pos[:, native_ids].detach().cpu().numpy()
+    qvel = data.joint_vel[:, native_ids].detach().cpu().numpy()
     root_pos = (data.root_link_pos_w - env.scene.env_origins).detach().cpu().numpy()
     root_quat = data.root_link_quat_w.detach().cpu().numpy()
     root_lin = data.root_link_lin_vel_w.detach().cpu().numpy()
@@ -437,28 +563,46 @@ def _capture_state(env, joint_order: list[str]) -> dict[str, Any]:
     }
 
 
+def _refresh_sensors_and_obs(env) -> None:
+    """After a write: kinematics, rays, then one obs compute so depth matches the written pose."""
+    import torch
+
+    env.scene.write_data_to_sim()
+    if hasattr(env.sim, "forward"):
+        env.sim.forward()
+    if hasattr(env.sim, "sense"):
+        env.sim.sense()
+    env_ids = torch.arange(env.num_envs, device=env.device)
+    if hasattr(env, "observation_manager"):
+        env.observation_manager.reset(env_ids)
+        env.obs_buf = env.observation_manager.compute(update_history=True)
+
+
 def _apply_state(env, state: dict[str, Any]) -> None:
     import torch
 
-    align_names_or_fail(list(state["joint_names"]), _joint_names(env), label="joint")
+    stored_names = list(state["joint_names"])
+    native = _joint_names(env)
+    if set(stored_names) != set(native):
+        raise ValueError(f"joint name sets differ: stored={stored_names!r} native={native!r}")
     robot = env.scene["robot"]
     env_ids = torch.arange(env.num_envs, device=env.device)
-    native_ids = _canonical_to_native_order(env, list(state["joint_names"]))
-    engine_order = torch.argsort(native_ids)
     root_pos = torch.as_tensor(state["root_pos"], device=env.device, dtype=torch.float32)
     root_quat = torch.as_tensor(state["root_quat"], device=env.device, dtype=torch.float32)
     root_lin = torch.as_tensor(state["root_lin_vel"], device=env.device, dtype=torch.float32)
     root_ang = torch.as_tensor(state["root_ang_vel"], device=env.device, dtype=torch.float32)
-    joint_pos = torch.as_tensor(state["joint_pos"], device=env.device, dtype=torch.float32)
-    joint_vel = torch.as_tensor(state["joint_vel"], device=env.device, dtype=torch.float32)
+    joint_pos = torch.as_tensor(
+        permute_by_names(state["joint_pos"], stored_names, native), device=env.device, dtype=torch.float32
+    )
+    joint_vel = torch.as_tensor(
+        permute_by_names(state["joint_vel"], stored_names, native), device=env.device, dtype=torch.float32
+    )
     pose = torch.cat([root_pos + env.scene.env_origins, root_quat], dim=-1)
     velocity = torch.cat([root_lin, root_ang], dim=-1)
     robot.write_root_link_pose_to_sim(pose, env_ids=env_ids)
     robot.write_root_link_velocity_to_sim(velocity, env_ids=env_ids)
-    robot.write_joint_state_to_sim(joint_pos[:, engine_order], joint_vel[:, engine_order], env_ids=env_ids)
-    env.scene.write_data_to_sim()
-    if hasattr(env.sim, "forward"):
-        env.sim.forward()
+    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+    _refresh_sensors_and_obs(env)
 
 
 def _write_state_npz(path: Path, state: dict[str, Any]) -> None:
@@ -503,18 +647,62 @@ def _load_action_npz(path: Path, target_names: list[str]) -> Any:
         return np.asarray(archive["actions"])
 
 
-def _mjlab_contact_snapshot(env) -> dict[str, Any]:
-    from instinctlab.utils.contact_overflow import _mjlab_snapshot
+def dump_state_output_path(*, out: Path, state_npz: Path | None, incoming_exists: bool) -> Path:
+    """Write captured state next to --out when --state-npz is an existing input."""
+    if incoming_exists:
+        return out.with_suffix(".state.npz")
+    return state_npz if state_npz is not None else out.with_suffix(".state.npz")
 
-    snap = _mjlab_snapshot(env)
-    if snap is None:
-        return {"available": False, "reason": "sim.wp_data.overflow unavailable"}
+
+def _to_numpy(value: Any):
+    """Host copy of a torch / Warp / numpy array. Warp ``nacon`` is an array, not an int."""
+    import numpy as np
+
+    if value is None:
+        return None
+    numpy_fn = getattr(value, "numpy", None)
+    if callable(numpy_fn):
+        try:
+            out = numpy_fn()
+            return out if isinstance(out, np.ndarray) else np.asarray(out)
+        except TypeError:
+            pass
+    if hasattr(value, "detach"):
+        return value.detach().cpu().numpy()
+    try:
+        return np.asarray(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_int(value: Any) -> int | None:
+    arr = _to_numpy(value)
+    if arr is None or getattr(arr, "size", 0) == 0:
+        return None
+    return int(arr.reshape(-1)[0])
+
+
+def _max_int(value: Any) -> int | None:
+    arr = _to_numpy(value)
+    if arr is None or getattr(arr, "size", 0) == 0:
+        return None
+    return int(arr.max())
+
+
+def _mjlab_contact_snapshot(env) -> dict[str, Any]:
+    """Read nacon/nefc without importing instinctlab (InstinctMJ venv has none)."""
+    raw = getattr(env, "unwrapped", env)
+    sim = getattr(raw, "sim", None)
+    wp_data = getattr(sim, "wp_data", None)
+    if wp_data is None:
+        return {"available": False, "reason": "sim.wp_data unavailable"}
+    cfg = getattr(sim, "cfg", None)
     return {
         "available": True,
-        "nacon": snap.get("nacon"),
-        "nefc_max": snap.get("nefc_max"),
-        "nconmax": snap.get("nconmax"),
-        "njmax": snap.get("njmax"),
+        "nacon": _first_int(getattr(wp_data, "nacon", None)),
+        "nefc_max": _max_int(getattr(wp_data, "nefc", None)),
+        "nconmax": getattr(cfg, "nconmax", None) if cfg is not None else None,
+        "njmax": getattr(cfg, "njmax", None) if cfg is not None else None,
     }
 
 
@@ -543,10 +731,12 @@ def _collect_camera_runtime(env) -> dict[str, Any]:
 
         info["allowed_geom_count"] = int(mask.sum().item()) if isinstance(mask, torch.Tensor) else int(mask.sum())
         info["camera_filter"] = "body_mesh_mask_with_hop"
+        info["hop_max"] = 6
     else:
         groups = getattr(cfg, "include_geom_groups", None) if cfg is not None else None
         info["camera_filter"] = "geom_groups"
         info["include_geom_groups"] = list(groups) if groups is not None else None
+        info["mesh_prim_paths"] = list(getattr(cfg, "mesh_prim_paths", []) or [])
     return info
 
 
@@ -609,29 +799,58 @@ def _tolist(value) -> Any:
     return float(value)
 
 
-def _depth_summaries(env) -> dict[str, Any]:
-    try:
-        from instinctlab.compat.sensors import depth_image
-    except ImportError:
-        return {"raw": {"available": False, "reason": "instinctlab.compat.sensors unavailable"}}
+def _raw_depth_tensor(env):
+    """Sensor plane depth, same wash on both sides. Does not import instinctlab."""
     sensor = env.scene.sensors.get(CAMERA_NAME)
     if sensor is None:
-        return {
-            "raw": {"available": False, "reason": f"no {CAMERA_NAME}"},
-            "processed": {"available": False, "reason": f"no {CAMERA_NAME}"},
-        }
-    raw = depth_image(sensor)
-    raw_summary = _torch_summary(raw)
-    processed: dict[str, Any]
-    try:
-        obs = env.observation_manager.compute().get("policy", {})
-        if isinstance(obs, dict) and "depth_image" in obs:
-            processed = _torch_summary(obs["depth_image"])
-        else:
-            processed = {"available": False, "reason": "policy depth_image term missing or concatenated away"}
-    except Exception as exc:  # noqa: BLE001
-        processed = {"available": False, "reason": f"observation_manager.compute failed: {exc}"}
-    return {"raw": raw_summary, "processed": processed}
+        return None
+    return _depth_raw_from_sensor(sensor)
+
+
+def _depth_raw_from_sensor(sensor):
+    """``distance_to_image_plane`` as (env, H, W, 1); miss / past far plane → +inf."""
+    import torch
+
+    data = getattr(sensor, "data", None)
+    output = getattr(data, "output", None)
+    if not isinstance(output, dict) or "distance_to_image_plane" not in output:
+        return None
+    image = output["distance_to_image_plane"]
+    if image.ndim == 3:
+        image = image.unsqueeze(-1)
+    cfg = getattr(sensor, "cfg", None)
+    far = getattr(cfg, "image_plane_max", None) if cfg is not None else None
+    if far is None and cfg is not None:
+        far = getattr(cfg, "max_distance", None)
+    needs_inf = ~torch.isfinite(image)
+    too_far = image > float(far) if far is not None else torch.zeros_like(image, dtype=torch.bool)
+    if not bool(needs_inf.any()) and not bool(too_far.any()):
+        return image
+    cleaned = image.clone()
+    cleaned[needs_inf | too_far] = float("inf")
+    return cleaned
+
+
+def _processed_depth_tensor(env):
+    """Policy ``depth_image`` from the cached obs pack. Never ``compute(update_history=True)``."""
+    buf = getattr(env, "obs_buf", None)
+    if not buf:
+        buf = env.observation_manager.compute(update_history=False)
+    policy = buf.get("policy") if isinstance(buf, dict) else None
+    if isinstance(policy, dict) and "depth_image" in policy:
+        return policy["depth_image"]
+    return None
+
+
+def _depth_payload(raw, processed) -> dict[str, Any]:
+    return {
+        "raw": _torch_summary(raw) if raw is not None else {"available": False, "reason": f"no {CAMERA_NAME}"},
+        "processed": (
+            _torch_summary(processed)
+            if processed is not None
+            else {"available": False, "reason": "policy depth_image missing from obs_buf"}
+        ),
+    }
 
 
 def _torch_summary(tensor) -> dict[str, Any]:
@@ -666,16 +885,16 @@ def _collect_step_record(
     step_index: int,
     action_term,
     store_arrays: dict[str, Any],
+    depth_raw=None,
+    depth_processed=None,
 ) -> dict[str, Any]:
-    import numpy as np
-
     robot = env.scene["robot"]
     data = robot.data
-    joint_ids = _canonical_to_native_order(env, _joint_names(env))
-    engine_order = __import__("torch").argsort(joint_ids)
-    qpos = data.joint_pos[:, engine_order].detach().cpu().numpy()
-    qvel = data.joint_vel[:, engine_order].detach().cpu().numpy()
-    qfrc = data.qfrc_actuator[:, engine_order].detach().cpu().numpy()
+    names = _joint_names(env)
+    native_ids = _native_indices_for_names(env, names)
+    qpos = data.joint_pos[:, native_ids].detach().cpu().numpy()
+    qvel = data.joint_vel[:, native_ids].detach().cpu().numpy()
+    qfrc = data.qfrc_actuator[:, native_ids].detach().cpu().numpy()
     root = data.root_link_pos_w.detach().cpu().numpy()
     root_quat = data.root_link_quat_w.detach().cpu().numpy()
     root_vel = data.root_link_lin_vel_w.detach().cpu().numpy()
@@ -686,14 +905,17 @@ def _collect_step_record(
     term_mgr = env.termination_manager
     active = term_mgr.active_terms if isinstance(term_mgr.active_terms, list) else term_mgr.active_terms()
     term_flags = {name: bool(term_mgr._term_dones[name].any().item()) for name in active}
-    raw = getattr(action_term, "raw_action", getattr(action_term, "_raw_actions", None))
-    processed = getattr(action_term, "processed_actions", None)
+    raw, processed = _action_buffers(action_term)
     timeouts = (
         term_mgr.time_outs
         if hasattr(term_mgr, "time_outs") and not callable(term_mgr.time_outs)
         else term_mgr.time_outs()
     )
     truncated_any = bool(timeouts.any().item())
+    if depth_raw is None:
+        depth_raw = _raw_depth_tensor(env)
+    if depth_processed is None:
+        depth_processed = _processed_depth_tensor(env)
     record: dict[str, Any] = {
         "phase": phase,
         "step_index": step_index,
@@ -704,16 +926,17 @@ def _collect_step_record(
         "root_height_margin": margins,
         "termination_any": bool(term_mgr.terminated.any().item()),
         "truncation_any": truncated_any,
+        "auto_reset": bool(getattr(env.cfg, "auto_reset", True)),
         "termination_flags": term_flags,
         "contact": _mjlab_contact_snapshot(env),
-        "depth": _depth_summaries(env),
+        "depth": _depth_payload(depth_raw, depth_processed),
         "raw_action_summary": (
             _torch_summary(raw) if raw is not None else {"available": False, "reason": "no raw_action buffer"}
         ),
         "processed_action_summary": (
             _torch_summary(processed)
             if processed is not None
-            else {"available": False, "reason": "no processed_actions buffer"}
+            else {"available": False, "reason": "no _processed_actions buffer"}
         ),
     }
     prefix = f"step_{step_index}"
@@ -721,12 +944,28 @@ def _collect_step_record(
     store_arrays[f"{prefix}_qvel"] = qvel
     store_arrays[f"{prefix}_qfrc_actuator"] = qfrc
     store_arrays[f"{prefix}_root_link_pos_w"] = root
+    store_arrays[f"{prefix}_env_origins_z"] = origins_z
     if raw is not None:
         store_arrays[f"{prefix}_raw_action"] = raw.detach().cpu().numpy()
     if processed is not None:
         store_arrays[f"{prefix}_processed_action"] = processed.detach().cpu().numpy()
+    if depth_raw is not None:
+        store_arrays[f"{prefix}_depth_raw"] = depth_raw.detach().float().cpu().numpy()
+    if depth_processed is not None:
+        store_arrays[f"{prefix}_depth_processed"] = depth_processed.detach().float().cpu().numpy()
     record["qpos_summary"] = tensor_summary(qpos)
     return record
+
+
+def _inference_action(policy, obs):
+    """Policy output for env.step: no grad, no autograd graph into mjlab delay buffers."""
+    import torch
+
+    with torch.inference_mode():
+        action = policy(obs)
+    if isinstance(action, torch.Tensor):
+        return action.detach()
+    return action
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
@@ -785,14 +1024,19 @@ def run_probe(args: argparse.Namespace) -> int:
 
     wrapper = None
     policy = None
+    env.reset()
     if args.mode == "live_policy":
         from instinct_rl.runners import OnPolicyRunner
 
         if side == "ours":
             from instinctlab.engines.mjlab import MjlabAdapter
 
-            wrapper = MjlabAdapter.wrap_for_rl(env)
             agent_cfg = compiled.agent_cfg
+            policy_group = getattr(agent_cfg, "policy_observation_group", "policy")
+            critic_group = getattr(agent_cfg, "critic_observation_group", "critic")
+            from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import MjlabVecEnvWrapper
+
+            wrapper = MjlabVecEnvWrapper(env, policy_group=policy_group, critic_group=critic_group)
         else:
             from instinct_mj.rl import InstinctRlVecEnvWrapper
             from instinct_mj.tasks.registry import load_instinct_rl_cfg
@@ -807,14 +1051,13 @@ def run_probe(args: argparse.Namespace) -> int:
         runner = OnPolicyRunner(wrapper, agent_cfg.to_dict(), log_dir=None, device=args.device)
         runner.load(str(args.checkpoint))
         policy = runner.get_inference_policy(device=args.device)
-    else:
-        env.reset()
 
-    if args.state_npz is not None and args.mode != "dump":
-        _apply_state(env, _load_state_npz(args.state_npz))
+    incoming_state = args.state_npz if args.state_npz is not None and args.state_npz.is_file() else None
+    if incoming_state is not None:
+        _apply_state(env, _load_state_npz(incoming_state))
 
     action_term = _action_term(env)
-    joint_order = list(spec.robot.joint_names) if spec is not None else _joint_names(env)
+    joint_order = _joint_names(env)
     static = _collect_static(env, side=side, task_id=task_id, source_path=source_path)
     arrays: dict[str, Any] = {}
     steps: list[dict[str, Any]] = []
@@ -822,7 +1065,9 @@ def run_probe(args: argparse.Namespace) -> int:
     payload_state_npz: str | None = None
     if args.mode == "dump":
         state = _capture_state(env, joint_order)
-        state_path = args.state_npz or args.out.with_suffix(".state.npz")
+        state_path = dump_state_output_path(
+            out=args.out, state_npz=args.state_npz, incoming_exists=incoming_state is not None
+        )
         _write_state_npz(state_path, state)
         payload_state_npz = str(state_path)
         steps.append(
@@ -839,12 +1084,14 @@ def run_probe(args: argparse.Namespace) -> int:
             else:
                 actions_seq = None
         for step in range(args.steps):
-            pre_step: dict[str, Any] = {}
+            driving_raw = _raw_depth_tensor(env)
+            driving_processed = _processed_depth_tensor(env)
+            extra: dict[str, Any] = {}
             if args.mode == "live_policy":
                 obs, _ = wrapper.get_observations()
-                pre_step["policy_obs_summary"] = _policy_obs_summary(env, wrapper)
-                action = policy(obs)
-                pre_step["raw_action_summary"] = _torch_summary(action)
+                extra["policy_obs_summary"] = _torch_summary(obs)
+                action = _inference_action(policy, obs)
+                extra["policy_raw_action_summary"] = _torch_summary(action)
             elif args.mode == "frozen_action":
                 if actions_seq is None:
                     action = torch.zeros((env.num_envs, env.action_manager.total_action_dim), device=env.device)
@@ -868,8 +1115,10 @@ def run_probe(args: argparse.Namespace) -> int:
                 step_index=step,
                 action_term=action_term,
                 store_arrays=arrays,
+                depth_raw=driving_raw,
+                depth_processed=driving_processed,
             )
-            step_record.update(pre_step)
+            step_record.update(extra)
             steps.append(step_record)
             timeouts = (
                 env.termination_manager.time_outs
@@ -877,7 +1126,10 @@ def run_probe(args: argparse.Namespace) -> int:
                 else env.termination_manager.time_outs()
             )
             if not args.disable_terminations and bool(env.termination_manager.terminated.any() or timeouts.any()):
-                step_record["note"] = "episode ended; later steps not executed"
+                step_record["note"] = (
+                    "episode ended; later steps not executed. "
+                    "auto_reset is False so qpos/root are the terminal state, not a respawn."
+                )
                 break
 
     commit = _repo_commit(Path(source_path)) if source_path else None
@@ -896,6 +1148,7 @@ def run_probe(args: argparse.Namespace) -> int:
             "disable_terminations": args.disable_terminations,
             "friction_fixed": args.friction_fixed,
             "state_npz": payload_state_npz,
+            "state_npz_loaded": str(incoming_state) if incoming_state is not None else None,
         },
         "static": static,
         "steps": steps,
@@ -927,8 +1180,22 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
     run.add_argument("--state-npz", type=Path, default=None)
     run.add_argument("--action-npz", type=Path, default=None)
     run.add_argument("--disable-obs-noise", action="store_true")
-    run.add_argument("--disable-terminations", action="store_true")
-    run.add_argument("--friction-fixed", action="store_true")
+    run.add_argument(
+        "--disable-terminations",
+        action="store_true",
+        help=(
+            "Null every termination term so episodes cannot end. The probe also forces "
+            "auto_reset=False, so a post-step root/qpos sample is the same control step "
+            "as termination_manager flags (not a respawn)."
+        ),
+    )
+    run.add_argument(
+        "--friction-fixed",
+        action="store_true",
+        help=(
+            "Disable startup physics_material DR. Does not write a numeric friction; both sides keep the MJCF default."
+        ),
+    )
 
     compare = sub.add_parser("compare", help="diff two probe JSON outputs")
     compare.add_argument("left", type=Path)
@@ -937,6 +1204,7 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
     compare.add_argument("--root-z-tol", type=float, default=DEFAULT_THRESHOLDS["root_z"])
     compare.add_argument("--qfrc-tol", type=float, default=DEFAULT_THRESHOLDS["qfrc"])
     compare.add_argument("--action-tol", type=float, default=DEFAULT_THRESHOLDS["action"])
+    compare.add_argument("--depth-tol", type=float, default=DEFAULT_THRESHOLDS["depth"])
 
     # Allow omitting the ``run`` subcommand for backward-compatible ergonomics.
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -961,6 +1229,7 @@ def main(argv: list[str] | None = None) -> int:
                 "root_z": args.root_z_tol,
                 "qfrc": args.qfrc_tol,
                 "action": args.action_tol,
+                "depth": args.depth_tol,
             },
         )
         print(json.dumps(report, indent=1))
