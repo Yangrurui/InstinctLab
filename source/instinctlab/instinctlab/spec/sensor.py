@@ -22,7 +22,7 @@ contact force does not.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -32,6 +32,7 @@ __all__ = [
     "MotionReferenceRef",
     "RayCasterRef",
     "RayPatternRef",
+    "SymmetricAugmentationSpec",
     "VirtualObstacleRef",
     "VolumePointsRef",
 ]
@@ -287,6 +288,110 @@ class RayCasterRef:
         return height - top - bottom, width - left - right
 
 
+def _left_right_name(name: str) -> str:
+    """The bilateral counterpart. Midline names (waist, torso, pelvis) stay themselves."""
+    if name.startswith("left_"):
+        return "right_" + name[5:]
+    if name.startswith("right_"):
+        return "left_" + name[6:]
+    return name
+
+
+def _left_right_swaps(names: Sequence[str]) -> dict[str, str]:
+    """``out[name]`` is the name whose value is copied onto ``name``.
+
+    That is the same convention as the source integer tables:
+    ``new[i] = old[mapping[i]]``. A left hip therefore maps *from* the right hip.
+    """
+    unique = tuple(names)
+    if len(set(unique)) != len(unique):
+        raise ValueError(f"Names for a left/right swap must be unique: {unique}.")
+    available = set(unique)
+    swaps: dict[str, str] = {}
+    for name in unique:
+        other = _left_right_name(name)
+        if other not in available:
+            raise ValueError(f"{name!r} mirrors to {other!r}, which is not in the name list.")
+        swaps[name] = other
+    return swaps
+
+
+def _roll_yaw_signs(names: Sequence[str]) -> dict[str, int]:
+    """Sagittal-plane signs used by both source G1 tables: roll and yaw flip."""
+    return {name: -1 if "roll" in name or "yaw" in name else 1 for name in names}
+
+
+@dataclass(frozen=True)
+class SymmetricAugmentationSpec:
+    """Left-right mirror of an AMP reference, declared by name.
+
+    Off when the parent :attr:`MotionReferenceRef.symmetric_augmentation` is
+    ``None``. Indices never live here: the portable layer resolves these names
+    against the sensor's joint/link order at load. Copying a source repo's
+    integer table onto a different order is the silent failure this exists to
+    stop — parkour's published clip is legs-first, the portable path is
+    canonical DFS, and the two source tables are themselves written against
+    two different orders.
+
+    ``joint_swaps[name]`` is the name whose value is copied onto ``name``
+    (left hip reads right hip). Midline joints map to themselves.
+    ``joint_signs[name]`` is ±1 applied after the swap, at the destination.
+    ``link_swaps`` is the same pairing for referenced links.
+
+    Both source implementations (InstinctMJ and main) use ``left_``/``right_``
+    prefixes and flip roll/yaw. :meth:`from_left_right` builds that pairing.
+    """
+
+    joint_swaps: Mapping[str, str]
+    joint_signs: Mapping[str, int]
+    link_swaps: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        joint_swaps = dict(self.joint_swaps)
+        joint_signs = {name: int(sign) for name, sign in self.joint_signs.items()}
+        link_swaps = dict(self.link_swaps)
+        object.__setattr__(self, "joint_swaps", joint_swaps)
+        object.__setattr__(self, "joint_signs", joint_signs)
+        object.__setattr__(self, "link_swaps", link_swaps)
+        _require_involution("joint", joint_swaps)
+        _require_involution("link", link_swaps)
+        if set(joint_signs) != set(joint_swaps):
+            extra = sorted(set(joint_signs) - set(joint_swaps))
+            missing = sorted(set(joint_swaps) - set(joint_signs))
+            raise ValueError(
+                "joint_signs must cover exactly the joints in joint_swaps. "
+                f"Missing signs: {missing}. Extra signs: {extra}."
+            )
+        bad = sorted(name for name, sign in joint_signs.items() if sign not in (-1, 1))
+        if bad:
+            raise ValueError(f"joint_signs must be +1 or -1; bad: {bad}.")
+
+    @classmethod
+    def from_left_right(cls, joints: Sequence[str], links: Sequence[str]) -> SymmetricAugmentationSpec:
+        """Build the pairing both G1 sources use, from the names in *this* order."""
+        return cls(
+            joint_swaps=_left_right_swaps(joints),
+            joint_signs=_roll_yaw_signs(joints),
+            link_swaps=_left_right_swaps(links),
+        )
+
+
+def _require_involution(kind: str, swaps: Mapping[str, str]) -> None:
+    if not swaps:
+        raise ValueError(
+            f"{kind}_swaps is empty. Pass None on MotionReferenceRef.symmetric_augmentation to disable mirroring."
+        )
+    for name, other in swaps.items():
+        if not name or not other:
+            raise ValueError(f"{kind} swap has an empty name: {name!r} -> {other!r}.")
+        back = swaps.get(other)
+        if back != name:
+            raise ValueError(
+                f"{kind} swap {name!r} -> {other!r} is not an involution (reverse is {back!r}). "
+                "An unpaired left/right name is the usual cause."
+            )
+
+
 @dataclass(frozen=True)
 class MotionReferenceRef:
     """A clip-backed motion reference. These numbers are not simulation quantities.
@@ -315,9 +420,13 @@ class MotionReferenceRef:
     and is what made ``dataset_exhausted`` read as 0; this sensor keeps the
     counter even if that term is added later.
 
+    :attr:`symmetric_augmentation` is off (``None``) unless a task turns it on.
+    Parkour does; beyondmimic / shadowing do not. The maps are names, never
+    source-repo integer indices.
+
     Left out of this increment, on purpose: AMP observation groups, a
-    discriminator / WASABI reward, MoE policy, visualization, symmetric
-    augmentation, multi-process clip splits, HOI objects, SMPL retargetting.
+    discriminator / WASABI reward, MoE policy, visualization, multi-process
+    clip splits, HOI objects, SMPL retargetting.
     """
 
     name: str
@@ -334,6 +443,7 @@ class MotionReferenceRef:
     start_range: tuple[float, float] = (0.0, 0.0)
     exhaustion: Literal["freeze_last_and_flag"] = "freeze_last_and_flag"
     quaternion: Literal["wxyz"] = "wxyz"
+    symmetric_augmentation: SymmetricAugmentationSpec | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "joints", _normalise(self.joints))
@@ -380,6 +490,22 @@ class MotionReferenceRef:
             raise ValueError(
                 f"Motion reference {self.name!r} has quaternion={self.quaternion!r}; hub convention is wxyz."
             )
+        if self.symmetric_augmentation is not None:
+            spec_joints = set(self.symmetric_augmentation.joint_swaps)
+            have_joints = set(self.joints)
+            if spec_joints != have_joints:
+                raise ValueError(
+                    f"Motion reference {self.name!r} symmetric_augmentation joints "
+                    f"{sorted(spec_joints)} do not match sensor joints {sorted(have_joints)}. "
+                    "The maps are names; a leftover integer table from another order is the usual cause."
+                )
+            spec_links = set(self.symmetric_augmentation.link_swaps)
+            have_links = set(self.links)
+            if spec_links != have_links:
+                raise ValueError(
+                    f"Motion reference {self.name!r} symmetric_augmentation links "
+                    f"{sorted(spec_links)} do not match sensor links {sorted(have_links)}."
+                )
 
 
 @dataclass(frozen=True)

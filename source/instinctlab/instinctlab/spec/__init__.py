@@ -32,6 +32,7 @@ from .sensor import (
     MotionReferenceRef,
     RayCasterRef,
     RayPatternRef,
+    SymmetricAugmentationSpec,
     VirtualObstacleRef,
     VolumePointsRef,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "MotionReferenceRef",
     "RayCasterRef",
     "RayPatternRef",
+    "SymmetricAugmentationSpec",
     "VirtualObstacleRef",
     "VolumePointsRef",
     "CurriculumTermSpec",
