@@ -86,14 +86,6 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
             "drifts, now also in the value function and the discriminator."
         ),
     ),
-    "amp/symmetric_augmentation": (
-        "MotionReferenceManagerCfg BFS maps; AmassMotion.reset draws Bernoulli(0.5)",
-        "clip sensor has no mirror",
-        (
-            "Main mirrors half of amp_reference trajectories on reset. The portable clip never does, "
-            "so the discriminator's positive class is the unmirrored clip only."
-        ),
-    ),
 }
 
 
@@ -311,7 +303,7 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 
 
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
-    assert len(KNOWN_DRIFTS) >= 8
+    assert len(KNOWN_DRIFTS) == 7
     assert "dataset_exhausted" in DELIBERATE_OMISSIONS
     assert "reward/undesired_contacts/threshold" not in KNOWN_DRIFTS
     assert "scene/robot/urdf" not in KNOWN_DRIFTS
@@ -319,9 +311,9 @@ def test_known_drifts_table_is_non_empty_and_stable() -> None:
     assert "scene/robot/merge_fixed_joints" not in KNOWN_DRIFTS
     assert "scene/robot/actuators" not in KNOWN_DRIFTS
     assert "sim/physx/gpu_collision_stack_size" not in KNOWN_DRIFTS
+    assert "amp/symmetric_augmentation" not in KNOWN_DRIFTS
     assert "obs/joint_axis" in KNOWN_DRIFTS
     assert "obs/base_lin_vel_frame" in KNOWN_DRIFTS
-    assert "amp/symmetric_augmentation" in KNOWN_DRIFTS
 
 
 def test_documented_drifts_are_still_present(task) -> None:
@@ -346,7 +338,7 @@ def test_documented_drifts_are_still_present(task) -> None:
     assert (
         source.get("symmetric_augmentation_link_mapping") is not None or "symmetric_augmentation_link_mapping" in source
     )
-    assert not hasattr(task.scene.motion_reference("motion_reference"), "symmetric_augmentation_joint_mapping")
+    assert task.scene.motion_reference("motion_reference").symmetric_augmentation is not None
 
 
 def test_main_leaves_policy_and_action_joints_in_entity_order(task) -> None:
@@ -392,7 +384,14 @@ def test_critic_and_amp_lin_vel_use_the_hub_link_spelling(task) -> None:
     assert main_ref.observation_functions("amp_reference")["base_lin_vel"] == "base_lin_vel_reference_as_state"
 
 
-def test_main_amp_mirrors_half_the_reference_and_we_do_not(task) -> None:
+def test_main_amp_mirrors_half_the_reference_and_so_do_we(task) -> None:
+    """Main's maps are integer tables in PhysX BFS order; ours resolve by joint name.
+
+    The assertion this replaces was ``not hasattr(clip, "symmetric_augmentation_joint_mapping")``,
+    naming a field only the reference has. It stayed green after we implemented mirroring, because
+    we were never going to grow the reference's spelling. That the name map resolves to main's exact
+    BFS table is ``tests/test_amp_symmetric_augmentation.py::test_resolved_bfs_indices_equal_main_table``.
+    """
     source = main_ref.motion_reference_source()
     assert source["symmetric_augmentation_link_mapping"] == [0, 1, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12]
     assert "symmetric_augmentation_joint_mapping" in source
@@ -402,7 +401,11 @@ def test_main_amp_mirrors_half_the_reference_and_we_do_not(task) -> None:
     assert "parkour_motion_without_run.yaml" in str(amass["filtered_motion_selection_filepath"])
     clip = task.scene.motion_reference("motion_reference")
     assert clip.clip.endswith("parkour_motion_without_run_retargetted.npz")
-    assert not hasattr(clip, "symmetric_augmentation_joint_mapping")
+    mirror = clip.symmetric_augmentation
+    assert mirror is not None, "parkour declares no mirror augmentation; main mirrors half its resets"
+    assert mirror.joint_swaps["left_hip_pitch_joint"] == "right_hip_pitch_joint"
+    assert mirror.joint_swaps["waist_pitch_joint"] == "waist_pitch_joint"
+    assert mirror.joint_signs["waist_roll_joint"] == -1
 
 
 def test_shipped_motion_yaml_selects_the_same_npz_as_our_clip(task) -> None:
