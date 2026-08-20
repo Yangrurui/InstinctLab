@@ -37,7 +37,15 @@ DELIBERATE = {
     "terrain/num_cols": (
         "written 20, curriculum mode builds one column per type",
         "honored: 20 columns",
-        "Isaac's cumulative-proportion allocation. InstinctMJ ignores num_cols in curriculum.",
+        (
+            "Isaac's cumulative-proportion allocation. InstinctMJ ignores num_cols in curriculum."
+            " Changes the type mix: 20 columns by proportion give 50% stairs and 10% perlin against"
+            " their 40% / 20%. Not the cause of our shorter episodes, and checked rather than assumed:"
+            " reweighting our own per-sub-terrain lengths to their mix moves the mean 126.8 -> 122.1,"
+            " i.e. 4.7 steps the WRONG WAY against the 29-56 needed to reach them. Stairs are the"
+            " terrains our policy survives longest on (~137) and perlin the shortest (~90), so having"
+            " more stairs helps us. Both seeds agree."
+        ),
     ),
     "sim/nconmax": (
         str(mj_ref.NCONMAX),
@@ -116,6 +124,21 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
     # of four, and feet_air_time was scoring a different gait on each of our engines.
     # The threshold is now ContactSensorRef.air_time_force_threshold and both backends
     # map it onto their own field; see tests/test_contact_air_time_threshold.py.
+    "actuation/delay_lag_groups": (
+        "one lag draw for the whole leg (hip pitch/roll/yaw + knee); ankles, waist, waist_yaw, arms separate",
+        "lag groups follow our PD-tuple grouping: leg split across two draws, ankles share with waist",
+        (
+            "Both sides run 0-2 step lags with delay_per_env_phase=False, but mjlab fuses actuators"
+            " whose delay settings match into one DelayBuffer, so delay_update_period -- not the"
+            " actuator split -- decides which joints draw the SAME lag. InstinctMJ hands its two leg"
+            " groups one shared constant and gives everything else its own (_PERIOD_LEGS, then four"
+            " siblings at +1..+4), which is deliberate. We derive the period from a PD-tuple group"
+            " index, so hip pitch/yaw and hip roll/knee land on different draws: a leg of ours can"
+            " run its hip and knee at different lags, theirs cannot. Undecided, and a plausible"
+            " contributor to our 25-35% higher root_height rate -- an internally inconsistent leg"
+            " destabilises more than a uniformly late one. Deciding it needs a training A/B."
+        ),
+    ),
     "motion/source": (
         "AmassMotionCfg yaml filter → parkour_motion_without_run.yaml",
         "MotionReferenceRef clip=…parkour_motion_without_run_retargetted.npz",
@@ -520,7 +543,7 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 1
+    assert len(KNOWN_DRIFTS) == 2
     assert len(DELIBERATE) == 8
     assert len(REFERENCE_DIVERGENCE) == 3
     assert "agent/normalizers" not in KNOWN_DRIFTS
@@ -545,6 +568,35 @@ def test_documented_drifts_are_still_present(task, compiled) -> None:
 
     assert task.scene.motion_references[0].clip.endswith(".npz")
     assert mj_ref.motion_source()["symmetric_augmentation_link_mapping"] is not None
+
+    # actuation/delay_lag_groups: the partition, on both sides. Asserting "we group by PD tuple"
+    # alone would stay green if they regrouped, and the row is about the difference between the
+    # two partitions -- specifically whether one leg can draw two different lags.
+    from instinctlab.engines.mjlab.assets import grouped_actuators
+
+    ours_groups = {frozenset(names) for names, _ in grouped_actuators(task.robot.joint_properties)}
+    ours_leg = [g for g in ours_groups if any("hip" in j or "knee" in j for j in g)]
+    assert len(ours_leg) == 2, sorted(sorted(g) for g in ours_leg)
+    theirs_groups = mj_ref.delayed_actuator_lag_groups()
+    theirs_leg = [g for g in theirs_groups if any("hip" in p or "knee" in p for p in g)]
+    assert len(theirs_leg) == 1, sorted(sorted(g) for g in theirs_leg)
+    assert theirs_leg[0] == frozenset({".*_hip_pitch_joint", ".*_hip_yaw_joint", ".*_hip_roll_joint", ".*_knee_joint"})
+    # ...and ours puts the ankles with the waist, where theirs keeps them apart.
+    assert any({"left_ankle_pitch_joint", "waist_pitch_joint"} <= g for g in ours_groups)
+    assert all(not ({".*_ankle_pitch_joint", "waist_pitch_joint"} <= g) for g in theirs_groups)
+
+
+def test_every_extractor_has_a_caller() -> None:
+    """An extractor with no caller is the defect that hid contact fields last time."""
+    public = [
+        name
+        for name, value in inspect.getmembers(mj_ref, inspect.isfunction)
+        if not name.startswith("_") and value.__module__ == mj_ref.__name__
+    ]
+    source = Path(__file__).read_text()
+    unused = [name for name in public if f"mj_ref.{name}" not in source and name != "available"]
+    assert not unused, f"extractors with no caller: {unused}"
+    assert ast.parse(source)
 
 
 def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
@@ -615,23 +667,10 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     assert all(cfg.get("debug_vis") in (False, None) for cfg in theirs_sensors.values())
 
 
-def test_every_extractor_has_a_caller() -> None:
-    """An extractor with no caller is the defect that hid contact fields last time."""
-    public = [
-        name
-        for name, value in inspect.getmembers(mj_ref, inspect.isfunction)
-        if not name.startswith("_") and value.__module__ == mj_ref.__name__
-    ]
-    source = Path(__file__).read_text()
-    unused = [name for name in public if f"mj_ref.{name}" not in source and name != "available"]
-    assert not unused, f"extractors with no caller: {unused}"
-    assert ast.parse(source)
-
-
 def test_the_prose_counts_the_drift_table() -> None:
     """The literals that claim a drift count must still be counting this table."""
     import re
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {1}
+    assert counts == {len(KNOWN_DRIFTS)} == {2}

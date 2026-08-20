@@ -278,6 +278,33 @@ def delayed_actuator_lags() -> tuple[int, int]:
     return (0, DELAY_MAX_LAG)
 
 
+def delayed_actuator_lag_groups() -> frozenset[frozenset[str]]:
+    """Which joints draw the *same* actuation lag, keyed by ``delay_update_period``.
+
+    mjlab fuses actuators whose delay settings match into one ``DelayBuffer``, so the period
+    constant is what decides the joint-space correlation of the lag, not the actuator split.
+    InstinctMJ gives its two leg groups one shared constant and everything else its own, which
+    is a choice and not an accident -- the file defines ``_..._PERIOD_LEGS`` and then four
+    siblings at ``+1..+4``. Returned as sets of joint-name patterns so the comparison is about
+    the partition, not about group names.
+    """
+    tree = ast.parse(ASSET.read_text())
+    by_period: dict[Any, set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id.startswith("BEYONDMIMIC_G1_29DOF_DELAYED_") for t in node.targets):
+            continue
+        kwargs = _kwargs(node.value)
+        period, names = kwargs.get("delay_update_period"), kwargs.get("target_names_expr")
+        if period is None or names is None:
+            raise AssertionError(f"{ast.unparse(node.targets[0])} has no delay period / target names")
+        by_period.setdefault(str(period), set()).update(names)
+    if not by_period:
+        raise AssertionError("no BEYONDMIMIC delayed actuator cfgs found in InstinctMJ's asset module")
+    return frozenset(frozenset(group) for group in by_period.values())
+
+
 def motion_source() -> dict[str, Any]:
     """AMASS directory + yaml filter, not a single npz."""
     found: dict[str, Any] = {}
