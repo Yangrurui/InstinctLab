@@ -60,9 +60,17 @@ discretely stepped ones (stairs, ``boxes``, ``square_gaps``: 0.73-0.84x). That
 pattern fits ``horizontal_scale``: a slope on a 0.07 grid is discretised into
 treads 40% taller than on Isaac's 0.05. Contact overflow was ruled out
 (``d.overflow`` clear at construction and mid-training; ``nacon`` 164/world
-against ``nconmax=256``). The grid-resolution reading is a hypothesis, not a
-measurement: the test that would settle it is a short mjlab run at
-``horizontal_scale=0.05`` with nothing else changed.
+against ``nconmax=256``). The grid-resolution reading stays a hypothesis, and
+the obvious test for it -- a short mjlab run at ``horizontal_scale=0.05``,
+nothing else changed -- cannot be run on this engine. Measured: 16 envs at
+0.05 construct clean, then raise ``HFIELD`` overflow on the very first step,
+with ``nacon`` at 111 against a budget of 4096 (2.7%). It is not a budget.
+``mjMAXCONPAIR`` caps contacts per geom pair at 50 at compile time, and a
+finer height field puts more than 50 contacts on the one foot-terrain pair,
+so raising ``nconmax`` cannot clear it. The same probe at 0.07 is clean over
+150 steps (peak ``nacon`` 379, ``nefc`` 195/768). mjlab is structurally held
+at the coarser grid here; if the hypothesis is worth settling, it has to be
+tested inside Isaac by running *it* at 0.07 instead.
 
 That 0.62x measurement predates the parkour robot override (``b668964``) and
 is unaffected by it. The override added a further accepted incomparability:

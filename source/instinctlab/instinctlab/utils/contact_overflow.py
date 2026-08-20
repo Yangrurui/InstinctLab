@@ -16,7 +16,10 @@ a run that dies at iteration 900 with a nameable overflow is better than
 one that finishes on dropped contacts.
 
 The kernels set the same bits this reads. A guard that cannot be shown to
-fire on those bits is not a guard.
+fire on those bits is not a guard, so it was shown: parkour on mjlab at
+``horizontal_scale=0.05`` (16 envs) constructs clean and raises ``HFIELD``
+on the first step, while the same probe at the shipped 0.07 is clean over
+150 steps. That overflow is real physics being dropped, not a synthetic bit.
 
 Escape hatch (not the default): ``INSTINCTLAB_ALLOW_CONTACT_OVERFLOW=1``, or
 ``--allow_contact_overflow`` on ``scripts/train.py``.
