@@ -294,6 +294,116 @@ def test_delayed_depth_image_is_oldest_to_newest_and_does_not_use_mjlab_delay() 
     assert delay1[:, 0].tolist()[0][0][0] == pytest.approx(0.05 / 2.5)
 
 
+def _delayed_depth_term(num_envs: int = 3, history_length: int = 37):
+    sensor = RayCasterRef(
+        name="camera",
+        attach="torso_link",
+        pattern=RayPatternRef(kind="pinhole", width=4, height=4),
+        hit=("terrain",),
+        max_distance=2.5,
+    )
+    raw = torch.zeros(num_envs, 4, 4, 1)
+
+    class _Data:
+        output = {"distance_to_image_plane": raw}
+
+    class _Cam:
+        data = _Data()
+
+    env = SimpleNamespace(
+        num_envs=num_envs,
+        device="cpu",
+        scene=SimpleNamespace(sensors={"camera": _Cam()}),
+    )
+    cfg = SimpleNamespace(
+        params={
+            "sensor": sensor,
+            "history_skip_frames": 5,
+            "num_output_frames": 8,
+            "delayed_frame_ranges": (0, 1),
+            "history_length": history_length,
+            "blur_kernel_size": 1,
+            "blur_sigma": 0.0,
+        }
+    )
+    term = mdp.DelayedDepthImage(cfg, env)
+    return term, env, sensor, raw
+
+
+def test_delayed_depth_partial_reset_clears_only_selected_envs() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=3)
+    raw.fill_(1.25)
+    for _ in range(8):
+        term(env, sensor)
+    kept = term._history[0].clone()
+    assert float(term._history.abs().max()) > 0.0
+    write_before = term._write
+    term.reset(env_ids=torch.tensor([1, 2], dtype=torch.int32))
+    assert torch.equal(term._history[0], kept)
+    assert float(term._history[1].abs().max()) == 0.0
+    assert float(term._history[2].abs().max()) == 0.0
+    assert term._write == write_before
+
+
+def test_delayed_depth_full_reset_clears_every_env() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=2)
+    raw.fill_(0.8)
+    for _ in range(4):
+        term(env, sensor)
+    term.reset()
+    assert float(term._history.abs().max()) == 0.0
+    term.reset(env_ids=None)
+    assert float(term._history.abs().max()) == 0.0
+
+
+def test_delayed_depth_reset_empty_ids_is_a_noop() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=2)
+    raw.fill_(0.4)
+    term(env, sensor)
+    before = term._history.clone()
+    delay_before = term._delay.clone()
+    term.reset(env_ids=torch.tensor([], dtype=torch.long))
+    assert torch.equal(term._history, before)
+    assert torch.equal(term._delay, delay_before)
+
+
+def test_delayed_depth_reset_accepts_scalar_and_foreign_device_ids() -> None:
+    term, _env, _sensor, _raw = _delayed_depth_term(num_envs=2)
+    term._history[1] = 0.3
+    term.reset(env_ids=torch.tensor(1, dtype=torch.int64))
+    assert float(term._history[1].abs().max()) == 0.0
+    term._history[0] = 0.2
+    cpu_ids = torch.tensor([0], device="cpu", dtype=torch.int32)
+    term.reset(env_ids=cpu_ids)
+    assert float(term._history[0].abs().max()) == 0.0
+
+
+def test_delayed_depth_reset_keeps_delay_in_declared_range() -> None:
+    term, _env, _sensor, _raw = _delayed_depth_term(num_envs=8)
+    lo, hi = term.delayed_frame_ranges
+    term.reset(env_ids=torch.arange(8))
+    assert int(term._delay.min()) >= int(lo)
+    assert int(term._delay.max()) <= int(hi)
+
+
+def test_delayed_depth_first_output_after_reset_has_no_old_frames() -> None:
+    """After reset, sampled slots that are not the just-written frame are zeros, not the old episode."""
+    term, env, sensor, raw = _delayed_depth_term(num_envs=2)
+    raw.fill_(2.0)
+    for _ in range(37):
+        term(env, sensor)
+    old = term(env, sensor)
+    assert float(old.abs().max()) > 0.0
+    term.reset(env_ids=torch.tensor([0]))
+    term._delay[0] = 0
+    raw.fill_(1.25)
+    first = term(env, sensor)
+    processed_new = 1.25 / 2.5
+    assert first[0, -1, 0, 0].item() == pytest.approx(processed_new)
+    assert float(first[0, :-1].abs().max()) == 0.0
+    assert float(first[1].abs().max()) > 0.0
+
+
 def test_undesired_contacts_counts_touches_without_a_newton_threshold():
     sensor_ref = ContactSensorRef(name="body", elements=(".*",), track_air_time=True)
     sensor = _Sensor(

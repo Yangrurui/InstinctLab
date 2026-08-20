@@ -422,3 +422,96 @@ def agent_fields() -> dict[str, Any]:
                 continue
             fields[f"{node.name}.{target}"] = _literal(value)
     return fields
+
+
+_INSTINCTMJ_CAMERA = Path("/root/InstinctMJ/src/instinct_mj/sensors/noisy_camera/noisy_grouped_raycaster_camera.py")
+_INSTINCTMJ_NOISY_MIXIN = Path("/root/InstinctMJ/src/instinct_mj/sensors/noisy_camera/noisy_camera.py")
+_INSTINCTMJ_ASYNC_BUFFER = Path("/root/InstinctMJ/src/instinct_mj/utils/buffers/async_circular_buffer.py")
+_INSTINCTMJ_DEPTH_OBS = Path("/root/InstinctMJ/src/instinct_mj/envs/mdp/observations/exteroception.py")
+_MJLAB_CIRCULAR_BUFFER = Path("/root/mjlab/src/mjlab/utils/buffers/circular_buffer.py")
+
+
+def _require_file(path: Path) -> Path:
+    if not path.is_file():
+        raise FileNotFoundError(f"InstinctMJ/mjlab source missing; refusing to guess: {path}")
+    return path
+
+
+def _class_method(tree: ast.Module, class_name: str, method_name: str) -> ast.FunctionDef | None:
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == method_name:
+                return item
+    return None
+
+
+def _calls_name(fn: ast.FunctionDef, suffix: str) -> bool:
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and ast.unparse(node.func).endswith(suffix):
+            return True
+    return False
+
+
+def _assigns_zero_to(fn: ast.FunctionDef, attr: str) -> bool:
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if attr in ast.unparse(target):
+                value = _literal(node.value)
+                if value in (0, 0.0):
+                    return True
+    return False
+
+
+def depth_history_reset() -> dict[str, Any]:
+    """How InstinctMJ clears camera history on env reset. Reads their sources; missing files raise.
+
+    History lives on the sensor ``AsyncCircularBuffer``, not on ``delayed_visualizable_image``.
+    That obs term only redraws delay. The buffer ``reset`` (inherited from mjlab
+    ``CircularBuffer`` unless InstinctMJ overrides it) zeros the selected envs.
+    """
+    camera_src = _require_file(_INSTINCTMJ_CAMERA)
+    mixin_src = _require_file(_INSTINCTMJ_NOISY_MIXIN)
+    async_src = _require_file(_INSTINCTMJ_ASYNC_BUFFER)
+    obs_src = _require_file(_INSTINCTMJ_DEPTH_OBS)
+    camera = ast.parse(camera_src.read_text())
+    mixin = ast.parse(mixin_src.read_text())
+    async_buf = ast.parse(async_src.read_text())
+    obs = ast.parse(obs_src.read_text())
+
+    camera_reset = _class_method(camera, "NoisyGroupedRayCasterCamera", "reset")
+    if camera_reset is None:
+        raise LookupError(f"{camera_src} has no NoisyGroupedRayCasterCamera.reset")
+    mixin_reset = _class_method(mixin, "NoisyCameraMixin", "reset_history_buffers")
+    if mixin_reset is None:
+        raise LookupError(f"{mixin_src} has no NoisyCameraMixin.reset_history_buffers")
+    obs_reset = _class_method(obs, "delayed_visualizable_image", "reset")
+    if obs_reset is None:
+        raise LookupError(f"{obs_src} has no delayed_visualizable_image.reset")
+
+    async_defines_reset = _class_method(async_buf, "AsyncCircularBuffer", "reset") is not None
+    if async_defines_reset:
+        buffer_reset = _class_method(async_buf, "AsyncCircularBuffer", "reset")
+        buffer_src = async_src
+    else:
+        buffer_src = _require_file(_MJLAB_CIRCULAR_BUFFER)
+        buffer_reset = _class_method(ast.parse(buffer_src.read_text()), "CircularBuffer", "reset")
+        if buffer_reset is None:
+            raise LookupError(f"{buffer_src} has no CircularBuffer.reset (AsyncCircularBuffer inherits it)")
+
+    obs_reset_src = ast.unparse(obs_reset)
+    return {
+        "camera_source": str(camera_src),
+        "camera_reset_calls_reset_history_buffers": _calls_name(camera_reset, "reset_history_buffers"),
+        "history_buffers_reset_calls_buffer_reset": _calls_name(mixin_reset, "reset"),
+        "async_buffer_defines_reset": async_defines_reset,
+        "buffer_reset_source": str(buffer_src),
+        "buffer_reset_zeros_buffer": _assigns_zero_to(buffer_reset, "_buffer"),
+        "buffer_reset_zeros_num_pushes": _assigns_zero_to(buffer_reset, "_num_pushes"),
+        "obs_term_reset_clears_history": "_history" in obs_reset_src or "_buffer" in obs_reset_src,
+        "obs_term_reset_resamples_delay": "_num_delayed_frames" in obs_reset_src,
+        "history_owner": "sensor_AsyncCircularBuffer",
+    }

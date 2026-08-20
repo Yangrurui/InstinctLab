@@ -635,6 +635,66 @@ def test_isaac_and_mjlab_agree_on_the_motor_buses() -> None:
     assert ours == isaac, {k: (sorted(ours.get(k, ())), sorted(isaac.get(k, ()))) for k in ours.keys() | isaac.keys()}
 
 
+def test_depth_history_reset_matches_instinctmj_sensor_buffer() -> None:
+    """Ours now zeros the 37-slot ring the way InstinctMJ zeros the camera buffer.
+
+    InstinctMJ's obs term only redraws delay; the sensor ``AsyncCircularBuffer.reset``
+    is what actually clears history. This test reads those files (missing → fail)
+    and then checks our term, which owns the ring, does the same clear.
+    """
+    facts = mj_ref.depth_history_reset()
+    assert facts["camera_reset_calls_reset_history_buffers"] is True, facts
+    assert facts["history_buffers_reset_calls_buffer_reset"] is True, facts
+    assert facts["buffer_reset_zeros_buffer"] is True, facts
+    assert facts["buffer_reset_zeros_num_pushes"] is True, facts
+    assert facts["obs_term_reset_clears_history"] is False, facts
+    assert facts["obs_term_reset_resamples_delay"] is True, facts
+    assert facts["history_owner"] == "sensor_AsyncCircularBuffer"
+    assert facts["camera_source"].endswith("noisy_grouped_raycaster_camera.py")
+    assert Path(facts["camera_source"]).is_file()
+    assert Path(facts["buffer_reset_source"]).is_file()
+
+    import torch
+    from types import SimpleNamespace
+
+    from instinctlab.mdp.observations import DelayedDepthImage
+    from instinctlab.spec.sensor import RayCasterRef, RayPatternRef
+
+    sensor = RayCasterRef(
+        name="camera",
+        attach="torso_link",
+        pattern=RayPatternRef(kind="pinhole", width=2, height=2),
+        hit=("terrain",),
+        max_distance=2.5,
+    )
+    raw = torch.ones(2, 2, 2, 1)
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        scene=SimpleNamespace(
+            sensors={"camera": SimpleNamespace(data=SimpleNamespace(output={"distance_to_image_plane": raw}))}
+        ),
+    )
+    cfg = SimpleNamespace(
+        params={
+            "sensor": sensor,
+            "history_skip_frames": 5,
+            "num_output_frames": 8,
+            "delayed_frame_ranges": (0, 1),
+            "history_length": 37,
+            "blur_kernel_size": 1,
+            "blur_sigma": 0.0,
+        }
+    )
+    term = DelayedDepthImage(cfg, env)
+    raw.fill_(1.0)
+    for _ in range(4):
+        term(env, sensor)
+    term.reset(env_ids=torch.tensor([0]))
+    assert float(term._history[0].abs().max()) == 0.0
+    assert float(term._history[1].abs().max()) > 0.0
+
+
 def test_every_extractor_has_a_caller() -> None:
     """An extractor with no caller is the defect that hid contact fields last time."""
     public = [

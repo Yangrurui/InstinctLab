@@ -175,8 +175,23 @@ class DelayedDepthImage:
             )
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        """Resample delay and zero this term's 37-slot ring for the selected envs.
+
+        InstinctMJ clears the camera ``AsyncCircularBuffer`` on those ``env_ids``
+        (``_buffer[:, ids] = 0``, ``_num_pushes[ids] = 0``). This term owns the
+        equivalent history, so a reset that only redrew delay left old-episode
+        frames in the other 36 slots. ``_write`` is one pointer for the whole
+        batch and is left alone: moving it would reorder unreset envs.
+        """
         if env_ids is None:
             env_ids = slice(None)
+        elif isinstance(env_ids, torch.Tensor):
+            if env_ids.numel() == 0:
+                return
+            env_ids = env_ids.to(device=self._history.device, dtype=torch.long)
+            if env_ids.ndim == 0:
+                env_ids = env_ids.unsqueeze(0)
+        self._history[env_ids] = 0
         n = self._delay[env_ids].shape[0]
         lo, hi = self.delayed_frame_ranges
         self._delay[env_ids] = torch.randint(int(lo), int(hi) + 1, (n,), device=self._delay.device)
