@@ -66,6 +66,13 @@ class ContactSensorRef:
         track_air_time: Ask the engine to accumulate air and contact durations. Both engines gate
             this behind a config flag because it costs per-step bookkeeping, and both return
             ``None`` for the corresponding tensors when it is off.
+        air_time_force_threshold: Newtons of net contact force a body must carry before the clock
+            calls it touchdown. Declared here rather than left to the engines because their
+            defaults are what disagree: Isaac Lab thresholds at 1 N, mjlab counts any contact the
+            solver reports at any force. Both produce same-named, same-shaped, plausible-looking
+            duration tensors, so a task that leaves this to the engine is scoring two different
+            gaits without saying so. Only air and contact timing use it; the force tensors terms
+            read are untouched.
         history_length: Number of past substeps of force data to retain. ``0`` disables it. Both
             engines order the history newest-first.
         preserve_order: Whether the element order follows the patterns rather than the entity's.
@@ -84,6 +91,7 @@ class ContactSensorRef:
     entity: str = "robot"
     against: str | None = None
     track_air_time: bool = False
+    air_time_force_threshold: float = 1.0
     history_length: int = 0
     preserve_order: bool = False
 

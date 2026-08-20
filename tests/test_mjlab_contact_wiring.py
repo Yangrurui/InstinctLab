@@ -60,6 +60,8 @@ def test_standing_on_the_ground_registers_as_contact() -> None:
             env.step(actions)
 
         sensor = env.scene.sensors["contact_forces"]
+        sensor_class = type(sensor).__name__
+        threshold = getattr(sensor.cfg, "force_threshold", None)
         contact_time = compat_sensors.contact_time(sensor, feet)
         touching = compat_sensors.in_contact(sensor, feet)
     finally:
@@ -70,3 +72,10 @@ def test_standing_on_the_ground_registers_as_contact() -> None:
         "every contact-based term reads this and would be silently dead"
     )
     assert torch.any(touching), "contact time accumulated but in_contact reported nothing"
+    # The clock above must be the force-thresholded one. mjlab builds sensors through
+    # cfg.build(), so a subclass that stopped being returned there would leave the stock
+    # `found` clock running and every assertion in this test would still pass.
+    assert (
+        sensor_class == "ForceThresholdContactSensor"
+    ), f"scene built a {sensor_class}; air time is back on mjlab's zero-force 'found' rule"
+    assert threshold == 1.0

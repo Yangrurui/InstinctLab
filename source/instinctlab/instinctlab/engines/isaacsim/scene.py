@@ -242,6 +242,10 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
         prim_path=f"{_ROBOT_PRIM}/{elements}",
         history_length=sensor.history_length,
         track_air_time=sensor.track_air_time,
+        # Isaac Lab defaults this to 1 N, which is what the reference runs on. Passed
+        # explicitly anyway: the reference declares the threshold, and inheriting it
+        # silently is how the two engines ended up clocking air time differently.
+        force_threshold=sensor.air_time_force_threshold,
     )
 
 

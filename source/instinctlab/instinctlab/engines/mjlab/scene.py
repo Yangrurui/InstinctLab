@@ -166,23 +166,24 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
     """One mjlab contact sensor covering the declared elements.
 
     ``reduce="netforce"`` gives one force per element, which is the layout the portable accessors
-    expect and the only one comparable to Isaac Lab's per-body net force. A plain
-    :class:`ContactSensorCfg` rather than a force-thresholded one: the portable terms decide contact
-    from the sensor's own contact duration, so imposing a newton threshold here would reintroduce
-    the very quantity the two engines disagree about.
+    expect and the only one comparable to Isaac Lab's per-body net force.
 
-    ``"found"`` is requested and not merely inherited from mjlab's default, because everything that
-    decides contact here depends on it and its absence does not announce itself. mjlab accumulates
-    air and contact time from ``found`` and returns early when the field was not requested, leaving
-    both timers at zero for the whole run -- so ``illegal_contact`` never fires and
-    ``feet_air_time`` pays nothing. Training still proceeds, on an episode that can only time out.
-    InstinctMJ can ask for force alone because its sensor subclass rederives contact from a force
-    threshold; the portable terms deliberately do not.
+    The air-time clock runs off net force rather than mjlab's ``found``, because ``found`` counts
+    any contact the solver reports at any force while Isaac Lab requires
+    ``ContactSensorRef.air_time_force_threshold`` newtons. Left alone the two engines hand the same
+    portable ``feet_air_time`` two different gaits -- see :mod:`.contact_sensor`.
+
+    ``"found"`` is still requested rather than inherited from mjlab's default, because the stock
+    clock returns early without it and leaves both timers at zero for the whole run: no
+    ``illegal_contact``, no ``feet_air_time`` payout, training proceeding on an episode that can
+    only time out. Keeping the field means a sensor that falls back to the stock class still ticks.
     """
-    from mjlab.sensor import ContactMatch, ContactSensorCfg
+    from mjlab.sensor import ContactMatch
+
+    from .contact_sensor import thresholded_contact_sensor_cfg
 
     elements = (sensor.elements,) if isinstance(sensor.elements, str) else tuple(sensor.elements)
-    return ContactSensorCfg(
+    return thresholded_contact_sensor_cfg(
         name=sensor.name,
         primary=ContactMatch(mode="body", pattern=elements, entity=sensor.entity),
         secondary=None if sensor.against is None else ContactMatch(mode="body", pattern=(sensor.against,)),
@@ -190,6 +191,7 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
         reduce="netforce",
         track_air_time=sensor.track_air_time,
         history_length=sensor.history_length,
+        force_threshold=sensor.air_time_force_threshold,
     )
 
 

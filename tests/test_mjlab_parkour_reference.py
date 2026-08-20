@@ -109,15 +109,13 @@ REFERENCE_DIVERGENCE: dict[str, tuple[str, str, str]] = {
 }
 
 KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
-    "contact/sensor": (
-        "ForceThresholdContactSensorCfg force_threshold=1.0 N (air-time also 1 N)",
-        "ContactSensorCfg fields=(found, force); air-time from found",
-        (
-            "feet_air_time stays portable. Isaac's sensor already gates air-time at 1 N "
-            "(ContactSensorCfg.force_threshold default). base_contact / undesired_contacts "
-            "are per-engine 1 N terms against each engine's own force quantity."
-        ),
-    ),
+    # "contact/sensor" was here until the air-time clock was aligned. The row read as
+    # a neutral implementation detail -- "we keep it portable, they subclass" -- but
+    # mjlab clocks air time off `found`, which is set for any contact at any force,
+    # while Isaac Lab, main and InstinctMJ all require 1 N. Ours was the one behaviour
+    # of four, and feet_air_time was scoring a different gait on each of our engines.
+    # The threshold is now ContactSensorRef.air_time_force_threshold and both backends
+    # map it onto their own field; see tests/test_contact_air_time_threshold.py.
     "motion/source": (
         "AmassMotionCfg yaml filter → parkour_motion_without_run.yaml",
         "MotionReferenceRef clip=…parkour_motion_without_run_retargetted.npz",
@@ -323,8 +321,11 @@ def test_compiled_scanners_volume_contact_and_camera_are_the_documented_drifts(t
     assert mj_ref.shoe_effective()["volume_z"] == mj_ref.SHOE_VOLUME_Z
     contact = sensors["contact_forces"]
     assert "found" in contact.fields
+    # Both sides now clock air time off net force at the same threshold. Asserted as an
+    # equality rather than as two separate literals, so a change on either side shows up
+    # here instead of only in whichever half someone remembered to update.
     assert reference_sensors["contact_forces"]["cfg_class"] == "ForceThresholdContactSensorCfg"
-    assert reference_sensors["contact_forces"]["force_threshold"] == 1.0
+    assert contact.force_threshold == reference_sensors["contact_forces"]["force_threshold"] == 1.0
     assert "found" not in reference_sensors["contact_forces"]["fields"]
     camera = sensors["camera"]
     assert camera.include_geom_groups is None
@@ -481,7 +482,7 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 2
+    assert len(KNOWN_DRIFTS) == 1
     assert len(DELIBERATE) == 8
     assert len(REFERENCE_DIVERGENCE) == 3
     assert "agent/normalizers" not in KNOWN_DRIFTS
@@ -504,9 +505,6 @@ def test_documented_drifts_are_still_present(task, compiled) -> None:
     """Each KNOWN_DRIFTS row must still describe a real difference."""
     from tests import reference_mjlab_parkour as mj_ref
 
-    scanners = {s.name: s for s in compiled.env_cfg.scene.sensors}
-    assert "found" in scanners["contact_forces"].fields
-    assert mj_ref.sensor_cfgs()["contact_forces"]["cfg_class"] == "ForceThresholdContactSensorCfg"
     assert task.scene.motion_references[0].clip.endswith(".npz")
     assert mj_ref.motion_source()["symmetric_augmentation_link_mapping"] is not None
 
@@ -565,4 +563,4 @@ def test_the_prose_counts_the_drift_table() -> None:
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {2}
+    assert counts == {len(KNOWN_DRIFTS)} == {1}
