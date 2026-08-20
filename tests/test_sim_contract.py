@@ -181,6 +181,23 @@ def test_robot_spec_rejects_frame_as_collision_body() -> None:
         bad.validate()
 
 
+def test_robot_spec_rejects_inverted_actuator_delay() -> None:
+    robot = make_g1_29dof_robot_spec()
+    with pytest.raises(ValueError, match="actuator_delay"):
+        replace(robot, actuator_delay=(2, 0)).validate()
+    with pytest.raises(ValueError, match="actuator_delay"):
+        replace(robot, actuator_delay=(-1, 0)).validate()
+
+
+def test_robot_spec_overridden_is_a_copy() -> None:
+    robot = make_g1_29dof_robot_spec()
+    copy = robot.overridden(default_root_pos=(0.0, 0.0, 0.9), actuator_delay=(0, 2))
+    assert robot.default_root_pos[2] == 0.82
+    assert robot.actuator_delay == (0, 0)
+    assert copy.default_root_pos[2] == 0.9
+    assert copy.actuator_delay == (0, 2)
+
+
 def test_g1_assets_declare_contact_aliases_and_load_mode() -> None:
     robot = make_g1_29dof_robot_spec()
     isaac = robot.asset_for("isaacsim")
@@ -201,6 +218,7 @@ def test_g1_assets_declare_contact_aliases_and_load_mode() -> None:
 def test_g1_robot_spec_and_schema() -> None:
     robot = make_g1_29dof_robot_spec()
     assert robot.root_body == "torso_link"
+    assert robot.actuator_delay == (0, 0)
     assert robot.joint_names == G1_29DOF_DFS_JOINT_NAMES
     assert robot.joint_properties[robot.joint_index("right_shoulder_pitch_joint")].default_pos == 0.2
     assert "LL_FOOT" in robot.frame_names

@@ -18,6 +18,7 @@ Exhaustion is visible on the sensor (``validity``, ``exhausted_count``) instead.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from instinctlab import mdp
 from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS, make_g1_29dof_robot_spec
@@ -48,6 +49,10 @@ from instinctlab.spec import (
     VolumePointsRef,
 )
 from instinctlab.spec.capability import Requirement
+
+_PARKOUR_DIR = Path(__file__).resolve().parents[2]
+_SHOE_URDF = _PARKOUR_DIR / "urdf" / "g1_29dof_torsoBase_popsicle_with_shoe.urdf"
+_SHOE_XML = _PARKOUR_DIR / "mjcf" / "g1_29dof_torsoBase_popsicle_with_shoe.xml"
 
 ROBOT = EntityRef("robot", bodies=".*")
 COMMAND = "base_velocity"
@@ -474,9 +479,26 @@ def _commands() -> dict[str, CommandTermSpec]:
     }
 
 
+def parkour_g1_robot() -> RobotSpec:
+    """Catalog G1 plus the four main-parkour plant overrides. Does not touch the factory.
+
+    Main's ``G1ParkourEnvCfg`` copied the popsicle ArticulationCfg and then changed
+    the URDF, spawn z, ``merge_fixed_joints``, and the delayed-actuator table. The
+    catalog stays the flat/rough plant; this is the copy the task holds so both
+    adapters read one ``RobotSpec`` instead of a second override bag someone can
+    forget to apply.
+    """
+    return make_g1_29dof_robot_spec().overridden(
+        default_root_pos=(0.0, 0.0, 0.9),
+        actuator_delay=(0, 2),
+        asset_paths={"isaacsim": str(_SHOE_URDF), "mjlab": str(_SHOE_XML)},
+        import_options={"isaacsim": {"merge_fixed_joints": True}},
+    )
+
+
 def parkour_target_g1() -> TaskSpec:
     """The proprioceptive parkour task."""
-    robot = make_g1_29dof_robot_spec()
+    robot = parkour_g1_robot()
     joints = _canonical_joints(robot)
     motion_reference = MotionReferenceRef(
         name="motion_reference",

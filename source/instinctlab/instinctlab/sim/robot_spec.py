@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 _ALLOWED_LOAD_MODES = frozenset({"default", "strip_visual_meshes"})
@@ -71,6 +71,14 @@ class RobotSpec:
     soft_joint_pos_limit_factor: float
     frame_names: tuple[str, ...] = field(default_factory=tuple)
     collision_body_names: tuple[str, ...] = field(default_factory=tuple)
+    actuator_delay: tuple[int, int] = (0, 0)
+    """Command lag ``(min, max)`` in **physics steps**, inclusive, drawn once per episode.
+
+    Hub semantics — see ``compat/denylist.py`` ``actuator_delay``. ``(0, 0)`` is the
+    catalog default (no delay). A task that wants Isaac's DelayedPD / mjlab's
+    BuiltinPD 0–2 step lag writes ``(0, 2)`` here; adapters apply the hub, they do
+    not copy each engine's raw default resampling.
+    """
 
     @property
     def physical_body_names(self) -> tuple[str, ...]:
@@ -112,6 +120,12 @@ class RobotSpec:
             raise ValueError("RobotSpec may declare at most one asset per backend")
         for asset in self.assets:
             asset.validate_against(self.body_names)
+        lo, hi = self.actuator_delay
+        if lo < 0 or hi < lo:
+            raise ValueError(
+                "RobotSpec.actuator_delay must be inclusive physics-step bounds with "
+                f"0 <= min <= max, got {self.actuator_delay!r}"
+            )
 
     def asset_for(self, backend: str) -> BackendAsset:
         for asset in self.assets:
@@ -145,6 +159,53 @@ class RobotSpec:
             )
             for field in fields
         }
+
+    def overridden(
+        self,
+        *,
+        default_root_pos: tuple[float, float, float] | None = None,
+        actuator_delay: tuple[int, int] | None = None,
+        asset_paths: Mapping[str, str] | None = None,
+        import_options: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> RobotSpec:
+        """A copy with task-level plant changes. Does not mutate the catalog.
+
+        The task holds this object; adapters already read ``spec.robot``. A second
+        override bag on ``TaskSpec`` would be another place to forget to look, and
+        changing the catalog factory would move every task that shares the robot.
+
+        ``asset_paths`` and ``import_options`` are keyed by backend name — data, not
+        ``if engine ==``. Unknown keys fail here so a misspelled engine cannot
+        silently keep the catalog asset.
+        """
+        updates: dict[str, Any] = {}
+        if default_root_pos is not None:
+            updates["default_root_pos"] = default_root_pos
+        if actuator_delay is not None:
+            updates["actuator_delay"] = actuator_delay
+        known = {asset.backend for asset in self.assets}
+        for source, keys in (("asset_paths", asset_paths), ("import_options", import_options)):
+            if keys:
+                unknown = set(keys) - known
+                if unknown:
+                    raise ValueError(
+                        f"RobotSpec.overridden {source} keys {sorted(unknown)}, which "
+                        f"this robot does not declare. Declared: {sorted(known)}."
+                    )
+        if asset_paths or import_options:
+            paths = dict(asset_paths or {})
+            option_patches = {backend: dict(patch) for backend, patch in (import_options or {}).items()}
+            updates["assets"] = tuple(
+                replace(
+                    asset,
+                    path=paths.get(asset.backend, asset.path),
+                    import_options={**dict(asset.import_options), **option_patches.get(asset.backend, {})},
+                )
+                for asset in self.assets
+            )
+        result = replace(self, **updates)
+        result.validate()
+        return result
 
 
 __all__ = [

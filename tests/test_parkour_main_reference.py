@@ -63,29 +63,6 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
             " tiles early training."
         ),
     ),
-    "scene/robot/urdf": (
-        main_ref.G1_SHOE_URDF_SUFFIX,
-        "g1_29dof_torsobase_popsicle.urdf",
-        "Shoe collision mesh absent; volume-point z and feet_at_plane offset were tuned for the shoe sole on main.",
-    ),
-    "scene/robot/spawn_z": (
-        str(main_ref.G1_SPAWN_Z),
-        "0.82",
-        "Root spawn 8 cm lower; changes initial fall phase and first-contact timing for ~0.4 s.",
-    ),
-    "scene/robot/merge_fixed_joints": (
-        "True",
-        "False",
-        "Extra internal DoFs on Isaac; inertia stack differs slightly on waist links.",
-    ),
-    "scene/robot/actuators": (
-        main_ref.G1_DELAYED_ACTUATORS,
-        "beyondmimic_g1_29dof_actuators",
-        (
-            "Main uses DelayedPDActuatorCfg(min_delay=0,max_delay=2); compiled task uses ImplicitActuatorCfg — 0–2 step"
-            " torque lag removed."
-        ),
-    ),
     "sim/physx/gpu_collision_stack_size": (
         str(main_ref.sim_params()["gpu_collision_stack_size"]),
         "Isaac Lab default (unset in adapter)",
@@ -266,8 +243,12 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 
 
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
-    assert len(KNOWN_DRIFTS) >= 10
+    assert len(KNOWN_DRIFTS) >= 7
     assert "dataset_exhausted" in DELIBERATE_OMISSIONS
+    assert "scene/robot/urdf" not in KNOWN_DRIFTS
+    assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
+    assert "scene/robot/merge_fixed_joints" not in KNOWN_DRIFTS
+    assert "scene/robot/actuators" not in KNOWN_DRIFTS
 
 
 def test_documented_drifts_are_still_present(task) -> None:
@@ -278,14 +259,18 @@ def test_documented_drifts_are_still_present(task) -> None:
     assert "threshold" not in rewards["undesired_contacts"].params
     assert task.scene.volume_point("leg_volume_points").velocity == "attach_link"
     assert "dataset_exhausted" not in task.mdp.terminations
+
+
+def test_parkour_robot_matches_main_on_the_four_task_overrides(task) -> None:
     robot = task.robot.asset_for("isaacsim")
-    assert robot.path.endswith("g1_29dof_torsobase_popsicle.urdf")
-    assert task.robot.default_root_pos[2] == pytest.approx(0.82)
-    assert robot.import_options["merge_fixed_joints"] is False
+    assert robot.path.endswith(main_ref.G1_SHOE_URDF_SUFFIX)
+    assert task.robot.default_root_pos[2] == pytest.approx(main_ref.G1_SPAWN_Z)
+    assert robot.import_options["merge_fixed_joints"] is main_ref.G1_MERGE_FIXED_JOINTS
+    assert task.robot.actuator_delay == (0, 2)
 
 
 @pytest.mark.isaacsim
-def test_compiled_isaac_robot_differs_from_main_on_documented_drifts() -> None:
+def test_compiled_isaac_robot_matches_main_plant_and_keeps_documented_sim_drifts() -> None:
     """One Kit session: compile and read the fields the static audit flagged."""
     pytest.importorskip("isaaclab")
     import argparse
@@ -309,11 +294,12 @@ def test_compiled_isaac_robot_differs_from_main_on_documented_drifts() -> None:
     robot = compiled.env_cfg.scene.robot
     sim = compiled.env_cfg.sim
 
-    assert robot.init_state.pos[2] == pytest.approx(0.82)
-    assert robot.spawn.asset_path.endswith("g1_29dof_torsobase_popsicle.urdf")
-    assert robot.spawn.merge_fixed_joints is False
+    assert robot.init_state.pos[2] == pytest.approx(main_ref.G1_SPAWN_Z)
+    assert robot.spawn.asset_path.endswith(main_ref.G1_SHOE_URDF_SUFFIX)
+    assert robot.spawn.merge_fixed_joints is True
     actuator_types = {type(cfg).__name__ for cfg in robot.actuators.values()}
-    assert "DelayedPDActuatorCfg" not in actuator_types
+    assert actuator_types == {"DelayedPDActuatorCfg"}
+    assert {(cfg.min_delay, cfg.max_delay) for cfg in robot.actuators.values()} == {(0, 2)}
     assert sim.physx.gpu_max_rigid_patch_count == 10 * 2**15
     assert getattr(sim.physx, "gpu_collision_stack_size", None) in (None, 2**28, 2**26)
     assert compiled.env_cls.__name__ == "ManagerBasedRLEnv"

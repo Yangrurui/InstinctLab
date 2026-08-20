@@ -19,7 +19,29 @@ from xml.etree import ElementTree
 
 from instinctlab.sim.robot_spec import JointProperties, RobotSpec
 
-__all__ = ["entity", "grouped_actuators"]
+__all__ = ["DELAY_RESET_ONLY_PERIOD", "entity", "grouped_actuators"]
+
+# Isaac DelayedPD draws one lag in reset and holds it for the episode. mjlab's
+# DelayBuffer resamples every physics step when delay_update_period == 0 — a
+# same-name-different-meaning trap, see compat/denylist.py ``actuator_delay``.
+# A period larger than any episode's step count recovers the hub (per-episode)
+# draw; distinct periods keep mjlab from fusing groups onto one shared lag.
+# delay_per_env_phase must be False so the draw lands on the first post-reset
+# step (a random phase would skip step 0 and leave the lag at its reset value 0).
+DELAY_RESET_ONLY_PERIOD = 1_000_000
+
+
+def _torque_delay_kwargs(robot: RobotSpec, group_index: int) -> dict[str, int | bool]:
+    """Hub torque delay: physics steps, inclusive, one draw per episode per group."""
+    lo, hi = robot.actuator_delay
+    if lo == 0 and hi == 0:
+        return {}
+    return {
+        "delay_min_lag": lo,
+        "delay_max_lag": hi,
+        "delay_update_period": DELAY_RESET_ONLY_PERIOD + group_index,
+        "delay_per_env_phase": False,
+    }
 
 
 def grouped_actuators(joints: Iterable[JointProperties]) -> tuple[tuple[tuple[str, ...], JointProperties], ...]:
@@ -82,7 +104,7 @@ def entity(robot: RobotSpec, *, actuator_order: Sequence[str] | None = None) -> 
     """The mjlab entity for ``robot``.
 
     Args:
-        robot: Robot from the catalog.
+        robot: Robot the task holds — catalog or a ``RobotSpec.overridden`` copy.
         actuator_order: Ignored except as documentation of intent -- mjlab resolves actuator
             selections against the model, and joint ordering is settled by ``preserve_order`` on the
             action term rather than here.
@@ -102,8 +124,9 @@ def entity(robot: RobotSpec, *, actuator_order: Sequence[str] | None = None) -> 
             damping=head.damping,
             effort_limit=head.effort_limit,
             armature=head.armature,
+            **_torque_delay_kwargs(robot, group_index),
         )
-        for names, head in grouped_actuators(robot.joint_properties)
+        for group_index, (names, head) in enumerate(grouped_actuators(robot.joint_properties))
     )
     return EntityCfg(
         init_state=EntityCfg.InitialStateCfg(
