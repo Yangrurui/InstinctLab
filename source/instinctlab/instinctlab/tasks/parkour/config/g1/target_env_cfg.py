@@ -9,8 +9,10 @@ clip, the AMP observation groups, the ankle VolumePoints cloud, virtual-obstacle
 registration, and ``volume_points_penetration`` are in.
 
 AMP uses ``amp_policy`` / ``amp_reference`` — the same function of kinematic state, two
-extractors. The agent is WasabiPPO with a 4-expert MoE; ``depth_image`` is routed through
-a Conv2d encoder (``component_names=["depth_image"]``), not flattened into the MLP.
+extractors. Half of ``amp_reference`` trajectories are left-right mirrored on reset
+(name maps, not source-repo indices). The agent is WasabiPPO with a 4-expert MoE;
+``depth_image`` is routed through a Conv2d encoder (``component_names=["depth_image"]``),
+not flattened into the MLP.
 ``dataset_exhausted`` stays out: with ``reset_without_notice=True`` it reports 0.
 Exhaustion is visible on the sensor (``validity``, ``exhausted_count``) instead.
 """
@@ -43,6 +45,7 @@ from instinctlab.spec import (
     RewardTermSpec,
     SceneSpec,
     SimSpec,
+    SymmetricAugmentationSpec,
     TaskSpec,
     TerrainSpec,
     VirtualObstacleRef,
@@ -135,6 +138,8 @@ PARKOUR_EDGE_CYLINDERS = VirtualObstacleRef(
 
 # Same clip and links as the legacy AMP task. Joints are named in the canonical
 # depth-first order (D1); the published npz is legs-first and is remapped by name.
+# Symmetric augmentation is parkour-only: both source managers draw Bernoulli(0.5)
+# on reset. Maps are names so they resolve in this order, not InstinctMJ/main indices.
 PARKOUR_MOTION_CLIP = "~/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run_retargetted.npz"
 PARKOUR_MOTION_LINKS = (
     "pelvis",
@@ -521,6 +526,10 @@ def parkour_target_g1() -> TaskSpec:
         start_range=(0.0, 0.9),
         exhaustion="freeze_last_and_flag",
         quaternion="wxyz",
+        symmetric_augmentation=SymmetricAugmentationSpec.from_left_right(
+            tuple(robot.joint_names),
+            PARKOUR_MOTION_LINKS,
+        ),
     )
     return TaskSpec(
         task_id="Instinct-Parkour-Target-G1",

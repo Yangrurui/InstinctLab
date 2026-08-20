@@ -500,3 +500,31 @@ def test_both_engines_delegate_to_the_shared_runtime() -> None:
         assert "def augment_joint_buffer" not in source
         assert "_symmetric_augment_joint_buffer" not in source
         assert "torch.randint" not in source
+
+
+def test_parkour_turns_named_mirroring_on() -> None:
+    from instinctlab.tasks.parkour.config.g1.target_env_cfg import parkour_target_g1
+
+    sensor = parkour_target_g1().scene.motion_reference("motion_reference")
+    spec = sensor.symmetric_augmentation
+    assert spec is not None
+    assert spec.joint_swaps["left_hip_pitch_joint"] == "right_hip_pitch_joint"
+    assert spec.joint_swaps["waist_pitch_joint"] == "waist_pitch_joint"
+    assert spec.link_swaps["left_knee_link"] == "right_knee_link"
+    assert spec.link_swaps["pelvis"] == "pelvis"
+    assert spec.link_swaps["torso_link"] == "torso_link"
+    resolved = resolve_symmetric_augmentation(spec, sensor.joints, sensor.links)
+    mapping, reverse = _instinctmj_joint_tables()
+    assert list(resolved.joint_mapping) == mapping
+    assert list(resolved.joint_signs) == reverse
+    assert list(resolved.link_mapping) == SOURCE_LINK_MAPPING
+    assert len(resolved.joint_mapping) == 29
+    assert len(resolved.link_mapping) == 14
+
+
+def test_locomotion_tasks_do_not_open_mirroring() -> None:
+    from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import flat_g1
+    from instinctlab.tasks.locomotion.config.g1.rough_env_cfg import rough_g1
+
+    assert flat_g1().scene.motion_references == ()
+    assert rough_g1().scene.motion_references == ()
