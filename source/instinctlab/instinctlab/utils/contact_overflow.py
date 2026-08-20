@@ -19,7 +19,12 @@ The shipped ``2**29`` run on the same task needed 912488 bytes at 16
 envs and 18319520 bytes at 256 envs (linear to ~293 MiB at 4096, above
 Isaac Lab's ``2**26`` default and below main's ``2**29``).
 
-mjlab side polls ``d.overflow`` (24 µs at 8 worlds). Isaac side polls
+mjlab side polls ``d.overflow`` (24 µs at 8 worlds). The array is a sticky
+OR bitmask: kernels set bits with ``|=`` / ``atomic_or`` and only world
+reset clears them upstream. After each guard read we zero ``d.overflow`` on
+the device (diagnostic only -- physics already ran). That turns presence into
+incidence: a bit left over from a prior step is not counted again unless
+the next step sets it anew. Isaac side polls
 ``IPhysxStatistics.get_physx_scene_statistics`` and compares needed vs
 allocated. A guard that cannot be shown to fire on a real overflow is
 not a guard: mjlab was shown on HFIELD at ``horizontal_scale=0.05``;
@@ -114,6 +119,10 @@ def check_contact_overflow(env: Any, *, phase: str) -> dict[str, Any] | None:
     Returns the snapshot when the env overflowed and the escape hatch is
     set; ``None`` when the env is clean or has no overflow signal. ``phase``
     is ``\"construction\"`` or ``\"step\"`` and is written into the message.
+
+    mujoco_warp ``d.overflow`` is sticky; after a full snapshot read the guard
+    zeros the device array so each env step can contribute at most one
+    incidence to the EPA rate counter.
     """
     raw = getattr(env, "unwrapped", env)
     state = getattr(raw, _UNTUNABLE_STATE_ATTR, None)
@@ -126,8 +135,10 @@ def check_contact_overflow(env: Any, *, phase: str) -> dict[str, Any] | None:
     state["steps"] += 1
 
     snapshot = None
+    mjlab_overflow = False
     if overflow_bits_set(env):
         snapshot = _mjlab_snapshot(env)
+        mjlab_overflow = snapshot is not None
     else:
         isaac = _isaac_snapshot(env)
         if isaac is not None and isaac["any_overflow"]:
@@ -135,29 +146,33 @@ def check_contact_overflow(env: Any, *, phase: str) -> dict[str, Any] | None:
     if snapshot is None:
         return None
 
-    flags = set(snapshot.get("overflow_flags") or ())
-    untunable_only = bool(flags) and flags <= _UNTUNABLE_FLAGS
-    if untunable_only:
-        state["events"] += 1
-        rate = state["events"] / max(state["steps"], 1)
-        snapshot = {**snapshot, "untunable_events": state["events"], "untunable_rate": rate}
-        noisy = state["steps"] >= _UNTUNABLE_MIN_SAMPLES and rate > _UNTUNABLE_FATAL_RATE
-        message = _format_untunable_message(snapshot, phase=phase, fatal=noisy)
-        if not noisy:
-            if not state["warned"]:
-                state["warned"] = True
-                print(f"[instinctlab] {message}", flush=True)
-            return snapshot
+    try:
+        flags = set(snapshot.get("overflow_flags") or ())
+        untunable_only = bool(flags) and flags <= _UNTUNABLE_FLAGS
+        if untunable_only:
+            state["events"] += 1
+            rate = state["events"] / max(state["steps"], 1)
+            snapshot = {**snapshot, "untunable_events": state["events"], "untunable_rate": rate}
+            noisy = state["steps"] >= _UNTUNABLE_MIN_SAMPLES and rate > _UNTUNABLE_FATAL_RATE
+            message = _format_untunable_message(snapshot, phase=phase, fatal=noisy)
+            if not noisy:
+                if not state["warned"]:
+                    state["warned"] = True
+                    print(f"[instinctlab] {message}", flush=True)
+                return snapshot
+            if overflow_allowed():
+                _warn_allowed(message)
+                return snapshot
+            raise ContactOverflowError(message, snapshot)
+
+        message = format_overflow_message(snapshot, phase=phase)
         if overflow_allowed():
             _warn_allowed(message)
             return snapshot
         raise ContactOverflowError(message, snapshot)
-
-    message = format_overflow_message(snapshot, phase=phase)
-    if overflow_allowed():
-        _warn_allowed(message)
-        return snapshot
-    raise ContactOverflowError(message, snapshot)
+    finally:
+        if mjlab_overflow:
+            _consume_mjlab_overflow(raw)
 
 
 def _format_untunable_message(snapshot: dict[str, Any], *, phase: str, fatal: bool) -> str:
@@ -166,7 +181,7 @@ def _format_untunable_message(snapshot: dict[str, Any], *, phase: str, fatal: bo
     head = (
         f"mujoco_warp {phase} overflow: {flags} in "
         f"{snapshot.get('worlds_with_overflow')} of {snapshot.get('nworld')} worlds "
-        f"({events} checked steps affected, {steps_rate:.2%} of them). "
+        f"({events} env steps with new overflow, {steps_rate:.2%} rate). "
         "EPA ran out of its horizon buffer while refining one contact pair and returned "
         "that pair unrefined; the buffer is the upstream constant MJ_MAX_EPAHORIZON=24, "
         "so no nconmax / njmax change affects it."
@@ -414,6 +429,32 @@ def decode_overflow(mask: int) -> list[str]:
     except ImportError:
         return [f"bits=0x{mask:x}"]
     return [flag.name for flag in OverflowType if mask & int(flag)]
+
+
+def _consume_mjlab_overflow(raw: Any) -> None:
+    """Zero ``d.overflow`` after the guard read. Diagnostic only; physics already ran."""
+    wp_data = getattr(getattr(raw, "sim", None), "wp_data", None)
+    if wp_data is None or not hasattr(wp_data, "overflow"):
+        return
+    overflow = wp_data.overflow
+    try:
+        import warp as wp
+
+        nworld = int(overflow.shape[0])
+        if nworld == 0:
+            return
+        zeros = wp.zeros(nworld, dtype=overflow.dtype, device=overflow.device)
+        wp.copy(overflow, zeros)
+        return
+    except (AttributeError, ImportError, TypeError, ValueError):
+        pass
+    arr = _as_numpy(overflow)
+    if arr.size == 0:
+        return
+    arr[...] = 0
+    backing = getattr(overflow, "_data", None)
+    if backing is not None and backing is not arr:
+        backing[...] = 0
 
 
 def _as_numpy(arr: Any) -> np.ndarray:

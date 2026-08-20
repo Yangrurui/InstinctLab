@@ -156,6 +156,7 @@ def test_construction_refuses_when_a_world_has_overflow(monkeypatch) -> None:
     env = _fake_env(overflow=[0, 1 << 3, 0], nacon=4200, nefc=[100, 200, 80], nconmax=256, njmax=768)
     with pytest.raises(ContactOverflowError, match="construction overflow") as caught:
         check_contact_overflow(env, phase="construction")
+    assert not np.any(env.sim.wp_data.overflow.numpy())
     assert "NARROWPHASE" in str(caught.value)
     assert "1 of 3 worlds" in str(caught.value)
     assert "nconmax=256" in str(caught.value)
@@ -198,24 +199,50 @@ def test_a_rare_epa_horizon_is_reported_and_survived(monkeypatch, capsys) -> Non
     env = _fake_env(overflow=[_EPA, 0, 0], nacon=10, nefc=[10, 10, 10])
     snapshot = check_contact_overflow(env, phase="step")
     assert snapshot is not None and snapshot["untunable_events"] == 1
+    assert not np.any(env.sim.wp_data.overflow.numpy())
     note = capsys.readouterr().out
     assert "EPA_HORIZON" in note and "MJ_MAX_EPAHORIZON=24" in note
+    assert "env steps with new overflow" in note
     assert "not a failure" in note
-    # ...and it says so once, not once per step.
+    # Sticky bit was consumed; repeated polls must not inflate the rate.
     for _ in range(5):
-        check_contact_overflow(env, phase="step")
+        assert check_contact_overflow(env, phase="step") is None
     assert capsys.readouterr().out == ""
+
+
+def test_sticky_overflow_bit_is_not_recounted_without_rearm(monkeypatch) -> None:
+    """Presence left on the device without a new step must not count again."""
+    pytest.importorskip("mujoco_warp")
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_env(overflow=[_EPA], nacon=10, nefc=[10])
+    first = check_contact_overflow(env, phase="step")
+    assert first is not None and first["untunable_events"] == 1
+    assert not np.any(env.sim.wp_data.overflow.numpy())
+    second = check_contact_overflow(env, phase="step")
+    assert second is None
+    assert getattr(env, "_instinctlab_untunable_overflow")["events"] == 1
+
+
+def test_rearmed_epa_events_accumulate_to_fatal_threshold(monkeypatch) -> None:
+    """Each step that sets EPA anew must still trip the rate ceiling."""
+    pytest.importorskip("mujoco_warp")
+    monkeypatch.delenv(ALLOW_ENV, raising=False)
+    env = _fake_env(overflow=[0], nacon=10, nefc=[10])
+
+    def _arm_epa() -> None:
+        env.sim.wp_data.overflow._data[0] = _EPA
+
+    _arm_epa()
+    with pytest.raises(ContactOverflowError, match="no longer a numerical") as caught:
+        for _ in range(300):
+            _arm_epa()
+            check_contact_overflow(env, phase="step")
+    assert "MJ_MAX_EPAHORIZON=24" in str(caught.value)
 
 
 def test_epa_horizon_becomes_fatal_once_it_stops_being_rare(monkeypatch) -> None:
     """A rate is a different claim from a one-off; past the ceiling it is real degradation."""
-    pytest.importorskip("mujoco_warp")
-    monkeypatch.delenv(ALLOW_ENV, raising=False)
-    env = _fake_env(overflow=[_EPA], nacon=10, nefc=[10])
-    with pytest.raises(ContactOverflowError, match="no longer a numerical") as caught:
-        for _ in range(300):
-            check_contact_overflow(env, phase="step")
-    assert "MJ_MAX_EPAHORIZON=24" in str(caught.value)
+    test_rearmed_epa_events_accumulate_to_fatal_threshold(monkeypatch)
 
 
 def test_epa_horizon_alongside_a_budget_bit_is_still_fatal(monkeypatch) -> None:
