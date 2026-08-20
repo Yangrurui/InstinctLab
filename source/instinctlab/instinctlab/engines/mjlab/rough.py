@@ -50,30 +50,46 @@ What remains unaligned, by decision:
 
 Measured cost of following InstinctMJ here, and an open question. A two-engine
 run of ``Instinct-Parkour-Target-G1`` (256 envs, seed 42, matched at iterations
-623-642) put mjlab at **0.62x** Isaac's episode length and reward on the
-*aligned* terrain subset, while the *known-diverged* stairs subset came out at
-0.71x / 0.77x. The gap is therefore not explained by anything documented above:
+574-593) puts mjlab at **0.54x** Isaac's episode length and 0.54x its reward on
+the *aligned* terrain subset, while the *known-diverged* subset comes out at
+0.62x / 0.74x. The gap is therefore not explained by anything documented above:
 it is worst where the two engines are supposed to agree. It concentrates on the
-continuous height-field terrains -- ``hf_pyramid_slope_inv`` 0.40x,
-``perlin_rough`` 0.48x, ``perlin_rough_stand`` 0.49x -- and is mild on the
-discretely stepped ones (stairs, ``boxes``, ``square_gaps``: 0.73-0.84x). That
+continuous height-field terrains -- ``hf_pyramid_slope_inv`` 0.43x,
+``perlin_rough`` 0.45x, ``perlin_rough_stand`` 0.46x -- and is mild on the
+discretely stepped ones (stairs, ``boxes``, ``square_gaps``: 0.56-0.67x). That
 pattern fits ``horizontal_scale``: a slope on a 0.07 grid is discretised into
-treads 40% taller than on Isaac's 0.05. Contact overflow was ruled out
-(``d.overflow`` clear at construction and mid-training; ``nacon`` 164/world
-against ``nconmax=256``). The grid-resolution reading stays a hypothesis, and
-the obvious test for it -- a short mjlab run at ``horizontal_scale=0.05``,
-nothing else changed -- cannot be run on this engine. Measured: 16 envs at
-0.05 construct clean, then raise ``HFIELD`` overflow on the very first step,
-with ``nacon`` at 111 against a budget of 4096 (2.7%). It is not a budget.
-``mjMAXCONPAIR`` caps contacts per geom pair at 50 at compile time, and a
-finer height field puts more than 50 contacts on the one foot-terrain pair,
-so raising ``nconmax`` cannot clear it. The same probe at 0.07 is clean over
-150 steps (peak ``nacon`` 379, ``nefc`` 195/768). mjlab is structurally held
-at the coarser grid here; if the hypothesis is worth settling, it has to be
-tested inside Isaac by running *it* at 0.07 instead.
+treads 40% taller than on Isaac's 0.05.
 
-That 0.62x measurement predates the parkour robot override (``b668964``) and
-is unaffected by it. The override added a further accepted incomparability:
+Two readings of that run narrow what the gap can be. Per-timestep reward runs
+**1.15x** on mjlab: it is not earning less per step, its episodes just end
+sooner, so the difference sits in termination and not in policy quality.
+And the terminations do not spread evenly -- ``root_height`` fires 2.3x as
+often on mjlab (2.16 vs 0.93) while ``bad_orientation`` (0.004 vs 0.023) and
+``base_contact`` (0.006 vs 0.045) fire *less*. mjlab robots are not falling
+over more; they are dropping below the height floor measured against the env
+origin, which is exactly the quantity a coarser terrain grid moves.
+
+Three candidate causes have since been ruled out by construction, because
+aligning them did not move the number: the AMP left-right mirror (now on both
+engines), TF32 (mjlab was running with it off against a reference that has it
+on), and the PhysX collision stack (Isaac now at main's ``2**29``). The run
+above is post-alignment.
+
+Contact overflow was ruled out too (``d.overflow`` clear at construction and
+mid-training; ``nacon`` 164/world against ``nconmax=256``). The grid-resolution
+reading stays a hypothesis, and the obvious test for it -- a short mjlab run at
+``horizontal_scale=0.05``, nothing else changed -- cannot be run on this engine.
+Measured: 16 envs at 0.05 construct clean, then raise ``HFIELD`` overflow on the
+very first step, with ``nacon`` at 111 against a budget of 4096 (2.7%). It is
+not a budget. ``mjMAXCONPAIR`` caps contacts per geom pair at 50 at compile
+time, and a finer height field puts more than 50 contacts on the one
+foot-terrain pair, so raising ``nconmax`` cannot clear it. The same probe at
+0.07 is clean over 150 steps (peak ``nacon`` 379, ``nefc`` 195/768). mjlab is
+structurally held at the coarser grid here; if the hypothesis is worth
+settling, it has to be tested inside Isaac by running *it* at 0.07 instead.
+
+This measurement postdates the parkour robot override (``b668964``), which
+added a further accepted incomparability:
 Isaac parkour now uses explicit Ideal PD with delay (``DelayedPDActuator``,
 matching main) while mjlab uses implicit-integration PD with delay
 (``BuiltinPdActuator``, matching InstinctMJ). Before that change both engines
