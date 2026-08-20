@@ -27,6 +27,26 @@ of environments climb a different staircase depending on the engine.
 geometry. Cross-engine episode-length or terrain-level curves are therefore not
 comparable on the stairs terrains.
 
+The 0.07-vs-0.05 grid does not shift difficulty uniformly, it **reorders** it, and
+in opposite directions by terrain family. Measured on two mjlab seeds against the
+Isaac run, taking each sub-terrain's episode length relative to its own run's
+aligned mean: the continuous surfaces are relatively harder on the coarse grid
+(``hf_pyramid_slope_inv`` 0.72, ``perlin_rough`` 0.76, ``perlin_rough_stand``
+0.83) while the axis-aligned ones are relatively easier (``pyramid_stairs_high``
+1.27, ``pyramid_stairs_inv_high`` 1.31, ``boxes`` 1.16), with ``square_gaps``
+neutral at 1.07. That is the expected sign on both counts — a coarse grid blocks
+a perlin surface into steeper local steps, and rounds a staircase into fewer,
+cleaner ones — but the 1.8x spread is worth knowing before reading any
+per-terrain curve across engines.
+
+Note what this does to ``Episode_Terrain/aligned_*``: averaging a 0.72 against a
+1.31 yields something that looks like a uniform offset, so the aggregate we built
+for cross-engine comparison is exactly the statistic that hides this. Read the
+per-terrain rows.
+
+Both engines match their own reference here (InstinctMJ 0.07, main 0.05), so this
+is inherited from the two upstreams disagreeing, not introduced by the port.
+
 What remains unaligned, by decision:
 
 * Slot 9 is ``dense_boxes`` (``PerlinDiscreteObstaclesTerrainCfg``) here and
