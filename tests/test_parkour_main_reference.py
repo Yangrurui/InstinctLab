@@ -10,6 +10,7 @@ Drifts that are deliberate cross-engine compromises are listed in ``KNOWN_DRIFTS
 
 from __future__ import annotations
 
+import inspect
 import math
 import subprocess
 import sys
@@ -75,6 +76,31 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "com (VolumePointsCfg default on legacy Gym path)",
         "attach_link",
         "Deliberate D1/hub choice for cross-engine penetration speed; legacy Isaac-only Gym id keeps COM.",
+    ),
+    "obs/joint_axis": (
+        "implicit .* / unnamed SceneEntityCfg (PhysX BFS)",
+        "named G1_29DOF_DFS_JOINT_NAMES + preserve_order",
+        (
+            "Policy joint_pos/joint_vel, last_action, the action vector, and AMP joints are a permutation "
+            "of main. Same information, different layout — an MLP can learn either, but the optimization "
+            "path and any checkpoint transfer change."
+        ),
+    ),
+    "obs/base_lin_vel_frame": (
+        "isaaclab.envs.mdp.base_lin_vel → root_lin_vel_b (COM)",
+        "instinctlab.mdp.base_lin_vel → root_link_lin_vel_b",
+        (
+            "Critic and both AMP groups read link velocity. Same ω×R(−com_pos_b) shift as the reward "
+            "drifts, now also in the value function and the discriminator."
+        ),
+    ),
+    "amp/symmetric_augmentation": (
+        "MotionReferenceManagerCfg BFS maps; AmassMotion.reset draws Bernoulli(0.5)",
+        "clip sensor has no mirror",
+        (
+            "Main mirrors half of amp_reference trajectories on reset. The portable clip never does, "
+            "so the discriminator's positive class is the unmirrored clip only."
+        ),
     ),
 }
 
@@ -196,6 +222,48 @@ def test_amp_observation_order_matches_main(task) -> None:
     assert tuple(task.mdp.observations["amp_reference"].terms) == main_ref.observation_order("amp_reference")
 
 
+def _declared_scale(term) -> float | None:
+    return term.scale
+
+
+def _declared_noise(term) -> tuple[float, float] | None:
+    noise = term.noise
+    if noise is None:
+        return None
+    return (noise.lo, noise.hi)
+
+
+@pytest.mark.parametrize("group", ("policy", "critic", "amp_policy", "amp_reference"))
+def test_observation_scales_match_main(task, group) -> None:
+    """observation_scales() existed with no caller — extracted-but-unasserted."""
+    declared = {name: _declared_scale(term) for name, term in task.mdp.observations[group].terms.items()}
+    assert declared == main_ref.observation_scales(group)
+
+
+@pytest.mark.parametrize("group", ("policy", "critic", "amp_policy", "amp_reference"))
+def test_observation_noise_matches_main(task, group) -> None:
+    declared = {name: _declared_noise(term) for name, term in task.mdp.observations[group].terms.items()}
+    assert declared == main_ref.observation_noise(group)
+
+
+@pytest.mark.parametrize("group", ("policy", "critic", "amp_policy", "amp_reference"))
+def test_observation_history_and_clip_match_main(task, group) -> None:
+    declared_hist = {name: term.history_length for name, term in task.mdp.observations[group].terms.items()}
+    declared_clip = {name: term.clip for name, term in task.mdp.observations[group].terms.items()}
+    assert declared_hist == main_ref.observation_history(group)
+    assert declared_clip == main_ref.observation_clip(group)
+    assert all(clip is None for clip in declared_clip.values())
+
+
+def test_flatten_history_dim_is_isaac_default_true_on_both_sides() -> None:
+    """We omit the field; Isaac Lab defaults True. Main sets True on most terms, omits on a few."""
+    assert main_ref.isaac_observation_term_flatten_history_default() is True
+    for group in ("policy", "critic", "amp_policy", "amp_reference"):
+        flags = main_ref.observation_flatten_history(group)
+        assert set(flags.values()) <= {True, None}, flags
+        assert any(value is True for value in flags.values()) or group.startswith("amp")
+
+
 def test_command_velocity_ranges_match_main_on_isaac(task) -> None:
     term = task.mdp.commands["base_velocity"]
     resolved = term.resolved_params("isaacsim")["velocity_ranges"]
@@ -235,23 +303,205 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 
 
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
-    assert len(KNOWN_DRIFTS) >= 6
+    assert len(KNOWN_DRIFTS) >= 9
     assert "dataset_exhausted" in DELIBERATE_OMISSIONS
     assert "reward/undesired_contacts/threshold" not in KNOWN_DRIFTS
     assert "scene/robot/urdf" not in KNOWN_DRIFTS
     assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
     assert "scene/robot/merge_fixed_joints" not in KNOWN_DRIFTS
     assert "scene/robot/actuators" not in KNOWN_DRIFTS
+    assert "obs/joint_axis" in KNOWN_DRIFTS
+    assert "obs/base_lin_vel_frame" in KNOWN_DRIFTS
+    assert "amp/symmetric_augmentation" in KNOWN_DRIFTS
 
 
 def test_documented_drifts_are_still_present(task) -> None:
     """Each KNOWN_DRIFTS entry must remain true — the table is not a graveyard."""
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
+    from instinctlab.mdp.observations import base_lin_vel
+
     rewards = task.mdp.rewards["rewards"]
     assert rewards["track_lin_vel_xy_exp"].func.__name__ == "track_lin_vel_xy_exp"
     assert rewards["dont_wait"].func.__name__ == "dont_wait"
     assert rewards["undesired_contacts"].kind == "undesired_contacts"
     assert task.scene.volume_point("leg_volume_points").velocity == "attach_link"
     assert "dataset_exhausted" not in task.mdp.terminations
+    assert tuple(task.robot.joint_names) == G1_29DOF_DFS_JOINT_NAMES
+    assert G1_29DOF_DFS_JOINT_NAMES != G1_29DOF_ISAAC_BFS_JOINT_NAMES
+    assert main_ref.observation_joint_names("policy", "joint_pos") is None
+    assert main_ref.action_kwargs()["joint_names"] == [".*"]
+    assert task.mdp.observations["critic"].terms["base_lin_vel"].func is base_lin_vel
+    assert "root_link_lin_vel_b" in inspect.getsource(base_lin_vel)
+    assert main_ref.observation_functions("critic")["base_lin_vel"] == "base_lin_vel"
+    source = main_ref.motion_reference_source()
+    assert (
+        source.get("symmetric_augmentation_link_mapping") is not None or "symmetric_augmentation_link_mapping" in source
+    )
+    assert not hasattr(task.scene.motion_reference("motion_reference"), "symmetric_augmentation_joint_mapping")
+
+
+def test_main_leaves_policy_and_action_joints_in_entity_order(task) -> None:
+    """Main's implicit `.*` is PhysX BFS; we name DFS. This is KNOWN_DRIFTS['obs/joint_axis']."""
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
+
+    assert G1_29DOF_DFS_JOINT_NAMES != G1_29DOF_ISAAC_BFS_JOINT_NAMES
+    assert G1_29DOF_DFS_JOINT_NAMES[0] == "waist_pitch_joint"
+    assert G1_29DOF_ISAAC_BFS_JOINT_NAMES[0] == "left_shoulder_pitch_joint"
+    for group, term in (
+        ("policy", "joint_pos"),
+        ("policy", "joint_vel"),
+        ("critic", "joint_pos"),
+        ("critic", "joint_vel"),
+    ):
+        assert main_ref.observation_joint_names(group, term) is None, f"{group}/{term}"
+    assert main_ref.observation_joint_names("amp_policy", "joint_pos_rel") is None
+    assert main_ref.observation_preserve_order("amp_policy", "joint_pos_rel") is True
+    action = main_ref.action_kwargs()
+    assert action["joint_names"] == [".*"]
+    assert action.get("preserve_order") is None
+    assert action.get("use_default_offset") is True
+    canonical = tuple(task.robot.joint_names)
+    assert canonical == G1_29DOF_DFS_JOINT_NAMES
+    for group, name in (("policy", "joint_pos"), ("amp_policy", "joint_pos_rel")):
+        ref = task.mdp.observations[group].terms[name].params["asset_cfg"]
+        assert tuple(ref.joints) == canonical
+        assert ref.preserve_order is True
+    assert tuple(task.mdp.actions["joint_pos"].target.joints) == canonical
+
+
+def test_critic_and_amp_lin_vel_use_the_hub_link_spelling(task) -> None:
+    """Same COM→link shift as the reward drifts, now in critic and AMP inputs."""
+    from instinctlab.mdp.amp import base_lin_vel_from_reference
+    from instinctlab.mdp.observations import base_lin_vel
+
+    assert task.mdp.observations["critic"].terms["base_lin_vel"].func is base_lin_vel
+    assert task.mdp.observations["amp_policy"].terms["base_lin_vel"].func is base_lin_vel
+    assert task.mdp.observations["amp_reference"].terms["base_lin_vel"].func is base_lin_vel_from_reference
+    assert "root_link_lin_vel_b" in inspect.getsource(base_lin_vel)
+    assert main_ref.observation_functions("critic")["base_lin_vel"] == "base_lin_vel"
+    assert main_ref.observation_functions("amp_policy")["base_lin_vel"] == "base_lin_vel"
+    assert main_ref.observation_functions("amp_reference")["base_lin_vel"] == "base_lin_vel_reference_as_state"
+
+
+def test_main_amp_mirrors_half_the_reference_and_we_do_not(task) -> None:
+    source = main_ref.motion_reference_source()
+    assert source["symmetric_augmentation_link_mapping"] == [0, 1, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12]
+    assert "symmetric_augmentation_joint_mapping" in source
+    assert "symmetric_augmentation_joint_reverse_buf" in source
+    amass = source["amass"]
+    assert "filtered_motion_selection_filepath" in amass
+    assert "parkour_motion_without_run.yaml" in str(amass["filtered_motion_selection_filepath"])
+    clip = task.scene.motion_reference("motion_reference")
+    assert clip.clip.endswith("parkour_motion_without_run_retargetted.npz")
+    assert not hasattr(clip, "symmetric_augmentation_joint_mapping")
+
+
+def test_shipped_motion_yaml_selects_the_same_npz_as_our_clip(task) -> None:
+    """Measured: main's yaml filter is not a multi-clip walk on the shipped dataset."""
+    import yaml
+
+    if not main_ref.SHIPPED_MOTION_YAML.is_file():
+        pytest.skip(f"shipped yaml missing at {main_ref.SHIPPED_MOTION_YAML}")
+    data = yaml.safe_load(main_ref.SHIPPED_MOTION_YAML.read_text())
+    files = data["selected_files"]
+    assert files == ["parkour_motion_without_run_retargetted.npz"]
+    assert task.scene.motion_reference("motion_reference").clip.endswith(files[0])
+    assert main_ref.SHIPPED_MOTION_NPZ.is_file()
+    import numpy as np
+
+    raw = np.load(main_ref.SHIPPED_MOTION_NPZ, mmap_mode="r", allow_pickle=True)
+    assert int(raw["joint_pos"].shape[0]) == 18982
+    assert float(np.asarray(raw["framerate"]).item()) == pytest.approx(50.0)
+
+
+def test_depth_delay_params_match_main(task) -> None:
+    ours = task.mdp.observations["policy"].terms["depth_image"].params
+    theirs = main_ref.delayed_depth_params()
+    assert ours["history_skip_frames"] == theirs["history_skip_frames"] == 5
+    assert ours["num_output_frames"] == theirs["num_output_frames"] == 8
+    assert tuple(ours["delayed_frame_ranges"]) == tuple(theirs["delayed_frame_ranges"]) == (0, 1)
+    assert ours["history_length"] == 37
+    assert theirs.get("data_type") == "distance_to_image_plane_noised_history"
+
+
+def test_camera_ray_alignment_config_differs_but_grouped_camera_ignores_it(task) -> None:
+    """Main writes yaw; we declare base. GroupedRayCasterCamera forces attach_yaw_only=False."""
+    assert main_ref.camera_ray_alignment() == "yaw"
+    assert task.scene.ray_caster("camera").ray_alignment == "base"
+    cfg = Path(
+        "/root/InstinctLab/source/instinctlab/instinctlab/sensors/grouped_ray_caster/grouped_ray_caster_camera_cfg.py"
+    )
+    assert "self.attach_yaw_only = False" in cfg.read_text()
+
+
+def test_wasabi_defaults_match_our_explicit_amp_keys(our_agent, main_agent) -> None:
+    import inspect
+
+    from instinct_rl.algorithms.wasabi import WasabiAlgoMixin
+
+    params = inspect.signature(WasabiAlgoMixin.__init__).parameters
+    assert params["actor_state_key"].default == "amp_policy"
+    assert params["reference_state_key"].default == "amp_reference"
+    assert our_agent["algorithm.actor_state_key"] == "amp_policy"
+    assert our_agent["algorithm.reference_state_key"] == "amp_reference"
+    assert "algorithm.actor_state_key" not in main_agent
+    assert our_agent.get("policy.encoder_configs.depth_encoder.takeout_input_components", True) is True
+
+
+def test_runner_has_no_empirical_normalizer_on_either_side(our_agent, main_agent) -> None:
+    assert main_agent["empirical_normalization"] is False
+    assert not any(key.startswith("normalizers.") for key in our_agent)
+    assert not any(key.startswith("normalizers.") for key in main_agent)
+
+
+def test_train_scripts_agree_on_seed_num_envs_and_tf32() -> None:
+    """CLI defaults and the seed hand-off. Resume load is main-only and unused when resume=False."""
+    theirs = main_ref.train_script_facts()
+    ours = Path("/root/InstinctLab/scripts/train.py").read_text()
+    adapter = Path("/root/InstinctLab/source/instinctlab/instinctlab/engines/isaacsim/adapter.py").read_text()
+    assert theirs["sets_env_seed_from_agent"] is True
+    assert "compiled.env_cfg.seed = agent_cfg.seed" in ours
+    assert theirs["num_envs_default"] is None
+    assert "default=4096" in ours
+    assert theirs["seed_default"] is None
+    assert theirs["sets_tf32"] is True
+    assert "allow_tf32 = True" in adapter
+    assert theirs["calls_runner_load"] is True
+    assert "runner.load(" not in ours
+    assert theirs["init_at_random_ep_len"] is True
+    assert "init_at_random_ep_len" in ours
+    assert theirs["wrapper"] is True
+
+
+def test_wrapper_setdefault_step_does_not_change_plain_ppo_rewards() -> None:
+    """Isaac ManagerBasedRLEnv never writes extras['step']. AMP writes into it; plain PPO does not."""
+    import torch
+
+    extras = {"log": {}}
+    extras.setdefault("step", {})
+    extras.setdefault("episode", {})
+    for key, value in {}.items():
+        extras["step"][key] = value
+    assert extras["step"] == {}
+    reward = torch.zeros(4)
+    assert reward.unsqueeze(1).shape == (4, 1)
+    missing: dict = {}
+    with pytest.raises(KeyError):
+        missing["step"]["discriminator_reward"] = torch.ones(2, 1)
+    missing.setdefault("step", {})
+    missing["step"]["discriminator_reward"] = torch.ones(2, 1)
+    assert "discriminator_reward" in missing["step"]
+    assert main_ref.wrapper_sets_missing_step_dict() is True
+    assert main_ref.main_wrapper_sets_missing_step_dict() is True
+
+
+def test_single_reward_group_keeps_num_rewards_one() -> None:
+    assert main_ref.uses_multi_reward_cfg()
+    assert main_ref.uses_instinct_rl_env()
+    from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
+
+    task = parkour_target_g1()
+    assert list(task.mdp.rewards) == ["rewards"]
 
 
 def test_parkour_robot_matches_main_on_the_four_task_overrides(task) -> None:

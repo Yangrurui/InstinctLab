@@ -143,27 +143,195 @@ def event_names() -> frozenset[str]:
     return frozenset(_class_assignments(_parkour_module(), "EventCfg"))
 
 
+_OBS_GROUPS = {
+    "policy": "PolicyCfg",
+    "critic": "CriticCfg",
+    "amp_policy": "AmpPolicyStateObsCfg",
+    "amp_reference": "AmpReferenceStateObsCfg",
+}
+
+# Shipped dataset that main's yaml filter and our clip path both resolve to.
+SHIPPED_MOTION_YAML = Path("/root/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run.yaml")
+SHIPPED_MOTION_NPZ = Path(
+    "/root/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run_retargetted.npz"
+)
+MAIN_TRAIN = "scripts/instinct_rl/train.py"
+MAIN_WRAPPER = "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/vecenv_wrapper.py"
+ISAAC_OBS_TERM_CFG = Path("/root/IsaacLab/source/isaaclab/isaaclab/managers/manager_term_cfg.py")
+
+
 def observation_order(group: str) -> tuple[str, ...]:
-    mapping = {
-        "policy": "PolicyCfg",
-        "critic": "CriticCfg",
-        "amp_policy": "AmpPolicyStateObsCfg",
-        "amp_reference": "AmpReferenceStateObsCfg",
-    }
-    return tuple(_obs_group(_parkour_module(), mapping[group]).keys())
+    return tuple(_obs_group(_parkour_module(), _OBS_GROUPS[group]).keys())
 
 
 def observation_scales(group: str = "policy") -> dict[str, float | None]:
-    mapping = {
-        "policy": "PolicyCfg",
-        "critic": "CriticCfg",
-        "amp_policy": "AmpPolicyStateObsCfg",
-        "amp_reference": "AmpReferenceStateObsCfg",
-    }
     scales: dict[str, float | None] = {}
-    for name, call in _obs_group(_parkour_module(), mapping[group]).items():
+    for name, call in _obs_group(_parkour_module(), _OBS_GROUPS[group]).items():
         scales[name] = _kwargs(call).get("scale")
     return scales
+
+
+def observation_noise(group: str = "policy") -> dict[str, tuple[float, float] | None]:
+    """Uniform noise bounds, or None when the term declares no noise / noise=None."""
+    bounds: dict[str, tuple[float, float] | None] = {}
+    for name, call in _obs_group(_parkour_module(), _OBS_GROUPS[group]).items():
+        bounds[name] = None
+        for kw in call.keywords:
+            if kw.arg != "noise":
+                continue
+            if isinstance(kw.value, ast.Constant) and kw.value.value is None:
+                bounds[name] = None
+            elif isinstance(kw.value, ast.Call):
+                noise = _kwargs(kw.value)
+                if "n_min" in noise and "n_max" in noise:
+                    bounds[name] = (noise["n_min"], noise["n_max"])
+    return bounds
+
+
+def observation_history(group: str = "policy") -> dict[str, int]:
+    history: dict[str, int] = {}
+    for name, call in _obs_group(_parkour_module(), _OBS_GROUPS[group]).items():
+        history[name] = _kwargs(call).get("history_length", 0)
+    return history
+
+
+def observation_clip(group: str = "policy") -> dict[str, Any]:
+    return {name: _kwargs(call).get("clip") for name, call in _obs_group(_parkour_module(), _OBS_GROUPS[group]).items()}
+
+
+def observation_flatten_history(group: str = "policy") -> dict[str, bool | None]:
+    """True when main sets flatten_history_dim; None when it relies on Isaac Lab's default."""
+    out: dict[str, bool | None] = {}
+    for name, call in _obs_group(_parkour_module(), _OBS_GROUPS[group]).items():
+        out[name] = _kwargs(call).get("flatten_history_dim")
+    return out
+
+
+def observation_functions(group: str = "policy") -> dict[str, str]:
+    return {name: _func_name(call) for name, call in _obs_group(_parkour_module(), _OBS_GROUPS[group]).items()}
+
+
+def _term_asset_cfg_kwargs(call: ast.Call) -> dict[str, Any] | None:
+    """SceneEntityCfg keywords inside a term's params, or None if the term names no asset."""
+    for kw in call.keywords:
+        if kw.arg != "params" or not isinstance(kw.value, ast.Dict):
+            continue
+        for key, value in zip(kw.value.keys, kw.value.values, strict=True):
+            if key is not None and _literal(key) == "asset_cfg" and isinstance(value, ast.Call):
+                return _kwargs(value)
+    return None
+
+
+def observation_joint_names(group: str, term: str) -> tuple[str, ...] | None:
+    """Named joints on a term's asset_cfg, or None when main left the selector implicit."""
+    call = _obs_group(_parkour_module(), _OBS_GROUPS[group])[term]
+    cfg = _term_asset_cfg_kwargs(call)
+    if cfg is None:
+        return None
+    names = cfg.get("joint_names")
+    if names is None:
+        return None
+    if isinstance(names, str):
+        return (names,)
+    return tuple(names)
+
+
+def observation_preserve_order(group: str, term: str) -> bool | None:
+    call = _obs_group(_parkour_module(), _OBS_GROUPS[group])[term]
+    cfg = _term_asset_cfg_kwargs(call)
+    if cfg is None:
+        return None
+    return cfg.get("preserve_order")
+
+
+def action_kwargs() -> dict[str, Any]:
+    return _kwargs(_class_assignments(_parkour_module(), "ActionsCfg")["joint_pos"])
+
+
+def delayed_depth_params() -> dict[str, Any]:
+    """Params of policy depth_image on main (sensor-side history + delayed_visualizable_image)."""
+    call = _obs_group(_parkour_module(), "PolicyCfg")["depth_image"]
+    return dict(_kwargs(call).get("params") or {})
+
+
+def camera_ray_alignment() -> str | None:
+    """Literal on SceneCfg.camera, which both engines' grouped cameras ignore at runtime."""
+    for node in _parkour_module().body:
+        if isinstance(node, ast.ClassDef) and node.name == "SceneCfg":
+            for item in node.body:
+                if (
+                    isinstance(item, ast.Assign)
+                    and len(item.targets) == 1
+                    and isinstance(item.targets[0], ast.Name)
+                    and item.targets[0].id == "camera"
+                    and isinstance(item.value, ast.Call)
+                ):
+                    return _kwargs(item.value).get("ray_alignment")
+    raise LookupError("SceneCfg.camera missing on main")
+
+
+def motion_reference_source() -> dict[str, Any]:
+    """Fields of the MotionReferenceManagerCfg assigned in the G1 AMP file."""
+    g1 = ast.parse(_git_show(G1_CFG))
+    source: dict[str, Any] = {}
+    for node in g1.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "motion_reference_cfg" for t in node.targets
+        ):
+            if isinstance(node.value, ast.Call):
+                source.update(_kwargs(node.value))
+        if isinstance(node, ast.ClassDef) and node.name == "AmassMotionCfg":
+            fields: dict[str, Any] = {}
+            for item in node.body:
+                if isinstance(item, ast.Assign) and len(item.targets) == 1 and isinstance(item.targets[0], ast.Name):
+                    fields[item.targets[0].id] = ast.unparse(item.value)
+            source["amass"] = fields
+    return source
+
+
+def train_script_facts() -> dict[str, Any]:
+    """What main's Isaac-only trainer actually writes, read off the syntax tree."""
+    tree = ast.parse(_git_show(MAIN_TRAIN))
+    src = ast.unparse(tree)
+    defaults: dict[str, Any] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = ast.unparse(node.func) if isinstance(node.func, ast.Attribute) else ""
+        if not func.endswith("add_argument"):
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Constant):
+            continue
+        flag = node.args[0].value
+        if flag in {"--num_envs", "--seed", "--max_iterations"}:
+            for kw in node.keywords:
+                if kw.arg == "default":
+                    defaults[str(flag)] = _literal(kw.value)
+    return {
+        "num_envs_default": defaults.get("--num_envs"),
+        "seed_default": defaults.get("--seed"),
+        "max_iterations_default": defaults.get("--max_iterations"),
+        "sets_env_seed_from_agent": "env_cfg.seed = agent_cfg.seed" in src,
+        "calls_runner_load": "runner.load(" in src,
+        "sets_tf32": "allow_tf32 = True" in src,
+        "init_at_random_ep_len": "init_at_random_ep_len" in src,
+        "wrapper": "InstinctRlVecEnvWrapper" in src,
+    }
+
+
+def isaac_observation_term_flatten_history_default() -> bool:
+    """Isaac Lab's ObservationTermCfg default, read from the installed source."""
+    text = ISAAC_OBS_TERM_CFG.read_text()
+    return "flatten_history_dim: bool = True" in text
+
+
+def wrapper_sets_missing_step_dict() -> bool:
+    """Whether the working-tree wrapper fills infos['step'] when Isaac never wrote it."""
+    return 'setdefault("step", {})' in Path(REPO, MAIN_WRAPPER).read_text()
+
+
+def main_wrapper_sets_missing_step_dict() -> bool:
+    return 'setdefault("step", {})' not in _git_show(MAIN_WRAPPER)
 
 
 def command_params() -> dict[str, Any]:
