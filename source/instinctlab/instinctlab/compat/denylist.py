@@ -131,6 +131,31 @@ _ENTRIES: tuple[DenylistEntry, ...] = (
             " threshold and tolerance per engine."
         ),
     ),
+    _entry(
+        "points_vel_w",
+        "Same buffer name, velocity about a different point on Isaac's PhysX view.",
+        isaacsim=(
+            "VolumePoints fills vel_w from RigidBodyView.get_velocities(): the linear row is COM."
+            " Legacy sensors (default velocity='com') then do v_com + ω × (p - link_origin), which"
+            " is neither the COM formula nor the link formula whenever the foot COM is offset."
+        ),
+        mjlab=(
+            "cvel + ω × r. mjwarp cvel linear is at the free-joint subtree COM; "
+            "transport from the attach body's own subtree adds ω × (pelvis − ankle)."
+            " InstinctMJ transports from the foot's own subtree and so carries that"
+            " lever: at |ω| = 2.83 rad/s its v_link measures (1.267, −1.301, −0.248)"
+            " where the link value is (−0.035, 0, −0.0002). ω = 0 hides it entirely."
+        ),
+        resolution=(
+            "Hub is attach-body link origin: v_link + ω × (p_w - origin_w). The new-stack Isaac"
+            " sensor sets velocity='attach_link' and converts COM → link before the cross product."
+            " Portable terms read compat.sensors.volume_points_vel_w, which refuses a COM sensor."
+            " Do not change the legacy default — parkour_env_cfg.py still wants COM."
+            " Consequence: the cross-engine task deliberately does not reproduce"
+            " InstinctMJ's volume_points_penetration magnitudes, so that penalty is not"
+            " a number to match against the upstream project either."
+        ),
+    ),
 )
 
 DENYLIST: Mapping[str, DenylistEntry] = MappingProxyType({entry.name: entry for entry in _ENTRIES})

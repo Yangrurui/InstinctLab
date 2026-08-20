@@ -5,8 +5,9 @@ ground -- ``kind="rough"``, which each adapter fills from its own parkour refere
 ``terrain_levels`` curriculum that walks robots up and down that grid. Height scanning is not
 here: that is a sensor, not a terrain, and belongs with the raycaster work.
 
-Nothing here imports an engine. The two reference grids already disagree (scale, extra tile);
-the declaration names the intent and does not pick a winner.
+Nothing here imports an engine. The two reference grids already disagree (scale, extra tile,
+mjlab's deterministic row difficulty vs Isaac's jitter); they now agree on ``num_cols=20``
+and therefore on world width. The declaration names the intent and does not pick a winner.
 """
 
 from __future__ import annotations

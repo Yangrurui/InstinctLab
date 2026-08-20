@@ -16,5 +16,8 @@ def rough_terrain() -> TerrainSpec:
     """Reference rough ground for ``Instinct-Velocity-Rough-G1``.
 
     The declaration stops at the kind. Each adapter's default *is* that engine's reference.
+    Both now honor ``num_cols=20`` (160 m world). Tile recipes and the per-cell
+    difficulty formula still differ: mjlab duplicates of one type at one row are
+    identical, Isaac jitters them.
     """
     return TerrainSpec(kind="rough")

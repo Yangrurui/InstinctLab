@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import math
 import torch
+import weakref
+from typing import Any
 
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv
 from instinctlab.spec.sensor import ContactSensorRef
 
-__all__ = ["illegal_contact", "time_out"]
+from .observations import _name
+
+_MAP_HALF: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+__all__ = [
+    "bad_orientation",
+    "illegal_contact",
+    "root_height_below_env_origin_minimum",
+    "terrain_out_of_bounds",
+    "time_out",
+]
 
 
 def time_out(env: RlEnv) -> torch.Tensor:
@@ -38,3 +51,99 @@ def illegal_contact(env: RlEnv, sensor: ContactSensorRef) -> torch.Tensor:
     """
     touching = compat_sensors.in_contact(env.scene.sensors[sensor.name], sensor)
     return torch.any(touching, dim=1)
+
+
+def _generator_field(generator: Any, name: str) -> Any:
+    """Read a terrain-generator field, refusing a missing attribute rather than a default.
+
+    ``hasattr`` misses mjlab dataclass fields that have no class default, so the class
+    annotations are consulted as well. A missing field must not become a bound that never
+    fires — that is the silent-failure class this repository has already been bitten by.
+    """
+    if hasattr(generator, name):
+        return getattr(generator, name)
+    for klass in type(generator).__mro__:
+        if name in getattr(klass, "__annotations__", {}):
+            raise RuntimeError(
+                f"terrain generator {type(generator).__name__} declares {name!r} but the instance "
+                "has no value; terrain_out_of_bounds cannot invent a map size."
+            )
+    raise RuntimeError(
+        f"terrain generator {type(generator).__name__} has no {name!r}. "
+        "terrain_out_of_bounds needs size, num_rows, num_cols and border_width."
+    )
+
+
+def _map_half_extents(env: RlEnv) -> tuple[float, float]:
+    """Half-width and half-length of the whole generated map, or a loud failure."""
+    terrain = env.scene.terrain
+    try:
+        return _MAP_HALF[terrain]
+    except (KeyError, TypeError):
+        pass
+    generator = getattr(getattr(terrain, "cfg", None), "terrain_generator", None)
+    if generator is None:
+        raise RuntimeError(
+            "terrain_out_of_bounds needs a generated terrain; the scene's terrain has no generator. "
+            "A plane has no map edge, and a termination that never fires looks like a working one."
+        )
+    size = _generator_field(generator, "size")
+    n_rows = _generator_field(generator, "num_rows")
+    n_cols = _generator_field(generator, "num_cols")
+    border_width = _generator_field(generator, "border_width")
+    if size is None or n_rows is None or n_cols is None or border_width is None:
+        raise RuntimeError(
+            "terrain_out_of_bounds found a generator but size/num_rows/num_cols/border_width is "
+            f"None (size={size!r}, num_rows={n_rows!r}, num_cols={n_cols!r}, "
+            f"border_width={border_width!r})."
+        )
+    half_x = 0.5 * (n_rows * size[0] + 2 * border_width)
+    half_y = 0.5 * (n_cols * size[1] + 2 * border_width)
+    if not math.isfinite(half_x) or not math.isfinite(half_y):
+        raise RuntimeError(f"terrain_out_of_bounds computed a non-finite map extent ({half_x}, {half_y}).")
+    extents = (half_x, half_y)
+    try:
+        _MAP_HALF[terrain] = extents
+    except TypeError:
+        pass
+    return extents
+
+
+def terrain_out_of_bounds(env: RlEnv, distance_buffer: float, asset_cfg: Any = None) -> torch.Tensor:
+    """Terminate when the actor is too close to the edge of the whole generated map.
+
+    Both engines' terrain-generator configs expose ``size``, ``num_rows``, ``num_cols`` and
+    ``border_width``. Missing any of them fails here rather than returning a constant ``False`` —
+    a termination that never fires is indistinguishable from a working one that happens not to
+    trigger. A plane has no generator and fails for the same reason.
+
+    Reads ``root_link_pos_w``. Isaac Lab's original used the legacy ``root_pos_w`` alias, which
+    is the same link quantity.
+    """
+    half_x, half_y = _map_half_extents(env)
+    asset = env.scene[_name(asset_cfg)]
+    x_out = torch.abs(asset.data.root_link_pos_w[:, 0]) > half_x - distance_buffer
+    y_out = torch.abs(asset.data.root_link_pos_w[:, 1]) > half_y - distance_buffer
+    return torch.logical_or(x_out, y_out)
+
+
+def bad_orientation(env: RlEnv, limit_angle: float, asset_cfg: Any = None) -> torch.Tensor:
+    """Terminate when the base tilts past ``limit_angle`` from upright.
+
+    Uses ``projected_gravity_b``, the portable attitude signal. The raw gravity vectors are
+    denylisted: Isaac Lab spells ``GRAVITY_VEC_W`` and follows live sim gravity, mjlab spells
+    ``gravity_vec_w`` and hard-codes ``[0, 0, -1]``.
+    """
+    asset = env.scene[_name(asset_cfg)]
+    return torch.acos(-asset.data.projected_gravity_b[:, 2]).abs() > limit_angle
+
+
+def root_height_below_env_origin_minimum(env: RlEnv, minimum_height: float, asset_cfg: Any = None) -> torch.Tensor:
+    """Terminate when the root drops more than ``minimum_height`` below a non-positive env origin.
+
+    Both parkour references clamp the env-origin height at zero before subtracting. Reads
+    ``root_link_pos_w``; Isaac Lab's original used the legacy ``root_pos_w`` alias.
+    """
+    asset = env.scene[_name(asset_cfg)]
+    terrain_base_height = torch.clamp(env.scene.env_origins[:, 2], max=0.0)
+    return asset.data.root_link_pos_w[:, 2] - terrain_base_height < minimum_height

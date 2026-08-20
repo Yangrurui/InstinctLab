@@ -16,7 +16,15 @@ from __future__ import annotations
 
 import pytest
 
-from instinctlab.engines import CompileCtx, Resolution, TermRegistry, UnsupportedTerm, compile_family, compile_mdp
+from instinctlab.engines import (
+    CompileCtx,
+    Resolution,
+    TermRegistry,
+    UnsupportedTerm,
+    compile_family,
+    compile_mdp,
+    observation_group_settings,
+)
 from instinctlab.engines.compile import qualname_of
 from instinctlab.sim.capabilities import CONTACT_FORCE_VECTOR, DR_RESTITUTION, DR_SLIDING_FRICTION, EXTERNAL_WRENCH
 from instinctlab.spec import (
@@ -291,8 +299,25 @@ def test_a_whole_mdp_compiles_and_keeps_its_group_structure():
     assert set(compiled["observations"]) == {"policy", "critic"}
     assert compiled["observations"]["policy"]["enable_corruption"] is True
     assert compiled["observations"]["critic"]["enable_corruption"] is False
+    assert compiled["observations"]["policy"]["history_length"] is None
+    assert compiled["observations"]["critic"]["history_length"] is None
     assert set(compiled["rewards"]["rewards"]) == {"alive", "effort"}
     assert set(compiled["events"]) == {"friction"}  # gravity was skipped
+
+
+def test_group_history_none_stays_none_and_zero_stays_zero():
+    """The manager test is ``is not None``. Emitting ``0`` for 'unset' wipes term history."""
+    ctx, registry = _ctx(), _mock_registry()
+    unset = ObsGroupSpec(terms={"ang": ObsTermSpec(_term, history_length=8)})
+    wiped = ObsGroupSpec(terms={"ang": ObsTermSpec(_term, history_length=8)}, history_length=0)
+    overridden = ObsGroupSpec(terms={"ang": ObsTermSpec(_term, history_length=8)}, history_length=4)
+
+    compiled = compile_mdp(MdpSpec(observations={"policy": unset, "wiped": wiped, "over": overridden}), ctx, registry)
+    assert compiled["observations"]["policy"]["history_length"] is None
+    assert compiled["observations"]["wiped"]["history_length"] == 0
+    assert compiled["observations"]["over"]["history_length"] == 4
+    assert observation_group_settings(unset)["history_length"] is None
+    assert observation_group_settings(compiled["observations"]["wiped"])["history_length"] == 0
 
 
 def test_observation_order_survives_compilation():

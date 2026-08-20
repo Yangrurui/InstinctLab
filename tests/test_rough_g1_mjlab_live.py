@@ -11,6 +11,8 @@ import torch
 
 import pytest
 
+from tests.live_device import resolve_live_device
+
 pytest.importorskip("mjlab")
 
 
@@ -21,7 +23,7 @@ def test_mjlab_rough_constructs_the_filed_generator_and_steps() -> None:
     from instinctlab.engines.mjlab.terrains.terrain_importer import TerrainImporter
     from instinctlab.tasks.locomotion.config.g1 import rough_g1
 
-    compiled = MjlabAdapter().compile(rough_g1(), num_envs=4, device="cuda:0")
+    compiled = MjlabAdapter().compile(rough_g1(), num_envs=4, device=resolve_live_device())
     generator = compiled.env_cfg.scene.terrain.terrain_generator
     names = list(generator.sub_terrains)
     generator.sub_terrains = {name: generator.sub_terrains[name] for name in names[:2]}

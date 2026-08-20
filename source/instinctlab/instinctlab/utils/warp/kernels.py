@@ -64,6 +64,8 @@ def points_penetrate_cylinder_kernel(
 
                     ab = b - a
                     ab_len = wp.length(ab)
+                    if ab_len <= 0.0:
+                        continue
                     ab_dir = ab / ab_len
                     ap = p - a
                     t = wp.dot(ap, ab_dir)
@@ -80,7 +82,16 @@ def points_penetrate_cylinder_kernel(
                         d = r - dist
                         if d > depth:
                             depth = d
-                            offset_ = (proj - p) * (d / dist)
+                            if dist > 0.0:
+                                offset_ = (proj - p) * (d / dist)
+                            else:
+                                # On-axis: depth is r. Direction is any stable
+                                # perpendicular, surface → axis.
+                                n = wp.cross(ab_dir, wp.vec3(0.0, 0.0, 1.0))
+                                if wp.length(n) <= 0.0:
+                                    n = wp.cross(ab_dir, wp.vec3(1.0, 0.0, 0.0))
+                                n = wp.normalize(n)
+                                offset_ = -n * r
                             # direction from point to projected point
                             penetrate_offset_.x = offset_.x
                             penetrate_offset_.y = offset_.y

@@ -19,10 +19,13 @@ from instinctlab.spec import (
     DoneTermSpec,
     EntityRef,
     EventTermSpec,
+    Grid3dPointsRef,
     MdpSpec,
+    MotionReferenceRef,
     NoiseSpec,
     ObsGroupSpec,
     ObsTermSpec,
+    RayCasterRef,
     Requirement,
     RewardTermSpec,
     SceneSpec,
@@ -31,6 +34,8 @@ from instinctlab.spec import (
     TaskSpec,
     TerrainGeneratorSpec,
     TerrainSpec,
+    VirtualObstacleRef,
+    VolumePointsRef,
 )
 
 
@@ -109,6 +114,18 @@ def test_engine_params_override_params_for_that_engine_only():
     assert term.params == {"std": 0.5, "command_name": "base_velocity"}  # not mutated
 
 
+def test_engine_params_merge_nested_mappings() -> None:
+    """A shared dict keeps its keys; the engine only adds the ones it names."""
+    term = CommandTermSpec(
+        kind="pose_velocity",
+        params={"velocity_ranges": {"shared": (0.0, 1.0)}},
+        engine_params={"mjlab": {"velocity_ranges": {"extra": (0.45, 0.8)}}},
+    )
+    assert term.resolved_params("isaacsim")["velocity_ranges"] == {"shared": (0.0, 1.0)}
+    assert term.resolved_params("mjlab")["velocity_ranges"] == {"shared": (0.0, 1.0), "extra": (0.45, 0.8)}
+    assert term.params["velocity_ranges"] == {"shared": (0.0, 1.0)}
+
+
 def test_default_levels_follow_the_consequences_of_dropping_the_term():
     assert ObsTermSpec(_observed).level is Requirement.REQUIRED
     assert DoneTermSpec(_observed).level is Requirement.REQUIRED
@@ -136,6 +153,15 @@ def test_noise_bounds_are_checked_in_the_direction_each_distribution_needs():
 def test_an_observation_group_with_no_terms_is_rejected():
     with pytest.raises(ValueError, match="empty input tensor"):
         ObsGroupSpec(terms={})
+
+
+def test_a_group_history_of_none_is_unset_and_zero_is_an_override():
+    """``0`` is a real instruction to drop history; unspecified is ``None``."""
+    unset = ObsGroupSpec(terms={"joint_pos": ObsTermSpec(_observed)})
+    assert unset.history_length is None
+    assert ObsGroupSpec(terms=unset.terms, history_length=0).history_length == 0
+    with pytest.raises(ValueError, match="negative"):
+        ObsGroupSpec(terms=unset.terms, history_length=-1)
 
 
 """
@@ -205,6 +231,32 @@ def test_a_term_may_not_read_a_sensor_the_scene_does_not_declare():
     )
     with pytest.raises(ValueError, match="scene does not declare"):
         task.validate()
+    scanner = RayCasterRef(name="left_height_scanner", attach="foot")
+    task = _task(
+        scene=SceneSpec(),
+        mdp=MdpSpec(rewards={"rewards": {"plane": RewardTermSpec(_observed, params={"left_scanner": scanner})}}),
+    )
+    with pytest.raises(ValueError, match="ray caster"):
+        task.validate()
+    motion = MotionReferenceRef(
+        name="motion_reference",
+        clip="clip.npz",
+        joints=("hip", "knee"),
+        links=("root",),
+    )
+    task = _task(
+        scene=SceneSpec(),
+        mdp=MdpSpec(rewards={"rewards": {"amp": RewardTermSpec(_observed, params={"sensor": motion})}}),
+    )
+    with pytest.raises(ValueError, match="motion reference"):
+        task.validate()
+    volume = VolumePointsRef(name="leg_volume_points", attach=("foot",))
+    task = _task(
+        scene=SceneSpec(),
+        mdp=MdpSpec(rewards={"rewards": {"pen": RewardTermSpec(_observed, params={"sensor": volume})}}),
+    )
+    with pytest.raises(ValueError, match="volume-points sensor"):
+        task.validate()
 
 
 def test_a_task_must_name_at_least_one_engine_and_may_not_repeat_one():
@@ -244,12 +296,50 @@ def test_a_tile_proportion_must_be_positive():
 def test_duplicate_sensor_names_are_rejected():
     with pytest.raises(ValueError, match="must be unique"):
         SceneSpec(contact_sensors=(FEET, ContactSensorRef(name="feet", elements=("root",))))
+    scanner = RayCasterRef(name="feet", attach="foot")
+    with pytest.raises(ValueError, match="must be unique"):
+        SceneSpec(contact_sensors=(FEET,), ray_casters=(scanner,))
+    motion = MotionReferenceRef(name="feet", clip="clip.npz", joints=("hip",), links=("root",))
+    with pytest.raises(ValueError, match="must be unique"):
+        SceneSpec(contact_sensors=(FEET,), motion_references=(motion,))
+    volume = VolumePointsRef(name="feet", attach=("foot",))
+    with pytest.raises(ValueError, match="must be unique"):
+        SceneSpec(contact_sensors=(FEET,), volume_points=(volume,))
+    with pytest.raises(ValueError, match="must be unique"):
+        TerrainSpec(virtual_obstacles=(VirtualObstacleRef(name="edges"), VirtualObstacleRef(name="edges")))
 
 
 def test_the_scene_finds_a_declared_sensor_and_says_what_it_has_when_it_cannot():
     assert SceneSpec(contact_sensors=(FEET,)).sensor("feet") is FEET
     with pytest.raises(KeyError, match="Declared: feet"):
         SceneSpec(contact_sensors=(FEET,)).sensor("hands")
+    scanner = RayCasterRef(name="left_height_scanner", attach="foot")
+    assert SceneSpec(ray_casters=(scanner,)).ray_caster("left_height_scanner") is scanner
+    with pytest.raises(KeyError, match="Declared: left_height_scanner"):
+        SceneSpec(ray_casters=(scanner,)).ray_caster("right_height_scanner")
+    motion = MotionReferenceRef(name="motion_reference", clip="clip.npz", joints=("hip",), links=("root",))
+    assert SceneSpec(motion_references=(motion,)).motion_reference("motion_reference") is motion
+    with pytest.raises(KeyError, match="Declared: motion_reference"):
+        SceneSpec(motion_references=(motion,)).motion_reference("other")
+    volume = VolumePointsRef(
+        name="leg_volume_points",
+        attach=("foot",),
+        grid=Grid3dPointsRef(
+            x_min=-0.025,
+            x_max=0.12,
+            x_num=10,
+            y_min=-0.03,
+            y_max=0.03,
+            y_num=5,
+            z_min=-0.063,
+            z_max=-0.023,
+            z_num=2,
+        ),
+    )
+    assert volume.grid.count == 100
+    assert SceneSpec(volume_points=(volume,)).volume_point("leg_volume_points") is volume
+    with pytest.raises(KeyError, match="Declared: leg_volume_points"):
+        SceneSpec(volume_points=(volume,)).volume_point("other")
 
 
 """

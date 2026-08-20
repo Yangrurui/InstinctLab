@@ -41,7 +41,7 @@ alwaysApply: false
 
 ## compat denylist（已实现，`instinctlab/compat/denylist.py`）
 
-7 个同名不同义的陷阱，误用必须报错，禁止默认放行。**这个数字由 `test_compat_vocab.py` 对着 `denylist._ENTRIES` 核对，改条目要一起改这里**：
+8 个同名不同义的陷阱，误用必须报错，禁止默认放行。**这个数字由 `test_compat_vocab.py` 对着 `denylist._ENTRIES` 核对，改条目要一起改这里**：
 
 1. `joint_acc`：Isaac 有限差分 vs mjlab `qacc`
 2. `applied_torque`：Isaac 关节空间 (nv)；mjlab **无同名属性**，等价物是 `qfrc_actuator` (nv)，**不是** `actuator_force`（nu 维执行器空间，假朋友）
@@ -50,6 +50,7 @@ alwaysApply: false
 5. 重力向量：Isaac 叫 **`GRAVITY_VEC_W`（大写）**、从 live sim 重力归一化；mjlab 叫 `gravity_vec_w`、硬编码 `[0,0,-1]`。可移植 term 一律改用 `projected_gravity_b`
 6. 接触力：Isaac `net_forces_w` 是世界系**仅法向**；mjlab 无同名属性，最接近的 `force` 是完整三维、默认在接触系
 7. `write_root_state_to_sim` 速度行：Isaac 写 COM 速度、mjlab 写 link 速度。同样十三个数写进去两个机器人落在不同状态（本任务 G1 实测差到 0.85 m/s），此后每个读速度的 term 都对不上。必须用两侧都有的 `write_root_link_*_to_sim` / `write_root_com_*_to_sim`
+8. `points_vel_w`：Isaac VolumePoints 的 PhysX `get_velocities()` 线速度是 **COM**；mjlab 的 `cvel` 线速度在自由关节 subtree COM 上。中枢是 attach-body **link origin**（`v_link + ω × r`）。新栈 Isaac 设 `velocity="attach_link"` 并做 COM→link；mjlab 从树根 subtree 搬运 `cvel`（用脚自己的 subtree 会多出 `ω × (骨盆−踝)`）。portable term 经 `compat.sensors.volume_points_vel_w` 读，COM 传感器会被拒绝。不要改 legacy 默认值。
 
 **Isaac legacy 别名共 19 个**（13 个指向 COM、6 个指向 link），改写表见 `LEGACY_COM_ALIASES` / `LEGACY_LINK_ALIASES`。最危险的是 **`root_lin_vel_b`**：读起来像 link 量，实际是 `root_com_lin_vel_b`；按直觉改写成 `root_link_lin_vel_b` 就换了物理量，而 mjlab 没有这些别名，下游不会报错。
 

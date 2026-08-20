@@ -14,6 +14,8 @@ from mjlab.terrains import SubTerrainCfg as SubTerrainBaseCfg
 from mjlab.terrains import TerrainEntity as TerrainImporterBase
 from mjlab.terrains import TerrainGenerator
 
+from instinctlab.engines.pose_velocity import even_column_assignment
+
 from .height_field.utils import convert_height_field_to_mesh
 
 
@@ -536,18 +538,38 @@ class TerrainImporter(TerrainImporterBase):
         return True
 
     def _iter_hfield_geoms_with_subterrain_cfgs(self):
-        """Iterate terrain hfield geoms together with their subterrain cfgs."""
+        """Iterate terrain hfield geoms together with their subterrain cfgs.
+
+        Geoms are created in generator loop order (curriculum: column-major; random:
+        row-major). The stored cfg list is always row-major, so a sequential zip
+        would pair the wrong cell. Walk the same loop order and look up by (row, col).
+        """
         terrain_body = self._spec.body("terrain")
         if terrain_body is None:
             return
 
-        subterrain_cfgs = self.subterrain_specific_cfgs or []
+        generator = self.terrain_generator
+        cells: list[SubTerrainBaseCfg | None] = []
+        if generator is not None and hasattr(generator, "get_subterrain_cfg"):
+            n_rows = int(generator.cfg.num_rows)
+            n_cols = int(getattr(generator, "_num_cols", generator.cfg.num_cols))
+            if getattr(generator.cfg, "curriculum", False):
+                for col in range(n_cols):
+                    for row in range(n_rows):
+                        cells.append(generator.get_subterrain_cfg(row, col))
+            else:
+                for index in range(n_rows * n_cols):
+                    row, col = np.unravel_index(index, (n_rows, n_cols))
+                    cells.append(generator.get_subterrain_cfg(int(row), int(col)))
+        else:
+            cells = list(self.subterrain_specific_cfgs or [])
+
         hfield_geom_index = 0
         for geom in terrain_body.geoms:
             hfield_name = geom.hfieldname
             if not isinstance(hfield_name, str) or hfield_name == "":
                 continue
-            subterrain_cfg = subterrain_cfgs[hfield_geom_index] if hfield_geom_index < len(subterrain_cfgs) else None
+            subterrain_cfg = cells[hfield_geom_index] if hfield_geom_index < len(cells) else None
             hfield_geom_index += 1
             yield geom, subterrain_cfg
 
@@ -777,3 +799,38 @@ class TerrainImporter(TerrainImporterBase):
             # In case of None override, we don't need to do anything
             return
         return super().configure_env_origins(origins)
+
+    def _compute_env_origins_curriculum(
+        self,
+        num_envs: int,
+        origins: torch.Tensor,
+        proportions: np.ndarray | None = None,
+    ) -> torch.Tensor:
+        """Even-split environments across columns, matching Isaac's importer.
+
+        ``proportions`` is rejected, not forwarded. Upstream mjlab only uses
+        ``_proportional_counts`` when ``len(proportions) == num_cols``; otherwise it
+        falls back to this same even split. After we honor ``num_cols``, that equality
+        is false (10 types, 20 columns) and the fallback happens to be correct — until
+        someone expands ``proportions`` to length 20 and the distribution silently
+        changes. Type share is already encoded in how many columns each type occupies.
+
+        Isaac's formula: env ``i`` is placed on column ``floor(i / (num_envs / num_cols))``.
+        """
+        if proportions is not None:
+            raise RuntimeError(
+                "TerrainImporter even-splits environments across columns (Isaac's importer). "
+                "Type share comes from column allocation, not from a type-level weight vector. "
+                f"Got proportions of length {len(proportions)}."
+            )
+        num_rows, num_cols = origins.shape[:2]
+        if self.cfg.max_init_terrain_level is None:
+            max_init_level = num_rows - 1
+        else:
+            max_init_level = min(self.cfg.max_init_terrain_level, num_rows - 1)
+        self.max_terrain_level = num_rows
+        self.terrain_levels = torch.randint(0, max_init_level + 1, (num_envs,), device=self._device)
+        self.terrain_types = even_column_assignment(num_envs, num_cols, device=self._device)
+        env_origins = torch.zeros(num_envs, 3, device=self._device)
+        env_origins[:] = origins[self.terrain_levels, self.terrain_types]
+        return env_origins

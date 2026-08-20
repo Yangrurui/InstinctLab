@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab.engines.base import CompiledTask, Resolution
-from instinctlab.engines.compile import CompileCtx, compile_mdp
+from instinctlab.engines.compile import CompileCtx, compile_mdp, observation_group_settings
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
 from instinctlab.spec.task import TaskSpec
@@ -55,12 +55,7 @@ def _observation_groups(compiled: Mapping[str, Any]) -> dict[str, Any]:
     from mjlab.managers import ObservationGroupCfg
 
     return {
-        name: ObservationGroupCfg(
-            terms=dict(group["terms"]),
-            enable_corruption=group["enable_corruption"],
-            concatenate_terms=group["concatenate_terms"],
-            history_length=group["history_length"],
-        )
+        name: ObservationGroupCfg(terms=dict(group["terms"]), **observation_group_settings(group))
         for name, group in compiled.items()
     }
 
@@ -150,10 +145,13 @@ class MjlabAdapter:
             sim_kwargs["nconmax"] = 70
             sim_kwargs["contact_sensor_maxmatch"] = 500
         elif spec.scene.terrain.kind == "rough":
-            # InstinctMJ parkour's constraint budget for the Perlin grid. The leftover
-            # ``generator`` path above is Isaac Lab's six-tile recipe and needs its own numbers.
-            # Flat locomotion's njmax=300 overflows this model (put_data asked for 495).
-            sim_kwargs["nconmax"] = 128
+            # InstinctMJ sized nconmax=128 / njmax=300 for the 10-column grid.
+            # Honoring num_cols=20 doubled the tiles; host mj_forward reported
+            # ncon=164 / nefc=495 and put_data refused 128 / 300, so the
+            # budgets went to 256 / 700. These are per-world allocations
+            # multiplied by the environment count. The leftover ``generator``
+            # path above is Isaac Lab's six-tile recipe and needs its own numbers.
+            sim_kwargs["nconmax"] = 256
             sim_kwargs["njmax"] = 700
             sim_kwargs["contact_sensor_maxmatch"] = 128
         from .env import TerrainAwareRlEnv

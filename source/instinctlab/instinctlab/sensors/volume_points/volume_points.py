@@ -30,6 +30,9 @@ class VolumePoints(SensorBase):
 
         # Initialize the volume points
         self._volume_points = None
+        self._virtual_obstacles: dict = {}
+        self.virtual_obstacles_registered = False
+        self.registered_cylinder_count = 0
 
     """
     Properties
@@ -72,7 +75,26 @@ class VolumePoints(SensorBase):
         NOTE: typically this is called by a startup event.
 
         """
-        self._virtual_obstacles.update(virtual_obstacles)
+        if not virtual_obstacles:
+            raise RuntimeError(
+                "volume-points sensor was given an empty virtual-obstacle dict. penetration_offset would stay zero."
+            )
+        self._virtual_obstacles = dict(virtual_obstacles)
+        self.virtual_obstacles_registered = True
+        self.registered_cylinder_count = 0
+        for obstacle in self._virtual_obstacles.values():
+            edges = getattr(obstacle, "edges_pyt", None)
+            if edges is not None:
+                self.registered_cylinder_count += int(edges.shape[0])
+                continue
+            cylinders = getattr(obstacle, "cylinders", None)
+            if cylinders is not None:
+                self.registered_cylinder_count += int(getattr(cylinders, "num_cylinders", 0))
+        if self.registered_cylinder_count <= 0:
+            raise RuntimeError(
+                "volume-points sensor registered obstacle sets but 0 cylinders. "
+                "generate() found no edges; the penalty would log a clean 0.0 forever."
+            )
 
     def reset(self, env_ids: Sequence[int] | None = None):
         # reset the timers and counters
@@ -143,8 +165,16 @@ class VolumePoints(SensorBase):
             device=self.device,
         )
 
+        if self.cfg.body_order is not None and self.body_names != list(self.cfg.body_order):
+            raise RuntimeError(
+                f"volume-points body order {self.body_names} != declared {list(self.cfg.body_order)}. "
+                "The two engines would place the same local grid on different bodies."
+            )
+
         # initialize handlers to access virtual obstacles
         self._virtual_obstacles: dict = dict()
+        self.virtual_obstacles_registered = False
+        self.registered_cylinder_count = 0
 
     def _update_buffers_impl(self, env_ids: Sequence[int]):
         """Fills the buffers of the sensor data."""
@@ -165,8 +195,15 @@ class VolumePoints(SensorBase):
         self._data.pos_w[env_ids] = body_poses[..., :3]  # (N_, B, 3)
         # convert quaternion from xyz to wxyz format
         self._data.quat_w[env_ids] = math_utils.convert_quat(body_poses[..., 3:], to="wxyz")  # (N_, B, 4)
-        self._data.vel_w[env_ids] = body_vels[..., :3]  # (N_, B, 3)
-        self._data.ang_vel_w[env_ids] = body_vels[..., 3:]  # (N_, B, 3)
+        lin_vel_w = body_vels[..., :3]
+        ang_vel_w = body_vels[..., 3:]
+        if getattr(self.cfg, "velocity", "com") == "attach_link":
+            # PhysX linear is COM. Hub is link origin: v_link = v_com + ω × (origin - com).
+            com_pose = self.body_physx_view.get_coms().to(self.device).view(-1, self.num_bodies, 7)[env_ids]
+            com_offset_w = math_utils.quat_apply(self._data.quat_w[env_ids], com_pose[..., :3])
+            lin_vel_w = lin_vel_w + torch.linalg.cross(ang_vel_w, -com_offset_w, dim=-1)
+        self._data.vel_w[env_ids] = lin_vel_w
+        self._data.ang_vel_w[env_ids] = ang_vel_w
 
         # calculate the volume points positions and velocities in world frame
         N_B = self._data.pos_w[env_ids].shape[0] * self._data.pos_w[env_ids].shape[1]  # (N_*B)

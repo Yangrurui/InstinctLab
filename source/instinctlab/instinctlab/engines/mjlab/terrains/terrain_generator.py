@@ -12,6 +12,8 @@ import mujoco
 from mjlab.terrains import SubTerrainCfg as SubTerrainBaseCfg
 from mjlab.terrains import TerrainGenerator
 
+from instinctlab.engines.pose_velocity import curriculum_column_indices
+
 if TYPE_CHECKING:
     from .terrain_generator_cfg import FiledTerrainGeneratorCfg
 
@@ -148,13 +150,19 @@ class _HfieldCollisionCfg:
 
 
 class FiledTerrainGenerator(TerrainGenerator):
-    """A terrain generator that uses the filed generator."""
+    """A terrain generator that uses the filed generator.
+
+    Curriculum mode honors ``cfg.num_cols`` (upstream mjlab ignores it and builds one
+    column per sub-terrain). Columns are assigned by Isaac Lab's cumulative-proportion
+    formula. Difficulty is **not** Isaac's: see :meth:`_generate_curriculum_terrains`.
+    """
 
     def __init__(self, cfg: FiledTerrainGeneratorCfg, device: str = "cpu"):
 
-        # Access the i-th row, j-th column subterrain config by
-        # self._subterrain_specific_cfgs[i*num_cols + j]
-        self._subterrain_specific_cfgs: list[SubTerrainBaseCfg] = []
+        # Cells are stored row-major at ``row * built_cols + col``. ``built_cols`` is
+        # ``self._num_cols`` (the allocated grid width), not ``cfg.num_cols``, so random
+        # mode stays correct if those two ever diverge.
+        self._subterrain_specific_cfgs: list[SubTerrainBaseCfg | None] = []
         self._terrain_meshes: list[trimesh.Trimesh] = []
         self.terrain_mesh: trimesh.Trimesh | None = None
         # Keep original patch radii (including list-style radii) for
@@ -166,6 +174,67 @@ class FiledTerrainGenerator(TerrainGenerator):
         self._cache_original_patch_radii(runtime_cfg)
         self._normalize_patch_radii_for_mjlab_core(runtime_cfg)
         super().__init__(runtime_cfg, device)
+        self._honor_declared_num_cols()
+        self._reset_subterrain_records()
+
+    def _honor_declared_num_cols(self) -> None:
+        """Use ``cfg.num_cols`` in curriculum mode. Upstream mjlab sets ``_num_cols`` to
+        ``len(sub_terrains)`` before allocating ``terrain_origins`` and ``flat_patches``, so
+        those arrays are resized here when the declaration is wider than the type list.
+        """
+        if not self.cfg.curriculum:
+            return
+        declared = int(self.cfg.num_cols)
+        if self._num_cols == declared:
+            return
+        self._num_cols = declared
+        self.terrain_origins = np.zeros((self.cfg.num_rows, self._num_cols, 3))
+        for name, arr in list(self.flat_patches.items()):
+            self.flat_patches[name] = np.zeros(
+                (self.cfg.num_rows, self._num_cols, arr.shape[2], 3),
+                dtype=arr.dtype,
+            )
+
+    def _reset_subterrain_records(self) -> None:
+        n_cells = int(self.cfg.num_rows) * int(self._num_cols)
+        self._subterrain_specific_cfgs = [None] * n_cells
+
+    def _cell_index(self, sub_row: int, sub_col: int) -> int:
+        return int(sub_row) * int(self._num_cols) + int(sub_col)
+
+    def _generate_curriculum_terrains(self, spec: mujoco.MjSpec) -> None:
+        """Honor ``cfg.num_cols``; assign columns by Isaac's cumulative-proportion formula.
+
+        Column ``j`` is the first sub-terrain whose cumulative proportion exceeds
+        ``j / num_cols + 0.001`` — copied from
+        ``isaaclab.terrains.terrain_generator.TerrainGenerator._generate_curriculum_terrains``,
+        not re-derived. The ``+ 0.001`` is part of that formula.
+
+        Difficulty is left as mjlab's ``sub_row / (num_rows - 1)``: deterministic, hits
+        exactly 0.0 and 1.0. Isaac instead uses ``(sub_row + rng.uniform()) / num_rows``,
+        jittered within the row and never reaching 1.0. That jitter exists so two columns
+        of the same type at the same row are not copies of each other. After this generator
+        allocates several columns to one type, every duplicate at a given row therefore
+        gets an *identical* difficulty. We do not adopt Isaac's jitter.
+        """
+        proportions = [sub_cfg.proportion for sub_cfg in self.cfg.sub_terrains.values()]
+        sub_indices = curriculum_column_indices(proportions, self._num_cols)
+        sub_terrains_cfgs = list(self.cfg.sub_terrains.values())
+        lower, upper = self.cfg.difficulty_range
+        for sub_col in range(self._num_cols):
+            for sub_row in range(self.cfg.num_rows):
+                t = sub_row / max(self.cfg.num_rows - 1, 1)
+                difficulty = lower + (upper - lower) * t
+                world_position = self._get_sub_terrain_position(sub_row, sub_col)
+                spawn_origin = self._create_terrain_geom(
+                    spec,
+                    world_position,
+                    difficulty,
+                    sub_terrains_cfgs[sub_indices[sub_col]],
+                    sub_row,
+                    sub_col,
+                )
+                self.terrain_origins[sub_row, sub_col] = spawn_origin
 
     def _cache_original_patch_radii(self, cfg: FiledTerrainGeneratorCfg) -> None:
         """Cache original patch-radius config per subterrain for mesh sampling."""
@@ -269,7 +338,7 @@ class FiledTerrainGenerator(TerrainGenerator):
             collision_hfield_stitch_border_pixels=stitch_border_pixels,
             collision_hfield_stitch_height=float(stitch_height),
         )
-        terrain_linear_idx = sub_row * self.cfg.num_cols + sub_col
+        terrain_linear_idx = self._cell_index(sub_row, sub_col)
         hfield_geometry = _add_collision_hfield_from_mesh(
             collision_cfg,
             spec,
@@ -332,6 +401,7 @@ class FiledTerrainGenerator(TerrainGenerator):
     def compile(self, spec: mujoco.MjSpec) -> None:
         self._terrain_meshes = []
         self.terrain_mesh = None
+        self._reset_subterrain_records()
         super().compile(spec)
         if len(self._terrain_meshes) == 1:
             self.terrain_mesh = self._terrain_meshes[0]
@@ -541,25 +611,30 @@ class FiledTerrainGenerator(TerrainGenerator):
         cfg.difficulty = float(difficulty)
         cfg.seed = self.cfg.seed
         # <<< NOTE
-        self._subterrain_specific_cfgs.append(cfg)  # since in super function, cfg is a copy of the original config.
+        self._subterrain_specific_cfgs[self._cell_index(sub_row, sub_col)] = cfg
 
         return spawn_origin
 
     @property
-    def subterrain_specific_cfgs(self) -> list[SubTerrainBaseCfg]:
-        """Get the specific configurations for all subterrains."""
-        return self._subterrain_specific_cfgs.copy()  # Return a copy to avoid external modification.
+    def subterrain_specific_cfgs(self) -> list[SubTerrainBaseCfg | None]:
+        """Row-major cell configs: ``configs[row * built_cols + col]``."""
+        return self._subterrain_specific_cfgs.copy()
 
     def get_subterrain_cfg(
         self, row_ids: int | torch.Tensor, col_ids: int | torch.Tensor
     ) -> list[SubTerrainBaseCfg] | SubTerrainBaseCfg | None:
-        """Get the specific configuration for a subterrain by its row and column index."""
-        num_cols = self.cfg.num_cols
-        idx = row_ids * num_cols + col_ids
+        """Config for a cell, indexed by the *built* grid width (``_num_cols``).
+
+        Using ``cfg.num_cols`` here used to return another cell (or ``None``) whenever the
+        allocated width differed from the declaration. Random mode is not assumed to match
+        either — it goes through the same built width.
+        """
+        idx = row_ids * int(self._num_cols) + col_ids
         if isinstance(idx, torch.Tensor):
-            idx = idx.cpu().numpy().tolist()  # Convert to list if it's a tensor.
+            idx = idx.cpu().numpy().tolist()
             return [
                 self._subterrain_specific_cfgs[i] if 0 <= i < len(self._subterrain_specific_cfgs) else None for i in idx
             ]
-        if isinstance(idx, int):
-            return self._subterrain_specific_cfgs[idx] if 0 <= idx < len(self._subterrain_specific_cfgs) else None
+        if isinstance(idx, (int, np.integer)):
+            i = int(idx)
+            return self._subterrain_specific_cfgs[i] if 0 <= i < len(self._subterrain_specific_cfgs) else None

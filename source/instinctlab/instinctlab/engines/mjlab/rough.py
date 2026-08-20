@@ -1,7 +1,68 @@
-"""mjlab's reference rough: InstinctMJ's parkour ``ROUGH_TERRAINS_CFG``.
+"""mjlab's parkour/rough terrain recipe.
 
-The numbers live here, not in the task. InstinctMJ is a reference, not a dependency; the
-generator and importer classes are the vendored copy under :mod:`.terrains`.
+The numbers live here, not in the task. The generator and importer classes are the
+vendored copy under :mod:`.terrains`.
+
+The whole recipe now deliberately follows InstinctMJ
+(``/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/parkour_env_cfg.py``):
+``horizontal_scale=0.07``, stair ``step_width`` 0.35 / 1.54, ``perlin_rough`` /
+``perlin_rough_stand`` set ``border_width=1.0``, and ``boxes.border_width=1.0``.
+Isaac's parkour (``engines/isaacsim/rough.py``) keeps 0.05 / 0.3 / 1.5, omits
+the plane ``border_width`` kwargs (both engines' ``HfTerrainBaseCfg`` default is
+0.0 — verified in the class bodies, not assumed), and uses
+``boxes.border_width=0.0``. Terrain-constant parity is not being pursued.
+``tests/test_rough_recipe_parity.py`` compares the two recipes by AST and fails
+if they drift outside a table of those known differences.
+
+This copy honors ``num_cols=20`` (Isaac's cumulative-proportion allocation).
+Upstream mjlab / InstinctMJ ignore that field in curriculum mode and build one
+column per type.
+
+With ``border_width=1.0`` deducted, ``pyramid_stairs`` builds **6** in-field
+steps on Isaac against **5** on mjlab, with central platform heights of
+0.30 / 0.84 / 1.38 m against 0.25 / 0.70 / 1.15 m at difficulty 0.0 / 0.5 / 1.0.
+``pyramid_stairs`` and ``pyramid_stairs_inv`` are 0.15 each, so roughly a third
+of environments climb a different staircase depending on the engine.
+``pyramid_stairs_high`` is unaffected — 1.50 and 1.54 round to the same pixel
+geometry. Cross-engine episode-length or terrain-level curves are therefore not
+comparable on the stairs terrains.
+
+What remains unaligned, by decision:
+
+* Slot 9 is ``dense_boxes`` (``PerlinDiscreteObstaclesTerrainCfg``) here and
+  ``mesh_boxes`` (``PerlinMeshRandomMultiBoxTerrainCfg``) on Isaac. The mesh-box
+  type exists only under ``instinctlab/terrains/trimesh/``; mjlab has no
+  equivalent. Porting it is separate work.
+* Difficulty is still mjlab's ``row / (num_rows - 1)``. Isaac uses jittered
+  ``(row + U[0,1)) / num_rows`` and never hits 1.0. Duplicate columns of one
+  type at the same row are therefore identical here.
+* Virtual-obstacle edge cylinders are a second accepted divergence of the
+  same character as the stairs step count. Isaac's Greedyconcat has no
+  collinear post-merge and splits at a hardcoded 0.05 m; this recipe
+  (InstinctMJ parkour) merges gaps up to 0.09 m. Isaac reads true meshes,
+  including the 5 m walls; mjlab reads a repaired height-field surface.
+  On the same closed box both detectors emit 12 edges — the primitive
+  matches, the terrain representation does not. Measured on
+  ``Instinct-Parkour-Target-G1``: about 35k vs 43k cylinders overall, 208
+  vs 518 on the row-0 ``pyramid_stairs`` tile. The volume-points
+  penetration penalty is therefore not comparable across engines and must
+  not be read as a parity signal in a two-engine training comparison.
+
+Measured cost of following InstinctMJ here, and an open question. A two-engine
+run of ``Instinct-Parkour-Target-G1`` (256 envs, seed 42, matched at iterations
+623-642) put mjlab at **0.62x** Isaac's episode length and reward on the
+*aligned* terrain subset, while the *known-diverged* stairs subset came out at
+0.71x / 0.77x. The gap is therefore not explained by anything documented above:
+it is worst where the two engines are supposed to agree. It concentrates on the
+continuous height-field terrains -- ``hf_pyramid_slope_inv`` 0.40x,
+``perlin_rough`` 0.48x, ``perlin_rough_stand`` 0.49x -- and is mild on the
+discretely stepped ones (stairs, ``boxes``, ``square_gaps``: 0.73-0.84x). That
+pattern fits ``horizontal_scale``: a slope on a 0.07 grid is discretised into
+treads 40% taller than on Isaac's 0.05. Contact overflow was ruled out
+(``d.overflow`` clear at construction and mid-training; ``nacon`` 164/world
+against ``nconmax=256``). The grid-resolution reading is a hypothesis, not a
+measurement: the test that would settle it is a short mjlab run at
+``horizontal_scale=0.05`` with nothing else changed.
 """
 
 from __future__ import annotations

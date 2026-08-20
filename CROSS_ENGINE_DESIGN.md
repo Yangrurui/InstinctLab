@@ -564,7 +564,7 @@ spec/sensor.py      ContactSensorRef：声明「测什么」，由 backend 决�
 
 `vocab.py` / `denylist.py` 的每条断言都由 `tests/test_compat_vocab.py` 对着**已安装的引擎**复核，不依赖任何引擎运行时：mjlab 的 `EntityData` 可独立 import，Isaac 的 `ArticulationData` 用 `ast` 读源码（`import isaaclab.assets` 会拉起 `omni`）。写这些测试时纠正了本节此前的三处说法，见下。
 
-**denylist：7 个同名不同义的语义陷阱**，误用必须报错，不得默认放行：
+**denylist：8 个同名不同义的语义陷阱**，误用必须报错，不得默认放行：
 
 | 陷阱 | isaacsim | mjlab |
 |---|---|---|
@@ -575,6 +575,7 @@ spec/sensor.py      ContactSensorRef：声明「测什么」，由 backend 决�
 | 重力向量 | `GRAVITY_VEC_W`（**大写**），从 live sim 重力归一化，跟随任务改重力 | `gravity_vec_w`（小写），entity 构建期硬编码 `[0,0,-1]` |
 | 接触力 | `net_forces_w`，世界系，**仅法向** | 无同名属性。最接近的 `force` 是完整三维接触力，默认在**接触系** |
 | `write_root_state_to_sim` 速度行 | 写的是 COM 速度 | 写的是 link 速度。同样十三个数写进去，两个机器人落在不同状态（本任务的 G1 实测差到 0.85 m/s），此后每个读速度的 term 都对不上。要用两侧都有的 frame-qualified 写入口 |
+| `points_vel_w` | PhysX `get_velocities()` 线速度是 COM；legacy VolumePoints 默认保持。新栈设 `velocity="attach_link"` 并换成 link | `cvel` 线速度在自由关节 subtree COM 上，须从树根搬运到 link origin 再加 `ω × r`。中枢是 attach-body link origin；portable term 经 `compat.sensors.volume_points_vel_w` 读，COM 传感器拒绝 |
 
 三处修正（均由测试实证）：
 
@@ -944,7 +945,7 @@ frontend 与 backend 相互独立：一个引擎可以只有 backend（能作为
 
 | 轨 | 范围 | 关键交付物 |
 |---|---|---|
-| A · IR 与中枢 | `spec/` `compat/` `mdp/`；S1 / S2 / S3 | 带语义定义的 `vocab.py`、7 项 denylist、可移植 term 库 |
+| A · IR 与中枢 | `spec/` `compat/` `mdp/`；S1 / S2 / S3 | 带语义定义的 `vocab.py`、8 项 denylist、可移植 term 库 |
 | B · Backend | `engines/<name>/` | `TaskSpec` → 原生 manager cfg 编译器 + 每引擎术语注册表 |
 | C · Frontend | `frontends/<idiom>/` | 项目源码 → `TaskSpec` + 未转换清单 + 置信度报告 |
 | D · 资产管线 | `assets/pipeline/`：URDF / MJCF / USD 互转 + 数值校验（D5） | converters 封装 + validators 对照报告 + manifest provenance |

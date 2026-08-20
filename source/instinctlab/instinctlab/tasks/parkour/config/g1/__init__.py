@@ -1,32 +1,12 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
+"""G1 parkour tasks, declared as :class:`~instinctlab.spec.TaskSpec`.
 
-import gymnasium as gym
+The legacy Isaac-only Gym ids ``Instinct-Parkour-Target-Amp-G1-v0`` and
+``Instinct-Parkour-Target-Amp-G1-Play-v0`` live in :mod:`.legacy_gym` so that importing this
+package does not pull in gymnasium or Isaac. ``register_legacy_isaac_tasks()`` still imports
+that sibling. This package must stay engine-free so a process running either engine can
+import it -- which is also why it does not import ``agents``.
+"""
 
-from . import agents
+from .target_env_cfg import FEET_CONTACT, TORSO_CONTACT, UNDESIRED_CONTACT, parkour_target_g1
 
-task_entry = "instinctlab.tasks.parkour.config.g1"
-
-
-gym.register(
-    id="Instinct-Parkour-Target-Amp-G1-v0",
-    entry_point="instinctlab.envs:InstinctRlEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{task_entry}.g1_parkour_target_amp_cfg:G1ParkourEnvCfg",
-        "instinct_rl_cfg_entry_point": f"{agents.__name__}.instinct_rl_amp_cfg:G1ParkourPPORunnerCfg",
-    },
-)
-
-
-gym.register(
-    id="Instinct-Parkour-Target-Amp-G1-Play-v0",
-    entry_point="instinctlab.envs:InstinctRlEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{task_entry}.g1_parkour_target_amp_cfg:G1ParkourEnvCfg_PLAY",
-        "instinct_rl_cfg_entry_point": f"{agents.__name__}.instinct_rl_amp_cfg:G1ParkourPPORunnerCfg",
-    },
-)
+__all__ = ["FEET_CONTACT", "TORSO_CONTACT", "UNDESIRED_CONTACT", "parkour_target_g1"]

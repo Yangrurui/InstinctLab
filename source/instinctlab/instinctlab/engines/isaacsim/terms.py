@@ -14,6 +14,7 @@ own fields, and a task states the parameters both understand.
 
 from __future__ import annotations
 
+import inspect
 import math
 from typing import Any
 
@@ -29,6 +30,36 @@ from instinctlab.sim.capabilities import (
 )
 
 TERMS = TermRegistry("isaacsim")
+
+ISAAC_FRICTION_KEYS: frozenset[str] = frozenset(
+    {
+        "static_friction_range",
+        "dynamic_friction_range",
+        "restitution_range",
+        "num_buckets",
+        "make_consistent",
+    }
+)
+"""Distribution keys ``randomize_rigid_body_material`` actually consumes."""
+
+
+def merge_friction_params(profile: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """Overlay task-supplied friction keys, and refuse anything this engine will not honor.
+
+    The previous builder did ``profile.update(params)`` unconditionally. A key mjlab uses
+    (``ranges``) would then sit in Isaac's event params unused -- the task asked for a range
+    and got the profile's, with no error.
+    """
+    unknown = sorted(set(params) - ISAAC_FRICTION_KEYS)
+    if unknown:
+        raise ValueError(
+            f"isaacsim randomize_friction does not honor {unknown}. "
+            f"It honors {sorted(ISAAC_FRICTION_KEYS)}. Isaac-only keys belong in params; "
+            "mjlab-only keys belong in engine_params['mjlab']."
+        )
+    merged = dict(profile)
+    merged.update(params)
+    return merged
 
 
 def _import_cfgs() -> dict[str, Any]:
@@ -48,11 +79,42 @@ def _import_cfgs() -> dict[str, Any]:
     }
 
 
+def _as_isaac_manager_term(cls: type) -> type:
+    """Isaac Lab refuses a class term that is not a ``ManagerTermBase`` subclass.
+
+    mjlab instantiates any class with ``(cfg=, env=)``. The delay / history buffer
+    for the depth image is portable and cannot inherit Isaac's type, so this
+    wrapper is the Isaac-only tax -- not a second implementation of the pipeline.
+    """
+    from isaaclab.managers import ManagerTermBase
+
+    call_sig = inspect.signature(cls.__call__)
+
+    class Wrapped(ManagerTermBase):
+        def __init__(self, cfg, env):
+            super().__init__(cfg, env)
+            self._impl = cls(cfg, env)
+
+        def reset(self, env_ids=None):
+            return self._impl.reset(env_ids)
+
+        def __call__(self, *args, **kwargs):
+            return self._impl(*args, **kwargs)
+
+    Wrapped.__call__.__signature__ = call_sig  # type: ignore[attr-defined]
+    Wrapped.__name__ = cls.__name__
+    Wrapped.__qualname__ = cls.__qualname__
+    return Wrapped
+
+
 @TERMS.portable("observation")
 def _observation(spec, ctx):
     cfgs = _import_cfgs()
+    func = spec.func
+    if inspect.isclass(func):
+        func = _as_isaac_manager_term(func)
     return cfgs["obs"](
-        func=spec.func,
+        func=func,
         params=ctx.params(spec),
         noise=ctx.noise(spec.noise),
         scale=spec.scale,
@@ -78,6 +140,19 @@ def _curriculum(spec, ctx):
     return CurriculumTermCfg(func=spec.func, params=ctx.params(spec))
 
 
+def _term_params(spec, ctx):
+    """Params with ``target=`` lowered onto ``asset_cfg`` when the task used that slot.
+
+    Parkour (and flat G1) restrict joint/body terms through ``params['asset_cfg']``. A task
+    that puts the same ``EntityRef`` on ``target=`` instead must not silently penalise every
+    joint -- that is this repo's failure mode.
+    """
+    params = dict(ctx.params(spec))
+    if spec.target is not None and "asset_cfg" not in params:
+        params["asset_cfg"] = ctx.entity(spec.target)
+    return params
+
+
 def _sensor_entity(ref, ctx):
     """A ``SceneEntityCfg`` naming a declared sensor and the elements a term wants from it.
 
@@ -95,7 +170,7 @@ def _sensor_entity(ref, ctx):
 def _contact_slide(spec, ctx):
     """main's own slide penalty, kept rather than replaced. See the task's note on why."""
     cfgs = _import_cfgs()
-    params = ctx.params(spec)
+    params = _term_params(spec, ctx)
     return cfgs["reward"](
         func=cfgs["instinct_mdp"].contact_slide,
         weight=spec.weight,
@@ -106,13 +181,37 @@ def _contact_slide(spec, ctx):
 @TERMS.reward("joint_acc_l2")
 def _joint_acc_l2(spec, ctx):
     cfgs = _import_cfgs()
-    return cfgs["reward"](func=cfgs["mdp"].joint_acc_l2, weight=spec.weight, params=ctx.params(spec))
+    return cfgs["reward"](func=cfgs["mdp"].joint_acc_l2, weight=spec.weight, params=_term_params(spec, ctx))
 
 
 @TERMS.reward("joint_torques_l2")
 def _joint_torques_l2(spec, ctx):
     cfgs = _import_cfgs()
-    return cfgs["reward"](func=cfgs["instinct_mdp"].joint_torques_l2, weight=spec.weight, params=ctx.params(spec))
+    return cfgs["reward"](
+        func=cfgs["instinct_mdp"].joint_torques_l2, weight=spec.weight, params=_term_params(spec, ctx)
+    )
+
+
+@TERMS.reward("motors_power_square")
+def _motors_power_square(spec, ctx):
+    """Parkour's energy term. Reads ``applied_torque`` (nv), which is on the denylist."""
+    from instinctlab.envs.mdp.rewards.regularizations import motors_power_square
+
+    cfgs = _import_cfgs()
+    params = _term_params(spec, ctx)
+    params.setdefault("normalize_by_stiffness", True)
+    return cfgs["reward"](func=motors_power_square, weight=spec.weight, params=params)
+
+
+@TERMS.reward("applied_torque_limits_by_ratio")
+def _applied_torque_limits_by_ratio(spec, ctx):
+    """Parkour's torque-limit term. Same denylist reason as ``motors_power_square``."""
+    from instinctlab.envs.mdp.rewards.regularizations import applied_torque_limits_by_ratio
+
+    cfgs = _import_cfgs()
+    params = _term_params(spec, ctx)
+    params.setdefault("limit_ratio", 0.8)
+    return cfgs["reward"](func=applied_torque_limits_by_ratio, weight=spec.weight, params=params)
 
 
 @TERMS.action("joint_position")
@@ -136,6 +235,13 @@ def _joint_position(spec, ctx):
         scale=params.get("scale", 1.0),
         use_default_offset=params.get("use_default_offset", True),
     )
+
+
+@TERMS.command("pose_velocity")
+def _pose_velocity(spec, ctx):
+    from .pose_velocity import build_command
+
+    return build_command(spec, ctx)
 
 
 @TERMS.command("uniform_velocity")
@@ -176,18 +282,16 @@ def _event(spec, func, params: dict[str, Any]):
     provides=(DR_SLIDING_FRICTION, DR_RESTITUTION),
 )
 def _randomize_friction(spec, ctx):
-    """Material randomisation, with this engine's own scheme as the default.
+    """Material randomisation: profile defaults, then task-supplied ranges.
 
-    The distribution comes from the adapter's profile, not from the task, and the profile's default
-    is what the golden uses: 64 buckets of per-shape materials. mjlab's default is one friction per
-    environment. Neither is emulating the other, which is what "each engine keeps its own
-    characteristics" means in practice -- a task that stated the scheme itself would force one
-    engine to imitate the other badly.
+    The scheme (64 buckets, static/dynamic/restitution) stays this engine's. The interval is
+    something a task is allowed to state -- parkour wants (0.3, 1.6) rather than the flat-G1
+    profile -- and a key this function will not apply is rejected rather than dropped. Selection
+    is ``target=``; an Isaac-style ``asset_cfg`` in params is not a friction key.
     """
     from isaaclab.envs.mdp import randomize_rigid_body_material
 
-    profile = dict(ctx.profile.get("friction_dr", {}))
-    profile.update(ctx.params(spec))
+    profile = merge_friction_params(dict(ctx.profile.get("friction_dr", {})), ctx.params(spec))
     return _event(spec, randomize_rigid_body_material, {"asset_cfg": ctx.entity(spec.target), **profile})
 
 
@@ -245,9 +349,28 @@ def _reset_joints_by_scale(spec, ctx):
     )
 
 
+@TERMS.event("reset_joints_by_offset", provides=(JOINT_STATE,))
+def _reset_joints_by_offset(spec, ctx):
+    """Additive joint reset. Isaac's native helper adds; mjlab's neighbour multiplies."""
+    from isaaclab.envs.mdp import reset_joints_by_offset
+
+    params = _term_params(spec, ctx)
+    event_params = {"position_range": params["position_range"], "velocity_range": params["velocity_range"]}
+    if "asset_cfg" in params:
+        event_params["asset_cfg"] = params["asset_cfg"]
+    return _event(spec, reset_joints_by_offset, event_params)
+
+
 @TERMS.event("push_by_setting_velocity", provides=(ROOT_VELOCITY_WRITE,))
 def _push_by_setting_velocity(spec, ctx):
     from isaaclab.envs.mdp import push_by_setting_velocity
 
     params = ctx.params(spec)
     return _event(spec, push_by_setting_velocity, {"velocity_range": params["velocity_range"]})
+
+
+@TERMS.event("register_virtual_obstacles")
+def _register_virtual_obstacles(spec, ctx):
+    from instinctlab.mdp.events import register_virtual_obstacles
+
+    return _event(spec, register_virtual_obstacles, ctx.params(spec))

@@ -111,10 +111,11 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
     # The control's module is evicted too: a cached copy would import from ``sys.modules`` without
     # consulting the blocker, and the control would pass without testing anything.
     isaac_only = "instinctlab.tasks.parkour.config.parkour_env_cfg"
+    parkour_decl = "instinctlab.tasks.parkour.config.g1"
     evicted = {
         name: module
         for name, module in sys.modules.items()
-        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith((reloaded, isaac_only))
+        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith((reloaded, isaac_only, parkour_decl))
     }
     for name in evicted:
         del sys.modules[name]
@@ -123,9 +124,13 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
         declaration = importlib.import_module(f"{reloaded}.g1.flat_env_cfg")
         rough = importlib.import_module(f"{reloaded}.g1.rough_env_cfg")
         agent = importlib.import_module(f"{reloaded}.g1.agents.instinct_rl_ppo_cfg")
+        parkour = importlib.import_module("instinctlab.tasks.parkour.config.g1.target_env_cfg")
+        parkour_agent = importlib.import_module("instinctlab.tasks.parkour.config.g1.agents.instinct_rl_parkour_cfg")
         assert declaration.flat_g1().task_id == "Instinct-Velocity-Flat-G1"
         assert rough.rough_g1().task_id == "Instinct-Velocity-Rough-G1"
         assert agent.G1FlatPPORunnerCfg().max_iterations > 0
+        assert parkour.parkour_target_g1().task_id == "Instinct-Parkour-Target-G1"
+        assert parkour_agent.G1ParkourTargetPPORunnerCfg().num_steps_per_env == 24
 
         # The other side of the boundary. An Isaac-only task must still be unreachable here.
         assert (

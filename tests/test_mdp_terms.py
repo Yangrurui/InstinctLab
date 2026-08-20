@@ -205,8 +205,8 @@ class _Env:
 
 
 class _Cfg:
-    def __init__(self, name="robot", joint_ids=slice(None)):
-        self.name, self.joint_ids = name, joint_ids
+    def __init__(self, name="robot", joint_ids=slice(None), body_ids=slice(None)):
+        self.name, self.joint_ids, self.body_ids = name, joint_ids, body_ids
 
 
 class _Sensor:
@@ -437,7 +437,10 @@ The terms that are deliberately absent.
 """
 
 
-@pytest.mark.parametrize("name", ["joint_acc_l2", "dof_acc_l2", "joint_torques_l2", "dof_torques_l2", "contact_slide"])
+@pytest.mark.parametrize(
+    "name",
+    ["joint_acc_l2", "dof_acc_l2", "joint_torques_l2", "dof_torques_l2", "contact_slide"],
+)
 def test_the_non_portable_rewards_are_not_offered_here(name: str):
     """Each reads a quantity the engines disagree about; they belong in per-engine registries."""
     assert not hasattr(mdp, name), f"{name} cannot be portable -- see the rewards module docstring"

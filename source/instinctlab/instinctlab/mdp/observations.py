@@ -28,11 +28,15 @@ reason, and it is a critic-only observation, so it does not reach the deployed p
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 from typing import Any
 
 from instinctlab.compat.env import RlEnv, get_command
+from instinctlab.compat.sensors import depth_image
+from instinctlab.spec.sensor import RayCasterRef
 
 __all__ = [
+    "DelayedDepthImage",
     "base_ang_vel",
     "base_lin_vel",
     "generated_commands",
@@ -113,6 +117,122 @@ def last_action(env: RlEnv, action_name: str | None = None) -> torch.Tensor:
     return raw_action(env, action_name)
 
 
+class DelayedDepthImage:
+    """Crop, blur, normalise, history and delay of a pinhole depth image.
+
+    The reference puts crop / blur / normalisation on the *sensor* and delay on
+    ``delayed_visualizable_image``. Isaac Lab has no observation-manager delay;
+    mjlab's ``delay_max_lag`` is applied *before* history and would age the
+    image differently. Both therefore live here, so the two engines feed the
+    policy the same pipeline.
+
+    Raw misses stay ``+inf`` on the sensor (visible). This term replaces them
+    with ``max_distance`` *before* the blur -- the same order as the reference
+    clipping -- then normalises to ``[0, 1]``. A miss is therefore 1.0 in the
+    observation, which is the known silent-looking value; the live tests pin
+    both the raw +inf and this 1.0.
+
+    History is oldest-to-newest with ``[:, -1]`` the latest frame, matching the
+    reference buffer. Manager-level ``history_length`` on this term must stay 0:
+    stacking the already-sampled 8-frame output would silently change the width.
+    """
+
+    def __init__(self, cfg: Any, env: RlEnv) -> None:
+        params = cfg.params
+        self.sensor_ref: RayCasterRef = params["sensor"]
+        self.history_skip_frames = max(int(params.get("history_skip_frames", 5)), 1)
+        self.num_output_frames = max(int(params.get("num_output_frames", 8)), 1)
+        self.delayed_frame_ranges = tuple(params.get("delayed_frame_ranges", (0, 1)))
+        self.sensor_history_length = int(params.get("history_length", 37))
+        self.blur_kernel_size = int(params.get("blur_kernel_size", 3))
+        self.blur_sigma = float(params.get("blur_sigma", 1.0))
+        crop_h, crop_w = self.sensor_ref.cropped_hw()
+        device = env.device
+        self._history = torch.zeros(env.num_envs, self.sensor_history_length, crop_h, crop_w, device=device)
+        self._write = 0
+        self._delay = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+        self.frame_offset = torch.flip(
+            torch.arange(
+                0,
+                self.num_output_frames * self.history_skip_frames,
+                self.history_skip_frames,
+                device=device,
+            ),
+            dims=(0,),
+        )
+        self._check_delay_bounds()
+        self.reset()
+
+    def _check_delay_bounds(self) -> None:
+        max_delay = self.delayed_frame_ranges[1]
+        needed = (self.num_output_frames - 1) * self.history_skip_frames + 1
+        if needed + max_delay > self.sensor_history_length:
+            raise ValueError(
+                f"depth history of {self.sensor_history_length} cannot hold "
+                f"{self.num_output_frames} frames skipped by {self.history_skip_frames} "
+                f"with delay up to {max_delay} "
+                f"({needed + max_delay} slots required)."
+            )
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        n = self._delay[env_ids].shape[0]
+        lo, hi = self.delayed_frame_ranges
+        self._delay[env_ids] = torch.randint(int(lo), int(hi) + 1, (n,), device=self._delay.device)
+
+    def __call__(
+        self,
+        env: RlEnv,
+        sensor: RayCasterRef,
+        history_skip_frames: int = 5,
+        num_output_frames: int = 8,
+        delayed_frame_ranges: tuple[int, int] = (0, 1),
+        history_length: int = 37,
+        blur_kernel_size: int = 3,
+        blur_sigma: float = 1.0,
+    ) -> torch.Tensor:
+        del history_skip_frames, num_output_frames, delayed_frame_ranges, history_length
+        del blur_kernel_size, blur_sigma
+        raw = depth_image(env.scene.sensors[sensor.name])
+        processed = _process_depth_image(raw, sensor, self.blur_kernel_size, self.blur_sigma)
+        self._history[:, self._write] = processed
+        self._write = (self._write + 1) % self.sensor_history_length
+        order = (torch.arange(self.sensor_history_length, device=self._history.device) + self._write) % (
+            self.sensor_history_length
+        )
+        linear = self._history[:, order]
+        indices = (self.sensor_history_length - self.frame_offset.unsqueeze(0) - self._delay.unsqueeze(1) - 1).to(
+            torch.long
+        )
+        batch = torch.arange(linear.shape[0], device=linear.device).unsqueeze(1).expand_as(indices)
+        return linear[batch, indices]
+
+
+def _process_depth_image(image: torch.Tensor, sensor: RayCasterRef, kernel_size: int, sigma: float) -> torch.Tensor:
+    """Crop → blur → clip-and-normalise. Misses become the ceiling (1.0)."""
+    finite = torch.where(torch.isfinite(image), image, torch.full_like(image, sensor.max_distance))
+    if sensor.crop is not None:
+        top, bottom, left, right = sensor.crop
+        height, width = finite.shape[1], finite.shape[2]
+        finite = finite[:, top : height - bottom, left : width - right]
+    plane = finite.squeeze(-1)
+    if kernel_size > 1 and sigma > 0.0:
+        plane = _gaussian_blur(plane, kernel_size, sigma)
+    clipped = plane.clamp(0.0, sensor.max_distance)
+    return clipped / sensor.max_distance
+
+
+def _gaussian_blur(image: torch.Tensor, kernel_size: int, sigma: float) -> torch.Tensor:
+    coords = torch.arange(kernel_size, device=image.device, dtype=image.dtype) - kernel_size // 2
+    gauss = torch.exp(-0.5 * (coords / sigma) ** 2)
+    gauss = gauss / gauss.sum()
+    kernel = (gauss[:, None] * gauss[None, :]).view(1, 1, kernel_size, kernel_size)
+    pad = kernel_size // 2
+    padded = F.pad(image.unsqueeze(1), (pad, pad, pad, pad), mode="replicate")
+    return F.conv2d(padded, kernel).squeeze(1)
+
+
 def generated_commands(env: RlEnv, command_name: str) -> torch.Tensor:
     """The current command from the named generator.
 
@@ -135,3 +255,22 @@ def _joint_ids(asset_cfg: Any) -> Any:
     matches -- while the index lists mean the same thing on both.
     """
     return slice(None) if asset_cfg is None else asset_cfg.joint_ids
+
+
+def _body_ids(asset_cfg: Any) -> Any:
+    """Body selection from a lowered ``SceneEntityCfg``, defaulting to all bodies.
+
+    Same reason as :func:`_joint_ids`: after ``resolve()`` ``body_names`` is patterns on one
+    engine and matches on the other. The indices agree.
+    """
+    return slice(None) if asset_cfg is None else asset_cfg.body_ids
+
+
+def _body_index_list(asset_cfg: Any, n_bodies: int) -> list[int]:
+    """Concrete body indices, so a term can ask for the first or the first two without guessing."""
+    ids = _body_ids(asset_cfg)
+    if isinstance(ids, slice):
+        return list(range(*ids.indices(n_bodies)))
+    if isinstance(ids, int):
+        return [ids]
+    return list(ids)

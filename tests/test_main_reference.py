@@ -50,11 +50,16 @@ EDITED = {
     "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py": (
         "imports beyondmimic_action_scale from assets.unitree_g1.isaacsim"
     ),
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/__init__.py": (
+        "star imports replaced by an explicit __all__ and a lazy __getattr__ that raises on "
+        "cross-layer name collisions instead of silently last-winning"
+    ),
     "source/instinctlab/instinctlab/assets/__init__.py": "each robot is a package; G1 numbers live in isaacsim.py",
     # The training path, which the parity argument covers just as much as the env config does.
     "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/vecenv_wrapper.py": (
         "num_rewards falls back to 1, because a task whose rewards are one flat container runs on a "
-        "plain ManagerBasedRLEnv, which does not declare the attribute InstinctRlEnv does"
+        "plain ManagerBasedRLEnv, which does not declare the attribute InstinctRlEnv does; "
+        "step/episode extras are created so WasabiPPO can write discriminator_reward"
     ),
     "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/module_cfg.py": (
         "imports the vendored configclass, so reading a config does not start Isaac Sim"
@@ -92,6 +97,10 @@ EDITED = {
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/__init__.py": (
         "no longer registers Gym ids; re-exports the TaskSpec factory so the package stays engine-free"
     ),
+    "source/instinctlab/instinctlab/tasks/parkour/config/g1/__init__.py": (
+        "no longer registers Gym ids; re-exports the TaskSpec factory so the package stays engine-free. "
+        "The two AMP ids moved to legacy_gym so register_legacy_isaac_tasks() still finds them"
+    ),
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
         "same hyperparameters; configclass is vendored so reading them does not start Isaac Sim"
     ),
@@ -109,6 +118,19 @@ EDITED = {
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py": (
         "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+    ),
+    "source/instinctlab/instinctlab/sensors/volume_points/volume_points_cfg.py": (
+        "optional body_order so discovery must match the declared attach list; default None keeps legacy; "
+        "velocity defaults to com so Isaac-only parkour Gym ids keep PhysX COM speeds"
+    ),
+    "source/instinctlab/instinctlab/sensors/volume_points/volume_points.py": (
+        "empty or 0-cylinder registration raises; registered_cylinder_count is observable; "
+        "body_order mismatch raises so the two engines cannot sum different clouds; "
+        "velocity='attach_link' converts PhysX COM linear to link origin"
+    ),
+    "source/instinctlab/instinctlab/utils/warp/kernels.py": (
+        "on-axis cylinder hit used to divide by zero and write NaN into the reward; "
+        "depth is now the radius along a stable perpendicular"
     ),
 }
 """Main's, with a deliberate edit. The text says which one."""

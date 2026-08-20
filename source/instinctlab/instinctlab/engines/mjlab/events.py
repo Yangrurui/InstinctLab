@@ -4,10 +4,13 @@ Two of them, and both exist for the same reason: mjlab has a neighbouring primit
 compiled without complaint and randomised something else.
 
 ``reset_joints_by_offset`` adds a sampled offset to the default joint position where Isaac Lab's
-``reset_joints_by_scale`` multiplies it. ``dr.body_mass`` changes a body's mass and leaves its
-inertia tensor untouched, where Isaac Lab's ``randomize_rigid_body_mass`` defaults to rescaling the
-inertia by the same ratio, so a heavier torso is also harder to rotate. Substituting either would
-leave two runs looking comparable while training against different physics.
+``reset_joints_by_scale`` multiplies it. mjlab now ships a native offset helper, but it indexes
+``soft_joint_pos_limits`` by ``env_ids`` and that tensor's leading dim is 1 -- a model constant --
+so the second environment is an out-of-range read. The port below uses :func:`_rows`. ``dr.body_mass``
+changes a body's mass and leaves its inertia tensor untouched, where Isaac Lab's
+``randomize_rigid_body_mass`` defaults to rescaling the inertia by the same ratio, so a heavier
+torso is also harder to rotate. Substituting either neighbour would leave two runs looking
+comparable while training against different physics.
 
 Both are ported from InstinctMJ, the mjlab-side reference implementation for this task.
 
@@ -25,7 +28,7 @@ from typing import Any
 from mjlab.envs.mdp import dr as _dr
 from mjlab.managers.event_manager import requires_model_fields
 
-__all__ = ["randomize_body_mass", "reset_joints_by_scale"]
+__all__ = ["randomize_body_mass", "reset_joints_by_offset", "reset_joints_by_scale"]
 
 
 def _rows(data: torch.Tensor, env_ids: torch.Tensor) -> torch.Tensor:
@@ -38,6 +41,44 @@ def _rows(data: torch.Tensor, env_ids: torch.Tensor) -> torch.Tensor:
     this surfaces in a reset event rather than in a reward.
     """
     return data if data.shape[0] == 1 else data[env_ids]
+
+
+def reset_joints_by_offset(
+    env: Any,
+    env_ids: torch.Tensor | None,
+    position_range: tuple[float, float],
+    velocity_range: tuple[float, float],
+    asset_cfg: Any = None,
+) -> None:
+    """Reset joints to their default state plus a uniform offset, clamped to the soft limits.
+
+    Additive, not a scale. mjlab's ``reset_joints_by_scale`` multiplies; substituting it here
+    is how a ±0.15 rad parkour reset becomes a 0.85–1.15 scale and still compiles.
+    """
+    from mjlab.managers import SceneEntityCfg
+
+    from instinctlab.compat.math import sample_uniform
+
+    if asset_cfg is None:
+        asset_cfg = SceneEntityCfg("robot")
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
+
+    asset = env.scene[asset_cfg.name]
+    joint_pos = _rows(asset.data.default_joint_pos, env_ids)[:, asset_cfg.joint_ids].clone()
+    joint_pos += sample_uniform(*position_range, joint_pos.shape, env.device)
+    limits = _rows(asset.data.soft_joint_pos_limits, env_ids)[:, asset_cfg.joint_ids]
+    joint_pos = joint_pos.clamp_(limits[..., 0], limits[..., 1])
+
+    joint_vel = _rows(asset.data.default_joint_vel, env_ids)[:, asset_cfg.joint_ids].clone()
+    joint_vel += sample_uniform(*velocity_range, joint_vel.shape, env.device)
+
+    joint_ids = asset_cfg.joint_ids
+    if isinstance(joint_ids, list):
+        joint_ids = torch.tensor(joint_ids, device=env.device)
+    asset.write_joint_state_to_sim(
+        joint_pos.view(len(env_ids), -1), joint_vel.view(len(env_ids), -1), env_ids=env_ids, joint_ids=joint_ids
+    )
 
 
 def reset_joints_by_scale(

@@ -74,11 +74,17 @@ __all__ = [
     "air_time",
     "contact_force_history",
     "contact_time",
+    "depth_image",
     "element_ids",
     "element_names",
     "forget",
     "in_contact",
+    "ray_hits_w",
+    "registered_cylinder_count",
+    "require_volume_points_registered",
     "sensor_engine",
+    "volume_points_penetration_offset",
+    "volume_points_vel_w",
 ]
 
 _ELEMENT_NAME_ATTR = {"isaacsim": "body_names", "mjlab": "primary_names"}
@@ -210,6 +216,173 @@ def air_time(sensor: Any, ref: ContactSensorRef) -> torch.Tensor:
 def contact_time(sensor: Any, ref: ContactSensorRef) -> torch.Tensor:
     """Seconds each referenced element has been in contact. Shape ``(env, element)``."""
     return _timing(sensor, ref, "current_contact_time")
+
+
+def ray_hits_w(sensor: Any) -> torch.Tensor:
+    """World-frame hit positions, shape ``(env, ray, 3)``. A miss is ``+inf``.
+
+    Isaac Lab already stores misses as ``inf`` in ``ray_hits_w``. mjlab's stock
+    sensor stores ``distances < 0`` and leaves ``hit_pos_w`` at the ray origin --
+    which, from a sky origin, is a number twenty metres up, and from the ankle is
+    a number that looks like a foot height. Either way it is a plausible z, not an
+    error. The IR's ``miss="infinity"`` is this function: both engines come out
+    here with the same sentinel, and a term that then wrote ``inf → 0`` would be
+    putting ground at world height zero on purpose.
+    """
+    data = sensor.data
+    hits = getattr(data, "ray_hits_w", None)
+    if hits is None:
+        hits = getattr(data, "hit_pos_w", None)
+    if hits is None:
+        raise PortabilityError(
+            f"{type(sensor).__name__} exposes neither ray_hits_w nor hit_pos_w, so its "
+            "ray-caster output is unknown. A new engine must be registered here."
+        )
+    distances = getattr(data, "distances", None)
+    if distances is not None:
+        miss = distances < 0.0
+        if bool(miss.any()):
+            hits = hits.clone()
+            hits[miss] = float("inf")
+    return hits
+
+
+def depth_image(sensor: Any) -> torch.Tensor:
+    """Current distance-to-image-plane, shape ``(env, H, W, 1)``. A miss is ``+inf``.
+
+    Both engines' camera sensors expose ``data.output['distance_to_image_plane']``.
+    Isaac's ``depth_clipping_behavior="none"`` stores a miss as NaN and can also
+    return a finite hit past ``max_distance`` (it casts to ``2 * max``). mjlab
+    writes +inf past the image-plane far plane. Non-finite values and anything
+    past the semantic far plane become +inf here so a term cannot mistake a miss
+    for a wall at a finite depth.
+    """
+    data = sensor.data
+    output = getattr(data, "output", None)
+    if not isinstance(output, dict) or "distance_to_image_plane" not in output:
+        raise PortabilityError(
+            f"{type(sensor).__name__} has no data.output['distance_to_image_plane']. "
+            "A new engine's camera must register that key."
+        )
+    image = output["distance_to_image_plane"]
+    if image.ndim == 3:
+        image = image.unsqueeze(-1)
+    if image.ndim != 4 or image.shape[-1] != 1:
+        raise PortabilityError(f"depth image should be (env, H, W, 1), got {tuple(image.shape)}.")
+    cfg = getattr(sensor, "cfg", None)
+    far = getattr(cfg, "image_plane_max", None)
+    if far is None:
+        far = getattr(cfg, "max_distance", None)
+    needs_inf = ~torch.isfinite(image)
+    too_far = image > float(far) if far is not None else torch.zeros_like(image, dtype=torch.bool)
+    if not bool(needs_inf.any()) and not bool(too_far.any()):
+        return image
+    cleaned = image.clone()
+    cleaned[needs_inf | too_far] = float("inf")
+    return cleaned
+
+
+def registered_cylinder_count(sensor: Any) -> int:
+    """How many edge cylinders the sensor was given. Zero is the silent-zero failure."""
+    count = getattr(sensor, "registered_cylinder_count", None)
+    if count is not None:
+        return int(count)
+    obstacles = getattr(sensor, "_virtual_obstacles", None)
+    if not obstacles:
+        return 0
+    total = 0
+    for obstacle in obstacles.values():
+        edges = getattr(obstacle, "edges_pyt", None)
+        if edges is None:
+            cylinders = getattr(obstacle, "cylinders", None)
+            if cylinders is None:
+                continue
+            total += int(getattr(cylinders, "num_cylinders", 0))
+            continue
+        total += int(edges.shape[0])
+    return total
+
+
+def require_volume_points_registered(sensor: Any) -> None:
+    """Refuse the silent-zero path: no event, empty terrain, or generate() found nothing.
+
+    ``penetration_offset`` is zeros when nothing is registered. The reward term
+    still exists, logs 0.0, and the robot never learns to avoid edges.
+    """
+    name = getattr(getattr(sensor, "cfg", None), "name", None) or type(sensor).__name__
+    registered = bool(getattr(sensor, "virtual_obstacles_registered", False))
+    obstacles = getattr(sensor, "_virtual_obstacles", None)
+    if not registered and not obstacles:
+        raise RuntimeError(
+            f"volume-points sensor {name!r} has no virtual obstacles registered. "
+            "The startup event never ran, or the terrain importer produced an empty set. "
+            "penetration_offset is identically zero and the robot will not learn to avoid edges."
+        )
+    count = registered_cylinder_count(sensor)
+    if count <= 0:
+        raise RuntimeError(
+            f"volume-points sensor {name!r} is registered but has 0 cylinders. "
+            "generate() found no edges; the penalty would log a clean 0.0 forever."
+        )
+
+
+def _require_link_point_velocity(sensor: Any) -> None:
+    """Refuse a COM ``points_vel_w``. The hub is attach-body link origin.
+
+    Isaac's PhysX view reports COM linear velocity under the same buffer name
+    the mjlab sensor uses for link velocity. ω = 0 hides it; a rotating ankle
+    scales the same penetration by two different speeds.
+    """
+    cfg = getattr(sensor, "cfg", None)
+    velocity = getattr(cfg, "velocity", None)
+    if velocity is None:
+        velocity = getattr(sensor, "velocity", None)
+    if velocity is None or velocity == "attach_link":
+        return
+    name = getattr(cfg, "name", None) or type(sensor).__name__
+    raise PortabilityError(
+        f"volume-points sensor {name!r} has velocity={velocity!r}. "
+        "Hub point speed is attach-body link origin (v_link + ω × r). "
+        "A COM sensor is the denylisted points_vel_w trap; the new-stack "
+        "Isaac builder must set velocity='attach_link'."
+    )
+
+
+def volume_points_penetration_offset(sensor: Any) -> torch.Tensor:
+    """World-frame offset from the obstacle surface toward each point. Shape ``(N, B, P, 3)``.
+
+    Both engines store this on ``data.penetration_offset``. The vector points from
+    the surface to the point: moving along it increases depth. A miss is the zero
+    vector. An unregistered sensor is refused here, not returned as zeros.
+    """
+    require_volume_points_registered(sensor)
+    data = sensor.data
+    offset = getattr(data, "penetration_offset", None)
+    if offset is None:
+        raise PortabilityError(
+            f"{type(sensor).__name__} has no data.penetration_offset. "
+            "A new engine's volume-points sensor must expose that tensor."
+        )
+    return offset
+
+
+def volume_points_vel_w(sensor: Any) -> torch.Tensor:
+    """World-frame point velocity. Shape ``(N, B, P, 3)``.
+
+    ``v_link + ω × (p_w - origin_w)`` in the attach-body link frame. A COM
+    velocity paired with a link origin is a different number whenever the
+    foot's centre of mass is offset — the reward multiplies by this speed.
+    """
+    require_volume_points_registered(sensor)
+    _require_link_point_velocity(sensor)
+    data = sensor.data
+    vel = getattr(data, "points_vel_w", None)
+    if vel is None:
+        raise PortabilityError(
+            f"{type(sensor).__name__} has no data.points_vel_w. "
+            "A new engine's volume-points sensor must expose that tensor."
+        )
+    return vel
 
 
 def in_contact(sensor: Any, ref: ContactSensorRef) -> torch.Tensor:

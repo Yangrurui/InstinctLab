@@ -33,7 +33,7 @@ from typing import Any
 from instinctlab.sim.robot_spec import RobotSpec
 
 from .mdp import MdpSpec
-from .sensor import ContactSensorRef
+from .sensor import ContactSensorRef, MotionReferenceRef, RayCasterRef, VirtualObstacleRef, VolumePointsRef
 
 __all__ = [
     "AgentSpec",
@@ -118,11 +118,15 @@ class SubTerrainSpec:
 class TerrainGeneratorSpec:
     """A grid of sub-terrains. The layout is portable; how each tile is built is not.
 
-    ``num_rows`` is difficulty under curriculum on both engines. ``num_cols`` is not the same
-    number: Isaac Lab distributes columns by ``proportion``, mjlab ignores ``num_cols`` in
-    curriculum mode and gives each tile type exactly one column, using ``proportion`` only for
-    spawn weights. Stating both is still right -- each adapter reads what its generator means --
-    and pretending they agree would be the worse lie.
+    ``num_rows`` is difficulty under curriculum on both engines. ``num_cols`` is the grid
+    width both engines now honor on the parkour/rough path: columns are assigned by Isaac
+    Lab's cumulative-proportion formula. Upstream mjlab still ignores ``num_cols`` (one
+    column per type); our ``FiledTerrainGenerator`` does not. ``kind="generator"`` still
+    compiles to that upstream generator, so a curriculum task on that kind still silently
+    shrinks to one column per type. Difficulty along a row is still not the same number
+    — Isaac jitters ``(row + U) / num_rows`` and never hits 1.0; mjlab uses
+    ``row / (num_rows - 1)`` and hits both endpoints. Once a type occupies several columns,
+    every mjlab duplicate at a given row therefore has identical difficulty.
     """
 
     size: tuple[float, float] = (8.0, 8.0)
@@ -163,14 +167,21 @@ class TerrainSpec:
     dynamic_friction: float = 1.0
     restitution: float = 0.0
     generator: TerrainGeneratorSpec | None = None
+    virtual_obstacles: tuple[VirtualObstacleRef, ...] = ()
+    """Edge cylinders generated from the terrain at import. Empty for locomotion."""
     params: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "params", dict(self.params))
+        object.__setattr__(self, "virtual_obstacles", tuple(self.virtual_obstacles))
         if self.kind in {"plane", "rough"} and self.generator is not None:
             raise ValueError(f"kind={self.kind!r} cannot carry a generator.")
         if self.kind == "generator" and self.generator is None:
             raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
+        names = [obstacle.name for obstacle in self.virtual_obstacles]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(f"Virtual obstacle names must be unique; repeated: {duplicates}.")
 
 
 @dataclass(frozen=True)
@@ -184,24 +195,62 @@ class SceneSpec:
 
     terrain: TerrainSpec = field(default_factory=TerrainSpec)
     contact_sensors: tuple[ContactSensorRef, ...] = ()
+    ray_casters: tuple[RayCasterRef, ...] = ()
+    """Grid scanners and pinhole cameras. Distinguished by ``pattern.kind``, not by a second list."""
+    motion_references: tuple[MotionReferenceRef, ...] = ()
+    """Clip-backed motion references. A new sensor family, not a ray or a contact."""
+    volume_points: tuple[VolumePointsRef, ...] = ()
+    """Ankle (or other) volume-point clouds. Penetration is not a raycast."""
     env_spacing: float = 2.5
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "contact_sensors", tuple(self.contact_sensors))
-        names = [sensor.name for sensor in self.contact_sensors]
+        object.__setattr__(self, "ray_casters", tuple(self.ray_casters))
+        object.__setattr__(self, "motion_references", tuple(self.motion_references))
+        object.__setattr__(self, "volume_points", tuple(self.volume_points))
+        names = (
+            [sensor.name for sensor in self.contact_sensors]
+            + [sensor.name for sensor in self.ray_casters]
+            + [sensor.name for sensor in self.motion_references]
+            + [sensor.name for sensor in self.volume_points]
+        )
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
-            raise ValueError(f"Contact sensor names must be unique; repeated: {duplicates}.")
+            raise ValueError(f"Sensor names must be unique; repeated: {duplicates}.")
         if self.env_spacing <= 0.0:
             raise ValueError(f"env_spacing must be positive, got {self.env_spacing}.")
 
     def sensor(self, name: str) -> ContactSensorRef:
-        """The declared sensor called ``name``."""
+        """The declared contact sensor called ``name``."""
         for sensor in self.contact_sensors:
             if sensor.name == name:
                 return sensor
         have = ", ".join(sorted(s.name for s in self.contact_sensors)) or "none"
         raise KeyError(f"Scene declares no contact sensor {name!r}. Declared: {have}.")
+
+    def ray_caster(self, name: str) -> RayCasterRef:
+        """The declared ray caster called ``name``."""
+        for sensor in self.ray_casters:
+            if sensor.name == name:
+                return sensor
+        have = ", ".join(sorted(s.name for s in self.ray_casters)) or "none"
+        raise KeyError(f"Scene declares no ray caster {name!r}. Declared: {have}.")
+
+    def motion_reference(self, name: str) -> MotionReferenceRef:
+        """The declared motion reference called ``name``."""
+        for sensor in self.motion_references:
+            if sensor.name == name:
+                return sensor
+        have = ", ".join(sorted(s.name for s in self.motion_references)) or "none"
+        raise KeyError(f"Scene declares no motion reference {name!r}. Declared: {have}.")
+
+    def volume_point(self, name: str) -> VolumePointsRef:
+        """The declared volume-points sensor called ``name``."""
+        for sensor in self.volume_points:
+            if sensor.name == name:
+                return sensor
+        have = ", ".join(sorted(s.name for s in self.volume_points)) or "none"
+        raise KeyError(f"Scene declares no volume-points sensor {name!r}. Declared: {have}.")
 
 
 @dataclass(frozen=True)
@@ -315,13 +364,31 @@ class TaskSpec:
                 raise ValueError(
                     f"Term {key!r} has engine_params for {sorted(unknown)}, which is not in engines={sorted(declared)}."
                 )
-        declared_sensors = {sensor.name for sensor in self.scene.contact_sensors}
+        declared_contacts = {sensor.name for sensor in self.scene.contact_sensors}
+        declared_rays = {sensor.name for sensor in self.scene.ray_casters}
+        declared_motion = {sensor.name for sensor in self.scene.motion_references}
+        declared_volume = {sensor.name for sensor in self.scene.volume_points}
         for key, term in self.mdp.terms().items():
             for value in term.params.values():
-                if isinstance(value, ContactSensorRef) and value.name not in declared_sensors:
+                if isinstance(value, ContactSensorRef) and value.name not in declared_contacts:
                     raise ValueError(
                         f"Term {key!r} reads contact sensor {value.name!r}, which the scene does "
-                        f"not declare. Declared: {sorted(declared_sensors) or 'none'}."
+                        f"not declare. Declared: {sorted(declared_contacts) or 'none'}."
+                    )
+                if isinstance(value, RayCasterRef) and value.name not in declared_rays:
+                    raise ValueError(
+                        f"Term {key!r} reads ray caster {value.name!r}, which the scene does "
+                        f"not declare. Declared: {sorted(declared_rays) or 'none'}."
+                    )
+                if isinstance(value, MotionReferenceRef) and value.name not in declared_motion:
+                    raise ValueError(
+                        f"Term {key!r} reads motion reference {value.name!r}, which the scene does "
+                        f"not declare. Declared: {sorted(declared_motion) or 'none'}."
+                    )
+                if isinstance(value, VolumePointsRef) and value.name not in declared_volume:
+                    raise ValueError(
+                        f"Term {key!r} reads volume-points sensor {value.name!r}, which the scene "
+                        f"does not declare. Declared: {sorted(declared_volume) or 'none'}."
                     )
 
     def extras_for(self, engine: str) -> dict[str, Any]:

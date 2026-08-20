@@ -26,7 +26,7 @@ from instinctlab.spec.task import TaskSpec
 from .base import Resolution, UnsupportedTerm
 from .registry import TermRegistry
 
-__all__ = ["CompileCtx", "compile_family", "compile_mdp", "qualname_of"]
+__all__ = ["CompileCtx", "compile_family", "compile_mdp", "observation_group_settings", "qualname_of"]
 
 
 def qualname_of(obj: Any) -> str:
@@ -192,6 +192,24 @@ def _build(key: str, family: str, spec: TermSpec, ctx: CompileCtx, registry: Ter
     return None, "skipped", f"engine {ctx.engine!r} has no {family} kind {spec.kind!r}"
 
 
+_OBSERVATION_GROUP_FIELDS = ("enable_corruption", "concatenate_terms", "history_length")
+
+
+def observation_group_settings(source: Any) -> dict[str, Any]:
+    """Group fields both engines accept with the same sentinels.
+
+    ``enable_corruption`` and ``concatenate_terms`` are real booleans and are
+    always emitted. ``history_length`` is ``None`` when the group does not
+    override terms and an ``int`` (including ``0``) when it does. Both engines'
+    managers do ``if group_cfg.history_length is not None``, so the IR uses that
+    sentinel rather than leaving each adapter to guess whether ``0`` means
+    "unset". Accepts an :class:`~instinctlab.spec.mdp.ObsGroupSpec` or the
+    compiled mapping ``compile_mdp`` emits from one.
+    """
+    get = source.__getitem__ if isinstance(source, Mapping) else lambda key: getattr(source, key)
+    return {key: get(key) for key in _OBSERVATION_GROUP_FIELDS}
+
+
 def compile_mdp(mdp: MdpSpec, ctx: CompileCtx, registry: TermRegistry) -> dict[str, Any]:
     """Compile every family of an MDP, preserving group structure.
 
@@ -204,9 +222,7 @@ def compile_mdp(mdp: MdpSpec, ctx: CompileCtx, registry: TermRegistry) -> dict[s
     observations = {
         group: {
             "terms": compile_family("observation", group_spec.terms, ctx, registry, prefix=f"{group}/"),
-            "enable_corruption": group_spec.enable_corruption,
-            "concatenate_terms": group_spec.concatenate_terms,
-            "history_length": group_spec.history_length,
+            **observation_group_settings(group_spec),
         }
         for group, group_spec in mdp.observations.items()
     }

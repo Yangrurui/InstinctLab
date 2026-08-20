@@ -16,7 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
+from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
 
 from .assets import articulation
@@ -154,9 +155,58 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     if spec.kind == "rough":
         from .rough import rough_importer_cfg
 
-        return rough_importer_cfg(spec)
+        return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
     raise NotImplementedError(
         f"The Isaac Sim adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
+    )
+
+
+def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
+    """Parkour's edge cylinders. Attached here so rough.py stays the locomotion recipe.
+
+    Count / placement will not match mjlab. That is the recorded obstacle-set
+    divergence in :mod:`instinctlab.engines.mjlab.rough`, not a builder bug.
+    """
+    if not spec.virtual_obstacles:
+        return cfg
+    from instinctlab.terrains.virtual_obstacle import GreedyconcatEdgeCylinderCfg
+
+    obstacles: dict[str, Any] = {}
+    for obstacle in spec.virtual_obstacles:
+        if obstacle.kind != "greedy_edge_cylinder":
+            raise NotImplementedError(f"Isaac Sim has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}.")
+        obstacles[obstacle.name] = GreedyconcatEdgeCylinderCfg(
+            cylinder_radius=obstacle.cylinder_radius,
+            min_points=obstacle.min_points,
+            angle_threshold=obstacle.angle_threshold,
+        )
+    cfg.virtual_obstacles = obstacles
+    return cfg
+
+
+def _volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
+    from instinctlab.sensors.volume_points.points_generator_cfg import Grid3dPointsGeneratorCfg
+    from instinctlab.sensors.volume_points.volume_points_cfg import VolumePointsCfg
+
+    period = sensor.update_period if sensor.update_period is not None else sensor_period
+    bodies = f"({'|'.join(sensor.bodies)})"
+    return VolumePointsCfg(
+        prim_path=f"{_ROBOT_PRIM}/{bodies}",
+        points_generator=Grid3dPointsGeneratorCfg(
+            x_min=sensor.grid.x_min,
+            x_max=sensor.grid.x_max,
+            x_num=sensor.grid.x_num,
+            y_min=sensor.grid.y_min,
+            y_max=sensor.grid.y_max,
+            y_num=sensor.grid.y_num,
+            z_min=sensor.grid.z_min,
+            z_max=sensor.grid.z_max,
+            z_num=sensor.grid.z_num,
+        ),
+        debug_vis=False,
+        update_period=period,
+        body_order=list(sensor.bodies),
+        velocity=sensor.velocity,
     )
 
 
@@ -167,7 +217,24 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
     pattern and terms slice it by body index, which is why the declared elements become a single
     pattern here and a list of sensors there. ``history_length`` maps across directly, but the axis
     order of what comes back does not, and ``compat.sensors`` is what hides that.
+
+    ``against`` is refused, not ignored. Isaac Lab *has* ``filter_prim_paths_expr``, but it
+    fills ``force_matrix_w`` only: ``net_forces_w`` and the air-time timers stay unfiltered,
+    and those are what portable terms read. The filter is also documented not to work when
+    ``prim_path`` matches several bodies, which is how this builder always emits the sensor.
+    Honouring the field with that API would compile a filtered-looking sensor that still
+    reports every contact -- the same shape of silent failure as a missing ``found`` field.
+    mjlab's ``secondary`` actually filters; a task that sets ``against`` therefore cannot
+    compile for Isaac until there is an implementation that changes the tensors terms read.
     """
+    if sensor.against is not None:
+        raise ValueError(
+            f"Isaac Lab cannot honor ContactSensorRef.against={sensor.against!r} on "
+            f"{sensor.name!r}. filter_prim_paths_expr does not change net_forces_w or "
+            "air-time (portable terms read those), and it does not work on a multi-body "
+            "prim_path, which is how this backend builds the sensor. Leave against unset "
+            "or compile for an engine that can filter the contact signal itself."
+        )
     from isaaclab.sensors import ContactSensorCfg
 
     elements = sensor.elements if isinstance(sensor.elements, str) else "|".join(sensor.elements)
@@ -175,6 +242,91 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
         prim_path=f"{_ROBOT_PRIM}/{elements}",
         history_length=sensor.history_length,
         track_air_time=sensor.track_air_time,
+    )
+
+
+def _ray_caster(sensor: RayCasterRef, *, sensor_period: float) -> Any:
+    """Isaac Lab's native ray caster, or the grouped camera that can see the robot.
+
+    A grid is terrain-only (``mesh_prim_paths=['/World/ground']``). A pinhole uses
+    ``GroupedRayCasterCamera`` so listed link visuals move with the robot -- stock
+    ``RayCasterCamera`` only hits static meshes, and the robot would not see its
+    own legs. Misses stay ``+inf`` (clipping ``none``); the observation term is
+    what later treats a miss as the normalisation ceiling.
+    """
+    refuse_unhonored_ray_alignment(sensor)
+    if sensor.miss != "infinity":
+        raise ValueError(f"Isaac ray caster {sensor.name!r} has miss={sensor.miss!r}; the portable contract is +inf.")
+    if sensor.pattern.kind == "pinhole":
+        return _pinhole_camera(sensor, sensor_period=sensor_period)
+    if sensor.pattern.kind != "grid":
+        raise ValueError(f"Isaac ray caster {sensor.name!r} has pattern.kind={sensor.pattern.kind!r}.")
+    if sensor.hit != "terrain":
+        raise ValueError(
+            f"Isaac ray caster {sensor.name!r} has hit={sensor.hit!r}; only 'terrain' is implemented for a grid."
+        )
+    from isaaclab.sensors import RayCasterCfg, patterns
+
+    period = sensor.update_period if sensor.update_period is not None else sensor_period
+    return RayCasterCfg(
+        prim_path=f"{_ROBOT_PRIM}/{sensor.attach}",
+        offset=RayCasterCfg.OffsetCfg(pos=sensor.offset),
+        ray_alignment=sensor.ray_alignment,
+        pattern_cfg=patterns.GridPatternCfg(
+            resolution=sensor.pattern.resolution,
+            size=list(sensor.pattern.size),
+            direction=sensor.direction,
+        ),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+        max_distance=sensor.max_distance,
+        update_period=period,
+    )
+
+
+def _pinhole_camera(sensor: RayCasterRef, *, sensor_period: float) -> Any:
+    """The parkour depth camera: world-convention pinhole, terrain plus listed links.
+
+    ``GroupedRayCasterCamera`` always applies the attach body's full rotation
+    (``attach_yaw_only=False``). ``ray_alignment`` is not read. A pinhole
+    declared as anything other than ``base`` is refused by
+    ``refuse_unhonored_ray_alignment`` before this runs.
+    """
+    from isaaclab.sensors.ray_caster.patterns import PinholeCameraPatternCfg
+
+    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_camera_cfg import GroupedRayCasterCameraCfg
+    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_cfg import get_link_prim_targets
+
+    meshes: list[Any] = []
+    if sensor.hits_terrain():
+        meshes.append("/World/ground")
+    bodies = sensor.hit_bodies()
+    if bodies:
+        meshes.extend(get_link_prim_targets(list(bodies)))
+    if not meshes:
+        raise ValueError(f"Isaac camera {sensor.name!r} names nothing to hit.")
+    period = sensor.update_period if sensor.update_period is not None else sensor_period
+    return GroupedRayCasterCameraCfg(
+        prim_path=f"{_ROBOT_PRIM}/{sensor.attach}",
+        mesh_prim_paths=meshes,
+        pattern_cfg=PinholeCameraPatternCfg(
+            focal_length=sensor.pattern.focal_length,
+            horizontal_aperture=sensor.pattern.horizontal_aperture,
+            vertical_aperture=sensor.pattern.vertical_aperture,
+            width=sensor.pattern.width,
+            height=sensor.pattern.height,
+        ),
+        debug_vis=False,
+        data_types=["distance_to_image_plane"],
+        update_period=period,
+        depth_clipping_behavior="none",
+        offset=GroupedRayCasterCameraCfg.OffsetCfg(
+            pos=sensor.offset,
+            rot=sensor.offset_rot,
+            convention=sensor.offset_convention,
+        ),
+        min_distance=sensor.min_distance,
+        max_distance=sensor.max_distance,
     )
 
 
@@ -244,5 +396,18 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
         # zero means "once per rendering step", which quietly undersamples air time.
         cfg.update_period = sensor_period
         setattr(scene, sensor.name, cfg)
+    for sensor in spec.ray_casters:
+        setattr(scene, sensor.name, _ray_caster(sensor, sensor_period=sensor_period))
+    for sensor in spec.motion_references:
+        setattr(scene, sensor.name, _motion_reference(sensor, robot))
+    for sensor in spec.volume_points:
+        setattr(scene, sensor.name, _volume_points(sensor, sensor_period=sensor_period))
     scene.sky_light = _sky_light()
     return scene
+
+
+def _motion_reference(sensor: Any, robot: Any) -> Any:
+    """Clip-backed reference. Separate from the ray builders another increment owns."""
+    from .motion_reference import build_sensor
+
+    return build_sensor(sensor, robot)

@@ -12,7 +12,7 @@ from __future__ import annotations
 from importlib import import_module
 
 from .base import CompiledTask, EngineAdapter, Resolution, UnsupportedTerm
-from .compile import CompileCtx, compile_family, compile_mdp, qualname_of
+from .compile import CompileCtx, compile_family, compile_mdp, observation_group_settings, qualname_of
 from .registry import FAMILIES, TermRegistry
 
 ADAPTERS: dict[str, str] = {
@@ -59,5 +59,6 @@ __all__ = [
     "compile_family",
     "compile_mdp",
     "names",
+    "observation_group_settings",
     "qualname_of",
 ]

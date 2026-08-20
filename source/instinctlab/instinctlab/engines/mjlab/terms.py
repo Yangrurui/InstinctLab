@@ -30,6 +30,50 @@ from instinctlab.sim.capabilities import (
 
 TERMS = TermRegistry("mjlab")
 
+MJLAB_FRICTION_KEYS: frozenset[str] = frozenset({"ranges", "operation", "shared_random", "distribution", "axes"})
+MJLAB_FRICTION_ALIASES: frozenset[str] = frozenset({"static_friction_range", "dynamic_friction_range"})
+
+
+def merge_friction_params(profile: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """Honor task-supplied sliding friction, and refuse keys this engine cannot apply.
+
+    MuJoCo has one sliding coefficient. A task that states static and dynamic ranges is mapped
+    to their union (min of lows, max of highs), which is what InstinctMJ's port does and the
+    closest single interval to "the same randomisation". ``restitution_range`` is rejected
+    rather than dropped: Isaac parkour randomises restitution and mjlab parkour does not, and
+    silently keeping the profile (or ignoring the key) is the failure this check exists for.
+    """
+    if "restitution_range" in params:
+        raise ValueError(
+            "mjlab randomize_friction cannot honor restitution_range: MuJoCo has no per-geom "
+            "restitution. Put it in engine_params['isaacsim'] or drop it."
+        )
+    unknown = sorted(set(params) - MJLAB_FRICTION_KEYS - MJLAB_FRICTION_ALIASES)
+    if unknown:
+        raise ValueError(
+            f"mjlab randomize_friction does not honor {unknown}. "
+            f"It honors {sorted(MJLAB_FRICTION_KEYS | MJLAB_FRICTION_ALIASES)} "
+            "(static/dynamic map to their union as 'ranges')."
+        )
+    if "ranges" in params and (params.keys() & MJLAB_FRICTION_ALIASES):
+        raise ValueError("mjlab randomize_friction: pass 'ranges' or static/dynamic friction, not both.")
+    merged = dict(profile)
+    for key in MJLAB_FRICTION_KEYS:
+        if key in params:
+            merged[key] = params[key]
+    static = params.get("static_friction_range")
+    dynamic = params.get("dynamic_friction_range")
+    if static is not None or dynamic is not None:
+        lows, highs = [], []
+        if static is not None:
+            lows.append(static[0])
+            highs.append(static[1])
+        if dynamic is not None:
+            lows.append(dynamic[0])
+            highs.append(dynamic[1])
+        merged["ranges"] = (min(lows), max(highs))
+    return merged
+
 
 def _cfgs() -> dict[str, Any]:
     from mjlab.managers import CurriculumTermCfg, EventTermCfg, ObservationTermCfg, RewardTermCfg, TerminationTermCfg
@@ -70,6 +114,19 @@ def _curriculum(spec, ctx):
     return _cfgs()["curriculum"](func=spec.func, params=ctx.params(spec))
 
 
+def _term_params(spec, ctx):
+    """Params with ``target=`` lowered onto ``asset_cfg`` when the task used that slot.
+
+    mjlab's stock ``joint_torques_l2`` slices ``actuator_ids``, which stay ``slice(None)``
+    when the task only named joints -- so a hip/knee penalty silently ran on all 29
+    actuators. Builders that go through here pass the resolved ``EntityRef`` as ``asset_cfg``.
+    """
+    params = dict(ctx.params(spec))
+    if spec.target is not None and "asset_cfg" not in params:
+        params["asset_cfg"] = ctx.entity(spec.target)
+    return params
+
+
 @TERMS.reward("contact_slide")
 def _contact_slide(spec, ctx):
     """InstinctMJ's slide penalty, kept rather than replaced. See the task's note on why.
@@ -82,21 +139,42 @@ def _contact_slide(spec, ctx):
     """
     from .rewards import contact_slide
 
-    return _cfgs()["reward"](func=contact_slide, weight=spec.weight, params=ctx.params(spec))
+    return _cfgs()["reward"](func=contact_slide, weight=spec.weight, params=_term_params(spec, ctx))
 
 
 @TERMS.reward("joint_acc_l2")
 def _joint_acc_l2(spec, ctx):
     from mjlab.envs.mdp import joint_acc_l2
 
-    return _cfgs()["reward"](func=joint_acc_l2, weight=spec.weight, params=ctx.params(spec))
+    return _cfgs()["reward"](func=joint_acc_l2, weight=spec.weight, params=_term_params(spec, ctx))
 
 
 @TERMS.reward("joint_torques_l2")
 def _joint_torques_l2(spec, ctx):
-    from mjlab.envs.mdp import joint_torques_l2
+    """Joint-space torque penalty. mjlab's stock term reads ``actuator_force`` (nu)."""
+    from .rewards import joint_torques_l2
 
-    return _cfgs()["reward"](func=joint_torques_l2, weight=spec.weight, params=ctx.params(spec))
+    return _cfgs()["reward"](func=joint_torques_l2, weight=spec.weight, params=_term_params(spec, ctx))
+
+
+@TERMS.reward("motors_power_square")
+def _motors_power_square(spec, ctx):
+    """Parkour's energy term. Reads ``qfrc_actuator`` (nv), not ``actuator_force`` (nu)."""
+    from .rewards import motors_power_square
+
+    params = _term_params(spec, ctx)
+    params.setdefault("normalize_by_stiffness", True)
+    return _cfgs()["reward"](func=motors_power_square, weight=spec.weight, params=params)
+
+
+@TERMS.reward("applied_torque_limits_by_ratio")
+def _applied_torque_limits_by_ratio(spec, ctx):
+    """Parkour's torque-limit term. Same ``qfrc_actuator`` / joint-id reasoning."""
+    from .rewards import applied_torque_limits_by_ratio
+
+    params = _term_params(spec, ctx)
+    params.setdefault("limit_ratio", 0.8)
+    return _cfgs()["reward"](func=applied_torque_limits_by_ratio, weight=spec.weight, params=params)
 
 
 @TERMS.action("joint_position")
@@ -120,6 +198,13 @@ def _joint_position(spec, ctx):
         scale=params.get("scale", 1.0),
         use_default_offset=params.get("use_default_offset", True),
     )
+
+
+@TERMS.command("pose_velocity")
+def _pose_velocity(spec, ctx):
+    from .pose_velocity import build_command
+
+    return build_command(spec, ctx)
 
 
 @TERMS.command("uniform_velocity")
@@ -169,14 +254,13 @@ def _randomize_friction(spec, ctx):
     """Sliding friction randomisation.
 
     Does not advertise ``DR_RESTITUTION``, unlike the Isaac Sim registry, because MuJoCo has no
-    per-geom restitution to randomise. A task that genuinely requires it fails here at startup with
-    a message naming the capability, instead of running with one third of its randomisation quietly
-    absent.
+    per-geom restitution to randomise. A task that puts ``restitution_range`` in shared params is
+    rejected here rather than trained without it. Isaac-only restitution belongs in
+    ``engine_params['isaacsim']``. Static/dynamic ranges map to their union as ``ranges``.
     """
     from mjlab.envs.mdp import dr
 
-    profile = dict(ctx.profile.get("friction_dr", {}))
-    profile.update(ctx.params(spec))
+    profile = merge_friction_params(dict(ctx.profile.get("friction_dr", {})), ctx.params(spec))
     return _event(spec, dr.geom_friction, {"asset_cfg": _geoms_of(ctx, spec.target), **profile})
 
 
@@ -228,9 +312,28 @@ def _reset_joints_by_scale(spec, ctx):
     )
 
 
+@TERMS.event("reset_joints_by_offset", provides=(JOINT_STATE,))
+def _reset_joints_by_offset(spec, ctx):
+    """Additive joint reset. mjlab's native helper also adds, but indexes limits per-env."""
+    from .events import reset_joints_by_offset
+
+    params = _term_params(spec, ctx)
+    event_params = {"position_range": params["position_range"], "velocity_range": params["velocity_range"]}
+    if "asset_cfg" in params:
+        event_params["asset_cfg"] = params["asset_cfg"]
+    return _event(spec, reset_joints_by_offset, event_params)
+
+
 @TERMS.event("push_by_setting_velocity", provides=(ROOT_VELOCITY_WRITE,))
 def _push_by_setting_velocity(spec, ctx):
     from mjlab.envs.mdp import push_by_setting_velocity
 
     params = ctx.params(spec)
     return _event(spec, push_by_setting_velocity, {"velocity_range": params["velocity_range"]})
+
+
+@TERMS.event("register_virtual_obstacles")
+def _register_virtual_obstacles(spec, ctx):
+    from instinctlab.mdp.events import register_virtual_obstacles
+
+    return _event(spec, register_virtual_obstacles, ctx.params(spec))

@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from instinctlab.engines.base import CompiledTask, Resolution
-from instinctlab.engines.compile import CompileCtx, compile_mdp
+from instinctlab.engines.compile import CompileCtx, compile_mdp, observation_group_settings
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
 from instinctlab.spec.task import TaskSpec
@@ -93,10 +93,8 @@ def _observation_groups(compiled: Mapping[str, Any]) -> Any:
     groups: dict[str, Any] = {}
     for name, group in compiled.items():
         cfg = ObservationGroupCfg()
-        cfg.enable_corruption = group["enable_corruption"]
-        cfg.concatenate_terms = group["concatenate_terms"]
-        if group["history_length"]:
-            cfg.history_length = group["history_length"]
+        for field, value in observation_group_settings(group).items():
+            setattr(cfg, field, value)
         for term_name, term in group["terms"].items():
             setattr(cfg, term_name, term)
         groups[name] = cfg

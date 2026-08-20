@@ -19,7 +19,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
+from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
 
 from .assets import entity as build_entity
@@ -119,10 +120,46 @@ def _terrain(spec: TerrainSpec) -> Any:
     if spec.kind == "rough":
         from .rough import rough_importer_cfg
 
-        return rough_importer_cfg(spec)
+        return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
     raise NotImplementedError(
         f"The mjlab adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
     )
+
+
+def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
+    """Parkour's edge cylinders. Terrain constants stay in rough.py.
+
+    The generated set will not match Isaac's — that divergence is recorded
+    next to the stairs 6-vs-5 in :mod:`instinctlab.engines.mjlab.rough`.
+    """
+    if not spec.virtual_obstacles:
+        return cfg
+    from .terrains.virtual_obstacle.edge_cylinder_cfg import GreedyconcatEdgeCylinderCfg
+
+    obstacles: dict[str, Any] = {}
+    for obstacle in spec.virtual_obstacles:
+        if obstacle.kind != "greedy_edge_cylinder":
+            raise NotImplementedError(f"mjlab has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}.")
+        obstacles[obstacle.name] = GreedyconcatEdgeCylinderCfg(
+            cylinder_radius=obstacle.cylinder_radius,
+            min_points=obstacle.min_points,
+            angle_threshold=obstacle.angle_threshold,
+            # InstinctMJ parkour: mesh source, hfield repair, collinear merge.
+            component_workers=0,
+            merge_collinear_gap=0.09,
+            merge_collinear_angle_threshold=30.0,
+            merge_collinear_line_distance=0.04,
+        )
+    cfg.virtual_obstacles = obstacles
+    cfg.virtual_obstacle_source = "mesh"
+    cfg.virtual_obstacle_hfield_height_threshold = 0.04
+    return cfg
+
+
+def _volume_points(sensor: VolumePointsRef) -> Any:
+    from .volume_points import build_sensor
+
+    return build_sensor(sensor)
 
 
 def _contact_sensor(sensor: ContactSensorRef) -> Any:
@@ -156,14 +193,39 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
     )
 
 
+def _ray_caster(sensor: RayCasterRef) -> Any:
+    """mjlab does not ship Isaac's sky-origin scanner or world-convention camera."""
+    refuse_unhonored_ray_alignment(sensor)
+    if sensor.pattern.kind == "pinhole":
+        from .camera import pinhole_ray_caster
+
+        return pinhole_ray_caster(sensor)
+    from .raycast import terrain_sky_ray_caster
+
+    return terrain_sky_ray_caster(sensor)
+
+
 def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_envs: int) -> Any:
     """A ``SceneCfg`` holding the robot, terrain and sensors."""
     from mjlab.scene import SceneCfg
 
+    sensors = (
+        tuple(_contact_sensor(sensor) for sensor in spec.contact_sensors)
+        + tuple(_ray_caster(sensor) for sensor in spec.ray_casters)
+        + tuple(_motion_reference(sensor, robot) for sensor in spec.motion_references)
+        + tuple(_volume_points(sensor) for sensor in spec.volume_points)
+    )
     return SceneCfg(
         num_envs=num_envs,
         env_spacing=spec.env_spacing,
         terrain=_terrain(spec.terrain),
         entities={"robot": build_entity(robot)},
-        sensors=tuple(_contact_sensor(sensor) for sensor in spec.contact_sensors),
+        sensors=sensors,
     )
+
+
+def _motion_reference(sensor: Any, robot: Any) -> Any:
+    """Clip-backed reference. Separate from the ray builders another increment owns."""
+    from .motion_reference import build_sensor
+
+    return build_sensor(sensor, robot)

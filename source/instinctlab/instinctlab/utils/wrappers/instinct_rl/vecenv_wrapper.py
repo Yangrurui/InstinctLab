@@ -171,6 +171,8 @@ class InstinctRlVecEnvWrapper(VecEnv):
         # move extra observations to the extras dict
 
         extras["observations"] = obs_pack
+        extras.setdefault("step", {})
+        extras.setdefault("episode", {})
         # move time out information to the extras dict
         # this is only needed for infinite horizon tasks
         if not self.unwrapped.cfg.is_finite_horizon:

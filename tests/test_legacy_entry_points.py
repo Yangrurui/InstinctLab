@@ -7,7 +7,9 @@ resolves the ``rsl_rl`` ones -- which is exactly why they survived: the failure 
 
 Resolution is static. The strings are f-strings over a module-level constant and ``agents.__name__``,
 both of which can be read off the syntax tree, so this runs without Isaac Sim and covers every task
-rather than the ones an installed engine happens to let us import.
+rather than the ones an installed engine happens to let us import. Every ``*.py`` under ``tasks/``
+is scanned, not only ``__init__.py``, so a registration that moved to a sibling (parkour's
+``legacy_gym``) is still found.
 """
 
 from __future__ import annotations
@@ -71,7 +73,7 @@ def _resolve(node: ast.expr, constants: dict[str, str], package: str) -> str | N
 
 def _entry_points() -> list[tuple[str, str, str]]:
     found: list[tuple[str, str, str]] = []
-    for path in sorted(TASKS.rglob("__init__.py")):
+    for path in sorted(TASKS.rglob("*.py")):
         tree = ast.parse(path.read_text())
         constants = _string_constants(tree)
         package = ".".join(path.relative_to(SOURCE).parent.parts)

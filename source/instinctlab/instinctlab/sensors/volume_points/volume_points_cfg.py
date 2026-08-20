@@ -47,4 +47,17 @@ class VolumePointsCfg(SensorBaseCfg):
     """ The points generator configuration. The generator function should be callable and accept only its cfg.
     """
 
+    body_order: list[str] | None = None
+    """Declared attach-body order. Discovery must match or the two engines sum different clouds."""
+
+    velocity: str = "com"
+    """About which point ``vel_w`` / ``points_vel_w`` are expressed.
+
+    ``"com"`` is the legacy PhysX ``get_velocities()`` linear row (centre of
+    mass). ``"attach_link"`` converts that to the link origin before the
+    ``ω × r`` product — the hub quantity. Leave the default; the new-stack
+    builder sets ``attach_link``. Changing the default would silently retune
+    every Isaac-only parkour Gym id.
+    """
+
     visualizer_cfg: VisualizationMarkersCfg = VOLUME_POINTS_VISUALIZER_CFG

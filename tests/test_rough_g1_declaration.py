@@ -175,7 +175,7 @@ def test_mjlab_compiles_instinctmj_parkour_rough(task) -> None:
     assert terrain.terrain_generator.class_type is FiledTerrainGenerator
     assert terrain.max_init_terrain_level == 5
     assert "terrain_levels" in compiled.env_cfg.curriculum
-    assert compiled.env_cfg.sim.nconmax == 128
+    assert compiled.env_cfg.sim.nconmax == 256
     assert compiled.env_cfg.sim.njmax == 700
     assert compiled.env_cfg.sim.contact_sensor_maxmatch == 128
     assert _snapshot(terrain.terrain_generator) == _snapshot(rough_generator_cfg())
@@ -273,7 +273,12 @@ def _compare_generator_call(ours: ast.Call, reference: ast.Call) -> None:
 
 
 def test_the_mjlab_recipe_matches_instinctmj_parkour_literals() -> None:
-    """Read InstinctMJ's file; do not import the package."""
+    """Read InstinctMJ's file; do not import the package.
+
+    The mjlab recipe follows InstinctMJ's constants on purpose. A new
+    unexplained literal difference fails here; the Isaac-vs-mjlab table lives
+    in ``tests/test_rough_recipe_parity.py``.
+    """
     pytest.importorskip("mjlab")
     from instinctlab.engines.mjlab.rough import rough_generator_cfg
 

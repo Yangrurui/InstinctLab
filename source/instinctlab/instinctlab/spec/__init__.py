@@ -26,7 +26,15 @@ from .mdp import (
     RewardTermSpec,
     TermSpec,
 )
-from .sensor import ContactSensorRef
+from .sensor import (
+    ContactSensorRef,
+    Grid3dPointsRef,
+    MotionReferenceRef,
+    RayCasterRef,
+    RayPatternRef,
+    VirtualObstacleRef,
+    VolumePointsRef,
+)
 from .task import AgentSpec, SceneSpec, SimSpec, SubTerrainSpec, TaskSpec, TerrainGeneratorSpec, TerrainSpec
 
 __all__ = [
@@ -35,6 +43,12 @@ __all__ = [
     "AgentSpec",
     "CommandTermSpec",
     "ContactSensorRef",
+    "Grid3dPointsRef",
+    "MotionReferenceRef",
+    "RayCasterRef",
+    "RayPatternRef",
+    "VirtualObstacleRef",
+    "VolumePointsRef",
     "CurriculumTermSpec",
     "DoneTermSpec",
     "EntityRef",

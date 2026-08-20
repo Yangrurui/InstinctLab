@@ -117,9 +117,21 @@ class TermSpec:
         return self.func is not None
 
     def resolved_params(self, engine: str) -> dict[str, Any]:
-        """``params`` with this engine's overrides applied. The only place the two are combined."""
+        """``params`` with this engine's overrides applied. The only place the two are combined.
+
+        Nested mappings merge rather than replace, so a shared ``velocity_ranges`` dict can keep
+        the nine common sub-terrains and put only the tenth name in ``engine_params``. A shallow
+        update would drop the shared keys on that engine and the command would raise at init.
+        """
         merged = dict(self.params)
-        merged.update(self.engine_params.get(engine, {}))
+        for key, value in self.engine_params.get(engine, {}).items():
+            existing = merged.get(key)
+            if isinstance(existing, Mapping) and isinstance(value, Mapping):
+                nested = dict(existing)
+                nested.update(value)
+                merged[key] = nested
+            else:
+                merged[key] = value
         return merged
 
     def engines_named(self) -> frozenset[str]:
@@ -222,17 +234,22 @@ class ObsGroupSpec:
         enable_corruption: Whether the terms' noise is applied. Off for critic groups by
             convention on both engines.
         concatenate_terms: Whether the group is flattened into one tensor.
-        history_length: Steps of history retained for the whole group.
+        history_length: Group-level override. ``None`` (the default) is unset — each
+            term keeps its own history. An integer, including ``0``, overrides every
+            term. Both engines' managers test ``is not None``, so ``0`` cannot mean
+            "unspecified": that value is a real instruction to drop history.
     """
 
     terms: Mapping[str, ObsTermSpec]
     enable_corruption: bool = True
     concatenate_terms: bool = True
-    history_length: int = 0
+    history_length: int | None = None
 
     def __post_init__(self) -> None:
         if not self.terms:
             raise ValueError("An observation group with no terms produces an empty input tensor.")
+        if self.history_length is not None and self.history_length < 0:
+            raise ValueError(f"Observation group history_length={self.history_length} is negative.")
         object.__setattr__(self, "terms", dict(self.terms))
 
 

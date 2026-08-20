@@ -1,0 +1,129 @@
+"""Guard: parkour's per-engine reward/event kinds do what the task asked, not a neighbour.
+
+``applied_torque`` is on the denylist and mjlab has no attribute of that name. The stock mjlab
+``joint_torques_l2`` reads ``actuator_force`` (nu) and ignores a joint-only selection. Friction
+ranges used to come only from the solver profile. Each of those is a silent failure: the run
+converges, the objective is not the one written down.
+"""
+
+from __future__ import annotations
+
+import ast
+import pathlib
+import torch
+from types import SimpleNamespace
+
+import pytest
+
+from instinctlab.engines.isaacsim.terms import merge_friction_params as isaac_merge_friction
+from instinctlab.engines.mjlab.rewards import applied_torque_limits_by_ratio, joint_torques_l2, motors_power_square
+from instinctlab.engines.mjlab.terms import merge_friction_params as mjlab_merge_friction
+
+EVENTS = pathlib.Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/mjlab/events.py"
+
+
+def _function(path: pathlib.Path, name: str) -> ast.FunctionDef:
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"{path} has no function {name}")
+
+
+def _aug_ops(function: ast.FunctionDef) -> list[type]:
+    return [type(node.op) for node in ast.walk(function) if isinstance(node, ast.AugAssign)]
+
+
+"""
+Friction: honor what the engine can apply, refuse the rest.
+"""
+
+
+def test_isaac_friction_overlays_task_ranges_and_rejects_mjlab_keys() -> None:
+    profile = {
+        "static_friction_range": (0.25, 0.8),
+        "dynamic_friction_range": (0.2, 0.6),
+        "restitution_range": (0.0, 0.8),
+        "num_buckets": 64,
+    }
+    merged = isaac_merge_friction(
+        profile,
+        {"static_friction_range": (0.3, 1.6), "dynamic_friction_range": (0.3, 1.6), "restitution_range": (0.05, 0.5)},
+    )
+    assert merged["static_friction_range"] == (0.3, 1.6)
+    assert merged["dynamic_friction_range"] == (0.3, 1.6)
+    assert merged["restitution_range"] == (0.05, 0.5)
+    assert merged["num_buckets"] == 64
+    with pytest.raises(ValueError, match="does not honor \\['ranges'\\]"):
+        isaac_merge_friction(profile, {"ranges": (0.3, 1.6)})
+
+
+def test_mjlab_friction_maps_static_dynamic_to_their_union_and_rejects_restitution() -> None:
+    profile = {"ranges": (0.2, 0.8), "operation": "abs", "shared_random": True}
+    merged = mjlab_merge_friction(profile, {"static_friction_range": (0.3, 1.6), "dynamic_friction_range": (0.4, 1.2)})
+    assert merged["ranges"] == (0.3, 1.6)
+    assert merged["operation"] == "abs"
+    with pytest.raises(ValueError, match="cannot honor restitution_range"):
+        mjlab_merge_friction(profile, {"restitution_range": (0.05, 0.5)})
+    empty = mjlab_merge_friction(profile, {})
+    assert empty["ranges"] == (0.2, 0.8)
+
+
+"""
+Rewards that read joint-space actuator force.
+"""
+
+
+def test_mjlab_joint_torques_l2_slices_joint_ids_on_qfrc_actuator() -> None:
+    env = SimpleNamespace(
+        scene={"robot": SimpleNamespace(data=SimpleNamespace(qfrc_actuator=torch.tensor([[1.0, 2.0, 3.0]])))}
+    )
+    out = joint_torques_l2(env, asset_cfg=SimpleNamespace(name="robot", joint_ids=[0, 2]))
+    assert torch.equal(out, torch.tensor([10.0]))
+
+
+def test_mjlab_motors_power_square_uses_qfrc_times_joint_vel() -> None:
+    env = SimpleNamespace(
+        scene={
+            "robot": SimpleNamespace(
+                data=SimpleNamespace(
+                    qfrc_actuator=torch.tensor([[1.0, 2.0]]),
+                    joint_vel=torch.tensor([[3.0, 4.0]]),
+                )
+            )
+        }
+    )
+    out = motors_power_square(
+        env, asset_cfg=SimpleNamespace(name="robot", joint_ids=slice(None)), normalize_by_stiffness=False
+    )
+    assert torch.equal(out, torch.tensor([9.0 + 64.0]))
+
+
+def test_mjlab_applied_torque_limits_by_ratio_reads_joint_effort_limits_when_present() -> None:
+    env = SimpleNamespace(
+        scene={
+            "robot": SimpleNamespace(
+                data=SimpleNamespace(
+                    qfrc_actuator=torch.tensor([[10.0, 1.0]]),
+                    joint_effort_limits=torch.tensor([[10.0, 10.0]]),
+                )
+            )
+        }
+    )
+    out = applied_torque_limits_by_ratio(
+        env, asset_cfg=SimpleNamespace(name="robot", joint_ids=slice(None)), limit_ratio=0.8
+    )
+    assert torch.equal(out, torch.tensor([4.0]))
+
+
+"""
+Offset reset is addition, not a scale.
+"""
+
+
+def test_mjlab_offset_reset_adds_and_scale_reset_multiplies() -> None:
+    offset = _aug_ops(_function(EVENTS, "reset_joints_by_offset"))
+    scale = _aug_ops(_function(EVENTS, "reset_joints_by_scale"))
+    assert ast.Add in offset
+    assert ast.Mult not in offset
+    assert ast.Mult in scale
+    assert ast.Add not in scale
