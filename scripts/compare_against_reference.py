@@ -107,6 +107,10 @@ def main() -> None:
         rel = 0.0 if scale == 0 else abs(a - b) / scale
         rows.append((rel, tag, a, b))
 
+    by_tag = {tag: (a, b) for _, tag, a, b in rows}
+    length = by_tag.get("Train/mean_episode_length")
+    length_ratio = (length[0] / length[1]) if length and length[1] else None
+
     print("== headline ==")
     for tag in ("Train/mean_episode_length", "Train/mean_reward", "Train/mean_reward_0"):
         hit = [r for r in rows if r[1] == tag]
@@ -114,10 +118,20 @@ def main() -> None:
             ratio = a / b if b else float("nan")
             print(f"  {t:44s} ours={a:10.3f}  ref={b:10.3f}  ours/ref={ratio:6.3f}")
 
+    # ``Episode_Reward/*`` is an episode sum divided by the *max* episode length, so it carries the
+    # episode-length ratio inside it. Read raw, a run that dies 22% earlier shows ~0.78 on twenty
+    # unrelated terms and looks like twenty findings. The second column divides that out, leaving
+    # what each term does per unit of episode -- which is the thing a term-level drift would move.
+    if length_ratio:
+        print(f"\n  /len = ours/ref divided by the episode-length ratio ({length_ratio:.3f}).")
+
     print(f"\n== {args.top} largest relative divergences ==")
     for rel, tag, a, b in sorted(rows, reverse=True)[: args.top]:
         ratio = a / b if b else float("inf")
-        print(f"  {rel * 100:5.1f}%  {tag:44s} ours={a:10.4f}  ref={b:10.4f}  ours/ref={ratio:7.3f}")
+        per_len = ""
+        if length_ratio and tag.startswith("Episode_Reward/"):
+            per_len = f"  /len={ratio / length_ratio:6.3f}"
+        print(f"  {rel * 100:5.1f}%  {tag:44s} ours={a:10.4f}  ref={b:10.4f}  ours/ref={ratio:7.3f}{per_len}")
 
     close = [r for r in rows if r[0] < 0.05]
     print(f"\n{len(close)}/{len(rows)} shared scalars agree within 5%.")
