@@ -8,6 +8,7 @@ what the file states, with the shoe overrides applied to the effective tables.
 from __future__ import annotations
 
 import ast
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,11 @@ from typing import Any
 REFERENCE = Path("/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py")
 AGENT = Path("/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py")
 ASSET = Path("/root/InstinctMJ/src/instinct_mj/assets/unitree_g1.py")
+TRAIN = Path("/root/InstinctMJ/src/instinct_mj/scripts/instinct_rl/train.py")
+SHIPPED_MOTION_YAML = Path("/root/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run.yaml")
+SHIPPED_MOTION_NPZ = Path(
+    "/root/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run_retargetted.npz"
+)
 
 FACTORY = "instinct_g1_parkour_amp_env_cfg"
 SHOE_HEIGHT_OFFSET = 0.058
@@ -285,7 +291,44 @@ def motion_source() -> dict[str, Any]:
                 if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
                     if item.target.id == "filtered_motion_selection_filepath":
                         found["filter"] = ast.unparse(item.value) if item.value is not None else None
+                    if item.target.id == "motion_start_from_middle_range":
+                        found["motion_start_from_middle_range"] = _literal(item.value)
+        if isinstance(node, ast.Call) and ast.unparse(node.func).endswith("MotionReferenceManagerCfg"):
+            found.update(_kwargs(node))
     return found
+
+
+def motion_filter_files() -> tuple[str, ...]:
+    """Resolve InstinctMJ's yaml filter on disk when the shipped dataset is present."""
+    import yaml
+
+    source = motion_source()
+    filter_expr = source.get("filter") or ""
+    if "parkour_motion_without_run.yaml" not in filter_expr:
+        raise LookupError("parkour yaml filter path not found in reference config")
+    if SHIPPED_MOTION_YAML.is_file():
+        yaml_path = SHIPPED_MOTION_YAML
+    else:
+        yaml_path = Path(
+            os.path.expanduser("~/Xyk/Datasets/data&model/parkour_motion_reference/parkour_motion_without_run.yaml")
+        )
+    if not yaml_path.is_file():
+        raise FileNotFoundError(f"parkour motion yaml not found at {yaml_path}")
+    with yaml_path.open() as handle:
+        data = yaml.safe_load(handle)
+    files = tuple(data.get("selected_files") or ())
+    return files
+
+
+def train_script_calls_configure_torch_backends() -> bool:
+    """InstinctMJ's runner calls mjlab's torch backend helper before learning."""
+    if not TRAIN.is_file():
+        return False
+    tree = ast.parse(TRAIN.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and ast.unparse(node.func).endswith("configure_torch_backends"):
+            return True
+    return False
 
 
 def agent_fields() -> dict[str, Any]:

@@ -115,9 +115,23 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         ),
     ),
     "motion/source": (
-        "AMASS directory + parkour_motion_without_run.yaml",
-        "single npz parkour_motion_without_run_retargetted.npz",
-        "AMP discriminator trains on a different reference distribution.",
+        "AmassMotionCfg yaml filter → parkour_motion_without_run.yaml",
+        "MotionReferenceRef clip=…parkour_motion_without_run_retargetted.npz",
+        (
+            "Shipped yaml lists exactly one file, the same retargetted npz we load "
+            "(verified 2026-08-20: selected_files=['parkour_motion_without_run_retargetted.npz'], "
+            "18982 frames @ 50 Hz). Residual AMP drift is symmetric augmentation and loader path, "
+            "not a different clip inventory."
+        ),
+    ),
+    "amp/symmetric_augmentation": (
+        "MotionReferenceManagerCfg: link/joint mapping + 50% mirror on reset",
+        "engines/mjlab/motion_reference.py: no symmetric augmentation",
+        (
+            "InstinctMJ AmassMotion.reset draws Bernoulli(0.5) mirror masks and the manager "
+            "reflects amp_reference states. Cross-engine parkour loads the same npz but never "
+            "mirrors reference trajectories, so the discriminator's positive class is narrower."
+        ),
     ),
 }
 
@@ -358,6 +372,64 @@ def test_motion_source_is_the_documented_drift(task) -> None:
     assert "parkour_motion_without_run.yaml" in (source["filter"] or "")
 
 
+def test_shipped_motion_yaml_selects_the_same_npz(task) -> None:
+    """Quantify motion/source: the yaml filter is not a multi-clip AMASS walk on shipped data."""
+    files = mj_ref.motion_filter_files()
+    assert len(files) == 1
+    assert files[0].endswith("parkour_motion_without_run_retargetted.npz")
+    assert task.scene.motion_references[0].clip.endswith(files[0])
+    assert mj_ref.SHIPPED_MOTION_NPZ.is_file()
+
+
+def test_amp_symmetric_augmentation_is_instinctmj_only(task) -> None:
+    source = mj_ref.motion_source()
+    assert source["symmetric_augmentation_link_mapping"] == [0, 1, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12]
+    assert source["symmetric_augmentation_joint_mapping"] is not None
+    assert source["symmetric_augmentation_joint_reverse_buf"] is not None
+    # Cross-engine parkour uses the portable clip sensor, not MotionReferenceManager.
+    assert task.scene.motion_references[0].clip.endswith(".npz")
+
+
+def test_train_pipeline_tf32_differs_from_instinctmj_by_design() -> None:
+    """InstinctMJ calls configure_torch_backends(); our mjlab adapter intentionally does not."""
+    import argparse
+
+    assert mj_ref.train_script_calls_configure_torch_backends()
+    from instinctlab.engines.mjlab import adapter as mj_adapter
+
+    assert mj_adapter.MjlabAdapter.bootstrap(argparse.Namespace()) is None
+
+
+def test_ppo_runner_fields_match_instinctmj(our_agent) -> None:
+    reference = mj_ref.agent_fields()
+    shared_algo = (
+        "class_name",
+        "discriminator_reward_coef",
+        "discriminator_reward_type",
+        "discriminator_loss_func",
+        "discriminator_gradient_penalty_coef",
+        "discriminator_weight_decay_coef",
+        "discriminator_logit_weight_decay_coef",
+        "value_loss_coef",
+        "use_clipped_value_loss",
+        "clip_param",
+        "entropy_coef",
+        "num_learning_epochs",
+        "num_mini_batches",
+        "learning_rate",
+        "schedule",
+        "gamma",
+        "lam",
+        "desired_kl",
+        "max_grad_norm",
+    )
+    for key in shared_algo:
+        assert our_agent["algorithm"][key] == reference[f"AmpAlgoCfg.{key}"], key
+    assert our_agent["num_steps_per_env"] == reference["G1ParkourPPORunnerCfg.num_steps_per_env"]
+    assert our_agent.get("normalizers") in ({}, None)
+    assert reference["G1ParkourPPORunnerCfg.empirical_normalization"] is False
+
+
 def test_agent_normalizers_are_empty_like_both_references(our_agent) -> None:
     reference = mj_ref.agent_fields()
     assert reference["AmpAlgoCfg.class_name"] == "WasabiPPO"
@@ -397,7 +469,7 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 2
+    assert len(KNOWN_DRIFTS) == 3
     assert len(DELIBERATE) == 8
     assert len(REFERENCE_DIVERGENCE) == 3
     assert "agent/normalizers" not in KNOWN_DRIFTS
@@ -423,6 +495,7 @@ def test_documented_drifts_are_still_present(task, compiled) -> None:
     assert "found" in scanners["contact_forces"].fields
     assert mj_ref.sensor_cfgs()["contact_forces"]["cfg_class"] == "ForceThresholdContactSensorCfg"
     assert task.scene.motion_references[0].clip.endswith(".npz")
+    assert mj_ref.motion_source()["symmetric_augmentation_link_mapping"] is not None
 
 
 def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
@@ -479,4 +552,4 @@ def test_the_prose_counts_the_drift_table() -> None:
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {2}
+    assert counts == {len(KNOWN_DRIFTS)} == {3}
