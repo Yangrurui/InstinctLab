@@ -52,13 +52,21 @@ def load(run: Path) -> dict[str, list[tuple[int, float]]]:
     }
 
 
-def window_mean(series: list[tuple[int, float]], lo: int, hi: int) -> float | None:
-    vals = [v for s, v in series if lo <= s <= hi]
+def window_mean(series: list[tuple[int, float]], lo: int | None, hi: int | None, tail: int) -> float | None:
+    """Mean over an explicit step window, or over each series' own last ``tail`` points.
+
+    The per-series tail is the default because not every tag shares an x-axis: the
+    runner writes ``Train/time/*`` against wall-clock seconds and everything else
+    against iterations. A single global step window picked from the largest step
+    then lands past the end of every iteration-indexed series, and each one drops
+    out as "no data in window" -- leaving a comparison that reports agreement on
+    two timing scalars and says nothing at all about the rewards.
+    """
+    if lo is None and hi is None:
+        vals = [v for _, v in series[-tail:]]
+    else:
+        vals = [v for s, v in series if (lo is None or s >= lo) and (hi is None or s <= hi)]
     return sum(vals) / len(vals) if vals else None
-
-
-def last_step(data: dict[str, list[tuple[int, float]]]) -> int:
-    return max((s for series in data.values() for s, _ in series), default=0)
 
 
 def main() -> None:
@@ -68,14 +76,15 @@ def main() -> None:
     ap.add_argument("--lo", type=int, default=None)
     ap.add_argument("--hi", type=int, default=None)
     ap.add_argument("--top", type=int, default=25, help="How many largest divergences to list.")
+    ap.add_argument("--tail", type=int, default=20, help="Points averaged from the end of each series.")
     args = ap.parse_args()
 
     ours, ref = load(args.ours), load(args.reference)
-    hi = args.hi if args.hi is not None else min(last_step(ours), last_step(ref))
-    lo = args.lo if args.lo is not None else max(0, hi - 19)
+    lo, hi = args.lo, args.hi
     print(f"ours      = {args.ours}")
     print(f"reference = {args.reference}")
-    print(f"window    = iterations [{lo}, {hi}]\n")
+    window = f"iterations [{lo}, {hi}]" if (lo, hi) != (None, None) else f"last {args.tail} points of each series"
+    print(f"window    = {window}\n")
 
     only_ours = sorted(set(ours) - set(ref))
     only_ref = sorted(set(ref) - set(ours))
@@ -91,7 +100,7 @@ def main() -> None:
     for tag in sorted(set(ours) & set(ref)):
         if tag.startswith(NOISY_PREFIXES):
             continue
-        a, b = window_mean(ours[tag], lo, hi), window_mean(ref[tag], lo, hi)
+        a, b = window_mean(ours[tag], lo, hi, args.tail), window_mean(ref[tag], lo, hi, args.tail)
         if a is None or b is None:
             continue
         scale = max(abs(a), abs(b))

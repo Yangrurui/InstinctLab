@@ -39,21 +39,27 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "root_lin_vel_b (COM alias)",
         "root_link_lin_vel_b",
         (
-            "Primary task reward uses link velocity; main parkour reads COM. Error differs by ω×R(−com_pos_b) at gait"
-            " speeds — small but shapes the velocity kernel."
+            "Primary task reward uses link velocity; main parkour reads COM, and InstinctMJ reads link, so main is"
+            " the odd one of the three. Measured on one rollout scored both ways (scripts/probe_velocity_frame.py,"
+            " 256 envs x 400 steps): velocities differ by 0.067 m/s, reward by 0.2%. Mean tracking error is 0.41 m/s"
+            " in either frame and the exp kernel at std=0.5 cannot resolve the shift on top of it."
         ),
     ),
     "reward/dont_wait/velocity_frame": (
         "root_lin_vel_b (COM alias)",
         "root_link_lin_vel_b",
-        "Same COM→link shift as track_lin_vel; penalises standing still on forward commands.",
+        (
+            "Same COM→link shift as track_lin_vel, on the term that penalises standing still under a forward"
+            " command; same 0.067 m/s difference in the quantity it thresholds."
+        ),
     ),
     "command/metrics/velocity_frame": (
         "root_lin_vel_b in PoseVelocityCommand._update_metrics",
         "root_link_lin_vel_b in PoseVelocityMixin._update_metrics",
         (
-            "Curriculum reads tracking_exp_vel_* from command metrics; link frame advances terrain levels on a slightly"
-            " looser gate (~few % higher pass rate)."
+            "Curriculum reads tracking_exp_vel_* from command metrics, so the frame reaches terrain progression."
+            " The gate moves by the same 0.2% the reward does; our terrain_levels sits at 0.62x main, which is far"
+            " too large a gap for this to be the cause."
         ),
     ),
     "env/entry_class": (
