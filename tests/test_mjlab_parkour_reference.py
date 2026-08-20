@@ -120,10 +120,12 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "AmassMotionCfg yaml filter → parkour_motion_without_run.yaml",
         "MotionReferenceRef clip=…parkour_motion_without_run_retargetted.npz",
         (
-            "Shipped yaml lists exactly one file, the same retargetted npz we load "
-            "(verified 2026-08-20: selected_files=['parkour_motion_without_run_retargetted.npz'], "
-            "18982 frames @ 50 Hz). Residual AMP drift is symmetric augmentation and loader path, "
-            "not a different clip inventory."
+            "Spelling, not inventory: the shipped yaml resolves to exactly the one npz we load, "
+            "re-checked on every run by test_shipped_motion_yaml_selects_the_same_npz rather than "
+            "trusted from a dated note "
+            "(selected_files=['parkour_motion_without_run_retargetted.npz'], "
+            "18982 frames @ 50 Hz). Symmetric augmentation was listed here as a residual until it "
+            "was implemented on both engines; what remains is the loader path alone."
         ),
     ),
 }
@@ -350,14 +352,50 @@ def test_compiled_action_scale_matches_beyondmimic_formula(task, compiled) -> No
 
 
 def test_terrain_recipe_constants_match_instinctmj(compiled) -> None:
+    """Read from their file, not transcribed from it.
+
+    This asserted hand-copied literals until 2026-08-20, which meant a change on the InstinctMJ
+    side could not fail it: the test would keep agreeing with a number nobody had rechecked while
+    its name went on claiming a match.
+    """
+    theirs = mj_ref.terrain_recipe()
     gen = compiled.env_cfg.scene.terrain.terrain_generator
-    assert gen.horizontal_scale == 0.07
-    assert gen.num_cols == 20
-    assert gen.curriculum is True
-    assert gen.sub_terrains["pyramid_stairs"].step_width == 0.35
-    assert gen.sub_terrains["pyramid_stairs_high"].step_width == 1.54
-    assert gen.sub_terrains["perlin_rough"].border_width == 1.0
-    assert gen.sub_terrains["boxes"].border_width == 1.0
+
+    assert gen.horizontal_scale == theirs["horizontal_scale"] == 0.07
+    assert gen.num_cols == theirs["num_cols"] == 20
+    assert gen.num_rows == theirs["num_rows"] == 10
+    assert gen.curriculum is theirs["curriculum"] is True
+    assert tuple(gen.size) == tuple(theirs["size"])
+    assert gen.border_width == theirs["border_width"]
+    assert gen.vertical_scale == theirs["vertical_scale"]
+
+    # Every sub-terrain they declare must exist here, with the same proportion -- the column
+    # allocation is derived from those, so a silent change reshuffles which terrain a velocity
+    # box lands on.
+    assert set(gen.sub_terrains) == set(theirs["sub_terrains"])
+    for name, params in theirs["sub_terrains"].items():
+        ours = gen.sub_terrains[name]
+        assert ours.proportion == params["proportion"], name
+        for field in ("step_width", "border_width", "platform_width", "step_height_range"):
+            if field in params:
+                assert getattr(ours, field) == params[field], f"{name}.{field}"
+
+
+def test_the_terrain_reader_would_notice_a_change_on_their_side() -> None:
+    """The recipe comparison is only worth anything if the reader can disagree.
+
+    It reads their file at call time and caches; the fields the test compares must actually come
+    from there, so a reader that quietly returned an empty recipe would make every comparison
+    vacuously true.
+    """
+    theirs = mj_ref.terrain_recipe()
+    assert set(theirs) >= {"num_cols", "num_rows", "horizontal_scale", "curriculum", "sub_terrains"}
+    assert len(theirs["sub_terrains"]) == 10
+    assert all(isinstance(params, dict) and params for params in theirs["sub_terrains"].values())
+    assert sum(params["proportion"] for params in theirs["sub_terrains"].values()) == pytest.approx(1.0)
+
+    broken = dict(theirs, num_cols=999)
+    assert broken["num_cols"] != mj_ref.terrain_recipe()["num_cols"], "the cache must not be shared by reference"
 
 
 def test_motion_source_is_the_documented_drift(task) -> None:
@@ -533,15 +571,48 @@ def test_reference_divergence_pd_tracks_each_reference(task, compiled) -> None:
 
 
 def test_deliberate_rows_are_still_present(task, compiled) -> None:
+    """Each row is a *difference*, so both halves have to be asserted.
+
+    Pinning only our side lets a row go stale in silence: if InstinctMJ moved to ``nconmax=256``
+    tomorrow the entry would stop describing anything, and a test that reads
+    ``compiled.env_cfg.sim.nconmax == 256`` would go on passing. That is the same shape as the
+    reference-reader failures in SKILL.md -- an assertion written against ourselves while treating
+    the reference as a constant nobody rechecks.
+    """
+    theirs_sim = mj_ref.sim_overrides()
+    theirs_terrain = mj_ref.terrain_recipe()
+    theirs_sensors = mj_ref.sensor_cfgs()
+
     assert "dataset_exhausted" not in task.mdp.terminations
+    assert "dataset_exhausted" in mj_ref.termination_names()
+
     assert task.scene.volume_point("leg_volume_points").velocity == "attach_link"
-    assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == 20
+    # Their VolumePointsCfg has no frame selector at all -- the foot-subtree cvel is wired into the
+    # sensor, which is why this is a code drift rather than a config one.
+    assert "velocity" not in theirs_sensors["leg_volume_points"]
+
+    # They write 20 columns too; the drift is that their curriculum path builds one column per
+    # sub-terrain regardless, and ours honours the declaration.
+    assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == theirs_terrain["num_cols"] == 20
+
     assert compiled.env_cfg.sim.nconmax == 256
+    assert theirs_sim["nconmax"] == 128
     assert compiled.env_cfg.sim.njmax == 768
+    assert theirs_sim["njmax"] == 700
+    assert compiled.env_cfg.sim.mujoco.ccd_iterations == 500
+    assert theirs_sim["ccd_iterations"] == 128
+
     scanners = {s.name: s for s in compiled.env_cfg.scene.sensors}
     assert scanners["left_height_scanner"].origin_offset == (0.04, 0.0, 20.0)
     assert scanners["left_height_scanner"].max_distance == pytest.approx(1e6)
-    assert compiled.env_cfg.sim.mujoco.ccd_iterations == 500
+    assert "origin_offset" not in theirs_sensors["left_height_scanner"]
+    assert theirs_sensors["left_height_scanner"]["max_distance"] == 10.0
+
+    # viz: theirs draws collision debug geometry on the terrain, ours omits it. Their *sensor*
+    # debug_vis is off in training and only turned on in the play branch, so the row is about
+    # the terrain importer, not the sensors.
+    assert mj_ref.terrain_importer()["collision_debug_vis"] is True
+    assert all(cfg.get("debug_vis") in (False, None) for cfg in theirs_sensors.values())
 
 
 def test_every_extractor_has_a_caller() -> None:

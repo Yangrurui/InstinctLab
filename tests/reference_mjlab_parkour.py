@@ -320,6 +320,52 @@ def motion_filter_files() -> tuple[str, ...]:
     return files
 
 
+TERRAIN = Path("/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/parkour_env_cfg.py")
+TERRAIN_SYMBOL = "ROUGH_TERRAINS_CFG"
+
+
+@lru_cache(maxsize=1)
+def terrain_recipe() -> dict[str, Any]:
+    """InstinctMJ's ``ROUGH_TERRAINS_CFG``: grid constants plus per-sub-terrain kwargs.
+
+    Read rather than transcribed. The test this feeds is named "matches InstinctMJ" and used to
+    assert hand-copied literals, so it would have stayed green through any change on their side --
+    the failure mode is a docstring that claims a parity nobody is checking.
+
+    The play variant is deliberately not followed: ``ROUGH_TERRAINS_CFG_PLAY`` mutates ``num_rows``
+    and ``num_cols`` after the copy, and training uses the un-mutated one.
+    """
+    module = ast.parse(TERRAIN.read_text())
+    for node in module.body:
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == TERRAIN_SYMBOL for t in node.targets):
+            continue
+        recipe = _kwargs(node.value)
+        subs: dict[str, dict[str, Any]] = {}
+        for keyword in node.value.keywords:
+            if keyword.arg != "sub_terrains" or not isinstance(keyword.value, ast.Dict):
+                continue
+            for key, value in zip(keyword.value.keys, keyword.value.values, strict=True):
+                if isinstance(key, ast.Constant) and isinstance(value, ast.Call):
+                    subs[key.value] = _kwargs(value)
+        recipe["sub_terrains"] = subs
+        return recipe
+    raise LookupError(f"{TERRAIN.name} has no {TERRAIN_SYMBOL!r} assignment")
+
+
+def terrain_importer() -> dict[str, Any]:
+    """The ``cfg.scene.terrain = InstinctTerrainImporterCfg(...)`` the factory installs."""
+    for statement in _factory().body:
+        if (
+            isinstance(statement, ast.Assign)
+            and ast.unparse(statement.targets[0]) == "cfg.scene.terrain"
+            and isinstance(statement.value, ast.Call)
+        ):
+            return _kwargs(statement.value)
+    raise LookupError(f"{FACTORY} does not assign cfg.scene.terrain")
+
+
 def train_script_calls_configure_torch_backends() -> bool:
     """InstinctMJ's runner calls mjlab's torch backend helper before learning."""
     if not TRAIN.is_file():

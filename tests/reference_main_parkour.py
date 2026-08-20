@@ -327,6 +327,77 @@ def isaac_observation_term_flatten_history_default() -> bool:
     return "flatten_history_dim: bool = True" in text
 
 
+MAIN_PARKOUR_REWARDS = "source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py"
+MAIN_POSE_VELOCITY = "source/instinctlab/instinctlab/tasks/parkour/mdp/commands/pose_velocity_command.py"
+ISAAC_MDP_REWARDS = Path("/root/IsaacLab/source/isaaclab/isaaclab/envs/mdp/rewards.py")
+
+_ROOT_VELOCITY_SPELLINGS = ("root_lin_vel_b", "root_link_lin_vel_b", "root_com_lin_vel_b")
+
+
+def _velocity_spelling_in(source: str, qualname: str) -> str:
+    """Which root linear-velocity attribute the named function or method reads.
+
+    Ambiguity raises rather than picking one. A term that reads two spellings, or none, is not a
+    fact this table can record, and returning a default would put a wrong value into a drift row
+    that nobody would ever see fail.
+    """
+    *owner, name = qualname.split(".")
+    tree = ast.parse(source)
+    scope: ast.AST = tree
+    if owner:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == owner[0]:
+                scope = node
+                break
+        else:
+            raise LookupError(f"no class {owner[0]!r} in the reference source")
+    for node in ast.walk(scope):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            body = ast.unparse(node)
+            hits = {spelling for spelling in _ROOT_VELOCITY_SPELLINGS if f".{spelling}" in body}
+            if len(hits) != 1:
+                raise LookupError(f"{qualname} reads {sorted(hits) or 'no'} root velocity spelling")
+            return hits.pop()
+    raise LookupError(f"no function {qualname!r} in the reference source")
+
+
+def velocity_frame_spellings() -> dict[str, str]:
+    """The root-velocity attribute each of main's velocity-frame call sites reads.
+
+    ``track_lin_vel_xy_exp`` resolves into Isaac Lab rather than main, because main takes it from
+    ``isaaclab.envs.mdp``; the other two are main's own files. All three are read, not transcribed,
+    so the KNOWN_DRIFTS rows fail if main's frame ever changes.
+    """
+    return {
+        "track_lin_vel_xy_exp": _velocity_spelling_in(ISAAC_MDP_REWARDS.read_text(), "track_lin_vel_xy_exp"),
+        "dont_wait": _velocity_spelling_in(_git_show(MAIN_PARKOUR_REWARDS), "dont_wait"),
+        "command_metrics": _velocity_spelling_in(_git_show(MAIN_POSE_VELOCITY), "_update_metrics"),
+    }
+
+
+MAIN_VOLUME_POINTS = "source/instinctlab/instinctlab/sensors/volume_points/volume_points.py"
+
+
+def volume_points_point_velocity() -> dict[str, bool]:
+    """How main builds a volume point's velocity, read off ``_refresh_volume_points``.
+
+    It takes the body velocity from PhysX ``get_velocities()`` -- a centre-of-mass quantity -- and
+    then adds ``ω × (p − pos_w)``, where ``pos_w`` is the *link origin* from ``get_transforms()``.
+    Mixing the two leaves every point off by ``ω × (origin − com)``. Recorded as two separate
+    facts so the drift row fails if either half moves, rather than on a single substring that
+    could match for the wrong reason.
+    """
+    tree = ast.parse(_git_show(MAIN_VOLUME_POINTS))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_refresh_volume_points":
+            body = ast.unparse(node)
+            return {
+                "velocity_from_physx_com": "get_velocities()" in body,
+                "lever_from_link_origin": "points_pos_w - self._data.pos_w" in body.replace("\n", " "),
+            }
+    raise LookupError("main's volume points sensor has no _refresh_volume_points")
+
+
 def wrapper_sets_missing_step_dict() -> bool:
     """Whether the working-tree wrapper fills infos['step'] when Isaac never wrote it."""
     return 'setdefault("step", {})' in Path(REPO, MAIN_WRAPPER).read_text()

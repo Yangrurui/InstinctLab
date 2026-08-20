@@ -344,7 +344,27 @@ def test_documented_drifts_are_still_present(task) -> None:
     assert rewards["track_lin_vel_xy_exp"].func.__name__ == "track_lin_vel_xy_exp"
     assert rewards["dont_wait"].func.__name__ == "dont_wait"
     assert rewards["undesired_contacts"].kind == "undesired_contacts"
+
+    # velocity_frame x3 -- both sides. Matching function *names* said nothing about the frame,
+    # which is the only thing these three rows are about: they would have stayed green through
+    # any change to either side's spelling.
+    theirs = main_ref.velocity_frame_spellings()
+    assert set(theirs.values()) == {"root_lin_vel_b"}, theirs
+    for func in (rewards["track_lin_vel_xy_exp"].func, rewards["dont_wait"].func):
+        body = inspect.getsource(func)
+        assert "root_link_lin_vel_b" in body and ".root_lin_vel_b" not in body, func.__name__
+    from instinctlab.engines.pose_velocity import PoseVelocityMixin
+
+    metrics = inspect.getsource(PoseVelocityMixin._update_metrics)
+    assert "root_link_lin_vel_b" in metrics and ".root_lin_vel_b" not in metrics
     assert task.scene.volume_point("leg_volume_points").velocity == "attach_link"
+    # Their half of that row: PhysX COM velocity with the lever measured from the link origin,
+    # so every point carries a constant ω × (origin − com) error. Same family as InstinctMJ's
+    # pelvis-to-ankle lever, different arm.
+    assert main_ref.volume_points_point_velocity() == {
+        "velocity_from_physx_com": True,
+        "lever_from_link_origin": True,
+    }
     assert "dataset_exhausted" not in task.mdp.terminations
     assert tuple(task.robot.joint_names) == G1_29DOF_DFS_JOINT_NAMES
     assert G1_29DOF_DFS_JOINT_NAMES != G1_29DOF_ISAAC_BFS_JOINT_NAMES
@@ -362,6 +382,26 @@ def test_documented_drifts_are_still_present(task) -> None:
     # green if main grew one too, which is precisely how this row got written backwards.
     assert task.robot.actuator_delay == (0, 2)
     assert main_ref.effective_robot_actuators()["delayed"] is False
+
+
+def test_the_velocity_frame_reader_refuses_what_it_cannot_resolve() -> None:
+    """A reader that guesses is worse than no reader: it puts a wrong value into a drift row.
+
+    Two failure modes are made loud rather than defaulted -- a function that reads no root
+    velocity at all, and one that reads two spellings, which is what a half-finished migration
+    from COM to link looks like.
+    """
+    resolve = main_ref._velocity_spelling_in
+
+    assert resolve("def f(a):\n    return a.data.root_link_lin_vel_b[:, 0]\n", "f") == "root_link_lin_vel_b"
+    assert resolve("class C:\n    def m(self):\n        return self.r.data.root_lin_vel_b\n", "C.m") == "root_lin_vel_b"
+
+    with pytest.raises(LookupError, match="no root velocity"):
+        resolve("def f(a):\n    return a.data.joint_pos\n", "f")
+    with pytest.raises(LookupError, match="root_lin_vel_b"):
+        resolve("def f(a):\n    return a.data.root_lin_vel_b + a.data.root_link_lin_vel_b\n", "f")
+    with pytest.raises(LookupError, match="no function"):
+        resolve("def g(a):\n    return a.data.root_lin_vel_b\n", "f")
 
 
 def test_main_leaves_policy_and_action_joints_in_entity_order(task) -> None:
