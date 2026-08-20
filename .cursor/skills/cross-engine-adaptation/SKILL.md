@@ -107,6 +107,22 @@ python scripts/probe_terms.py                     # 两引擎逐 term 比值（�
 - **「这仍是一处漂移」的行必须两侧都验。** 只验「两侧不相等」等于没验——两个都写错也能不相等。
 - **变异要往「已对齐」的方向改，不只往「改坏」的方向。** 常规变异检验是把实现改坏看会不会红；漂移行要反过来：把我们这侧改成和参照一致，那一行**必须**变红。不变红说明它根本没在测这件事。上面三条里有两条能被这一步当场抓出来。
 
+### 「出现过」不等于「生效」
+
+前三例只让测试变绿。第四例改变了我们实际跑的物理，值得单独记。
+
+main 的 parkour 里写着 `self.scene.robot.actuators = beyondmimic_g1_29dof_delayed_actuators`。审计据此给我们的 Isaac 任务配了 0–2 步驱动器延迟。但注册的类是 `G1ParkourEnvCfg`，它在 `super().__post_init__()` 之后调 `apply_shoe_config()`，那句是 `self.scene.robot = G1_with_shoe_CFG.replace(...)`——**整体替换**，而 `G1_with_shoe_CFG` 是模块导入时就深拷贝好的、带目录默认 ImplicitPD 的副本。那行赋值对注册任务是死代码。读取器当时问的是「这个名字在文件里出现过吗」，出现过，于是答 True。
+
+代价是实测的：我们的 `dof_acc_l2` 一直是 main 的 1.71 倍，去掉延迟后回到 0.98。训练照常收敛，没有任何报错。
+
+对照组说明这不是「上游都这样」——InstinctMJ 的带鞋分支写的是 `copy.deepcopy(cfg.scene.entities["robot"])`，深拷贝的是**已经改过**的对象，再只替换 `spec_fn`，所以它的延迟活着。同一个意图，两个仓库，一个生效一个丢失。
+
+几条：
+
+- **读配置的顺序，不是读配置里出现过什么。** 凡是「先设字段、后整体替换对象」的写法，都要按执行顺序解析：展开 `super().__post_init__()` 和 mixin 调用，记录每次对目标的整体赋值与字段赋值，后者只有发生在最后一次整体赋值之后才算数。展不开的调用要抛，不能跳过——静默跳过的那个调用正是覆盖发生的地方。
+- **静态解析要和运行产物互证。** Isaac Lab 会把最终 env cfg dump 到 `logs/**/params/env.yaml`。跑一次参照、读那份 dump，是判定「实际生效了什么」最省事也最不容易自欺的办法；静态读取器写完之后拿它对一次。
+- **「四处 override」这类计数写进测试名字，会把错误的那一项一起焊死。** 名字叫 `..._matches_main_on_the_four_task_overrides` 的测试，在其中一项根本不是 override 的时候依然全绿。
+
 ## 三条最容易犯的元错误
 
 1. **能提取但没人断言的信息等同于没比。** `tests/reference_mjlab.py` 曾提供事件 `params`、`reward_functions()`、`scene_sensors()` 而无任何调用者——读代码的人会以为比过了。新增提取器必须同时新增断言。
