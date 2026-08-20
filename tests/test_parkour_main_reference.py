@@ -40,9 +40,12 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "root_link_lin_vel_b",
         (
             "Primary task reward uses link velocity; main parkour reads COM, and InstinctMJ reads link, so main is"
-            " the odd one of the three. Measured on one rollout scored both ways (scripts/probe_velocity_frame.py,"
-            " 256 envs x 400 steps): velocities differ by 0.067 m/s, reward by 0.2%. Mean tracking error is 0.41 m/s"
-            " in either frame and the exp kernel at std=0.5 cannot resolve the shift on top of it."
+            " the odd one of the three. SUSPECTED CAUSE of the residual reward gap, not ruled out."
+            " scripts/probe_velocity_frame.py scored one rollout both ways (256 envs x 400 steps) and found the"
+            " velocities differ by 0.067 m/s and the reward by 0.2% -- but that answers 'rescore a fixed policy',"
+            " not 'train under this frame', and only the second question is the one the gap asks. Attributing the"
+            " Isaac-vs-main return term by term puts 30% of the gap here with the delayed actuators and 60% without"
+            " them, i.e. it is the part that survives every actuator config we have run."
         ),
     ),
     "reward/dont_wait/velocity_frame": (
@@ -50,7 +53,9 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "root_link_lin_vel_b",
         (
             "Same COM→link shift as track_lin_vel, on the term that penalises standing still under a forward"
-            " command; same 0.067 m/s difference in the quantity it thresholds."
+            " command; same 0.067 m/s difference in the quantity it thresholds. Carries a further 14-23% of the"
+            " Isaac-vs-main gap -- these two velocity-frame terms are together the whole actuator-independent"
+            " residual, which is why the cluster is suspected rather than closed."
         ),
     ),
     "command/metrics/velocity_frame": (
@@ -58,8 +63,10 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "root_link_lin_vel_b in PoseVelocityMixin._update_metrics",
         (
             "Curriculum reads tracking_exp_vel_* from command metrics, so the frame reaches terrain progression."
-            " The gate moves by the same 0.2% the reward does; our terrain_levels sits at 0.62x main, which is far"
-            " too large a gap for this to be the cause."
+            " Unmeasured at this scale: terrain_levels reads 0.042 for us against 0.068 on main, but those are"
+            " mean levels on a ten-level ladder, so both runs are still sitting on level 0 and the 0.62x ratio is"
+            " two near-zero numbers dividing. The curriculum term and its thresholds are identical on both sides"
+            " (tracking_exp_vel, (0.3, 0.6), (0.0, 0.0)); only the frame feeding its gate differs."
         ),
     ),
     "env/entry_class": (

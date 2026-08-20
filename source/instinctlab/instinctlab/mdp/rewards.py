@@ -229,8 +229,15 @@ def track_lin_vel_xy_exp(env: RlEnv, command_name: str, std: float, asset_cfg: A
     quality cancels. The two velocities differ by 0.067 m/s on average (the lever is 0.185 m, not
     the 0.076 m of the bare pelvis — ``merge_fixed_joints`` folds the torso into the root body) and
     the reward moves 0.2%. Mean tracking error is 0.41 m/s in both frames, and the exp kernel at
-    ``std=0.5`` does not resolve a shift that small on top of it. Whatever explains our remaining
-    gap against main, it is not this.
+    ``std=0.5`` does not resolve a shift that small on top of it.
+
+    That 0.2% does **not** clear the frame of the gap against main, and reading it that way was a
+    mistake worth naming: rescoring a fixed rollout answers "how much does this number move", while
+    the gap asks "how much worse does a policy trained under this signal track", and a bias small
+    at a point can still steer what gets learned. Attributing the return term by term, this reward
+    carries 30% of the Isaac-vs-main gap with delayed actuators and 60% without, and ``dont_wait``
+    — the other term on this frame — carries 14-23%. Together they are the entire residual once the
+    deliberate actuator delay is accounted for. Deciding it needs a training A/B on the frame.
     """
     asset = env.scene[_name(asset_cfg)]
     error = torch.sum(
