@@ -40,12 +40,12 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "root_link_lin_vel_b",
         (
             "Primary task reward uses link velocity; main parkour reads COM, and InstinctMJ reads link, so main is"
-            " the odd one of the three. SUSPECTED CAUSE of the residual reward gap, not ruled out."
-            " scripts/probe_velocity_frame.py scored one rollout both ways (256 envs x 400 steps) and found the"
-            " velocities differ by 0.067 m/s and the reward by 0.2% -- but that answers 'rescore a fixed policy',"
-            " not 'train under this frame', and only the second question is the one the gap asks. Attributing the"
-            " Isaac-vs-main return term by term puts 30% of the gap here with the delayed actuators and 60% without"
-            " them, i.e. it is the part that survives every actuator config we have run."
+            " the odd one of the three. RULED OUT AS THE GAP'S CAUSE, by training rather than by probe: flipping"
+            " the whole frame cluster to main's COM spelling (both rewards, the command metrics, and the obs) and"
+            " retraining at 256/seed42/700 left 85% of this term's shortfall in place (-0.0345 -> -0.0292) and"
+            " moved measured tracking error 0.2682 -> 0.2634 against main's 0.2435. Return went 0.847 -> 0.905,"
+            " inside the 12% seed noise floor, so even that is not a claim. We track worse than main for some"
+            " other reason; the frame is a real difference that costs little."
         ),
     ),
     "reward/dont_wait/velocity_frame": (
@@ -53,9 +53,9 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
         "root_link_lin_vel_b",
         (
             "Same COM→link shift as track_lin_vel, on the term that penalises standing still under a forward"
-            " command; same 0.067 m/s difference in the quantity it thresholds. Carries a further 14-23% of the"
-            " Isaac-vs-main gap -- these two velocity-frame terms are together the whole actuator-independent"
-            " residual, which is why the cluster is suspected rather than closed."
+            " command; same 0.067 m/s difference in the quantity it thresholds. Carried 14-23% of the Isaac-vs-main"
+            " gap, and the same training A/B closed only a third of it (-0.0161 -> -0.0112). Ruled out with"
+            " track_lin_vel above."
         ),
     ),
     "command/metrics/velocity_frame": (

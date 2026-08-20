@@ -231,13 +231,19 @@ def track_lin_vel_xy_exp(env: RlEnv, command_name: str, std: float, asset_cfg: A
     the reward moves 0.2%. Mean tracking error is 0.41 m/s in both frames, and the exp kernel at
     ``std=0.5`` does not resolve a shift that small on top of it.
 
-    That 0.2% does **not** clear the frame of the gap against main, and reading it that way was a
-    mistake worth naming: rescoring a fixed rollout answers "how much does this number move", while
-    the gap asks "how much worse does a policy trained under this signal track", and a bias small
-    at a point can still steer what gets learned. Attributing the return term by term, this reward
-    carries 30% of the Isaac-vs-main gap with delayed actuators and 60% without, and ``dont_wait``
-    — the other term on this frame — carries 14-23%. Together they are the entire residual once the
-    deliberate actuator delay is accounted for. Deciding it needs a training A/B on the frame.
+    That 0.2% did **not** by itself clear the frame of the gap against main, and reading it that way
+    was a mistake worth naming: rescoring a fixed rollout answers "how much does this number move",
+    while the gap asks "how much worse does a policy trained under this signal track", and a bias
+    small at a point can still steer what gets learned. Attributing the return term by term, this
+    reward carries 30% of the Isaac-vs-main gap with delayed actuators and 60% without, and
+    ``dont_wait`` — the other term on this frame — carries 14-23%.
+
+    So it was settled the only way it could be, by training: the whole cluster (both rewards, the
+    command metrics, the observation) was flipped to main's COM spelling and retrained at
+    256/seed42/700. It does not explain the gap. 85% of this term's shortfall survived the flip
+    (-0.0345 -> -0.0292) and measured tracking error moved 0.2682 -> 0.2634 against main's 0.2435.
+    Return went 0.847 -> 0.905, which is inside the 12% seed noise floor and so is not a claim
+    either. We track worse than main for a reason that is not this.
     """
     asset = env.scene[_name(asset_cfg)]
     error = torch.sum(
