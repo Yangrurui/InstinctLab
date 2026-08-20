@@ -55,14 +55,6 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
             " looser gate (~few % higher pass rate)."
         ),
     ),
-    "reward/undesired_contacts/threshold": (
-        "threshold=1.0 N on net_forces_w",
-        "in_contact() duration export, no Newton cutoff",
-        (
-            "Light touches now count; penalty fires more often on skirt contacts — roughly 5–15% higher mean on rough"
-            " tiles early training."
-        ),
-    ),
     "sim/physx/gpu_collision_stack_size": (
         str(main_ref.sim_params()["gpu_collision_stack_size"]),
         "Isaac Lab default (unset in adapter)",
@@ -243,8 +235,9 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 
 
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
-    assert len(KNOWN_DRIFTS) >= 7
+    assert len(KNOWN_DRIFTS) >= 6
     assert "dataset_exhausted" in DELIBERATE_OMISSIONS
+    assert "reward/undesired_contacts/threshold" not in KNOWN_DRIFTS
     assert "scene/robot/urdf" not in KNOWN_DRIFTS
     assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
     assert "scene/robot/merge_fixed_joints" not in KNOWN_DRIFTS
@@ -256,7 +249,7 @@ def test_documented_drifts_are_still_present(task) -> None:
     rewards = task.mdp.rewards["rewards"]
     assert rewards["track_lin_vel_xy_exp"].func.__name__ == "track_lin_vel_xy_exp"
     assert rewards["dont_wait"].func.__name__ == "dont_wait"
-    assert "threshold" not in rewards["undesired_contacts"].params
+    assert rewards["undesired_contacts"].kind == "undesired_contacts"
     assert task.scene.volume_point("leg_volume_points").velocity == "attach_link"
     assert "dataset_exhausted" not in task.mdp.terminations
 

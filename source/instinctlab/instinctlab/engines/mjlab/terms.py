@@ -127,6 +127,26 @@ def _term_params(spec, ctx):
     return params
 
 
+@TERMS.termination("illegal_contact")
+def _illegal_contact(spec, ctx):
+    """Terminate on ‖force‖ (full 3-D, friction included) above 1 N. Matches InstinctMJ."""
+    from .rewards import CONTACT_FORCE_THRESHOLD_N, illegal_contact
+
+    params = dict(ctx.params(spec))
+    params.setdefault("threshold", CONTACT_FORCE_THRESHOLD_N)
+    return _cfgs()["done"](func=illegal_contact, time_out=spec.time_out, params=params)
+
+
+@TERMS.reward("undesired_contacts")
+def _undesired_contacts(spec, ctx):
+    """Count bodies whose ‖force‖ (full 3-D, friction included) exceeds 1 N."""
+    from .rewards import CONTACT_FORCE_THRESHOLD_N, undesired_contacts
+
+    params = dict(ctx.params(spec))
+    params.setdefault("threshold", CONTACT_FORCE_THRESHOLD_N)
+    return _cfgs()["reward"](func=undesired_contacts, weight=spec.weight, params=params)
+
+
 @TERMS.reward("contact_slide")
 def _contact_slide(spec, ctx):
     """InstinctMJ's slide penalty, kept rather than replaced. See the task's note on why.

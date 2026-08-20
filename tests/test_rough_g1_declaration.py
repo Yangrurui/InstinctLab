@@ -176,7 +176,7 @@ def test_mjlab_compiles_instinctmj_parkour_rough(task) -> None:
     assert terrain.max_init_terrain_level == 5
     assert "terrain_levels" in compiled.env_cfg.curriculum
     assert compiled.env_cfg.sim.nconmax == 256
-    assert compiled.env_cfg.sim.njmax == 700
+    assert compiled.env_cfg.sim.njmax == 768
     assert compiled.env_cfg.sim.contact_sensor_maxmatch == 128
     assert _snapshot(terrain.terrain_generator) == _snapshot(rough_generator_cfg())
     assert "dense_boxes" in terrain.terrain_generator.sub_terrains

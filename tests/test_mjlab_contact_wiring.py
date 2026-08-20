@@ -9,7 +9,8 @@ training curve only if you have another curve to hold it against.
 
 The static test states the requirement; the live one is the one that would have caught it, because
 it asks the engine rather than the config. Both are here because the static test is cheap enough to
-run everywhere and the live test is not.
+run everywhere and the live test is not. The live test is marked ``mjlab`` so the default suite
+does not start an engine; run it with ``pytest -o addopts= -m mjlab``.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ def test_the_sensor_requests_the_field_its_timers_are_built_from() -> None:
     assert cfg.track_air_time is True
 
 
+@pytest.mark.mjlab
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="stepping mjlab needs a GPU")
 def test_standing_on_the_ground_registers_as_contact() -> None:
     """The signal every contact term reads, taken from a built environment rather than a config.

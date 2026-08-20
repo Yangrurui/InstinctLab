@@ -116,14 +116,17 @@ def test_mjlab_actuators_hold_the_hub_episode_delay(spec, mjlab_robot) -> None:
     assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in mjlab_robot.articulation.actuators)
 
 
-def test_undesired_contacts_uses_the_same_portable_term_on_mjlab(spec) -> None:
+def test_undesired_contacts_is_the_per_engine_force_threshold_term_on_mjlab(spec) -> None:
     pytest.importorskip("mjlab")
     from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab.engines.mjlab.rewards import CONTACT_FORCE_THRESHOLD_N, undesired_contacts
 
     compiled = MjlabAdapter().compile(spec, num_envs=1, device="cpu")
     term = compiled.env_cfg.rewards["undesired_contacts"]
-    assert term.func.__name__ == "undesired_contacts"
-    assert "threshold" not in term.params
+    assert term.func is undesired_contacts
+    assert term.params["threshold"] == CONTACT_FORCE_THRESHOLD_N == 1.0
+    done = compiled.env_cfg.terminations["base_contact"]
+    assert done.params["threshold"] == 1.0
 
 
 def _urdf_ankle_collision_z(path: Path) -> list[float]:
@@ -248,6 +251,80 @@ def test_every_parkour_body_name_survives_merge_or_is_a_vanished_frame(spec) -> 
     assert DEPTH_CAMERA.attach == "torso_link"
     assert surviving["torso_link"] == "torso_link"
     assert surviving["left_wrist_yaw_link"] == "left_wrist_yaw_link"
+
+
+def test_isaac_ankle_visuals_exist_for_the_camera_hit_suffix() -> None:
+    """Isaac camera hits ``{link}/visuals``. An ankle with collision only is an invisible foot."""
+    shoe_urdf = REPO / "source/instinctlab/instinctlab/tasks/parkour/urdf" / SHOE_URDF
+    visuals: dict[str, int] = {}
+    for link in ET.parse(shoe_urdf).getroot().iter("link"):
+        name = link.get("name") or ""
+        if name in {"left_ankle_roll_link", "right_ankle_roll_link"}:
+            visuals[name] = len(link.findall("visual"))
+    assert set(visuals) == {"left_ankle_roll_link", "right_ankle_roll_link"}
+    assert all(count >= 1 for count in visuals.values()), visuals
+    assert "left_ankle_roll_link" in G1_29DOF_LINKS
+    assert "right_ankle_roll_link" in G1_29DOF_LINKS
+
+
+def test_shoe_geometry_hangs_off_a_camera_hit_body() -> None:
+    """Shoe capsules live on ankle_roll_link. Off-list they would be invisible, not an error."""
+    from instinctlab.tasks.parkour.config.g1.target_env_cfg import DEPTH_CAMERA
+
+    hit = set(DEPTH_CAMERA.hit_bodies())
+    assert "left_ankle_roll_link" in hit
+    assert "right_ankle_roll_link" in hit
+    shoe_xml = REPO / "source/instinctlab/instinctlab/tasks/parkour/mjcf" / SHOE_MJCF
+    shoe_urdf = REPO / "source/instinctlab/instinctlab/tasks/parkour/urdf" / SHOE_URDF
+    parents: set[str] = set()
+    for body in ET.parse(shoe_xml).getroot().iter("body"):
+        name = body.get("name") or ""
+        for geom in body.findall("geom"):
+            geom_name = geom.get("name") or ""
+            if "foot" in geom_name and "collision" in geom_name:
+                parents.add(name)
+    assert parents == {"left_ankle_roll_link", "right_ankle_roll_link"}
+    urdf_parents: set[str] = set()
+    for link in ET.parse(shoe_urdf).getroot().iter("link"):
+        name = link.get("name") or ""
+        if link.findall("collision") and "ankle_roll" in name:
+            urdf_parents.add(name)
+    assert urdf_parents <= hit
+    assert urdf_parents == {"left_ankle_roll_link", "right_ankle_roll_link"}
+
+
+def test_mjlab_camera_mask_keeps_ankle_geoms_from_the_hit_list() -> None:
+    """Named-body mask must include the ankle. A missing mesh must not drop the foot."""
+    mujoco = pytest.importorskip("mujoco")
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
+    from instinctlab.engines.mjlab.camera import _camera_geom_mask
+
+    shoe_xml = REPO / "source/instinctlab/instinctlab/tasks/parkour/mjcf" / SHOE_MJCF
+    try:
+        model = mujoco.MjModel.from_xml_path(str(shoe_xml))
+    except (ValueError, OSError) as exc:
+        pytest.skip(f"shoe MJCF did not load ({exc}); mesh-free fallback is an adapter concern")
+    mask = _camera_geom_mask(model, bodies=tuple(G1_29DOF_LINKS), include_terrain=False, device="cpu")
+    kept = 0
+    for geom_id in range(int(model.ngeom)):
+        if not bool(mask[geom_id]):
+            continue
+        body_id = int(model.geom_bodyid[geom_id])
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
+        if name.rsplit("/", 1)[-1] in {"left_ankle_roll_link", "right_ankle_roll_link"}:
+            kept += 1
+    assert kept >= 2, f"camera mask kept {kept} ankle geoms; the feet would be invisible"
+    mesh_kept = {"left_ankle_roll_link": 0, "right_ankle_roll_link": 0}
+    for geom_id in range(int(model.ngeom)):
+        if not bool(mask[geom_id]):
+            continue
+        body_id = int(model.geom_bodyid[geom_id])
+        name = (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id) or "").rsplit("/", 1)[-1]
+        if name in mesh_kept and int(model.geom_type[geom_id]) == int(mujoco.mjtGeom.mjGEOM_MESH):
+            mesh_kept[name] += 1
+    assert all(
+        count >= 1 for count in mesh_kept.values()
+    ), f"camera kept no ankle mesh {mesh_kept}; shoe capsules are not the hit surface"
 
 
 def test_camera_hit_list_does_not_name_a_merged_away_link() -> None:

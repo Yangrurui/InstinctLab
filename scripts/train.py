@@ -62,6 +62,26 @@ def _parse() -> tuple[argparse.Namespace, list[str]]:
         default=False,
         help="Fail instead of skipping when the engine cannot express an optional term.",
     )
+    parser.add_argument(
+        "--log_terrain_split",
+        action="store_true",
+        default=False,
+        help=(
+            "Log episode length/reward per sub-terrain name. Measured at ~2.7 ms/step "
+            "(~9% of a wrapped step at 16 envs); the bookkeeping is Python over the "
+            "named types, not the overflow poll. Off by default. Overflow refusal "
+            "is separate and stays on."
+        ),
+    )
+    parser.add_argument(
+        "--allow_contact_overflow",
+        action="store_true",
+        default=False,
+        help=(
+            "Do not refuse when mujoco_warp d.overflow is set. Contacts and "
+            "constraints are still dropped. Sets INSTINCTLAB_ALLOW_CONTACT_OVERFLOW=1."
+        ),
+    )
 
     # Contributes the engine's launch flags, and ``--device``, which the engines insist on owning.
     from instinctlab.engines import adapter as _adapter
@@ -116,12 +136,15 @@ def main() -> None:
     # mass, friction and pushes come from wherever the global RNG happened to be.
     compiled.env_cfg.seed = agent_cfg.seed
 
-    env = compiled.make_env()
-    from instinctlab.utils.terrain_split_log import attach_terrain_split, dump_contact_peaks, snapshot_contact_budget
+    if args.allow_contact_overflow:
+        os.environ["INSTINCTLAB_ALLOW_CONTACT_OVERFLOW"] = "1"
 
-    snapshot_contact_budget(env, os.path.join(log_dir, "overflow_after_construction.json"))
+    env = compiled.make_env()
     env = engine.wrap_for_rl(env)
-    env = attach_terrain_split(env)
+    if args.log_terrain_split:
+        from instinctlab.utils.terrain_split_log import attach_terrain_split
+
+        env = attach_terrain_split(env)
 
     from instinct_rl.runners import OnPolicyRunner
 
@@ -137,8 +160,6 @@ def main() -> None:
         init_at_random_ep_len=getattr(agent_cfg, "init_at_random_ep_len", False),
     )
 
-    snapshot_contact_budget(env, os.path.join(log_dir, "overflow_late_training.json"))
-    dump_contact_peaks(env, os.path.join(log_dir, "overflow_peaks.json"))
     if getattr(runner, "writer", None) is not None:
         runner.writer.close()
     env.close()

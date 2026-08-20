@@ -312,6 +312,10 @@ def _rewards(joints: EntityRef, velocity_limits: tuple[float, ...]) -> dict[str,
             params={"sensor": LEG_VOLUME_POINTS},
             level=Requirement.REQUIRED,
         ),
+        # Portable on purpose. Isaac's ContactSensor already gates air-time at 1 N
+        # (cfg.force_threshold default). mjlab's timer uses ``found``. The
+        # acceptance-run near-zero is explained by early base_contact, not by
+        # this term's own criterion -- see engines/*/terms.py.
         "feet_air_time": RewardTermSpec(
             func=mdp.feet_air_time,
             weight=0.5,
@@ -397,7 +401,10 @@ def _rewards(joints: EntityRef, velocity_limits: tuple[float, ...]) -> dict[str,
             level=Requirement.REQUIRED,
         ),
         "undesired_contacts": RewardTermSpec(
-            func=mdp.undesired_contacts, weight=-1.0, params={"sensor": UNDESIRED_CONTACT}
+            kind="undesired_contacts",
+            weight=-1.0,
+            params={"sensor": UNDESIRED_CONTACT},
+            level=Requirement.REQUIRED,
         ),
     }
 
@@ -550,7 +557,7 @@ def parkour_target_g1() -> TaskSpec:
                 "terrain_out_of_bounds": DoneTermSpec(
                     func=mdp.terrain_out_of_bounds, time_out=True, params={"distance_buffer": 2.0}
                 ),
-                "base_contact": DoneTermSpec(func=mdp.illegal_contact, params={"sensor": TORSO_CONTACT}),
+                "base_contact": DoneTermSpec(kind="illegal_contact", params={"sensor": TORSO_CONTACT}),
                 "bad_orientation": DoneTermSpec(func=mdp.bad_orientation, params={"limit_angle": 1.0}),
                 "root_height": DoneTermSpec(
                     func=mdp.root_height_below_env_origin_minimum, params={"minimum_height": 0.5}

@@ -28,7 +28,14 @@ LEGACY_GYM_IDS = (
     "Instinct-Parkour-Target-Amp-G1-Play-v0",
 )
 
-NOT_PORTABLE = {"feet_slide", "dof_torques_l2", "dof_acc_l2", "energy", "torque_limits"}
+NOT_PORTABLE = {
+    "feet_slide",
+    "dof_torques_l2",
+    "dof_acc_l2",
+    "energy",
+    "torque_limits",
+    "undesired_contacts",
+}
 """Rewards each backend implements itself. Present in the task, named by kind rather than by function."""
 
 REQUIRED_KIND = frozenset(NOT_PORTABLE)
@@ -321,6 +328,33 @@ def test_joint_vel_limits_reads_the_catalog_in_canonical_order(task) -> None:
     assert tuple(term.params["asset_cfg"].joints) == tuple(task.robot.joint_names)
 
 
+def test_base_contact_is_the_per_engine_force_threshold_term(task) -> None:
+    """A portable illegal_contact has no newton gate; parkour needs one per engine."""
+    term = task.mdp.terminations["base_contact"]
+    assert term.kind == "illegal_contact"
+    assert term.func is None
+    assert term.level is Requirement.REQUIRED
+    assert term.params["sensor"].elements == ("torso_link",)
+    assert "threshold" not in term.params
+
+
+def test_undesired_contacts_is_the_per_engine_force_threshold_term(task) -> None:
+    """Shared params must not write 1.0 twice and call the two quantities aligned."""
+    term = task.mdp.rewards["rewards"]["undesired_contacts"]
+    assert term.kind == "undesired_contacts"
+    assert term.func is None
+    assert term.level is Requirement.REQUIRED
+    assert "threshold" not in term.params
+
+
+def test_feet_air_time_stays_on_the_portable_path(task) -> None:
+    """Isaac already gates air-time at 1 N; mjlab uses found. Near-zero was early death."""
+    term = task.mdp.rewards["rewards"]["feet_air_time"]
+    assert term.func is not None
+    assert term.func.__name__ == "feet_air_time"
+    assert term.kind is None
+
+
 def test_dataset_exhausted_is_absent(task) -> None:
     assert "dataset_exhausted" not in task.mdp.terminations
 
@@ -464,8 +498,10 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     from instinctlab.engines.mjlab.rewards import (
         applied_torque_limits_by_ratio,
         contact_slide,
+        illegal_contact,
         joint_torques_l2,
         motors_power_square,
+        undesired_contacts,
     )
     from instinctlab.mdp.events import register_virtual_obstacles
     from tests.parkour_live_expect import PARKOUR_KIND_NAMES
@@ -506,6 +542,10 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     assert rewards["dof_torques_l2"].func is joint_torques_l2
     assert rewards["dof_acc_l2"].func is joint_acc_l2
     assert rewards["feet_slide"].func is contact_slide
+    assert rewards["undesired_contacts"].func is undesired_contacts
+    assert rewards["undesired_contacts"].params["threshold"] == 1.0
+    assert compiled.env_cfg.terminations["base_contact"].func is illegal_contact
+    assert compiled.env_cfg.terminations["base_contact"].params["threshold"] == 1.0
 
     events = compiled.env_cfg.events
     assert events["reset_robot_joints"].func is reset_joints_by_offset

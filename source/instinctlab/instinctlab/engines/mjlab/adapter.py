@@ -145,14 +145,18 @@ class MjlabAdapter:
             sim_kwargs["nconmax"] = 70
             sim_kwargs["contact_sensor_maxmatch"] = 500
         elif spec.scene.terrain.kind == "rough":
-            # InstinctMJ sized nconmax=128 / njmax=300 for the 10-column grid.
-            # Honoring num_cols=20 doubled the tiles; host mj_forward reported
-            # ncon=164 / nefc=495 and put_data refused 128 / 300, so the
-            # budgets went to 256 / 700. These are per-world allocations
-            # multiplied by the environment count. The leftover ``generator``
-            # path above is Isaac Lab's six-tile recipe and needs its own numbers.
+            # Per-world allocations, multiplied by the environment count.
+            # ``d.nacon`` is one global counter; per-world is nacon/nworld.
+            # Resting default pose is the measured peak, host-copied to every
+            # world: host ncon=164, host/GPU nefc=691 (64 and 256 envs, and the
+            # 2026-08-20 L7 run at 256). After reset / flail both drop
+            # (nacon ~2/world, flail nefc_max 162 at 16–32 envs). nconmax=256
+            # is 64% at rest. njmax=700 was 98.7% at rest; put_data refuses
+            # njmax < host.nefc (691). 768 is ~11% headroom. InstinctMJ still
+            # writes njmax=700 (10-col grid). The leftover ``generator`` path
+            # above is Isaac Lab's six-tile recipe and needs its own numbers.
             sim_kwargs["nconmax"] = 256
-            sim_kwargs["njmax"] = 700
+            sim_kwargs["njmax"] = 768
             sim_kwargs["contact_sensor_maxmatch"] = 128
         from .env import TerrainAwareRlEnv
 

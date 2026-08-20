@@ -152,7 +152,12 @@ _ENTRIES: tuple[DenylistEntry, ...] = (
             " includes friction -- so a newton threshold does not transfer. Portable terms detect"
             " contact through compat.sensors.in_contact, which defers to each engine's own contact"
             " criterion. A term that truly needs force magnitude is per-engine and must declare its"
-            " threshold and tolerance per engine."
+            " threshold and tolerance per engine. Parkour's base_contact / undesired_contacts do"
+            " that: each engine writes 1 N against its own quantity. On matching zero-action then"
+            " fallen-pose rollouts the two 1 N gates are not the same sensitivity -- Isaac's"
+            " history-max on normal load can fire when duration has already cleared, mjlab's 1 N"
+            " on the friction-inclusive force drops light brushes that found still counts. The"
+            " measured rates live on the builders in engines/<name>/terms.py."
         ),
     ),
     # points_vel_w — velocity measured at different points / 同名缓冲，速度参考点不同

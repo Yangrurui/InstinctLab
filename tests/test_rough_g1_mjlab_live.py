@@ -3,6 +3,11 @@
 ``variant_metadata`` failed only after ``make_env()``. A compile-time snapshot of the cfg cannot
 see that the importer skipped ``Entity.__init__``. This test builds a shrunk copy of the same
 importer path play uses, then asks the live scene what generator it actually ran.
+
+Default ``pytest tests/`` deselects ``mjlab``-marked tests (see ``pytest.ini``).
+Run on demand:
+
+    pytest -o addopts= -m mjlab tests/test_rough_g1_mjlab_live.py
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ import pytest
 from tests.live_device import resolve_live_device
 
 pytest.importorskip("mjlab")
+pytestmark = pytest.mark.mjlab
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="stepping mjlab needs a GPU")

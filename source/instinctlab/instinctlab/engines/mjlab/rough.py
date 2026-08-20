@@ -63,6 +63,14 @@ treads 40% taller than on Isaac's 0.05. Contact overflow was ruled out
 against ``nconmax=256``). The grid-resolution reading is a hypothesis, not a
 measurement: the test that would settle it is a short mjlab run at
 ``horizontal_scale=0.05`` with nothing else changed.
+
+That 0.62x measurement predates the parkour robot override (``b668964``) and
+is unaffected by it. The override added a further accepted incomparability:
+Isaac parkour now uses explicit Ideal PD with delay (``DelayedPDActuator``,
+matching main) while mjlab uses implicit-integration PD with delay
+(``BuiltinPdActuator``, matching InstinctMJ). Before that change both engines
+integrated implicitly and were symmetric. Cross-engine episode-length and
+reward curves therefore carry one more reason they are not a parity signal.
 """
 
 from __future__ import annotations

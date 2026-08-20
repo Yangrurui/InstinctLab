@@ -30,6 +30,22 @@ the native spellings for the migration codemod to recognise.
 ``cfg.sim.mujoco.timestep``. This is a compile-time concern belonging to the engine adapters, not
 a term-time one, since ``env.physics_dt`` already reads correctly on both. It is recorded here
 because the config path is where the engines actually differ, and future readers will look for it.
+
+以相同方式访问两引擎环境对象。
+
+本模块刻意保持很小——原因值得记录：两环境类独立编写，但对外表面几乎完全收敛。
+term 直接读 ``num_envs``、``physics_dt``、七个 manager 等无需经本模块；无收益的间接层是已撤销的 ``EntityView`` 曾犯的错误。
+
+``test_compat_env.py`` 将该收敛钉为可执行断言，引擎升级破坏它时会测试失败而非静默破坏 term。
+
+三处未收敛：
+
+**无命令 manager 时失败方式不同。** mjlab 用 ``NullCommandManager`` 且 ``get_command`` 恒返回 ``None``；
+Isaac 抛 ``KeyError``。mjlab 分支更危险——:func:`get_command` 统一为响亮失败。
+
+**类名拼写不同** —— ``ManagerBasedRLEnv`` vs ``ManagerBasedRlEnv``。可移植 term 应标注 :class:`RlEnv`。
+
+**物理步长配置路径不同** —— ``cfg.sim.dt`` vs ``cfg.sim.mujoco.timestep``（编译期；term 读 ``env.physics_dt``）。
 """
 
 from __future__ import annotations
@@ -54,14 +70,23 @@ __all__ = [
 ]
 
 ENV_TYPE_NAMES = {"isaacsim": "ManagerBasedRLEnv", "mjlab": "ManagerBasedRlEnv"}
-"""Native environment class name per engine. Differs only in the capitalisation of ``RL``."""
+"""Native environment class name per engine. Differs only in the capitalisation of ``RL``.
+
+各引擎原生环境类名。仅 ``RL`` 大小写不同。
+"""
 
 PHYSICS_DT_CFG_PATH = {"isaacsim": ("sim", "dt"), "mjlab": ("sim", "mujoco", "timestep")}
 """Where the physics timestep lives on each engine's config. Adapters write it; terms read
-``env.physics_dt``, which is spelled the same on both."""
+``env.physics_dt``, which is spelled the same on both.
+
+各引擎配置中物理步长的路径。adapter 写入；term 读 ``env.physics_dt``（两侧拼写相同）。
+"""
 
 RAW_ACTION_ATTR = {"isaacsim": "raw_actions", "mjlab": "raw_action"}
-"""An action term's untransformed input, differing by one character between the engines."""
+"""An action term's untransformed input, differing by one character between the engines.
+
+动作 term 的未变换输入；两引擎仅差一个字符。
+"""
 
 _ENGINE_BY_ROOT_PACKAGE = {"isaaclab": "isaacsim", "mjlab": "mjlab"}
 
@@ -74,6 +99,9 @@ class RlEnv(Protocol):
     requirement, not an aspiration. Annotate portable terms with this instead of importing an
     engine's environment class, which would pull the whole SDK into a module that has no other
     need of it.
+
+    可移植 term 可依赖的环境表面。此处成员在两引擎上拼写与行为均相同——是准入条件而非愿景。
+    用此标注可移植 term，勿 import 引擎环境类（会拖入整个 SDK）。
     """
 
     cfg: Any
@@ -114,6 +142,11 @@ def env_engine(env: Any) -> str:
 
     Raises:
         PortabilityError: The class descends from neither engine's environment.
+
+    判定环境所属引擎。根据类定义模块与 MRO 推断，子类仍可解析；不 import 引擎。
+
+    Raises:
+        PortabilityError: 类不继承任一引擎环境。
     """
     for klass in type(env).__mro__:
         engine = _ENGINE_BY_ROOT_PACKAGE.get(getattr(klass, "__module__", "").split(".")[0])
@@ -131,12 +164,17 @@ def command_names(env: Any) -> list[str]:
     Reads ``active_terms``, which both engines expose -- including mjlab's null manager, where it
     is the empty list. This is the check to use before configuring anything conditional on a
     command existing.
+
+    环境实际提供的命令名；无命令时为空列表。配置依赖某命令前先调用此函数。
     """
     return list(getattr(env.command_manager, "active_terms", []))
 
 
 def has_command(env: Any, name: str) -> bool:
-    """Whether ``name`` is a command of this environment."""
+    """Whether ``name`` is a command of this environment.
+
+    ``name`` 是否为该环境的命令。
+    """
     return name in command_names(env)
 
 
@@ -146,6 +184,8 @@ def raw_action(env: Any, action_name: str) -> torch.Tensor:
     Resolved by duck typing rather than by engine, since the difference is one character --
     ``raw_actions`` against ``raw_action`` -- and a term that guessed wrong would raise an
     ``AttributeError`` naming an attribute that looks correct.
+
+    指定动作 term 的未变换输入。通过 duck typing 解析（``raw_actions`` vs ``raw_action``）。
     """
     term = env.action_manager.get_term(action_name)
     for attr in RAW_ACTION_ATTR.values():
@@ -168,6 +208,11 @@ def get_command(env: Any, name: str) -> torch.Tensor:
 
     Raises:
         PortabilityError: No such command, or the environment has no commands at all.
+
+    名为 ``name`` 的命令张量；两引擎以相同方式失败。
+
+    Raises:
+        PortabilityError: 无此命令，或环境未声明任何命令。
     """
     available = command_names(env)
     if name not in available:

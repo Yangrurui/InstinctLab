@@ -85,29 +85,39 @@ REFERENCE_DIVERGENCE: dict[str, tuple[str, str, str]] = {
             "follows Isaac so a later 'fix' toward InstinctMJ would retune the Isaac side."
         ),
     ),
+    "camera/hit_targets": (
+        "InstinctMJ: default geom groups (0, 1, 2); Isaac main: /World/ground + G1_29DOF_LINKS",
+        "terrain + G1_29DOF_LINKS by body name (track Isaac)",
+        (
+            "Named-body hits, as main's Isaac parkour. InstinctMJ's group mask is a "
+            "reference-vs-reference split. 'Fixing' toward groups would retune the Isaac side."
+        ),
+    ),
+    "actuation/pd": (
+        "InstinctMJ: BuiltinPd implicit-integration + delay; Isaac main: DelayedPD (explicit Ideal PD) + delay",
+        "each engine matches its own reference",
+        (
+            "Before the parkour robot override both compiled implicit and were symmetric. "
+            "Cross-engine episode-length and reward curves now carry this incomparability. "
+            "The 0.62x measurement predates the override and is unaffected."
+        ),
+    ),
 }
 
 KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
-    "contact/threshold": (
-        "ForceThresholdContactSensorCfg force_threshold=1.0 N; illegal/undesired also 1 N",
-        "in_contact() from contact duration / found; no Newton cutoff",
+    "contact/sensor": (
+        "ForceThresholdContactSensorCfg force_threshold=1.0 N (air-time also 1 N)",
+        "ContactSensorCfg fields=(found, force); air-time from found",
         (
-            "A light touch now counts. base_contact and undesired_contacts fire more often — "
-            "the shape that once left illegal_contact dead when found was missing, in reverse."
+            "feet_air_time stays portable. Isaac's sensor already gates air-time at 1 N "
+            "(ContactSensorCfg.force_threshold default). base_contact / undesired_contacts "
+            "are per-engine 1 N terms against each engine's own force quantity."
         ),
     ),
     "motion/source": (
         "AMASS directory + parkour_motion_without_run.yaml",
         "single npz parkour_motion_without_run_retargetted.npz",
         "AMP discriminator trains on a different reference distribution.",
-    ),
-    "camera/hit_targets": (
-        "default geom groups (0, 1, 2); no named-body list",
-        "terrain + G1_29DOF_LINKS by body name",
-        (
-            "Group 2 is the visual shoe, group 3 the collision capsule. Named-body hits change "
-            "self-occlusion in the depth image the Conv2d encoder consumes."
-        ),
     ),
 }
 
@@ -387,12 +397,14 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 3
+    assert len(KNOWN_DRIFTS) == 2
     assert len(DELIBERATE) == 8
-    assert len(REFERENCE_DIVERGENCE) == 1
+    assert len(REFERENCE_DIVERGENCE) == 3
     assert "agent/normalizers" not in KNOWN_DRIFTS
     assert "scene/height_scanner/offset" not in KNOWN_DRIFTS
     assert "reward/dof_vel_limits" not in KNOWN_DRIFTS
+    assert "camera/hit_targets" not in KNOWN_DRIFTS
+    assert "contact/threshold" not in KNOWN_DRIFTS
     assert "sim/ccd_iterations" not in KNOWN_DRIFTS
     assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
     assert "scene/robot/actuators/delay" not in KNOWN_DRIFTS
@@ -405,11 +417,12 @@ def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
 
 def test_documented_drifts_are_still_present(task, compiled) -> None:
     """Each KNOWN_DRIFTS row must still describe a real difference."""
-    rewards = task.mdp.rewards["rewards"]
-    assert "threshold" not in rewards["undesired_contacts"].params
+    from tests import reference_mjlab_parkour as mj_ref
+
     scanners = {s.name: s for s in compiled.env_cfg.scene.sensors}
+    assert "found" in scanners["contact_forces"].fields
+    assert mj_ref.sensor_cfgs()["contact_forces"]["cfg_class"] == "ForceThresholdContactSensorCfg"
     assert task.scene.motion_references[0].clip.endswith(".npz")
-    assert scanners["camera"].include_geom_groups is None
 
 
 def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
@@ -418,6 +431,21 @@ def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
     assert "dof_vel_limits" not in mj_ref.reward_names()
     assert "dof_vel_limits" in main_ref.reward_names()
     assert main_ref.reward_weights()["dof_vel_limits"] == -1.0
+
+
+def test_reference_divergence_camera_hit_tracks_isaac(task, compiled) -> None:
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
+
+    camera = {s.name: s for s in compiled.env_cfg.scene.sensors}["camera"]
+    assert camera.include_geom_groups is None
+    assert task.scene.ray_caster("camera").hit_bodies() == tuple(G1_29DOF_LINKS)
+    assert mj_ref.sensor_cfgs()["camera"]["cfg_class"] == "NoisyGroupedRayCasterCameraCfg"
+
+
+def test_reference_divergence_pd_tracks_each_reference(task, compiled) -> None:
+    robot = compiled.env_cfg.scene.entities["robot"]
+    assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in robot.articulation.actuators)
+    assert task.robot.actuator_delay == (0, 2)
 
 
 def test_deliberate_rows_are_still_present(task, compiled) -> None:
@@ -446,9 +474,9 @@ def test_every_extractor_has_a_caller() -> None:
 
 
 def test_the_prose_counts_the_drift_table() -> None:
-    """The literals that claim three drifts must still be counting this table."""
+    """The literals that claim a drift count must still be counting this table."""
     import re
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {3}
+    assert counts == {len(KNOWN_DRIFTS)} == {2}

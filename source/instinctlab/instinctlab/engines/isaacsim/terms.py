@@ -166,6 +166,50 @@ def _sensor_entity(ref, ctx):
     return SceneEntityCfg(ref.name, body_names=elements if isinstance(elements, str) else list(elements))
 
 
+# World-frame *normal* load only (ContactSensorData.net_forces_w). Isaac Lab's
+# own docstring excludes the tangential contribution. 1 N here is main parkour's
+# number against that quantity -- not mjlab's 1 N on a friction-inclusive force.
+ISAAC_CONTACT_FORCE_THRESHOLD_N = 1.0
+
+
+def _contact_ref(params: dict[str, Any]):
+    """The ContactSensorRef a force-threshold term was declared with."""
+    ref = params.get("sensor")
+    if ref is None:
+        raise ValueError("isaacsim force-threshold terms need params['sensor'] (a ContactSensorRef).")
+    return ref
+
+
+@TERMS.termination("illegal_contact")
+def _illegal_contact(spec, ctx):
+    """Terminate on ‖net_forces_w‖ (normal load) above 1 N. Matches main parkour."""
+    cfgs = _import_cfgs()
+    params = ctx.params(spec)
+    return cfgs["done"](
+        func=cfgs["mdp"].illegal_contact,
+        time_out=spec.time_out,
+        params={
+            "threshold": params.get("threshold", ISAAC_CONTACT_FORCE_THRESHOLD_N),
+            "sensor_cfg": _sensor_entity(_contact_ref(params), ctx),
+        },
+    )
+
+
+@TERMS.reward("undesired_contacts")
+def _undesired_contacts(spec, ctx):
+    """Count bodies whose ‖net_forces_w‖ (normal load) exceeds 1 N. Matches main."""
+    cfgs = _import_cfgs()
+    params = ctx.params(spec)
+    return cfgs["reward"](
+        func=cfgs["mdp"].undesired_contacts,
+        weight=spec.weight,
+        params={
+            "threshold": params.get("threshold", ISAAC_CONTACT_FORCE_THRESHOLD_N),
+            "sensor_cfg": _sensor_entity(_contact_ref(params), ctx),
+        },
+    )
+
+
 @TERMS.reward("contact_slide")
 def _contact_slide(spec, ctx):
     """main's own slide penalty, kept rather than replaced. See the task's note on why."""

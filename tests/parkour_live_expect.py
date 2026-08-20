@@ -91,6 +91,8 @@ PARKOUR_KIND_NAMES: frozenset[str] = frozenset(
         "joint_position",
         "reset_root_state_uniform",
         "register_virtual_obstacles",
+        "illegal_contact",
+        "undesired_contacts",
     }
 )
 

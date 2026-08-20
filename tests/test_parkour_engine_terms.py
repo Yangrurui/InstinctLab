@@ -15,9 +15,20 @@ from types import SimpleNamespace
 
 import pytest
 
+from instinctlab.engines.isaacsim.terms import ISAAC_CONTACT_FORCE_THRESHOLD_N
+from instinctlab.engines.isaacsim.terms import TERMS as ISAAC_TERMS
 from instinctlab.engines.isaacsim.terms import merge_friction_params as isaac_merge_friction
-from instinctlab.engines.mjlab.rewards import applied_torque_limits_by_ratio, joint_torques_l2, motors_power_square
+from instinctlab.engines.mjlab.rewards import (
+    CONTACT_FORCE_THRESHOLD_N,
+    applied_torque_limits_by_ratio,
+    illegal_contact,
+    joint_torques_l2,
+    motors_power_square,
+    undesired_contacts,
+)
+from instinctlab.engines.mjlab.terms import TERMS as MJLAB_TERMS
 from instinctlab.engines.mjlab.terms import merge_friction_params as mjlab_merge_friction
+from instinctlab.spec.sensor import ContactSensorRef
 
 EVENTS = pathlib.Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/mjlab/events.py"
 
@@ -118,6 +129,57 @@ def test_mjlab_applied_torque_limits_by_ratio_reads_joint_effort_limits_when_pre
 """
 Offset reset is addition, not a scale.
 """
+
+
+def test_force_threshold_kinds_are_registered_on_both_engines() -> None:
+    assert ISAAC_TERMS.lookup("termination", "illegal_contact") is not None
+    assert ISAAC_TERMS.lookup("reward", "undesired_contacts") is not None
+    assert MJLAB_TERMS.lookup("termination", "illegal_contact") is not None
+    assert MJLAB_TERMS.lookup("reward", "undesired_contacts") is not None
+    assert CONTACT_FORCE_THRESHOLD_N == 1.0
+    assert ISAAC_CONTACT_FORCE_THRESHOLD_N == 1.0
+
+
+class _MjlabContact:
+    """Weak-ref'able stand-in; SimpleNamespace cannot key the compat cache."""
+
+    def __init__(self, names, force):
+        self.name = "contact_forces"
+        self.primary_names = names
+        self.data = SimpleNamespace(force_history=force)
+
+
+def test_mjlab_illegal_contact_thresholds_full_force_history() -> None:
+    """1 N on ‖force‖, max over history. A 0.4 N brush must not terminate."""
+    from instinctlab.compat.sensors import forget
+
+    ref = ContactSensorRef(name="contact_forces", elements="torso_link", history_length=3)
+    force = torch.zeros(2, 2, 3, 3)
+    force[0, 0, 0] = torch.tensor([0.4, 0.0, 0.0])
+    force[1, 0, 1] = torch.tensor([0.0, 0.0, 1.2])
+    sensor = _MjlabContact(["torso_link", "pelvis"], force)
+    env = SimpleNamespace(scene=SimpleNamespace(sensors={"contact_forces": sensor}))
+    try:
+        out = illegal_contact(env, ref, threshold=1.0)
+    finally:
+        forget(sensor)
+    assert out.tolist() == [False, True]
+
+
+def test_mjlab_undesired_contacts_counts_bodies_above_one_newton() -> None:
+    from instinctlab.compat.sensors import forget
+
+    ref = ContactSensorRef(name="contact_forces", elements="(?!.*_ankle_roll_link).*", history_length=3)
+    force = torch.zeros(1, 3, 2, 3)
+    force[0, 0, 0] = torch.tensor([2.0, 0.0, 0.0])
+    force[0, 1, 0] = torch.tensor([0.2, 0.0, 0.0])
+    sensor = _MjlabContact(["torso_link", "pelvis", "left_ankle_roll_link"], force)
+    env = SimpleNamespace(scene=SimpleNamespace(sensors={"contact_forces": sensor}))
+    try:
+        out = undesired_contacts(env, ref, threshold=1.0)
+    finally:
+        forget(sensor)
+    assert torch.equal(out, torch.tensor([1.0]))
 
 
 def test_mjlab_offset_reset_adds_and_scale_reset_multiplies() -> None:

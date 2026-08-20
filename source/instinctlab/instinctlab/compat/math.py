@@ -7,6 +7,8 @@
 # as ``mjlab/utils/lab_api/math.py`` under the same license; the text below follows mjlab's copy
 # because its formatting is the more recent of the two.
 #
+# 自 Isaac Lab ``isaaclab/utils/math.py`` vendor 进 InstinctLab；mjlab 同源文件见 ``mjlab/utils/lab_api/math.py``。
+#
 # Modified by InstinctLab developers:
 #   - Vendored only the subset that call sites in this repository actually use, plus the closure of
 #     its internal helpers. Anything else stays in the engine's own module.
@@ -14,6 +16,15 @@
 #   - Dropped ``convert_quat`` in favour of :func:`quat_wxyz_to_xyzw` and :func:`quat_xyzw_to_wxyz`,
 #     which have no default direction.
 #   - Did not vendor ``quat_rotate`` / ``quat_rotate_inverse``. See the module docstring.
+#
+# InstinctLab 修改：
+#   - 仅 vendor 本仓库调用点用到的子集及其依赖闭包。
+#   - 按本仓库 black（行宽 120）重排。
+#   - 用显式方向的 ``quat_wxyz_to_xyzw`` / ``quat_xyzw_to_wxyz`` 替代 ``convert_quat``。
+#   - 未 vendor ``quat_rotate`` / ``quat_rotate_inverse``。见模块 docstring。
+#
+# Note: per-function docstrings below remain English (vendor from Isaac Lab / mjlab).
+# 注：下列各函数的 docstring 保持英文（vendor 自 Isaac Lab / mjlab），模块级与分区注释为中英对照。
 
 """Engine-free tensor math shared by portable MDP terms.
 
@@ -41,6 +52,14 @@ Two names are deliberately absent. ``quat_rotate`` and ``quat_rotate_inverse`` w
 Isaac Lab v2.1.0 and mjlab dropped them outright, so a term using them cannot run on mjlab. They
 are bit-for-bit equal to :func:`quat_apply` and :func:`quat_apply_inverse` respectively, which
 makes the rewrite mechanical; ``instinctlab.migrate`` performs it.
+
+可移植 MDP term 共用的引擎无关张量数学。
+
+两引擎实现相同，但 import 任一引擎 math 会拖入 SDK（Isaac 的 ``isaaclab.utils.math`` 甚至需 USD）。
+故此处保留第三份拷贝，``tests/test_compat_math.py`` 数值对拍两引擎原版。
+
+约定：四元数一律 ``(w, x, y, z)``（决策 D8）。``xyzw`` 仅用于引擎 API 边界；用 :func:`quat_wxyz_to_xyzw` 等显式转换。
+``quat_rotate`` / ``quat_rotate_inverse`` 已废弃/删除，请用 :func:`quat_apply` / :func:`quat_apply_inverse`。
 """
 
 from __future__ import annotations
@@ -76,7 +95,7 @@ __all__ = [
 
 
 """
-General helpers.
+General helpers. / 通用辅助函数。
 """
 
 
@@ -168,6 +187,7 @@ def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
 
 """
 Quaternion operations. All quaternions are (w, x, y, z).
+四元数运算。均为 (w, x, y, z)。
 """
 
 
@@ -349,6 +369,7 @@ def quat_error_magnitude(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
 
 """
 Conversions between rotation representations. Quaternions stay (w, x, y, z) on both sides.
+旋转表示之间的转换。四元数两侧均为 (w, x, y, z)。
 """
 
 
@@ -537,6 +558,7 @@ def quat_from_matrix(matrix: torch.Tensor) -> torch.Tensor:
     )
     # Floor of 0.1 keeps the divisor away from zero; ill-conditioned
     # candidates will not be selected by the argmax below.
+    # 0.1 下限避免除零；病态候选不会被 argmax 选中。
     quat_candidates = quat_by_rijk / (2.0 * q_abs[..., None].clamp_min(0.1))
 
     # if not for numerical problems, quat_candidates[i] should be same (up to a sign),
@@ -548,6 +570,7 @@ def quat_from_matrix(matrix: torch.Tensor) -> torch.Tensor:
 
 """
 Quaternion layout conversion. Only for engine API boundaries; see the module docstring.
+四元数布局转换。仅用于引擎 API 边界；见模块 docstring。
 """
 
 
@@ -594,7 +617,7 @@ def quat_xyzw_to_wxyz(quat: torch.Tensor) -> torch.Tensor:
 
 
 """
-Frame transformations.
+Frame transformations. / 坐标系变换。
 """
 
 
