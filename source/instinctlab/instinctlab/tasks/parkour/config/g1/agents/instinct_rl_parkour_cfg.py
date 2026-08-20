@@ -18,7 +18,6 @@ from instinctlab.utils.configclass import configclass
 from instinctlab.utils.wrappers.instinct_rl.module_cfg import InstinctRlConv2dHeadCfg
 from instinctlab.utils.wrappers.instinct_rl.rl_cfg import (
     InstinctRlEncoderMoEActorCriticCfg,
-    InstinctRlNormalizerCfg,
     InstinctRlOnPolicyRunnerCfg,
     InstinctRlPpoAlgorithmCfg,
 )
@@ -89,16 +88,14 @@ class AmpAlgoCfg(InstinctRlPpoAlgorithmCfg):
 
 
 @configclass
-class NormalizersCfg:
-    policy: InstinctRlNormalizerCfg = InstinctRlNormalizerCfg()
-    critic: InstinctRlNormalizerCfg = InstinctRlNormalizerCfg()
-
-
-@configclass
 class G1ParkourTargetPPORunnerCfg(InstinctRlOnPolicyRunnerCfg):
     policy: MoEPolicyCfg = MoEPolicyCfg()
     algorithm: AmpAlgoCfg = AmpAlgoCfg()
-    normalizers: NormalizersCfg = NormalizersCfg()
+    # Empty on purpose. InstinctMJ and the legacy Isaac AMP runner both leave
+    # this unset (``empirical_normalization=False``). ``InstinctRlNormalizerCfg()``
+    # is not an identity: its default ``class_name`` is EmpiricalNormalization,
+    # a running z-score the runner applies to flattened policy/critic obs.
+    normalizers = dict()
 
     num_steps_per_env = 24
     max_iterations = 30000

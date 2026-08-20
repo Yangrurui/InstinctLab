@@ -18,6 +18,7 @@ import pytest
 
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 from instinctlab.utils.configclass import class_to_dict
+from tests import reference_main_parkour as main_ref
 from tests import reference_mjlab_parkour as mj_ref
 
 pytestmark = pytest.mark.skipif(not mj_ref.available(), reason="InstinctMJ is not checked out")
@@ -47,8 +48,8 @@ DELIBERATE = {
         "700",
         "768",
         (
-            "Resting pose peaked at nefc=691; put_data refused 700. 768 is ~11% headroom. "
-            "InstinctMJ still writes 700 for the 10-column grid."
+            "Resting pose peaked at nefc=691 (98.7% of 700); put_data refuses njmax<691. "
+            "768 is ~11% headroom. InstinctMJ still writes 700 for the 10-column grid."
         ),
     ),
     "viz": (
@@ -56,65 +57,43 @@ DELIBERATE = {
         "omitted",
         "Play-time markers only; they do not enter the observation or the reward.",
     ),
+    "scene/height_scanner/offset": (
+        f"{mj_ref.SCANNER_ORIGIN_OFFSET}, max_distance={mj_ref.SCANNER_MAX_DISTANCE}",
+        "(0.04, 0.0, 20.0), max_distance=1e6",
+        (
+            "Isaac sky-ray on both engines: origin 20 m above the ankle, miss=+inf. "
+            "Verified on flat ground, step edges, and a tilted ankle. InstinctMJ starts at the ankle."
+        ),
+    ),
+    "sim/ccd_iterations": (
+        str(mj_ref.CCD_ITERATIONS),
+        "500 (PROFILE_DEFAULTS)",
+        (
+            "8-env 20-step probe: 128-vs-128 noise already 0.0027 reward / 16 ncon; 128-vs-500 "
+            "sat inside that. Per-step 31.07 vs 31.41 ms (+1%). A cost knob, not a term change."
+        ),
+    ),
+}
+
+# Two references disagree; we track Isaac so the Isaac engine does not silently change.
+REFERENCE_DIVERGENCE: dict[str, tuple[str, str, str]] = {
+    "reward/dof_vel_limits": (
+        "InstinctMJ: absent; Isaac main: weight=-1.0, soft_ratio=0.9",
+        "weight=-1.0, soft_ratio=0.9 (track Isaac)",
+        (
+            "Isaac's 26-term set includes this; InstinctMJ dropped it. Cross-engine declaration "
+            "follows Isaac so a later 'fix' toward InstinctMJ would retune the Isaac side."
+        ),
+    ),
 }
 
 KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
-    "reward/dof_vel_limits": (
-        "absent",
-        "weight=-1.0, soft_ratio=0.9",
-        (
-            "Copied from Isaac parkour. Extra velocity-limit penalty on every step; late-training "
-            "cost is small unless joints saturate, then it reshapes the action distribution."
-        ),
-    ),
-    "scene/robot/spawn_z": (
-        str(mj_ref.SPAWN_Z),
-        "0.82",
-        "8 cm lower root spawn. First-contact and fall-recovery change for ~0.4 s; can shorten early episodes.",
-    ),
-    "scene/robot/actuators/delay": (
-        f"delay_min_lag=0, delay_max_lag={mj_ref.DELAY_MAX_LAG} (per episode)",
-        "delay_max_lag=0",
-        (
-            "InstinctMJ and Isaac both delay torque 0–2 steps. Removing lag makes the plant easier "
-            "(would lengthen episodes vs InstinctMJ, not shorten them)."
-        ),
-    ),
-    "scene/robot/shoe": (
-        mj_ref.SHOE_XML_SUFFIX,
-        "g1_29dof_torsobase_popsicle.xml (no shoe)",
-        (
-            "Volume-point z and feet_at_plane offset 0.058 were tuned for the shoe sole. Same numbers "
-            "on a bare ankle change stance height and penetration volume."
-        ),
-    ),
     "contact/threshold": (
         "ForceThresholdContactSensorCfg force_threshold=1.0 N; illegal/undesired also 1 N",
         "in_contact() from contact duration / found; no Newton cutoff",
         (
             "A light touch now counts. base_contact and undesired_contacts fire more often — "
             "the shape that once left illegal_contact dead when found was missing, in reverse."
-        ),
-    ),
-    "scene/height_scanner/offset": (
-        f"{mj_ref.SCANNER_ORIGIN_OFFSET}, max_distance={mj_ref.SCANNER_MAX_DISTANCE}",
-        "(0.04, 0.0, 20.0), max_distance=1e6",
-        (
-            "Isaac-style sky rays. InstinctMJ starts at the ankle and clips at 10 m. feet_at_plane "
-            "hit_z differs on slopes and near walls."
-        ),
-    ),
-    "sim/ccd_iterations": (
-        str(mj_ref.CCD_ITERATIONS),
-        "500 (PROFILE_DEFAULTS)",
-        "Parkour override is 128. More CCD iterations change contact timing, not the MDP terms.",
-    ),
-    "agent/normalizers": (
-        "empirical_normalization=False, empty normalizers",
-        "EmpiricalNormalization on policy and critic",
-        (
-            "Neither InstinctMJ nor the legacy Isaac runner normalises. Running means rescale the "
-            "768-d proprioception the MoE sees; learning dynamics diverge from both references."
         ),
     ),
     "motion/source": (
@@ -287,16 +266,29 @@ def test_sim_timings_match_and_solver_diffs_are_the_documented_ones(task, compil
     assert overrides["init_pos"][2] == mj_ref.SPAWN_Z
 
 
-def test_compiled_spawn_delay_shoe_and_scanners_are_the_documented_drifts(task, compiled) -> None:
+def test_parkour_robot_matches_instinctmj_on_spawn_delay_shoe(task, compiled) -> None:
     robot = compiled.env_cfg.scene.entities["robot"]
-    assert robot.init_state.pos[2] == pytest.approx(0.82)
-    assert mj_ref.sim_overrides()["init_pos"][2] == pytest.approx(0.9)
-    lags = [getattr(act, "delay_max_lag", 0) for act in robot.articulation.actuators]
-    assert max(lags) == 0
+    assert robot.init_state.pos[2] == pytest.approx(mj_ref.SPAWN_Z)
+    assert mj_ref.sim_overrides()["init_pos"][2] == pytest.approx(mj_ref.SPAWN_Z)
+    lags = {
+        (getattr(act, "delay_min_lag", 0), getattr(act, "delay_max_lag", 0)) for act in robot.articulation.actuators
+    }
+    assert lags == {(0, mj_ref.DELAY_MAX_LAG)}
     assert mj_ref.delayed_actuator_lags() == (0, mj_ref.DELAY_MAX_LAG)
     asset = task.robot.asset_for("mjlab").path
-    assert asset.endswith("g1_29dof_torsobase_popsicle.xml")
-    assert mj_ref.SHOE_XML_SUFFIX not in asset
+    assert asset.endswith(mj_ref.SHOE_XML_SUFFIX)
+    assert mj_ref.shoe_effective()["xml_suffix"] == mj_ref.SHOE_XML_SUFFIX
+
+
+def test_compiled_scanners_volume_contact_and_camera_are_the_documented_drifts(task, compiled) -> None:
+    robot = compiled.env_cfg.scene.entities["robot"]
+    assert robot.init_state.pos[2] == pytest.approx(mj_ref.SPAWN_Z)
+    lags = {
+        (getattr(act, "delay_min_lag", 0), getattr(act, "delay_max_lag", 0)) for act in robot.articulation.actuators
+    }
+    assert lags == {(0, mj_ref.DELAY_MAX_LAG)}
+    asset = task.robot.asset_for("mjlab").path
+    assert asset.endswith(mj_ref.SHOE_XML_SUFFIX)
     assert mj_ref.shoe_effective()["xml_suffix"] == mj_ref.SHOE_XML_SUFFIX
     sensors = {sensor.name: sensor for sensor in compiled.env_cfg.scene.sensors}
     for name in ("left_height_scanner", "right_height_scanner"):
@@ -356,7 +348,7 @@ def test_motion_source_is_the_documented_drift(task) -> None:
     assert "parkour_motion_without_run.yaml" in (source["filter"] or "")
 
 
-def test_agent_shared_hyperparameters_match_except_documented_normalizers(our_agent) -> None:
+def test_agent_normalizers_are_empty_like_both_references(our_agent) -> None:
     reference = mj_ref.agent_fields()
     assert reference["AmpAlgoCfg.class_name"] == "WasabiPPO"
     assert reference["AmpAlgoCfg.discriminator_reward_coef"] == 0.25
@@ -370,18 +362,42 @@ def test_agent_shared_hyperparameters_match_except_documented_normalizers(our_ag
     assert our_agent["algorithm"]["entropy_coef"] == 0.006
     assert our_agent["policy"]["num_moe_experts"] == 4
     assert our_agent["num_steps_per_env"] == 24
-    assert "policy" in our_agent["normalizers"]
-    assert "critic" in our_agent["normalizers"]
-    assert our_agent["normalizers"]["policy"]["class_name"] == "EmpiricalNormalization"
+    assert our_agent.get("normalizers") in ({}, None)
+    assert "policy" not in (our_agent.get("normalizers") or {})
     assert our_agent["policy"]["encoder_configs"]["depth_encoder"]["takeout_input_components"] is True
     assert our_agent["algorithm"]["actor_state_key"] == "amp_policy"
     assert our_agent["algorithm"]["reference_state_key"] == "amp_reference"
 
 
+def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -> None:
+    """``InstinctRlNormalizerCfg()`` is EmpiricalNormalization. Re-adding it is behavioural."""
+    import torch
+
+    from instinct_rl.modules import build_normalizer
+
+    from instinctlab.utils.wrappers.instinct_rl.rl_cfg import InstinctRlNormalizerCfg
+
+    dumped = class_to_dict(InstinctRlNormalizerCfg())
+    assert dumped == {"class_name": "EmpiricalNormalization"}
+    norm = build_normalizer(input_shape=4, normalizer_class_name=dumped["class_name"], normalizer_kwargs={})
+    sample = torch.tensor([[2.0, 4.0, 6.0, 8.0], [4.0, 8.0, 12.0, 16.0]])
+    out = norm(sample)
+    assert not torch.allclose(out, sample)
+    assert (out - sample).abs().max().item() == pytest.approx(15.002493858337402, abs=1e-5)
+
+
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 10
-    assert len(DELIBERATE) == 6
-    for table in (KNOWN_DRIFTS, DELIBERATE):
+    assert len(KNOWN_DRIFTS) == 3
+    assert len(DELIBERATE) == 8
+    assert len(REFERENCE_DIVERGENCE) == 1
+    assert "agent/normalizers" not in KNOWN_DRIFTS
+    assert "scene/height_scanner/offset" not in KNOWN_DRIFTS
+    assert "reward/dof_vel_limits" not in KNOWN_DRIFTS
+    assert "sim/ccd_iterations" not in KNOWN_DRIFTS
+    assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
+    assert "scene/robot/actuators/delay" not in KNOWN_DRIFTS
+    assert "scene/robot/shoe" not in KNOWN_DRIFTS
+    for table in (KNOWN_DRIFTS, DELIBERATE, REFERENCE_DIVERGENCE):
         for path, (theirs, ours, reason) in table.items():
             assert theirs != ours, path
             assert len(reason) > 40, path
@@ -390,22 +406,18 @@ def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
 def test_documented_drifts_are_still_present(task, compiled) -> None:
     """Each KNOWN_DRIFTS row must still describe a real difference."""
     rewards = task.mdp.rewards["rewards"]
-    assert "dof_vel_limits" in rewards
-    assert "dof_vel_limits" not in mj_ref.reward_names()
-    assert task.robot.default_root_pos[2] == pytest.approx(0.82)
-    robot = compiled.env_cfg.scene.entities["robot"]
-    assert max(getattr(act, "delay_max_lag", 0) for act in robot.articulation.actuators) == 0
-    assert not task.robot.asset_for("mjlab").path.endswith(mj_ref.SHOE_XML_SUFFIX)
     assert "threshold" not in rewards["undesired_contacts"].params
     scanners = {s.name: s for s in compiled.env_cfg.scene.sensors}
-    assert scanners["left_height_scanner"].origin_offset == (0.04, 0.0, 20.0)
-    assert compiled.env_cfg.sim.mujoco.ccd_iterations == 500
-    from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_parkour_cfg import G1ParkourTargetPPORunnerCfg
-
-    agent = G1ParkourTargetPPORunnerCfg()
-    assert "policy" in class_to_dict(agent)["normalizers"]
     assert task.scene.motion_references[0].clip.endswith(".npz")
     assert scanners["camera"].include_geom_groups is None
+
+
+def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
+    assert "dof_vel_limits" in task.mdp.rewards["rewards"]
+    assert task.mdp.rewards["rewards"]["dof_vel_limits"].weight == -1.0
+    assert "dof_vel_limits" not in mj_ref.reward_names()
+    assert "dof_vel_limits" in main_ref.reward_names()
+    assert main_ref.reward_weights()["dof_vel_limits"] == -1.0
 
 
 def test_deliberate_rows_are_still_present(task, compiled) -> None:
@@ -414,6 +426,10 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == 20
     assert compiled.env_cfg.sim.nconmax == 256
     assert compiled.env_cfg.sim.njmax == 768
+    scanners = {s.name: s for s in compiled.env_cfg.scene.sensors}
+    assert scanners["left_height_scanner"].origin_offset == (0.04, 0.0, 20.0)
+    assert scanners["left_height_scanner"].max_distance == pytest.approx(1e6)
+    assert compiled.env_cfg.sim.mujoco.ccd_iterations == 500
 
 
 def test_every_extractor_has_a_caller() -> None:
@@ -430,9 +446,9 @@ def test_every_extractor_has_a_caller() -> None:
 
 
 def test_the_prose_counts_the_drift_table() -> None:
-    """The literals that claim ten drifts must still be counting this table."""
+    """The literals that claim three drifts must still be counting this table."""
     import re
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {10}
+    assert counts == {len(KNOWN_DRIFTS)} == {3}
