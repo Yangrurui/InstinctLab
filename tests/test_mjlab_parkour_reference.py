@@ -124,15 +124,6 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
             "not a different clip inventory."
         ),
     ),
-    "amp/symmetric_augmentation": (
-        "MotionReferenceManagerCfg: link/joint mapping + 50% mirror on reset",
-        "engines/mjlab/motion_reference.py: no symmetric augmentation",
-        (
-            "InstinctMJ AmassMotion.reset draws Bernoulli(0.5) mirror masks and the manager "
-            "reflects amp_reference states. Cross-engine parkour loads the same npz but never "
-            "mirrors reference trajectories, so the discriminator's positive class is narrower."
-        ),
-    ),
 }
 
 
@@ -381,12 +372,25 @@ def test_shipped_motion_yaml_selects_the_same_npz(task) -> None:
     assert mj_ref.SHIPPED_MOTION_NPZ.is_file()
 
 
-def test_amp_symmetric_augmentation_is_instinctmj_only(task) -> None:
+def test_amp_symmetric_augmentation_matches_instinctmj(task) -> None:
+    """We mirror too now. This was a drift row until the reference was read rather than assumed.
+
+    The row it replaces asserted ``not hasattr(clip, "symmetric_augmentation_joint_mapping")`` --
+    a field name we never adopted, because ours resolves by joint *name* rather than by the
+    reference's integer table. That assertion would keep passing after we implemented mirroring,
+    which is why it is spelled against the declaration here instead.
+    """
     source = mj_ref.motion_source()
     assert source["symmetric_augmentation_link_mapping"] == [0, 1, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12]
     assert source["symmetric_augmentation_joint_mapping"] is not None
     assert source["symmetric_augmentation_joint_reverse_buf"] is not None
-    # Cross-engine parkour uses the portable clip sensor, not MotionReferenceManager.
+
+    mirror = task.scene.motion_references[0].symmetric_augmentation
+    assert mirror is not None, "parkour declares no mirror augmentation; InstinctMJ mirrors half its resets"
+    assert mirror.joint_swaps["left_hip_pitch_joint"] == "right_hip_pitch_joint"
+    assert mirror.joint_swaps["waist_pitch_joint"] == "waist_pitch_joint"
+    assert mirror.joint_signs["waist_roll_joint"] == -1
+    assert mirror.joint_signs["waist_pitch_joint"] == 1
     assert task.scene.motion_references[0].clip.endswith(".npz")
 
 
@@ -473,7 +477,7 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 3
+    assert len(KNOWN_DRIFTS) == 2
     assert len(DELIBERATE) == 8
     assert len(REFERENCE_DIVERGENCE) == 3
     assert "agent/normalizers" not in KNOWN_DRIFTS
@@ -485,6 +489,7 @@ def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
     assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
     assert "scene/robot/actuators/delay" not in KNOWN_DRIFTS
     assert "scene/robot/shoe" not in KNOWN_DRIFTS
+    assert "amp/symmetric_augmentation" not in KNOWN_DRIFTS
     for table in (KNOWN_DRIFTS, DELIBERATE, REFERENCE_DIVERGENCE):
         for path, (theirs, ours, reason) in table.items():
             assert theirs != ours, path
@@ -556,4 +561,4 @@ def test_the_prose_counts_the_drift_table() -> None:
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {3}
+    assert counts == {len(KNOWN_DRIFTS)} == {2}
