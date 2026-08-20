@@ -94,12 +94,16 @@ REFERENCE_DIVERGENCE: dict[str, tuple[str, str, str]] = {
         ),
     ),
     "actuation/pd": (
-        "InstinctMJ: BuiltinPd implicit-integration + delay; Isaac main: DelayedPD (explicit Ideal PD) + delay",
-        "each engine matches its own reference",
+        "InstinctMJ: BuiltinPd implicit-integration + delay; main: ImplicitPD, no delay",
+        "both engines delayed: mjlab matches InstinctMJ, Isaac deliberately does not match main",
         (
-            "Before the parkour robot override both compiled implicit and were symmetric. "
-            "Cross-engine episode-length and reward curves now carry this incomparability. "
-            "The 0.62x measurement predates the override and is unaffected."
+            "InstinctMJ keeps its delay through the shoe branch because that branch deepcopies the "
+            "already-patched robot. Main's assigns the delayed table and then replaces the whole robot, "
+            "so the registered task trains on implicit PD -- see test_g1_robot_catalog_ownership. "
+            "Measured on Isaac at 700 iterations: dropping our delay moves dof_acc_l2 from 1.71x main "
+            "to 0.98x and dof_vel_l2 from 1.04x to 0.98x, but leaves reward at 0.82x either way. "
+            "The delay is kept because it is the more realistic plant and the episode-length match is "
+            "better with it (1.02x vs 0.93x); it is not kept because main has it."
         ),
     ),
 }

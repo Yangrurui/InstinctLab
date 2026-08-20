@@ -89,12 +89,17 @@ structurally held at the coarser grid here; if the hypothesis is worth
 settling, it has to be tested inside Isaac by running *it* at 0.07 instead.
 
 This measurement postdates the parkour robot override (``b668964``), which
-added a further accepted incomparability:
-Isaac parkour now uses explicit Ideal PD with delay (``DelayedPDActuator``,
-matching main) while mjlab uses implicit-integration PD with delay
-(``BuiltinPdActuator``, matching InstinctMJ). Before that change both engines
-integrated implicitly and were symmetric. Cross-engine episode-length and
-reward curves therefore carry one more reason they are not a parity signal.
+added a further accepted incomparability: Isaac parkour uses explicit Ideal PD
+with delay (``DelayedPDActuator``) while mjlab uses implicit-integration PD with
+delay (``BuiltinPdActuator``, matching InstinctMJ). Before that change both
+engines integrated implicitly and were symmetric. Cross-engine episode-length
+and reward curves therefore carry one more reason they are not a parity signal.
+
+The Isaac half of that override was made on a false reading: main assigns a
+delayed actuator table and then replaces ``self.scene.robot`` wholesale, so the
+registered task trains on implicit PD without delay. The delay is kept anyway --
+measured, see ``KNOWN_DRIFTS["actuation/delay"]`` -- but it is our choice, not
+main's behaviour.
 """
 
 from __future__ import annotations

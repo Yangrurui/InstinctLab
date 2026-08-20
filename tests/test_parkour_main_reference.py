@@ -86,6 +86,18 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
             "drifts, now also in the value function and the discriminator."
         ),
     ),
+    "actuation/delay": (
+        "ImplicitPD, no delay (the delayed table is assigned, then discarded by apply_shoe_config)",
+        "DelayedPD, 0-2 physics steps",
+        (
+            "Kept on purpose after measuring it. Main only appears to use delay; the registered cfg "
+            "replaces self.scene.robot after setting the delayed table, and a real main run's "
+            "params/env.yaml shows five ImplicitActuator groups. Dropping our delay moves dof_acc_l2 "
+            "from 1.71x main to 0.98x, dof_vel_l2 1.04x→0.98x, action_rate_l2 1.02x→0.99x, and leaves "
+            "reward at 0.82x either way while episode length goes 1.02x→0.93x. We keep the delay as "
+            "the more realistic plant; the ~18% reward gap is something else."
+        ),
+    ),
 }
 
 
@@ -303,7 +315,8 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 
 
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
-    assert len(KNOWN_DRIFTS) == 7
+    assert len(KNOWN_DRIFTS) == 8
+    assert "actuation/delay" in KNOWN_DRIFTS
     assert "dataset_exhausted" in DELIBERATE_OMISSIONS
     assert "reward/undesired_contacts/threshold" not in KNOWN_DRIFTS
     assert "scene/robot/urdf" not in KNOWN_DRIFTS
@@ -339,6 +352,10 @@ def test_documented_drifts_are_still_present(task) -> None:
         source.get("symmetric_augmentation_link_mapping") is not None or "symmetric_augmentation_link_mapping" in source
     )
     assert task.scene.motion_reference("motion_reference").symmetric_augmentation is not None
+    # actuation/delay — verify both sides, not just ours. "We declare a delay" would stay
+    # green if main grew one too, which is precisely how this row got written backwards.
+    assert task.robot.actuator_delay == (0, 2)
+    assert main_ref.effective_robot_actuators()["delayed"] is False
 
 
 def test_main_leaves_policy_and_action_joints_in_entity_order(task) -> None:
@@ -516,12 +533,14 @@ def test_single_reward_group_keeps_num_rewards_one() -> None:
     assert list(task.mdp.rewards) == ["rewards"]
 
 
-def test_parkour_robot_matches_main_on_the_four_task_overrides(task) -> None:
+def test_parkour_robot_matches_main_on_the_three_task_overrides(task) -> None:
+    """The plant overrides that main really applies. The delay is not one of them."""
     robot = task.robot.asset_for("isaacsim")
     assert robot.path.endswith(main_ref.G1_SHOE_URDF_SUFFIX)
     assert task.robot.default_root_pos[2] == pytest.approx(main_ref.G1_SPAWN_Z)
     assert robot.import_options["merge_fixed_joints"] is main_ref.G1_MERGE_FIXED_JOINTS
-    assert task.robot.actuator_delay == (0, 2)
+    assert main_ref.effective_robot_actuators()["delayed"] is False
+    assert task.robot.actuator_delay == (0, 2), "kept on purpose; KNOWN_DRIFTS['actuation/delay']"
 
 
 @pytest.mark.isaacsim
@@ -552,6 +571,7 @@ def test_compiled_isaac_robot_matches_main_plant_and_keeps_documented_sim_drifts
     assert robot.init_state.pos[2] == pytest.approx(main_ref.G1_SPAWN_Z)
     assert robot.spawn.asset_path.endswith(main_ref.G1_SHOE_URDF_SUFFIX)
     assert robot.spawn.merge_fixed_joints is True
+    # Delay is our documented divergence, not main's plant: KNOWN_DRIFTS['actuation/delay'].
     actuator_types = {type(cfg).__name__ for cfg in robot.actuators.values()}
     assert actuator_types == {"DelayedPDActuatorCfg"}
     assert {(cfg.min_delay, cfg.max_delay) for cfg in robot.actuators.values()} == {(0, 2)}

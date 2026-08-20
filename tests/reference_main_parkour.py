@@ -20,7 +20,9 @@ REPO = Path(__file__).resolve().parents[1]
 
 PARKOUR_CFG = "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py"
 G1_CFG = "source/instinctlab/instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py"
+G1_INIT = "source/instinctlab/instinctlab/tasks/parkour/config/g1/__init__.py"
 AGENT_CFG = "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py"
+ASSETS_CFG = "source/instinctlab/instinctlab/assets/unitree_g1.py"
 
 # ShoeConfigMixin.apply_shoe_config() writes these over the base parkour_env_cfg values.
 G1_SHOE_HEIGHT_OFFSET = 0.058
@@ -397,25 +399,200 @@ def sim_params() -> dict[str, Any]:
     raise LookupError("ParkourEnvCfg missing on main")
 
 
+def registered_env_cfg_class() -> str:
+    """The env cfg class the trained task id actually points at."""
+    tree = ast.parse(_git_show(G1_INIT))
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and _func_name_of(node) == "register"):
+            continue
+        kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+        task_id = kwargs.get("id")
+        if not (isinstance(task_id, ast.Constant) and task_id.value == "Instinct-Parkour-Target-Amp-G1-v0"):
+            continue
+        entry = kwargs.get("kwargs")
+        if not isinstance(entry, ast.Dict):
+            break
+        for key, value in zip(entry.keys, entry.values, strict=True):
+            if isinstance(key, ast.Constant) and key.value == "env_cfg_entry_point":
+                return _literal_parts(value).rsplit(":", 1)[-1]
+    raise LookupError("Instinct-Parkour-Target-Amp-G1-v0 does not name an env_cfg_entry_point on main")
+
+
+def _literal_parts(node: ast.AST) -> str:
+    """The constant text of a string node; f-string holes contribute nothing.
+
+    main writes the entry point as ``f"{task_entry}.…:G1ParkourEnvCfg"``, and only
+    the part after the colon is needed.
+    """
+    if isinstance(node, ast.Constant):
+        return str(node.value)
+    if isinstance(node, ast.JoinedStr):
+        return "".join(part.value for part in node.values if isinstance(part, ast.Constant))
+    raise TypeError(f"cannot read a string out of {type(node).__name__}")
+
+
+def _func_name_of(call: ast.Call) -> str:
+    return call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
+
+
+def _class_named(module: ast.Module, name: str) -> ast.ClassDef:
+    for node in module.body:
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return node
+    raise LookupError(f"{name} is not defined on main in {G1_CFG}")
+
+
+def _method(cls: ast.ClassDef, name: str) -> ast.FunctionDef | None:
+    for item in cls.body:
+        if isinstance(item, ast.FunctionDef) and item.name == name:
+            return item
+    return None
+
+
+def _executed_statements(module: ast.Module, class_name: str) -> list[ast.stmt]:
+    """``__post_init__`` flattened in execution order, following super() and mixin calls.
+
+    Only the two call shapes main uses are expanded. Anything else raises rather
+    than being skipped, because a silently unexpanded call is how a later
+    override goes unnoticed -- which is the exact bug this reader exists to catch.
+    """
+    cls = _class_named(module, class_name)
+    post_init = _method(cls, "__post_init__")
+    if post_init is None:
+        base_names = [b.id for b in cls.bases if isinstance(b, ast.Name)]
+        if not base_names:
+            raise LookupError(f"{class_name} has neither __post_init__ nor a resolvable base")
+        return _executed_statements(module, base_names[0])
+
+    out: list[ast.stmt] = []
+    for stmt in post_init.body:
+        call = stmt.value if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call) else None
+        if call is None:
+            out.append(stmt)
+            continue
+        name = _func_name_of(call)
+        if name == "__post_init__" and isinstance(call.func, ast.Attribute):
+            bases = [b.id for b in cls.bases if isinstance(b, ast.Name)]
+            if not bases:
+                raise LookupError(f"{class_name} calls super().__post_init__ but names no base")
+            # A base from another module (ParkourEnvCfg) is not followed. Safe only
+            # because a later in-module statement replaces self.scene.robot outright;
+            # effective_robot_actuators() raises if that replacement is not found.
+            if any(isinstance(n, ast.ClassDef) and n.name == bases[0] for n in module.body):
+                out.extend(_executed_statements(module, bases[0]))
+        elif isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name):
+            if call.func.value.id != "self":
+                out.append(stmt)
+                continue
+            owner = next(
+                (c for c in module.body if isinstance(c, ast.ClassDef) and _method(c, name) is not None),
+                None,
+            )
+            if owner is None:
+                raise LookupError(f"{class_name}.__post_init__ calls self.{name}(), which is not in {G1_CFG}")
+            method = _method(owner, name)
+            assert method is not None
+            out.extend(method.body)
+        else:
+            out.append(stmt)
+    return out
+
+
+def _module_symbol_root(module: ast.Module, name: str) -> str:
+    """Follow ``X = copy.deepcopy(Y)`` / ``X = Y`` at module level back to its origin."""
+    seen: set[str] = set()
+    current = name
+    while current not in seen:
+        seen.add(current)
+        source = None
+        for node in module.body:
+            if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+                continue
+            target = node.targets[0]
+            if not (isinstance(target, ast.Name) and target.id == current):
+                continue
+            value = node.value
+            if isinstance(value, ast.Call) and _func_name_of(value) == "deepcopy" and value.args:
+                source = value.args[0]
+            else:
+                source = value
+        if isinstance(source, ast.Name):
+            current = source.id
+            continue
+        return current
+    return current
+
+
+def effective_robot_actuators() -> dict[str, Any]:
+    """The actuator table the *registered* task ends up with, not the one it declares.
+
+    ``G1ParkourEnvCfg`` assigns delayed actuators onto ``self.scene.robot`` and then
+    calls ``apply_shoe_config()``, which replaces ``self.scene.robot`` wholesale with
+    a module-level copy taken before that assignment. Asking whether the delayed
+    table is *mentioned* in the file therefore answers the wrong question.
+    """
+    module = ast.parse(_git_show(G1_CFG))
+    statements = _executed_statements(module, registered_env_cfg_class())
+
+    robot_symbol: str | None = None
+    actuator_table: str | None = None
+    for stmt in statements:
+        if not (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1):
+            continue
+        target = ast.unparse(stmt.targets[0])
+        if target == "self.scene.robot":
+            value = stmt.value
+            base = value.func.value if isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute) else value
+            robot_symbol = base.id if isinstance(base, ast.Name) else ast.unparse(base)
+            actuator_table = None  # a wholesale replacement drops the table set before it
+        elif target == "self.scene.robot.actuators" and isinstance(stmt.value, ast.Name):
+            actuator_table = stmt.value.id
+
+    if actuator_table is None:
+        if robot_symbol is None:
+            raise LookupError("main's registered parkour cfg never assigns self.scene.robot")
+        root = _module_symbol_root(module, robot_symbol)
+        actuator_table = _articulation_actuators(root)
+
+    return {
+        "table": actuator_table,
+        "delayed": actuator_table == G1_DELAYED_ACTUATORS,
+        "robot_symbol": robot_symbol,
+        "declared_in_base": G1_DELAYED_ACTUATORS in ast.unparse(module),
+    }
+
+
+def _articulation_actuators(cfg_symbol: str) -> str:
+    """The ``actuators=`` table named by an ArticulationCfg in main's asset module."""
+    assets = ast.parse(_git_show(ASSETS_CFG))
+    for node in assets.body:
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+            continue
+        target = node.targets[0]
+        if not (isinstance(target, ast.Name) and target.id == cfg_symbol):
+            continue
+        if not isinstance(node.value, ast.Call):
+            break
+        for kw in node.value.keywords:
+            if kw.arg == "actuators" and isinstance(kw.value, ast.Name):
+                return kw.value.id
+    raise LookupError(f"{cfg_symbol} does not name an actuators table in main's {ASSETS_CFG}")
+
+
 def g1_robot_overrides() -> dict[str, Any]:
     """What G1ParkourEnvCfg adds on top of the shared parkour file."""
-    g1 = ast.parse(_git_show(G1_CFG))
-    overrides: dict[str, Any] = {
+    effective = effective_robot_actuators()
+    return {
         "spawn_z": G1_SPAWN_Z,
         "merge_fixed_joints": G1_MERGE_FIXED_JOINTS,
-        "actuators": G1_DELAYED_ACTUATORS,
+        "actuators": effective["table"],
         "shoe_urdf": G1_SHOE_URDF_SUFFIX,
         "volume_z_min": G1_SHOE_VOLUME_Z[0],
         "volume_z_max": G1_SHOE_VOLUME_Z[1],
         "feet_at_plane_height_offset": G1_SHOE_HEIGHT_OFFSET,
+        "uses_delayed_actuators": effective["delayed"],
+        "declares_delayed_actuators": effective["declared_in_base"],
     }
-    for node in g1.body:
-        if isinstance(node, ast.ClassDef) and node.name == "G1ParkourRoughEnvCfg":
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name == "__post_init__":
-                    src = ast.unparse(item)
-                    overrides["uses_delayed_actuators"] = G1_DELAYED_ACTUATORS in src
-    return overrides
 
 
 def uses_instinct_rl_env() -> bool:

@@ -492,13 +492,20 @@ def _commands() -> dict[str, CommandTermSpec]:
 
 
 def parkour_g1_robot() -> RobotSpec:
-    """Catalog G1 plus the four main-parkour plant overrides. Does not touch the factory.
+    """Catalog G1 plus the parkour plant overrides. Does not touch the factory.
 
-    Main's ``G1ParkourEnvCfg`` copied the popsicle ArticulationCfg and then changed
-    the URDF, spawn z, ``merge_fixed_joints``, and the delayed-actuator table. The
-    catalog stays the flat/rough plant; this is the copy the task holds so both
-    adapters read one ``RobotSpec`` instead of a second override bag someone can
-    forget to apply.
+    Main's ``G1ParkourEnvCfg`` copied the popsicle ArticulationCfg and changed the
+    URDF, spawn z, and ``merge_fixed_joints``. The catalog stays the flat/rough
+    plant; this is the copy the task holds so both adapters read one ``RobotSpec``
+    instead of a second override bag someone can forget to apply.
+
+    ``actuator_delay`` is ours, not main's. Main assigns a delayed actuator table
+    and then calls ``apply_shoe_config()``, which replaces ``self.scene.robot``
+    wholesale with a copy taken before that assignment, so the registered task
+    trains on implicit PD. InstinctMJ's shoe branch deepcopies the already-patched
+    robot and does keep its delay, so mjlab matching here is matching InstinctMJ.
+    Keeping the delay on Isaac is a measured, deliberate divergence from main --
+    see ``KNOWN_DRIFTS["actuation/delay"]`` in tests/test_parkour_main_reference.py.
     """
     return make_g1_29dof_robot_spec().overridden(
         default_root_pos=(0.0, 0.0, 0.9),
