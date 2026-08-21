@@ -449,7 +449,32 @@ class _StubCommand(PoseVelocityMixin):
         return self._columns
 
 
-def test_command_params_rejects_debug_vis_and_unknown_keys() -> None:
+def test_debug_vis_draws_the_instinctmj_goal_cylinder() -> None:
+    """Red cylinder at pos_command_w, same geom InstinctMJ queues for viser/native."""
+    cmd = _StubCommand()
+    cmd.robot.data.root_link_pos_w[:] = torch.tensor([[0.0, 0.0, 0.8]])
+    cmd.pos_command_w[:] = torch.tensor([[1.5, -0.4, 0.8]])
+    cmd.vel_command_b[:] = torch.tensor([[0.6, 0.0, 0.0]])
+    drawn: list[tuple] = []
+
+    class _Vis:
+        def add_cylinder(self, *, start, end, radius, color, label):
+            drawn.append(("cylinder", start.copy(), end.copy(), radius, color, label))
+
+        def add_arrow(self, *, start, end, color, width, label):
+            drawn.append(("arrow", start.copy(), end.copy(), color, width, label))
+
+    cmd._debug_vis_impl(_Vis())
+    cylinders = [item for item in drawn if item[0] == "cylinder"]
+    assert len(cylinders) == 1
+    _, start, end, radius, color, label = cylinders[0]
+    assert label == "goal_0"
+    assert color == (1.0, 0.0, 0.0, 0.6)
+    assert radius == pytest.approx(0.4)
+    assert start.tolist() == pytest.approx([1.5, -0.4, 0.8])
+    assert end.tolist() == pytest.approx([1.5, -0.4, 0.9])
+    arrows = [item for item in drawn if item[0] == "arrow"]
+    assert [item[-1] for item in arrows] == ["cmd_vel_0", "actual_vel_0"]
     with pytest.raises(ValueError, match="debug visualization is not wired"):
         command_params(
             {

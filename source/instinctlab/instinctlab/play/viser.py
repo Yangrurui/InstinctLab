@@ -7,6 +7,7 @@ The mesh helpers below are catalog checks, not a second viewer.
 
 from __future__ import annotations
 
+import numpy as np
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -136,6 +137,88 @@ def _pin_velocity_command(env: Any, vx: float, vy: float, wz: float) -> None:
         term._command[:, 2] = wz
 
 
+def enable_depth_image_debug_vis(target: object) -> None:
+    """Turn on InstinctMJ's ``debug_vis`` for the ``depth_image`` observation.
+
+    Training keeps it off. The observation manager deep-copies the env cfg, so play
+    has to patch the live ``term_cfg.params`` the manager actually ``**`` into the
+    term — writing ``env.cfg`` after construction is a no-op.
+    """
+    env = getattr(target, "unwrapped", target)
+    manager = getattr(env, "observation_manager", None)
+    names = getattr(manager, "_group_obs_term_names", None)
+    cfgs = getattr(manager, "_group_obs_term_cfgs", None)
+    if isinstance(names, dict) and isinstance(cfgs, dict):
+        for group, term_names in names.items():
+            for name, term_cfg in zip(term_names, cfgs.get(group, ()), strict=False):
+                if name != "depth_image":
+                    continue
+                params = getattr(term_cfg, "params", None)
+                if isinstance(params, dict):
+                    params["debug_vis"] = True
+        return
+    groups = getattr(target, "observations", None)
+    if groups is None:
+        return
+    items = groups.values() if isinstance(groups, dict) else vars(groups).values()
+    for group in items:
+        terms = getattr(group, "terms", None)
+        mapping = (
+            terms
+            if isinstance(terms, dict)
+            else {name: value for name, value in vars(group).items() if hasattr(value, "params")}
+        )
+        term = mapping.get("depth_image")
+        if term is None or not isinstance(getattr(term, "params", None), dict):
+            continue
+        term.params["debug_vis"] = True
+
+
+def enable_pose_command_debug_vis(target: object) -> None:
+    """Turn on InstinctMJ's parkour PLAY pose-target markers.
+
+    InstinctMJ's play factory sets ``commands["base_velocity"].debug_vis = True`` and
+    ``patch_vis = False``. Training leaves both off. The live command term holds the cfg
+    the viewer actually reads.
+    """
+    env = getattr(target, "unwrapped", target)
+    manager = getattr(env, "command_manager", None)
+    terms = getattr(manager, "_terms", None)
+    mapping = None
+    if isinstance(terms, dict):
+        mapping = terms
+    elif terms is not None:
+        try:
+            mapping = dict(terms)
+        except (TypeError, ValueError):
+            mapping = None
+    if mapping is not None:
+        term = mapping.get("base_velocity")
+        cfg = getattr(term, "cfg", None)
+        if cfg is not None:
+            cfg.debug_vis = True
+            if hasattr(cfg, "patch_vis"):
+                cfg.patch_vis = False
+            setter = getattr(term, "set_debug_vis", None)
+            if callable(setter):
+                setter(True)
+            return
+    commands = getattr(target, "commands", None)
+    if commands is None:
+        return
+    items = (
+        commands
+        if isinstance(commands, dict)
+        else {name: value for name, value in vars(commands).items() if not name.startswith("_")}
+    )
+    term = items.get("base_velocity")
+    if term is None:
+        return
+    term.debug_vis = True
+    if hasattr(term, "patch_vis"):
+        term.patch_vis = False
+
+
 def _import_viser():
     """Import Viser, preferring the env install over Isaac Sim's bundled websockets.
 
@@ -172,10 +255,16 @@ def play_with_viser(
     reload_policy: Callable[[str], Callable[[Any], Any]] | None = None,
     checkpoint_dir: Path | None = None,
 ) -> None:
-    """Run ``policy`` in ``env`` through mjlab's ``ViserPlayViewer``."""
+    """Run ``policy`` in ``env`` through mjlab's ``ViserPlayViewer``.
+
+    Depth images come from InstinctMJ's ``delayed_visualizable_image`` ``debug_vis`` path.
+    cv2 cannot open a window here, so the same uint8 buffer is shown as a Viser GUI image.
+    """
     del robot
     from mjlab.viewer import ViserPlayViewer
     from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
+
+    from instinctlab.mdp.observations import set_debug_image_sink
 
     viser = _import_viser()
     manager = None
@@ -205,7 +294,22 @@ def play_with_viser(
 
     server = viser.ViserServer(label="instinctlab", port=port)
     print(f"[INFO] Viser viewer: http://0.0.0.0:{port}", flush=True)
+    with server.gui.add_folder("Depth image"):
+        depth_handle = server.gui.add_image(
+            image=np.zeros((90, 160, 3), dtype=np.uint8),
+            label="depth_image",
+            format="jpeg",
+        )
+
+    def _show_depth(_window_name: str, img: np.ndarray) -> None:
+        rgb = np.repeat(img[..., None], 3, axis=-1) if img.ndim == 2 else img
+        depth_handle.image = rgb
+
+    set_debug_image_sink(_show_depth)
+    enable_depth_image_debug_vis(env)
+    enable_pose_command_debug_vis(env)
     try:
         ViserPlayViewer(env, policy, viser_server=server, checkpoint_manager=manager).run()
     finally:
+        set_debug_image_sink(None)
         server.stop()

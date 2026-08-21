@@ -40,6 +40,54 @@ def test_the_entry_point_exists(launcher: pathlib.Path) -> None:
     assert "def main(" in launcher.read_text()
 
 
+def test_play_dummy_agents_skip_the_checkpoint() -> None:
+    """mjlab play accepts --agent zero/random; those must not require a model_*.pt."""
+    tree = ast.parse(_PLAY.read_text())
+    choices: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        keywords = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+        dest = keywords.get("dest") or (node.args[0] if node.args else None)
+        name = dest.value if isinstance(dest, ast.Constant) else None
+        if name != "--agent":
+            continue
+        choice_node = keywords.get("choices")
+        if isinstance(choice_node, (ast.Tuple, ast.List)):
+            choices = {elt.value for elt in choice_node.elts if isinstance(elt, ast.Constant)}
+    assert choices == {"trained", "zero", "random"}
+
+    dummy_assign = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) and "zero" in ast.dump(node.value) and "random" in ast.dump(node.value)
+        ),
+        None,
+    )
+    assert dummy_assign is not None, "play.py lost the dummy-agent gate"
+    dummy_names = {t.id for t in dummy_assign.targets if isinstance(t, ast.Name)}
+    assert dummy_names, "dummy-agent gate must bind a name"
+
+    dummy_ifs = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id in dummy_names
+    ]
+    assert dummy_ifs, "play.py lost the dummy-agent branch"
+
+    def _called(nodes: list[ast.stmt], name: str) -> bool:
+        return any(
+            isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == name
+            for stmt in nodes
+            for call in ast.walk(stmt)
+        )
+
+    dummy_if = dummy_ifs[0]
+    assert not _called(dummy_if.body, "_resolve_checkpoint")
+    assert _called(dummy_if.orelse, "_resolve_checkpoint")
+
+
 @pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
 def test_the_entry_point_imports_no_engine(launcher: pathlib.Path) -> None:
     """Including inside functions: an engine imported anywhere here runs before ``bootstrap``."""

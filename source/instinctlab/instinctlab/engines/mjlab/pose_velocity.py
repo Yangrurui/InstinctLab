@@ -59,6 +59,7 @@ def build_command(spec: Any, ctx: Any) -> Any:
         ang_vel_metrics_std: float = fields["ang_vel_metrics_std"]
         rel_standing_envs: float = fields["rel_standing_envs"]
         target_dis_threshold: float = fields["target_dis_threshold"]
+        patch_vis: bool = False
 
         def build(self, env):
             return PoseVelocityCommand(self, env)

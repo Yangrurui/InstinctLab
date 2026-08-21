@@ -78,19 +78,18 @@ POSE_VELOCITY_PARAM_KEYS: frozenset[str] = frozenset(
 def command_params(params: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize a TermSpec's params into the fields both engine configs carry.
 
-    ``debug_vis=True`` is refused rather than stored. Wiring Isaac markers or mjlab's
-    ``DebugVisualizer`` is engine-specific and disproportionate for a command that parkour
-    trains with the flag off; keeping a True that draws nothing is the silent failure this
-    project refuses.
+    ``debug_vis=True`` is refused rather than stored. Training keeps the flag off (InstinctMJ
+    only sets it in the play factory). Play flips the live command term; putting True in a
+    TermSpec would turn drawing on for every training step.
     """
     unknown = sorted(set(params) - POSE_VELOCITY_PARAM_KEYS)
     if unknown:
         raise ValueError(f"pose_velocity does not honor {unknown}. It accepts {sorted(POSE_VELOCITY_PARAM_KEYS)}.")
     if params.get("debug_vis"):
         raise ValueError(
-            "pose_velocity debug visualization is not wired. Isaac marker configs and mjlab's "
-            "DebugVisualizer are engine-specific; a True flag that draws nothing is a silently "
-            "dead switch. Set debug_vis=False."
+            "pose_velocity debug visualization is not wired through TermSpec. InstinctMJ "
+            "turns it on only in the play factory; play patches the live command term. "
+            "Set debug_vis=False."
         )
     required = ("resampling_time_range", "lin_vel_x", "lin_vel_y", "ang_vel_z")
     missing = [key for key in required if key not in params]
@@ -447,3 +446,88 @@ class PoseVelocityMixin:
         self.vel_command_b[random_velocity_env_ids, 0] = self.random_lin_vel_x[random_velocity_env_ids]
         self.vel_command_b[random_velocity_env_ids, 1] = self.random_lin_vel_y[random_velocity_env_ids]
         self.vel_command_b[random_velocity_env_ids, 2] = self.random_ang_vel_z[random_velocity_env_ids]
+
+    def _debug_vis_impl(self, visualizer) -> None:
+        """Draw the pose target and velocity arrows. Copied from InstinctMJ's PoseVelocityCommand."""
+        if self.num_envs <= 0:
+            return
+
+        pos_commands_w = self.pos_command_w.cpu().numpy()
+        vel_commands_b = self.vel_command_b.cpu().numpy()
+        base_pos_ws = self.robot.data.root_link_pos_w.cpu().numpy()
+        base_quat_ws = self.robot.data.root_link_quat_w.cpu().numpy()
+        lin_vel_bs = self.robot.data.root_link_lin_vel_b.cpu().numpy()
+
+        goal_radius = self.cfg.target_dis_threshold
+        goal_height = 0.1
+        patch_height = 0.05
+        arrow_z_offset = 0.5
+        arrow_scale = 0.5
+        env_indices = range(self.num_envs)
+
+        if getattr(self.cfg, "patch_vis", False):
+            flat_patches = self.valid_targets.reshape(-1, 3).cpu().numpy()
+            for i, patch_pos in enumerate(flat_patches):
+                if np.linalg.norm(patch_pos) < 1e-6:
+                    continue
+                patch_start = patch_pos.copy()
+                patch_end = patch_pos.copy()
+                patch_end[2] += patch_height
+                visualizer.add_cylinder(
+                    start=patch_start,
+                    end=patch_end,
+                    radius=goal_radius,
+                    color=(0.0, 0.0, 1.0, 0.3),
+                    label=f"patch_{i}",
+                )
+
+        for batch in env_indices:
+            if np.linalg.norm(base_pos_ws[batch]) < 1e-6:
+                continue
+
+            goal_pos = pos_commands_w[batch]
+            goal_start = goal_pos.copy()
+            goal_end = goal_pos.copy()
+            goal_end[2] += goal_height
+            visualizer.add_cylinder(
+                start=goal_start,
+                end=goal_end,
+                radius=goal_radius,
+                color=(1.0, 0.0, 0.0, 0.6),
+                label=f"goal_{batch}",
+            )
+
+            base_pos = base_pos_ws[batch]
+            arrow_start = base_pos.copy()
+            arrow_start[2] += arrow_z_offset
+
+            vel_cmd_b = vel_commands_b[batch]
+            quat_w = base_quat_ws[batch]
+            yaw = np.arctan2(
+                2.0 * (quat_w[0] * quat_w[3] + quat_w[1] * quat_w[2]), 1.0 - 2.0 * (quat_w[2] ** 2 + quat_w[3] ** 2)
+            )
+            cos_yaw = np.cos(yaw)
+            sin_yaw = np.sin(yaw)
+            vel_cmd_w = np.array(
+                [cos_yaw * vel_cmd_b[0] - sin_yaw * vel_cmd_b[1], sin_yaw * vel_cmd_b[0] + cos_yaw * vel_cmd_b[1], 0.0]
+            )
+
+            visualizer.add_arrow(
+                start=arrow_start,
+                end=arrow_start + vel_cmd_w * arrow_scale,
+                color=(0.1, 1.0, 0.1, 0.8),
+                width=0.02,
+                label=f"cmd_vel_{batch}",
+            )
+
+            lin_vel_b = lin_vel_bs[batch]
+            vel_actual_w = np.array(
+                [cos_yaw * lin_vel_b[0] - sin_yaw * lin_vel_b[1], sin_yaw * lin_vel_b[0] + cos_yaw * lin_vel_b[1], 0.0]
+            )
+            visualizer.add_arrow(
+                start=arrow_start,
+                end=arrow_start + vel_actual_w * arrow_scale,
+                color=(0.1, 0.1, 1.0, 0.8),
+                width=0.02,
+                label=f"actual_vel_{batch}",
+            )

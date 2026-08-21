@@ -11,6 +11,7 @@ Usage::
 
     python scripts/play.py --engine isaacsim --task Instinct-Velocity-Flat-G1 --viewer viser --headless
     python scripts/play.py --engine mjlab --task Instinct-Velocity-Flat-G1 --viewer viser
+    python scripts/play.py --engine mjlab --task Instinct-Parkour-Target-G1 --viewer viser --agent random
 """
 
 from __future__ import annotations
@@ -35,6 +36,13 @@ def _parse() -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--task", type=str, default="Instinct-Velocity-Flat-G1", help="Task id to play.")
     parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to a model_*.pt file.")
+    parser.add_argument(
+        "--agent",
+        type=str,
+        default="trained",
+        choices=("trained", "zero", "random"),
+        help="trained loads a checkpoint; zero/random skip it and ignore the observation.",
+    )
     parser.add_argument(
         "--load_run", type=str, default=None, help="Run directory name under logs/<engine>/. Latest if omitted."
     )
@@ -113,25 +121,52 @@ def main() -> None:
     compiled = engine.compile(spec, num_envs=args.num_envs, device=args.device, strict=args.strict)
     _silence_observation_noise(compiled.env_cfg)
     compiled.env_cfg.seed = compiled.agent_cfg.seed
-
-    checkpoint = _resolve_checkpoint(args, compiled.agent_cfg.experiment_name)
     print(compiled.resolution.summary_table())
-    print(f"[INFO] Loading {checkpoint}", flush=True)
 
     env = engine.wrap_for_rl(compiled.make_env())
-    from instinct_rl.runners import OnPolicyRunner
+    dummy = args.agent in {"zero", "random"}
+    reload_policy = None
+    checkpoint_dir = None
+    if dummy:
+        import torch
 
-    agent_cfg = compiled.agent_cfg
-    agent_cfg.device = args.device
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=args.device)
-    runner.load(str(checkpoint))
-    policy = runner.get_inference_policy(device=args.device)
+        action_shape = tuple(env.unwrapped.action_space.shape)
+        device = env.unwrapped.device
+        if args.agent == "zero":
 
-    def reload_policy(path: str):
-        runner.load(path)
-        return runner.get_inference_policy(device=args.device)
+            def policy(obs):
+                del obs
+                return torch.zeros(action_shape, device=device)
+
+        else:
+
+            def policy(obs):
+                del obs
+                return 2 * torch.rand(action_shape, device=device) - 1
+
+        print(f"[INFO] Using {args.agent} actions (no checkpoint)", flush=True)
+    else:
+        checkpoint = _resolve_checkpoint(args, compiled.agent_cfg.experiment_name)
+        print(f"[INFO] Loading {checkpoint}", flush=True)
+        from instinct_rl.runners import OnPolicyRunner
+
+        agent_cfg = compiled.agent_cfg
+        agent_cfg.device = args.device
+        runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=args.device)
+        runner.load(str(checkpoint))
+        policy = runner.get_inference_policy(device=args.device)
+
+        def reload_policy(path: str):
+            runner.load(path)
+            return runner.get_inference_policy(device=args.device)
+
+        checkpoint_dir = checkpoint.parent
 
     viewer = _resolve_viewer(args.viewer)
+    from instinctlab.play.viser import enable_depth_image_debug_vis, enable_pose_command_debug_vis
+
+    enable_depth_image_debug_vis(env)
+    enable_pose_command_debug_vis(env)
     print(f"[INFO] Playing {args.task} on {args.engine} with {viewer}", flush=True)
     engine.play(
         PlayEnv(env),
@@ -141,7 +176,7 @@ def main() -> None:
         spec=spec,
         port=args.port,
         reload_policy=reload_policy,
-        checkpoint_dir=checkpoint.parent,
+        checkpoint_dir=checkpoint_dir,
         strict=args.strict,
     )
     env.close()
