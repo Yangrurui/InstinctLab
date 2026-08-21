@@ -6,6 +6,7 @@ import ast
 import importlib.util
 import json
 import numpy as np
+import subprocess
 import sys
 from pathlib import Path
 
@@ -134,6 +135,17 @@ def test_output_schema_keys(probe):
 
 def test_instinctmj_reference_camera_uses_groups_012(probe):
     assert probe.instinctmj_reference_camera_geom_groups() == (0, 1, 2)
+
+
+def test_reference_camera_reader_works_without_repo_on_pythonpath():
+    code = (
+        "import importlib.util; "
+        f"p={str(SCRIPT)!r}; "
+        "s=importlib.util.spec_from_file_location('probe', p); "
+        "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+        "assert m.instinctmj_reference_camera_geom_groups() == (0, 1, 2)"
+    )
+    subprocess.run([sys.executable, "-c", code], cwd="/tmp", check=True)
 
 
 def test_native_camera_metadata_keeps_hop(probe):

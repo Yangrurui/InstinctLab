@@ -58,6 +58,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -564,11 +565,16 @@ CAMERA_SEMANTICS_CHOICES = (CAMERA_SEMANTICS_NATIVE, CAMERA_SEMANTICS_INSTINCTMJ
 
 def instinctmj_reference_camera_geom_groups() -> tuple[int, ...]:
     """Geom groups InstinctMJ parkour camera inherits from mjlab ``RayCastSensorCfg``."""
-    from tests.reference_mjlab_parkour import available, camera_include_geom_groups
+    reader_path = Path(__file__).resolve().parents[1] / "tests" / "reference_mjlab_parkour.py"
+    spec = importlib.util.spec_from_file_location("_instinctmj_parkour_reference", reader_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load InstinctMJ reference reader from {reader_path}")
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
 
-    if not available():
+    if not reader.available():
         raise FileNotFoundError("InstinctMJ reference tree is not checked out")
-    groups = camera_include_geom_groups()
+    groups = reader.camera_include_geom_groups()
     if groups is None:
         raise RuntimeError("InstinctMJ parkour camera would include all geom groups, not (0, 1, 2)")
     return groups
