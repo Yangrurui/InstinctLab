@@ -641,12 +641,7 @@ def test_isaac_and_mjlab_agree_on_the_motor_buses() -> None:
 
 
 def test_depth_history_reset_matches_instinctmj_sensor_buffer() -> None:
-    """Ours now zeros the 37-slot ring the way InstinctMJ zeros the camera buffer.
-
-    InstinctMJ's obs term only redraws delay; the sensor ``AsyncCircularBuffer.reset``
-    is what actually clears history. This test reads those files (missing → fail)
-    and then checks our term, which owns the ring, does the same clear.
-    """
+    """History clears on camera reset; obs-term reset only redraws delay (InstinctMJ/main)."""
     facts = mj_ref.depth_history_reset()
     assert facts["camera_reset_calls_reset_history_buffers"] is True, facts
     assert facts["history_buffers_reset_calls_buffer_reset"] is True, facts
@@ -696,6 +691,9 @@ def test_depth_history_reset_matches_instinctmj_sensor_buffer() -> None:
     for _ in range(4):
         term(env, sensor)
     term.reset(env_ids=torch.tensor([0]))
+    assert float(term._history[0].abs().max()) > 0.0
+    assert float(term._history[1].abs().max()) > 0.0
+    term.clear_history(env_ids=torch.tensor([0]))
     assert float(term._history[0].abs().max()) == 0.0
     assert float(term._history[1].abs().max()) > 0.0
     assert not bool(term._primed[0])
@@ -744,6 +742,7 @@ def test_depth_history_first_push_matches_instinctmj_sensor_buffer() -> None:
     )
     term = DelayedDepthImage(cfg, env)
     raw.fill_(1.25)
+    term.clear_history(env_ids=torch.tensor([0]))
     term.reset(env_ids=torch.tensor([0]))
     term._delay.fill_(0)
     out = term(env, sensor)

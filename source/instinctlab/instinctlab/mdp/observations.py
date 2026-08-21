@@ -37,6 +37,7 @@ from instinctlab.spec.sensor import RayCasterRef
 
 __all__ = [
     "DelayedDepthImage",
+    "clear_delayed_depth_history",
     "base_ang_vel",
     "base_lin_vel",
     "generated_commands",
@@ -175,19 +176,12 @@ class DelayedDepthImage:
                 f"({needed + max_delay} slots required)."
             )
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
-        """Resample delay and zero this term's 37-slot ring for the selected envs.
+    def clear_history(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        """Zero the 37-slot ring for selected envs. Called on episode reset, not on obs-term reset.
 
-        InstinctMJ clears the camera ``AsyncCircularBuffer`` on those ``env_ids``
-        (``_buffer[:, ids] = 0``, ``_num_pushes[ids] = 0``). This term owns the
-        equivalent history, so a reset that only redrew delay left old-episode
-        frames in the other 36 slots. ``_write`` is one pointer for the whole
-        batch and is left alone: moving it would reorder unreset envs.
-
-        Do not read the camera here. The next ``__call__`` for these envs primes
-        every slot with that call's processed frame, matching InstinctMJ's
-        first-push fill. ``_primed`` is the per-env mask that makes a subset
-        reset safe next to the global write pointer.
+        InstinctMJ and main Isaac parkour clear the camera ``AsyncCircularBuffer`` from the sensor
+        ``reset``; ``delayed_visualizable_image.reset`` only redraws delay. This term owns the ring
+        on compiled/mjlab engines, so engines call this hook when the camera resets.
         """
         if env_ids is None:
             env_ids = slice(None)
@@ -199,6 +193,17 @@ class DelayedDepthImage:
                 env_ids = env_ids.unsqueeze(0)
         self._history[env_ids] = 0
         self._primed[env_ids] = False
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        """Resample per-env delay only, matching ``delayed_visualizable_image.reset``."""
+        if env_ids is None:
+            env_ids = slice(None)
+        elif isinstance(env_ids, torch.Tensor):
+            if env_ids.numel() == 0:
+                return
+            env_ids = env_ids.to(device=self._history.device, dtype=torch.long)
+            if env_ids.ndim == 0:
+                env_ids = env_ids.unsqueeze(0)
         n = self._delay[env_ids].shape[0]
         lo, hi = self.delayed_frame_ranges
         self._delay[env_ids] = torch.randint(int(lo), int(hi) + 1, (n,), device=self._delay.device)
@@ -233,6 +238,19 @@ class DelayedDepthImage:
         )
         batch = torch.arange(linear.shape[0], device=linear.device).unsqueeze(1).expand_as(indices)
         return linear[batch, indices]
+
+
+def clear_delayed_depth_history(env: RlEnv, env_ids: torch.Tensor | slice | None = None) -> None:
+    """Episode-reset hook: clear ``DelayedDepthImage`` rings the way a camera sensor reset would."""
+    manager = getattr(env, "observation_manager", None)
+    if manager is None:
+        return
+    cfgs = getattr(manager, "_group_obs_term_cfgs", {})
+    for group_cfgs in cfgs.values():
+        for cfg in group_cfgs:
+            term = getattr(cfg, "func", None)
+            if isinstance(term, DelayedDepthImage):
+                term.clear_history(env_ids)
 
 
 def _process_depth_image(image: torch.Tensor, sensor: RayCasterRef, kernel_size: int, sigma: float) -> torch.Tensor:

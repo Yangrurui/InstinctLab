@@ -338,11 +338,21 @@ def test_delayed_depth_partial_reset_clears_only_selected_envs() -> None:
     kept = term._history[0].clone()
     assert float(term._history.abs().max()) > 0.0
     write_before = term._write
-    term.reset(env_ids=torch.tensor([1, 2], dtype=torch.int32))
+    term.clear_history(env_ids=torch.tensor([1, 2], dtype=torch.int32))
     assert torch.equal(term._history[0], kept)
     assert float(term._history[1].abs().max()) == 0.0
     assert float(term._history[2].abs().max()) == 0.0
     assert term._write == write_before
+
+
+def test_delayed_depth_reset_only_resamples_delay() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=2)
+    raw.fill_(1.25)
+    term(env, sensor)
+    before = term._history.clone()
+    term.reset(env_ids=torch.tensor([0], dtype=torch.int32))
+    assert torch.equal(term._history[0], before[0])
+    assert float(term._history[0].abs().max()) > 0.0
 
 
 def test_delayed_depth_full_reset_clears_every_env() -> None:
@@ -350,9 +360,9 @@ def test_delayed_depth_full_reset_clears_every_env() -> None:
     raw.fill_(0.8)
     for _ in range(4):
         term(env, sensor)
-    term.reset()
+    term.clear_history()
     assert float(term._history.abs().max()) == 0.0
-    term.reset(env_ids=None)
+    term.clear_history(env_ids=None)
     assert float(term._history.abs().max()) == 0.0
 
 
@@ -370,11 +380,11 @@ def test_delayed_depth_reset_empty_ids_is_a_noop() -> None:
 def test_delayed_depth_reset_accepts_scalar_and_foreign_device_ids() -> None:
     term, _env, _sensor, _raw = _delayed_depth_term(num_envs=2)
     term._history[1] = 0.3
-    term.reset(env_ids=torch.tensor(1, dtype=torch.int64))
+    term.clear_history(env_ids=torch.tensor(1, dtype=torch.int64))
     assert float(term._history[1].abs().max()) == 0.0
     term._history[0] = 0.2
     cpu_ids = torch.tensor([0], device="cpu", dtype=torch.int32)
-    term.reset(env_ids=cpu_ids)
+    term.clear_history(env_ids=cpu_ids)
     assert float(term._history[0].abs().max()) == 0.0
 
 
@@ -405,7 +415,7 @@ def test_delayed_depth_subset_reset_does_not_prime_unreset_envs() -> None:
     kept = term._history[0].clone()
     primed_before = term._primed.clone()
     write_before = term._write
-    term.reset(env_ids=torch.tensor([1, 2]))
+    term.clear_history(env_ids=torch.tensor([1, 2]))
     assert torch.equal(term._history[0], kept)
     assert bool(term._primed[0]) == bool(primed_before[0])
     assert not bool(term._primed[1])
@@ -457,7 +467,7 @@ def test_delayed_depth_first_output_after_reset_has_no_old_frames() -> None:
     old = term(env, sensor)
     assert float(old.abs().max()) > 0.0
     kept = term._history[1].clone()
-    term.reset(env_ids=torch.tensor([0]))
+    term.clear_history(env_ids=torch.tensor([0]))
     term._delay[0] = 0
     term._delay[1] = 0
     raw.fill_(1.25)

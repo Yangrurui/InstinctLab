@@ -178,6 +178,8 @@ class IsaacSimAdapter:
         from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
         from isaaclab.sim import SimulationCfg
 
+        from .env import InstinctManagerBasedRLEnv
+
         profile = self.profile(spec)
         resolution = Resolution(
             engine=self.name,
@@ -224,7 +226,7 @@ class IsaacSimAdapter:
             sim=sim,
         )
         return CompiledTask(
-            env_cls=ManagerBasedRLEnv,
+            env_cls=InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv),
             env_cfg=env_cfg,
             resolution=resolution,
             agent_factory=lambda: spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),

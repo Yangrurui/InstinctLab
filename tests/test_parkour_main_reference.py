@@ -314,7 +314,7 @@ def test_env_entry_class_drift_is_guarded_without_isaacsim() -> None:
     """KNOWN_DRIFTS['env/entry_class']: main InstinctRlEnv vs our ManagerBasedRLEnv compile path."""
     assert main_ref.uses_instinct_rl_env()
     isaac_adapter = (REPO / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py").read_text()
-    assert "env_cls=ManagerBasedRLEnv" in isaac_adapter
+    assert "InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)" in isaac_adapter
     assert "InstinctRlEnv" not in isaac_adapter
     train = (REPO / "scripts/train.py").read_text()
     assert "InstinctRlEnv" not in train
@@ -407,7 +407,7 @@ def test_documented_drifts_are_still_present(task) -> None:
         Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py"
     ).read_text()
     assert main_ref.uses_instinct_rl_env()
-    assert "env_cls=ManagerBasedRLEnv" in isaac_adapter
+    assert "InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)" in isaac_adapter
     assert "InstinctRlEnv" not in isaac_adapter
 
 
