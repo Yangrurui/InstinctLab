@@ -39,6 +39,7 @@ def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
         assert_known_volume_penetration,
         assert_known_volume_spin_velocity,
         assert_parkour_live_invariants,
+        assert_policy_joint_dfs_runtime_semantics,
         assert_rewards_finite_and_alive,
         assert_terrain_generated_cylinder_penetration,
         assert_volume_points_registered,
@@ -81,5 +82,6 @@ def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
         assert dims == {"policy": 896, "critic": 920}
         env.reset()
         assert_rewards_finite_and_alive(env, steps=8, device=device)
+        assert_policy_joint_dfs_runtime_semantics(env, spec, device=device)
     finally:
         env.close()

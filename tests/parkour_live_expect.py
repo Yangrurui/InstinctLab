@@ -548,6 +548,143 @@ def canonical_joint_ids(robot, spec) -> list[int]:
     return [native.index(name) for name in spec.robot.joint_names]
 
 
+POLICY_JOINT_HISTORY_LENGTH = 8
+POLICY_JOINT_COUNT = 29
+JOINT_DFS_SEMANTICS_ATOL = 1e-5
+JOINT_DFS_SEMANTICS_RTOL = 1e-5
+
+
+def _policy_obs_term_cfg(env, term_name: str):
+    obs_mgr = env.observation_manager
+    names = obs_mgr._group_obs_term_names["policy"]
+    cfgs = obs_mgr._group_obs_term_cfgs["policy"]
+    return cfgs[names.index(term_name)]
+
+
+def _resolved_joint_ids(term_cfg) -> list[int]:
+    params = getattr(term_cfg, "params", None) or {}
+    asset_cfg = params.get("asset_cfg")
+    assert asset_cfg is not None, "policy joint term requires asset_cfg"
+    joint_ids = asset_cfg.joint_ids
+    assert joint_ids is not None, "joint_ids were not resolved at runtime"
+    if isinstance(joint_ids, slice):
+        return list(range(POLICY_JOINT_COUNT))
+    if hasattr(joint_ids, "tolist"):
+        return [int(i) for i in joint_ids.tolist()]
+    return [int(i) for i in joint_ids]
+
+
+def _scaled_instant_obs(env, term_cfg):
+    """Instant term value with scale applied, without noise (semantic ground truth)."""
+    import torch
+
+    with torch.inference_mode():
+        obs = term_cfg.func(env, **term_cfg.params).clone()
+    scale = getattr(term_cfg, "scale", None)
+    if scale is not None:
+        obs = obs.mul(scale)
+    return obs
+
+
+def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None:
+    """Live guard: policy joint axes are catalog DFS and default indexing is correct.
+
+    Cross-checks ``tests/test_parkour_main_reference.py::test_main_leaves_policy_and_action_joints_in_entity_order``
+    (static cfg) without constructing main's env. Matches the /tmp joint-semantics probe:
+    reset observation/action history, fill eight identical frames, then compare each history
+    slice to the scaled instantaneous ``joint_pos_rel`` / ``joint_vel_rel`` / ``last_action``.
+    """
+    import torch
+
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
+
+    robot = env.scene["robot"]
+    native = list(robot.joint_names)
+    canonical = list(spec.robot.joint_names)
+    assert len(canonical) == POLICY_JOINT_COUNT
+    assert tuple(canonical) == G1_29DOF_DFS_JOINT_NAMES
+    assert list(spec.robot.joint_names)[0] == "waist_pitch_joint"
+    assert native.index("waist_pitch_joint") != 0, "PhysX native order must stay BFS, not DFS"
+
+    expected_ids = canonical_joint_ids(robot, spec)
+    assert len(expected_ids) == POLICY_JOINT_COUNT
+
+    joint_terms = ("joint_pos", "joint_vel")
+    term_cfgs = {name: _policy_obs_term_cfg(env, name) for name in (*joint_terms, "actions")}
+    for name in joint_terms:
+        ids = _resolved_joint_ids(term_cfgs[name])
+        axis_names = [native[i] for i in ids]
+        assert axis_names == canonical, f"policy/{name} output axis is not catalog DFS"
+        assert ids == expected_ids, f"policy/{name} joint_ids != name-gathered DFS indices"
+
+    driven = driven_joint_names(env.action_manager.get_term("joint_pos"))
+    assert driven == canonical
+
+    env_idx = 0
+    ids_t = torch.as_tensor(expected_ids, device=device)
+    q = robot.data.joint_pos[env_idx]
+    d = robot.data.default_joint_pos[env_idx]
+    qd = robot.data.joint_vel[env_idx]
+    dd = robot.data.default_joint_vel[env_idx]
+    manual_pos_rel = q[ids_t] - d[ids_t]
+    manual_vel_rel = qd[ids_t] - dd[ids_t]
+
+    for name in joint_terms:
+        term_cfgs[name].noise = None
+    term_cfgs["actions"].noise = None
+
+    instant_pos = _scaled_instant_obs(env, term_cfgs["joint_pos"])[env_idx]
+    instant_vel = _scaled_instant_obs(env, term_cfgs["joint_vel"])[env_idx]
+    expected_vel = manual_vel_rel
+    vel_scale = term_cfgs["joint_vel"].scale
+    if vel_scale is not None:
+        expected_vel = manual_vel_rel * vel_scale
+    torch.testing.assert_close(
+        instant_pos,
+        manual_pos_rel,
+        atol=JOINT_DFS_SEMANTICS_ATOL,
+        rtol=JOINT_DFS_SEMANTICS_RTOL,
+        msg="newest-frame joint_pos_rel must match qpos-default gathered by joint name",
+    )
+    torch.testing.assert_close(
+        instant_vel,
+        expected_vel,
+        atol=JOINT_DFS_SEMANTICS_ATOL,
+        rtol=JOINT_DFS_SEMANTICS_RTOL,
+        msg="newest-frame joint_vel_rel must match scaled qvel-default gathered by joint name",
+    )
+
+    env_ids = torch.arange(env.num_envs, device=device)
+    env.observation_manager.reset(env_ids)
+    env.action_manager.reset(env_ids)
+    for _ in range(POLICY_JOINT_HISTORY_LENGTH):
+        env.scene.write_data_to_sim()
+        if hasattr(env.sim, "forward"):
+            env.sim.forward()
+        if hasattr(env.sim, "sense"):
+            env.sim.sense()
+        env.observation_manager.compute(update_history=True)
+
+    obs_mgr = env.observation_manager
+    expected_by_term = {
+        "joint_pos": instant_pos,
+        "joint_vel": expected_vel,
+        "actions": torch.zeros(POLICY_JOINT_COUNT, device=device),
+    }
+    for term_name, expected in expected_by_term.items():
+        history = obs_mgr._group_obs_term_history_buffer["policy"][term_name].buffer
+        assert history.shape[1] == POLICY_JOINT_HISTORY_LENGTH, term_name
+        assert history.shape[2] == POLICY_JOINT_COUNT, term_name
+        for frame in range(POLICY_JOINT_HISTORY_LENGTH):
+            torch.testing.assert_close(
+                history[env_idx, frame],
+                expected,
+                atol=JOINT_DFS_SEMANTICS_ATOL,
+                rtol=JOINT_DFS_SEMANTICS_RTOL,
+                msg=f"policy/{term_name} history frame {frame} must match DFS-ordered semantic value",
+            )
+
+
 def assert_amp_same_function(env, spec, *, device: str) -> None:
     """Write clip frame 0 onto the robot; policy AMP must match reference AMP.
 
