@@ -8,34 +8,18 @@ Kit must start before ``torch`` is imported. Default ``pytest tests/`` deselects
 
 from __future__ import annotations
 
-import argparse
-import sys
-
 import pytest
 
+from tests.isaacsim_app import ensure_isaac_app
 from tests.parkour_live_expect import ISAAC_PROPORTION_COLUMNS, resolve_live_device
 
 pytestmark = pytest.mark.isaacsim
 
 
-def _launch(*, device: str):
-    pytest.importorskip("isaaclab")
-    from isaaclab.app import AppLauncher
-
-    parser = argparse.ArgumentParser()
-    AppLauncher.add_app_launcher_args(parser)
-    argv = ["--headless", "--device", device]
-    previous = sys.argv
-    sys.argv = [previous[0], *argv]
-    try:
-        return AppLauncher(parser.parse_args(argv))
-    finally:
-        sys.argv = previous
-
-
 def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
     device = resolve_live_device()
-    _launch(device=device)
+    pytest.importorskip("isaaclab")
+    ensure_isaac_app(device=device)
 
     import torch
 

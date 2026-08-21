@@ -637,24 +637,16 @@ def test_parkour_robot_matches_main_on_the_three_task_overrides(task) -> None:
 def test_compiled_isaac_robot_matches_main_plant_and_keeps_documented_sim_drifts() -> None:
     """One Kit session: compile and read the fields the static audit flagged."""
     pytest.importorskip("isaaclab")
-    import argparse
+    from tests.isaacsim_app import ensure_isaac_app
+    from tests.live_device import resolve_live_device
 
-    from isaaclab.app import AppLauncher
-
-    parser = argparse.ArgumentParser()
-    AppLauncher.add_app_launcher_args(parser)
-    argv = ["--headless", "--device", "cuda:0"]
-    previous = sys.argv
-    sys.argv = [previous[0], *argv]
-    try:
-        AppLauncher(parser.parse_args(argv))
-    finally:
-        sys.argv = previous
+    device = resolve_live_device()
+    ensure_isaac_app(device=device)
 
     from instinctlab.engines.isaacsim import IsaacSimAdapter
 
     spec = parkour_target_g1()
-    compiled = IsaacSimAdapter().compile(spec, num_envs=16, device="cuda:0")
+    compiled = IsaacSimAdapter().compile(spec, num_envs=16, device=device)
     robot = compiled.env_cfg.scene.robot
     sim = compiled.env_cfg.sim
 

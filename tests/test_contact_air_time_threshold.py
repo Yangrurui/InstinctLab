@@ -129,21 +129,10 @@ def test_isaac_carries_the_declared_threshold_onto_its_own_field() -> None:
     under any invocation. It looked like an environment problem rather than a broken test,
     which is how it survived being written and read.
     """
-    import argparse
-    import sys
-
     pytest.importorskip("isaaclab")
-    from isaaclab.app import AppLauncher
+    from tests.isaacsim_app import ensure_isaac_app
 
-    parser = argparse.ArgumentParser()
-    AppLauncher.add_app_launcher_args(parser)
-    argv = ["--headless", "--device", "cpu"]
-    previous = sys.argv
-    sys.argv = [previous[0], *argv]
-    try:
-        AppLauncher(parser.parse_args(argv))
-    finally:
-        sys.argv = previous
+    ensure_isaac_app()
 
     from instinctlab.engines.isaacsim.scene import _contact_sensor
 

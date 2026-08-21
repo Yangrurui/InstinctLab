@@ -6,28 +6,16 @@ pytest at module level. Do not collect it in the same process as mjlab cells.
 
 from __future__ import annotations
 
-import argparse
-
 import pytest
+
+from tests.isaacsim_app import ensure_isaac_app
 
 pytestmark = pytest.mark.isaacsim
 
 
-def _launch_isaac(device: str = "cuda:0"):
+def _launch_isaac():
     pytest.importorskip("isaaclab")
-    import sys
-
-    from isaaclab.app import AppLauncher
-
-    parser = argparse.ArgumentParser()
-    AppLauncher.add_app_launcher_args(parser)
-    argv = ["--headless", "--device", device]
-    previous = sys.argv
-    sys.argv = [previous[0], *argv]
-    try:
-        return AppLauncher(parser.parse_args(argv))
-    finally:
-        sys.argv = previous
+    return ensure_isaac_app()
 
 
 @pytest.fixture(scope="module")

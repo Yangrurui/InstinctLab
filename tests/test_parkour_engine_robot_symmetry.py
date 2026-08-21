@@ -359,24 +359,15 @@ def test_isaac_compiled_robot_matches_mjlab_on_the_actuation_axes(spec) -> None:
     read, which is the only place it can hold when they cannot be alive together.
     """
     pytest.importorskip("isaaclab")
-    import argparse
-    import sys
+    from tests.isaacsim_app import ensure_isaac_app
+    from tests.live_device import resolve_live_device
 
-    from isaaclab.app import AppLauncher
-
-    parser = argparse.ArgumentParser()
-    AppLauncher.add_app_launcher_args(parser)
-    argv = ["--headless", "--device", "cuda:0"]
-    previous = sys.argv
-    sys.argv = [previous[0], *argv]
-    try:
-        AppLauncher(parser.parse_args(argv))
-    finally:
-        sys.argv = previous
+    device = resolve_live_device()
+    ensure_isaac_app(device=device)
 
     from instinctlab.engines.isaacsim import IsaacSimAdapter
 
-    isaac_robot = IsaacSimAdapter().compile(spec, num_envs=16, device="cuda:0").env_cfg.scene.robot
+    isaac_robot = IsaacSimAdapter().compile(spec, num_envs=16, device=device).env_cfg.scene.robot
     assert isaac_robot.init_state.pos[2] == pytest.approx(spec.robot.default_root_pos[2]) == SPAWN_Z
     assert isaac_robot.spawn.merge_fixed_joints is True
     assert isaac_robot.spawn.asset_path.endswith(SHOE_URDF)

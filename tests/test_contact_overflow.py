@@ -25,6 +25,12 @@ from instinctlab.utils.contact_overflow import (
     format_overflow_message,
     overflow_allowed,
 )
+from tests.isaacsim_app import (
+    file_has_isaacsim_mark,
+    invocation_is_single_file,
+    isaacsim_module_paths,
+    selects_isaacsim_session,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 ENTRY = REPO / "scripts" / "train.py"
@@ -383,6 +389,120 @@ def _calls_check_contact_overflow(fn: ast.FunctionDef, *, phase: str) -> bool:
 def test_pytest_ini_puts_the_repo_root_on_pythonpath() -> None:
     text = (REPO / "pytest.ini").read_text()
     assert "pythonpath = ." in text
+
+
+def test_ensure_isaac_app_is_idempotent_without_launching_kit() -> None:
+    """The guard that stops a second AppLauncher must not itself start Kit."""
+    from tests import isaacsim_app
+
+    sentinel = object()
+    previous = isaacsim_app._APP
+    isaacsim_app._APP = sentinel
+    try:
+        assert isaacsim_app.ensure_isaac_app() is sentinel
+        assert isaacsim_app.ensure_isaac_app(device="cuda:9") is sentinel
+    finally:
+        isaacsim_app._APP = previous
+
+
+def test_isaacsim_live_files_do_not_construct_app_launcher_themselves() -> None:
+    """A second AppLauncher in the same process hangs; live files must share one.
+
+    ``pytest tests -m isaacsim`` collects every marked file into one process.
+    Each file used to construct ``AppLauncher`` itself. The second call tears
+    the first Kit down and never returns (CPU ~100%, GPU 0, SIGTERM ignored).
+    """
+    offenders: list[str] = []
+    for path in sorted((REPO / "tests").rglob("test_*.py")):
+        tree = ast.parse(path.read_text())
+        if not file_has_isaacsim_mark(tree):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and (
+                (isinstance(node.func, ast.Name) and node.func.id == "AppLauncher")
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "AppLauncher")
+            ):
+                offenders.append(str(path.relative_to(REPO)))
+                break
+    assert offenders == [], f"isaacsim live files must call ensure_isaac_app: {offenders}"
+
+
+def test_isaacsim_mark_is_not_a_string_that_merely_says_isaacsim() -> None:
+    """Parametrize ids and engine tables mention isaacsim; they are not live Kit tests."""
+    assert file_has_isaacsim_mark(REPO / "tests/simulators/test_isaacsim_behavior.py")
+    assert file_has_isaacsim_mark(REPO / "tests/test_isaac_contact_budget_live.py")
+    assert file_has_isaacsim_mark(REPO / "tests/test_contact_air_time_threshold.py")
+    assert not file_has_isaacsim_mark(REPO / "tests/test_compat_sensors.py")
+    assert not file_has_isaacsim_mark(REPO / "tests/test_compat_env.py")
+    assert not file_has_isaacsim_mark(REPO / "tests/test_contact_overflow_mjlab_live.py")
+
+
+def test_isaacsim_parent_invocation_is_the_directory_not_one_file() -> None:
+    """The combined suite must fork modules; a single-file run must not."""
+    from types import SimpleNamespace
+
+    assert invocation_is_single_file(SimpleNamespace(args=[str(REPO / "tests/test_isaac_contact_budget_live.py")]))
+    assert not invocation_is_single_file(SimpleNamespace(args=[str(REPO / "tests")]))
+    assert not invocation_is_single_file(SimpleNamespace(args=[]))
+
+
+def test_isaacsim_module_paths_keep_collection_order_without_duplicates() -> None:
+    from types import SimpleNamespace
+
+    a = Path("tests/simulators/test_isaacsim_behavior.py")
+    b = Path("tests/test_isaac_contact_budget_live.py")
+    items = [SimpleNamespace(path=a), SimpleNamespace(path=a), SimpleNamespace(path=b)]
+    assert isaacsim_module_paths(items) == [a, b]
+
+
+def test_selects_isaacsim_session_only_when_the_suite_is_requested() -> None:
+    assert selects_isaacsim_session("isaacsim")
+    assert selects_isaacsim_session("isaacsim and not foo")
+    assert not selects_isaacsim_session("not mjlab and not isaacsim")
+    assert not selects_isaacsim_session("not isaacsim")
+    assert not selects_isaacsim_session("")
+    assert not selects_isaacsim_session("mjlab")
+
+
+def test_isaacsim_collection_does_not_import_mjlab_warp() -> None:
+    """mjlab's site-packages warp 1.16 has no types.array; Isaac's extensions need it.
+
+    ``pytest tests -m isaacsim`` used to import every test module, including
+    ``test_contact_overflow_mjlab_live.py``. That ``import warp`` won the process
+    before Kit started. Collect-only is enough to catch the regression: it must
+    not start Kit, and it must not load warp.
+    """
+    import subprocess
+    import sys
+
+    script = """
+import sys
+import pytest
+
+class Probe:
+    def pytest_collection_finish(self, session):
+        print("WARP_IMPORTED", "warp" in sys.modules)
+        print("MJLAB_IMPORTED", "mjlab" in sys.modules)
+        print("ITEM_COUNT", len(session.items))
+        print("ITEMS", " ".join(item.nodeid for item in session.items))
+
+raise SystemExit(pytest.main(
+    ["tests", "-m", "isaacsim", "--collect-only", "-q", "-p", "no:cacheprovider"],
+    plugins=[Probe()],
+))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "WARP_IMPORTED False" in result.stdout
+    assert "MJLAB_IMPORTED False" in result.stdout
+    assert "test_contact_overflow_mjlab_live" not in result.stdout
+    assert "test_isaacsim_behavior.py" in result.stdout
 
 
 def test_live_make_env_tests_carry_an_engine_marker() -> None:
