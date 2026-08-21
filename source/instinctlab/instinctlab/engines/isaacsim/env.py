@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
 
 __all__ = ["InstinctManagerBasedRLEnv"]
 
@@ -15,12 +15,9 @@ class InstinctManagerBasedRLEnv:
         from instinctlab.mdp.observations import clear_delayed_depth_history
 
         class _Env(base_cls):  # type: ignore[misc,valid-type]
-            def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):
-                import torch
-
-                env_ids = torch.arange(self.num_envs, device=self.device)
+            def _reset_idx(self, env_ids: Sequence[int]):
                 clear_delayed_depth_history(self, env_ids)
-                return super().reset(seed=seed, options=options)
+                super()._reset_idx(env_ids)
 
         _Env.__name__ = base_cls.__name__
         _Env.__qualname__ = base_cls.__qualname__

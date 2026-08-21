@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+from collections.abc import Sequence
 from typing import Any
 
 from instinctlab.compat.env import RlEnv, get_command
@@ -240,17 +241,38 @@ class DelayedDepthImage:
         return linear[batch, indices]
 
 
-def clear_delayed_depth_history(env: RlEnv, env_ids: torch.Tensor | slice | None = None) -> None:
+def _coerce_reset_env_ids(env: RlEnv, env_ids: Any | None) -> torch.Tensor | slice:
+    """Normalize ``_reset_idx`` env_ids (``None``, slice, int, Sequence, tensor)."""
+    if env_ids is None:
+        return slice(None)
+    if isinstance(env_ids, slice):
+        return env_ids
+    device = getattr(env, "device", "cpu")
+    if isinstance(env_ids, torch.Tensor):
+        if env_ids.numel() == 0:
+            return env_ids.reshape(0).to(device=device, dtype=torch.long)
+        return env_ids.reshape(-1).to(device=device, dtype=torch.long)
+    if isinstance(env_ids, int):
+        return torch.tensor([env_ids], device=device, dtype=torch.long)
+    if isinstance(env_ids, Sequence) and not isinstance(env_ids, (str, bytes, bytearray)):
+        return torch.tensor(list(env_ids), device=device, dtype=torch.long)
+    raise TypeError(f"unsupported env_ids type {type(env_ids)!r}")
+
+
+def clear_delayed_depth_history(env: RlEnv, env_ids: Any | None = None) -> None:
     """Episode-reset hook: clear ``DelayedDepthImage`` rings the way a camera sensor reset would."""
     manager = getattr(env, "observation_manager", None)
     if manager is None:
+        return
+    coerced = _coerce_reset_env_ids(env, env_ids)
+    if isinstance(coerced, torch.Tensor) and coerced.numel() == 0:
         return
     cfgs = getattr(manager, "_group_obs_term_cfgs", {})
     for group_cfgs in cfgs.values():
         for cfg in group_cfgs:
             term = getattr(cfg, "func", None)
             if isinstance(term, DelayedDepthImage):
-                term.clear_history(env_ids)
+                term.clear_history(coerced)
 
 
 def _process_depth_image(image: torch.Tensor, sensor: RayCasterRef, kernel_size: int, sigma: float) -> torch.Tensor:

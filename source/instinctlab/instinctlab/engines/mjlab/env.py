@@ -75,11 +75,8 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
         check_contact_overflow(self, phase="step")
         return result
 
-    def reset(self, seed=None, options=None):
-        import torch
-
+    def _reset_idx(self, env_ids=None) -> None:
         from instinctlab.mdp.observations import clear_delayed_depth_history
 
-        env_ids = torch.arange(self.num_envs, device=self.device)
         clear_delayed_depth_history(self, env_ids)
-        return super().reset(seed=seed, options=options)
+        super()._reset_idx(env_ids)
