@@ -151,6 +151,7 @@ class DelayedDepthImage:
         self._history = torch.zeros(env.num_envs, self.sensor_history_length, crop_h, crop_w, device=device)
         self._write = 0
         self._delay = torch.zeros(env.num_envs, device=device, dtype=torch.long)
+        self._primed = torch.zeros(env.num_envs, device=device, dtype=torch.bool)
         self.frame_offset = torch.flip(
             torch.arange(
                 0,
@@ -182,6 +183,11 @@ class DelayedDepthImage:
         equivalent history, so a reset that only redrew delay left old-episode
         frames in the other 36 slots. ``_write`` is one pointer for the whole
         batch and is left alone: moving it would reorder unreset envs.
+
+        Do not read the camera here. The next ``__call__`` for these envs primes
+        every slot with that call's processed frame, matching InstinctMJ's
+        first-push fill. ``_primed`` is the per-env mask that makes a subset
+        reset safe next to the global write pointer.
         """
         if env_ids is None:
             env_ids = slice(None)
@@ -192,6 +198,7 @@ class DelayedDepthImage:
             if env_ids.ndim == 0:
                 env_ids = env_ids.unsqueeze(0)
         self._history[env_ids] = 0
+        self._primed[env_ids] = False
         n = self._delay[env_ids].shape[0]
         lo, hi = self.delayed_frame_ranges
         self._delay[env_ids] = torch.randint(int(lo), int(hi) + 1, (n,), device=self._delay.device)
@@ -212,6 +219,10 @@ class DelayedDepthImage:
         raw = depth_image(env.scene.sensors[sensor.name])
         processed = _process_depth_image(raw, sensor, self.blur_kernel_size, self.blur_sigma)
         self._history[:, self._write] = processed
+        unprimed = ~self._primed
+        if bool(unprimed.any()):
+            self._history[unprimed] = processed[unprimed].unsqueeze(1)
+            self._primed[unprimed] = True
         self._write = (self._write + 1) % self.sensor_history_length
         order = (torch.arange(self.sensor_history_length, device=self._history.device) + self._write) % (
             self.sensor_history_length

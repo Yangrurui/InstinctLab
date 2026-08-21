@@ -23,6 +23,7 @@ from tests.parkour_live_expect import (
     assert_depth_camera_shape,
     assert_depth_camera_uses_base_alignment,
     assert_depth_encoder_is_fed,
+    assert_depth_first_policy_obs_is_primed,
     assert_foot_scanner_miss_is_positive_infinity,
     assert_foot_scanner_sees_some_ground,
     assert_foot_scanner_shape,
@@ -66,6 +67,7 @@ def test_mjlab_parkour_target_g1_constructs_and_steps() -> None:
         assert_foot_scanner_uses_yaw_alignment(env, device=device)
         assert_foot_scanner_miss_is_positive_infinity(env, device=device)
         env.reset()
+        assert_depth_first_policy_obs_is_primed(env)
         assert_depth_camera_shape(env)
         assert_depth_camera_uses_base_alignment(env, device=device)
         assert_depth_camera_miss_is_positive_infinity(env, device=device)

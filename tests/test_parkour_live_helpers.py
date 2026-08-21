@@ -20,6 +20,7 @@ from tests.parkour_live_expect import (
     assert_depth_camera_miss_is_positive_infinity,
     assert_depth_camera_shape,
     assert_depth_camera_uses_base_alignment,
+    assert_depth_first_policy_obs_is_primed,
     assert_foot_scanner_uses_yaw_alignment,
     assert_parkour_live_invariants,
     assert_rewards_finite_and_alive,
@@ -92,6 +93,22 @@ def test_obs_shape_helper_pins_concatenated_width_to_the_sum() -> None:
     env.observation_manager.compute = lambda: {"policy": torch.zeros(2, 5)}
     with pytest.raises(AssertionError, match="concatenated width"):
         assert_observation_shapes_match_declaration(env, spec)
+
+
+def test_depth_first_policy_obs_helper_rejects_zeros_and_mixed_slots() -> None:
+    zeros = torch.zeros(2, CAMERA_HISTORY_FRAMES, 18, 32)
+    primed = torch.full((2, CAMERA_HISTORY_FRAMES, 18, 32), 0.4)
+    mixed = primed.clone()
+    mixed[:, 0] = 0.0
+
+    env = SimpleNamespace(reset=lambda: ({"policy": {"depth_image": zeros}}, {}))
+    with pytest.raises(AssertionError, match="all zeros"):
+        assert_depth_first_policy_obs_is_primed(env)
+    env.reset = lambda: ({"policy": {"depth_image": mixed}}, {})
+    with pytest.raises(AssertionError, match="not the primed first frame"):
+        assert_depth_first_policy_obs_is_primed(env)
+    env.reset = lambda: ({"policy": {"depth_image": primed}}, {})
+    assert_depth_first_policy_obs_is_primed(env)
 
 
 def test_depth_shape_helper_rejects_a_dropped_frame_axis() -> None:

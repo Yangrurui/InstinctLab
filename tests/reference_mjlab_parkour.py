@@ -638,3 +638,41 @@ def depth_history_reset() -> dict[str, Any]:
         "obs_term_reset_resamples_delay": "_num_delayed_frames" in obs_reset_src,
         "history_owner": "sensor_AsyncCircularBuffer",
     }
+
+
+def depth_history_first_push() -> dict[str, Any]:
+    """InstinctMJ's first append copies that frame into every history slot.
+
+    ``AsyncCircularBuffer.append`` writes the new frame, then if ``_num_pushes==0``
+    assigns ``self._buffer[:, first_push_batch_ids] = data[is_first_push]``. Reset
+    zeros ``_num_pushes``, so the first valid camera frame after reset primes the
+    whole ring. A missing file or a vanished first-push assign is a parse failure,
+    not "the reference does not do this".
+    """
+    async_src = _require_file(_INSTINCTMJ_ASYNC_BUFFER)
+    tree = ast.parse(async_src.read_text())
+    append = _class_method(tree, "AsyncCircularBuffer", "append")
+    if append is None:
+        raise LookupError(f"{async_src} has no AsyncCircularBuffer.append")
+    src = ast.unparse(append)
+    assigns_all_slots = False
+    for node in ast.walk(append):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not node.targets:
+            continue
+        target = ast.unparse(node.targets[0])
+        if "_buffer[:," in target.replace(" ", "") and "first_push" in target:
+            assigns_all_slots = True
+            break
+        if "_buffer[:," in target.replace(" ", "") and "first_push" in ast.unparse(node.value):
+            assigns_all_slots = True
+            break
+    if not assigns_all_slots:
+        raise LookupError(f"{async_src} AsyncCircularBuffer.append no longer primes all slots on first push: {src}")
+    return {
+        "source": str(async_src),
+        "append_checks_num_pushes_zero": "_num_pushes" in src and "is_first_push" in src,
+        "append_primes_all_slots_on_first_push": True,
+        "history_length_slots": 37,
+    }

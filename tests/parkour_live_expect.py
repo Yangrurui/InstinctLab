@@ -368,6 +368,29 @@ def assert_foot_scanner_miss_is_positive_infinity(env, *, device: str) -> None:
         ).all(), f"{name}: miss must be +inf on every axis, finite={hits[torch.isfinite(hits)][:12].tolist()}"
 
 
+def assert_depth_first_policy_obs_is_primed(env) -> None:
+    """After a real env.reset, the first policy depth stack is 8 copies of one live frame.
+
+    InstinctMJ first-appends the first valid camera frame into every history slot, so
+    skip=5 / delay in {0,1} still sees that frame eight times. Zeros or mixed hashes
+    here mean ours is still writing a single ring slot.
+    """
+    obs, _extras = env.reset()
+    policy = obs["policy"] if isinstance(obs, dict) else obs
+    image = policy["depth_image"] if isinstance(policy, dict) else None
+    assert image is not None, "policy group is concatenated; depth_image must stay a separate term"
+    assert tuple(image.shape[1:]) == (CAMERA_HISTORY_FRAMES, *CAMERA_CROP_HW), tuple(image.shape)
+    newest = image[:, -1]
+    assert float(newest.abs().max()) > 0.0, "first policy depth is all zeros"
+    for slot in range(image.shape[1]):
+        delta = (image[:, slot] - newest).abs().reshape(image.shape[0], -1).max(dim=1).values
+        assert bool((delta <= 1e-5).all()), (
+            f"depth slot {slot} is not the primed first frame "
+            f"(max delta={float(delta.max())},"
+            f" zero_frac={float((image[:, slot].abs().reshape(image.shape[0], -1).max(dim=1).values <= 1e-8).float().mean())})"
+        )
+
+
 def assert_depth_camera_shape(env) -> None:
     """Raw 36×64, processed 8×18×32. A dropped axis is a silent policy-width change."""
     from instinctlab.compat.sensors import depth_image

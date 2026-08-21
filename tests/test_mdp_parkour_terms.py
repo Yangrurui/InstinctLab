@@ -378,6 +378,68 @@ def test_delayed_depth_reset_accepts_scalar_and_foreign_device_ids() -> None:
     assert float(term._history[0].abs().max()) == 0.0
 
 
+def test_delayed_depth_first_push_primes_all_slots_and_second_push_rolls() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=2)
+    raw.fill_(1.25)
+    first = term(env, sensor)
+    processed = 1.25 / 2.5
+    assert torch.allclose(term._history, torch.full_like(term._history, processed))
+    assert bool(term._primed.all())
+    assert torch.allclose(first, torch.full_like(first, processed))
+    raw.fill_(2.0)
+    term._delay.fill_(0)
+    second = term(env, sensor)
+    processed_second = 2.0 / 2.5
+    write_prev = (term._write - 1) % term.sensor_history_length
+    assert torch.allclose(term._history[:, write_prev], torch.full_like(term._history[:, write_prev], processed_second))
+    other = [i for i in range(term.sensor_history_length) if i != write_prev]
+    assert torch.allclose(term._history[:, other], torch.full_like(term._history[:, other], processed))
+    assert float((second[:, -1] - processed_second).abs().max()) == 0.0
+
+
+def test_delayed_depth_subset_reset_does_not_prime_unreset_envs() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=3)
+    raw.fill_(1.0)
+    for _ in range(4):
+        term(env, sensor)
+    kept = term._history[0].clone()
+    primed_before = term._primed.clone()
+    write_before = term._write
+    term.reset(env_ids=torch.tensor([1, 2]))
+    assert torch.equal(term._history[0], kept)
+    assert bool(term._primed[0]) == bool(primed_before[0])
+    assert not bool(term._primed[1])
+    assert not bool(term._primed[2])
+    assert term._write == write_before
+    raw.fill_(0.5)
+    term._delay[1] = 0
+    term._delay[2] = 1
+    before_unreset = term._history[0].clone()
+    out = term(env, sensor)
+    processed = 0.5 / 2.5
+    write_prev = (term._write - 1) % term.sensor_history_length
+    assert torch.allclose(term._history[1], torch.full_like(term._history[1], processed))
+    assert torch.allclose(term._history[2], torch.full_like(term._history[2], processed))
+    assert torch.allclose(
+        term._history[0, write_prev], torch.full((term._history.shape[2], term._history.shape[3]), processed)
+    )
+    other = [i for i in range(term.sensor_history_length) if i != write_prev]
+    assert torch.equal(term._history[0, other], before_unreset[other])
+    assert torch.allclose(out[1], torch.full_like(out[1], processed))
+    assert torch.allclose(out[2], torch.full_like(out[2], processed))
+
+
+def test_delayed_depth_prime_is_identical_for_delay_0_and_1() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=2)
+    raw.fill_(1.25)
+    term._delay[0] = 0
+    term._delay[1] = 1
+    out = term(env, sensor)
+    processed = 1.25 / 2.5
+    assert torch.allclose(out[0], torch.full_like(out[0], processed))
+    assert torch.allclose(out[1], torch.full_like(out[1], processed))
+
+
 def test_delayed_depth_reset_keeps_delay_in_declared_range() -> None:
     term, _env, _sensor, _raw = _delayed_depth_term(num_envs=8)
     lo, hi = term.delayed_frame_ranges
@@ -387,21 +449,28 @@ def test_delayed_depth_reset_keeps_delay_in_declared_range() -> None:
 
 
 def test_delayed_depth_first_output_after_reset_has_no_old_frames() -> None:
-    """After reset, sampled slots that are not the just-written frame are zeros, not the old episode."""
+    """After reset, the first valid frame primes all 37 slots. Skip/delay then see copies, not zeros or the old episode."""
     term, env, sensor, raw = _delayed_depth_term(num_envs=2)
     raw.fill_(2.0)
     for _ in range(37):
         term(env, sensor)
     old = term(env, sensor)
     assert float(old.abs().max()) > 0.0
+    kept = term._history[1].clone()
     term.reset(env_ids=torch.tensor([0]))
     term._delay[0] = 0
+    term._delay[1] = 0
     raw.fill_(1.25)
     first = term(env, sensor)
     processed_new = 1.25 / 2.5
-    assert first[0, -1, 0, 0].item() == pytest.approx(processed_new)
-    assert float(first[0, :-1].abs().max()) == 0.0
-    assert float(first[1].abs().max()) > 0.0
+    write_prev = (term._write - 1) % term.sensor_history_length
+    assert first[0].shape[0] == 8
+    assert torch.allclose(first[0], torch.full_like(first[0], processed_new))
+    assert float((term._history[0] - processed_new).abs().max()) == 0.0
+    assert torch.allclose(term._history[1, write_prev], torch.full_like(term._history[1, write_prev], processed_new))
+    other = [i for i in range(term.sensor_history_length) if i != write_prev]
+    assert torch.equal(term._history[1, other], kept[other])
+    assert float((first[1] - processed_new).abs().max()) > 0.0
 
 
 def test_undesired_contacts_counts_touches_without_a_newton_threshold():

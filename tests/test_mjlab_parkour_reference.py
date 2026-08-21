@@ -698,6 +698,59 @@ def test_depth_history_reset_matches_instinctmj_sensor_buffer() -> None:
     term.reset(env_ids=torch.tensor([0]))
     assert float(term._history[0].abs().max()) == 0.0
     assert float(term._history[1].abs().max()) > 0.0
+    assert not bool(term._primed[0])
+    assert bool(term._primed[1])
+
+
+def test_depth_history_first_push_matches_instinctmj_sensor_buffer() -> None:
+    """First valid frame after reset fills every slot, the way InstinctMJ first-appends."""
+    facts = mj_ref.depth_history_first_push()
+    assert facts["append_primes_all_slots_on_first_push"] is True, facts
+    assert facts["append_checks_num_pushes_zero"] is True, facts
+    assert facts["history_length_slots"] == 37, facts
+    assert Path(facts["source"]).is_file()
+
+    import torch
+    from types import SimpleNamespace
+
+    from instinctlab.mdp.observations import DelayedDepthImage
+    from instinctlab.spec.sensor import RayCasterRef, RayPatternRef
+
+    sensor = RayCasterRef(
+        name="camera",
+        attach="torso_link",
+        pattern=RayPatternRef(kind="pinhole", width=2, height=2),
+        hit=("terrain",),
+        max_distance=2.5,
+    )
+    raw = torch.ones(2, 2, 2, 1)
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        scene=SimpleNamespace(
+            sensors={"camera": SimpleNamespace(data=SimpleNamespace(output={"distance_to_image_plane": raw}))}
+        ),
+    )
+    cfg = SimpleNamespace(
+        params={
+            "sensor": sensor,
+            "history_skip_frames": 5,
+            "num_output_frames": 8,
+            "delayed_frame_ranges": (0, 1),
+            "history_length": 37,
+            "blur_kernel_size": 1,
+            "blur_sigma": 0.0,
+        }
+    )
+    term = DelayedDepthImage(cfg, env)
+    raw.fill_(1.25)
+    term.reset(env_ids=torch.tensor([0]))
+    term._delay.fill_(0)
+    out = term(env, sensor)
+    processed = 1.25 / 2.5
+    assert torch.allclose(term._history[0], torch.full_like(term._history[0], processed))
+    assert torch.allclose(out[0], torch.full_like(out[0], processed))
+    assert bool(term._primed[0])
 
 
 def test_every_extractor_has_a_caller() -> None:
