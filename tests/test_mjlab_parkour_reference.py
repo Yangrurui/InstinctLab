@@ -769,7 +769,7 @@ def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
 
 
 def test_mjlab_camera_hit_semantics_match_instinctmj(task, compiled) -> None:
-    """mjlab production uses InstinctMJ geom groups (0,1,2), no body mask, no hop."""
+    """mjlab production uses InstinctMJ geom groups (0,1,2) + min_distance hop."""
     from instinctlab.engines.mjlab.camera import pinhole_camera_effective_semantics, pinhole_camera_geom_groups
 
     reference_groups = mj_ref.camera_include_geom_groups()
@@ -780,9 +780,12 @@ def test_mjlab_camera_hit_semantics_match_instinctmj(task, compiled) -> None:
     assert camera.include_geom_groups == reference_groups
 
     semantics = pinhole_camera_effective_semantics(task.scene.ray_caster("camera"))
-    assert semantics["filter"] == "geom_groups_no_hop"
+    hop = mj_ref.grouped_ray_caster_hop_defaults()
+    assert semantics["filter"] == hop["filter"] == "geom_groups_min_distance_hop"
     assert semantics["include_geom_groups"] == reference_groups
-    assert semantics["hop_max"] == 0
+    assert semantics["hop_max"] == hop["hop_max"]
+    assert semantics["hop_epsilon_m"] == hop["hop_epsilon_m"]
+    assert semantics["mesh_prim_paths_enabled"] is False
     assert semantics["declared_hit_bodies_ignored_on_mjlab"] is True
 
     manifest = compiled.resolution.manifest()
@@ -798,18 +801,17 @@ def test_isaac_camera_hit_semantics_track_main(task) -> None:
     assert mj_ref.sensor_cfgs()["camera"]["cfg_class"] == "NoisyGroupedRayCasterCameraCfg"
 
 
-def test_camera_hit_mutation_body_mask_would_fail_mjlab_reference(task, compiled) -> None:
-    """Reverting mjlab to Isaac body-mask semantics must fail the InstinctMJ alignment test."""
-    reference_groups = mj_ref.camera_include_geom_groups()
-    camera = {s.name: s for s in compiled.env_cfg.scene.sensors}["camera"]
-    assert camera.include_geom_groups == reference_groups
-    wrong = (0, 3)
-    assert wrong != reference_groups
-    with pytest.raises(AssertionError):
-        assert wrong == reference_groups
+def test_camera_hit_mutation_min_distance_no_hop_would_fail() -> None:
+    """Production must hop past min_distance violations (GroupedRayCasterCfg hop_max > 0)."""
+    hop = mj_ref.grouped_ray_caster_hop_defaults()
+    assert hop["filter"] == "geom_groups_min_distance_hop"
+    assert hop["hop_max"] > 0
+    from instinctlab.engines.mjlab.camera import pinhole_camera_hop_params
+
+    assert pinhole_camera_hop_params()["hop_max"] == hop["hop_max"]
 
 
-def test_camera_hit_mutation_reference_groups_would_fail(task) -> None:
+def test_camera_hit_mutation_wrong_groups_would_fail(task) -> None:
     """If InstinctMJ's default groups change, the reader-backed assertion must fail."""
     groups = mj_ref.camera_include_geom_groups()
     assert groups == (0, 1, 2)

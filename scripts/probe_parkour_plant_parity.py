@@ -588,42 +588,43 @@ def geom_groups_camera_mask(mj_model, groups: tuple[int, ...], device: str):
     return _mask(mj_model, groups, device)
 
 
-def filter_first_hit_no_hop(self) -> None:
-    """Accept first in-mask hit only; no body-list hop (legacy probe patch arm)."""
-    import torch
-
-    import warp as wp
-
-    assert self._distances is not None and self._hit_pos_w is not None
-    assert self._ray_geomid is not None
-    geom_ids = wp.to_torch(self._ray_geomid).to(dtype=torch.long)
-    distances = self._distances
-    hit_pos = self._hit_pos_w
-    inf = torch.full_like(distances, float("inf"))
-    inf3 = torch.full_like(hit_pos, float("inf"))
-    hit = distances >= 0.0
-    allowed = torch.zeros_like(hit)
-    valid_ids = geom_ids.clamp(min=0, max=self._allowed_geom_mask.numel() - 1)
-    allowed[hit] = self._allowed_geom_mask[valid_ids[hit]]
-    accept = hit & allowed & (distances > self._min_distance)
-    self._distances = torch.where(accept, distances, inf)
-    self._hit_pos_w = torch.where(accept.unsqueeze(-1), hit_pos, inf3)
-
-
 def _production_camera_filter_name(sensor) -> str | None:
-    post = getattr(sensor, "_apply_min_distance_no_hop", None)
-    if post is not None and getattr(post, "__name__", "") == "_apply_min_distance_no_hop":
-        return "geom_groups_no_hop"
-    legacy = getattr(sensor, "_filter_and_continue", None)
-    if legacy is not None and getattr(legacy, "__name__", "") == "_filter_and_continue":
+    post = getattr(sensor, "_apply_min_distance_hop", None)
+    if post is not None and getattr(post, "__name__", "") == "_apply_min_distance_hop":
+        return "geom_groups_min_distance_hop"
+    legacy = getattr(sensor, "_apply_min_distance_no_hop", None)
+    if legacy is not None and getattr(legacy, "__name__", "") == "_apply_min_distance_no_hop":
+        return "geom_groups_reject_no_hop"
+    body_hop = getattr(sensor, "_filter_and_continue", None)
+    if body_hop is not None and getattr(body_hop, "__name__", "") == "_filter_and_continue":
         return "body_mesh_mask_with_hop"
-    if legacy is not None and getattr(legacy, "__name__", "") == "filter_first_hit_no_hop":
-        return "geom_groups_no_hop"
     return None
 
 
+def _production_hop_metadata(sensor) -> dict[str, Any]:
+    from instinctlab.engines.mjlab.camera import pinhole_camera_hop_params
+
+    name = _production_camera_filter_name(sensor)
+    hop = pinhole_camera_hop_params()
+    cfg = getattr(sensor, "cfg", None)
+    out: dict[str, Any] = {
+        "camera_filter": name or "geom_groups_kernel_only",
+        "hop_triggers": list(hop.get("hop_triggers", ())),
+        "hop_epsilon_m": hop.get("hop_epsilon_m"),
+    }
+    if name == "geom_groups_min_distance_hop":
+        out["hop_max"] = getattr(sensor, "_hop_max", hop["hop_max"])
+    elif name == "body_mesh_mask_with_hop":
+        out["hop_max"] = 6
+    else:
+        out["hop_max"] = 0
+    if cfg is not None and hasattr(cfg, "min_distance"):
+        out["min_distance_m"] = float(cfg.min_distance)
+    return out
+
+
 def native_camera_already_instinctmj_aligned(sensor) -> bool:
-    """True when production ``engines/mjlab/camera.py`` already matches InstinctMJ groups/no-hop."""
+    """True when production already matches InstinctMJ group mask + min_distance hop."""
     cfg = getattr(sensor, "cfg", None)
     groups = getattr(cfg, "include_geom_groups", None) if cfg is not None else None
     if groups is None:
@@ -632,7 +633,7 @@ def native_camera_already_instinctmj_aligned(sensor) -> bool:
         reference = instinctmj_reference_camera_geom_groups()
     except (FileNotFoundError, RuntimeError, LookupError):
         return False
-    return tuple(groups) == reference and _production_camera_filter_name(sensor) == "geom_groups_no_hop"
+    return tuple(groups) == reference and _production_camera_filter_name(sensor) == "geom_groups_min_distance_hop"
 
 
 def camera_semantics_metadata(sensor, semantics: str) -> dict[str, Any]:
@@ -641,6 +642,8 @@ def camera_semantics_metadata(sensor, semantics: str) -> dict[str, Any]:
     base["semantics"] = semantics
     base["instinctmj_reference_groups"] = list(instinctmj_reference_camera_geom_groups())
     base["native_already_aligned"] = native_camera_already_instinctmj_aligned(sensor) if sensor is not None else False
+    if sensor is not None:
+        base.update(_production_hop_metadata(sensor))
     if semantics == CAMERA_SEMANTICS_INSTINCTMJ and base.get("native_already_aligned"):
         base["alias_note"] = "instinctmj_geom_groups is a no-op alias; production already matches InstinctMJ"
     return base
@@ -662,34 +665,17 @@ def _collect_camera_runtime_from_sensor(sensor) -> dict[str, Any]:
             if hasattr(cfg, attr):
                 value = getattr(cfg, attr)
                 info[f"cfg_{attr}"] = list(value) if isinstance(value, tuple) else value
+    hop_meta = _production_hop_metadata(sensor)
+    info.update(hop_meta)
     mask = getattr(sensor, "_allowed_geom_mask", None)
-    filter_name = _production_camera_filter_name(sensor)
-    if filter_name == "geom_groups_no_hop":
-        info["camera_filter"] = "geom_groups_no_hop"
-        info["hop_max"] = 0
-    elif filter_name == "body_mesh_mask_with_hop":
-        info["camera_filter"] = "body_mesh_mask_with_hop"
-        info["hop_max"] = 6
-    elif mask is not None:
-        hop = getattr(sensor, "_filter_and_continue", None)
-        hop_name = getattr(hop, "__name__", None) if hop is not None else None
-        if hop_name == "filter_first_hit_no_hop":
-            info["camera_filter"] = "geom_groups_no_hop"
-            info["hop_max"] = 0
-        else:
-            info["camera_filter"] = "body_mesh_mask_with_hop"
-            info["hop_max"] = 6
-        if mask is not None:
-            import torch
+    if mask is not None:
+        import torch
 
-            count = int(mask.sum().item()) if isinstance(mask, torch.Tensor) else int(mask.sum())
-            info["allowed_geom_count"] = count
-    else:
+        count = int(mask.sum().item()) if isinstance(mask, torch.Tensor) else int(mask.sum())
+        info["allowed_geom_count"] = count
+    elif hop_meta.get("camera_filter") == "geom_groups_min_distance_hop":
         groups = getattr(cfg, "include_geom_groups", None) if cfg is not None else None
-        info["camera_filter"] = "geom_groups"
         info["include_geom_groups"] = list(groups) if groups is not None else None
-        if groups is not None:
-            info["hop_max"] = 0 if filter_name == "geom_groups_no_hop" else None
     return info
 
 
@@ -713,18 +699,10 @@ class _CameraSemanticsPatch:
             setattr(self.sensor, "_probe_camera_semantics", self.semantics)
             self._already_aligned = True
             return
-        self._already_aligned = False
-        self._orig_mask = getattr(self.sensor, "_allowed_geom_mask", None)
-        if self._orig_mask is not None:
-            self._orig_mask = self._orig_mask.clone()
-        self._orig_filter = getattr(self.sensor, "_filter_and_continue", None)
-        self._orig_post = getattr(self.sensor, "_apply_min_distance_no_hop", None)
-        groups = instinctmj_reference_camera_geom_groups()
-        self.sensor._allowed_geom_mask = geom_groups_camera_mask(mj_model, groups, device)
-        import types
-
-        self.sensor._filter_and_continue = types.MethodType(filter_first_hit_no_hop, self.sensor)
-        setattr(self.sensor, "_probe_camera_semantics", self.semantics)
+        raise RuntimeError(
+            f"camera semantics {self.semantics!r} requested but production is not InstinctMJ-aligned; "
+            "refusing legacy body-mask patch"
+        )
 
     def restore(self) -> None:
         if getattr(self, "_already_aligned", False):
@@ -2332,8 +2310,8 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
         default=CAMERA_SEMANTICS_NATIVE,
         help=(
             "Ours-side camera semantics for causal A/B. "
-            "native=production groups (0,1,2)/no-hop; "
-            "instinctmj_geom_groups=legacy alias (no-op when native already aligned)."
+            "native=production geom_groups_min_distance_hop; "
+            "instinctmj_geom_groups=alias verifying native already matches InstinctMJ."
         ),
     )
     run.add_argument(

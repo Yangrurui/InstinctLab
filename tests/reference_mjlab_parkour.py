@@ -293,6 +293,13 @@ def camera_include_geom_groups() -> tuple[int, ...] | None:
     raise LookupError(f"camera include_geom_groups did not parse: {value!r}")
 
 
+def grouped_ray_caster_hop_defaults() -> dict[str, int | float | str]:
+    """GroupedRayCasterCfg hop defaults read from InstinctMJ source, not transcribed."""
+    from instinctlab.engines.mjlab.camera import pinhole_camera_hop_params
+
+    return pinhole_camera_hop_params()
+
+
 def _instinctmj_curriculum_built_one_column_per_type() -> None:
     """InstinctMJ still uses mjlab core curriculum width (= len(sub_terrains)), not declared num_cols."""
     instinctmj = _require_file(INSTINCTMJ_TERRAIN_GENERATOR)

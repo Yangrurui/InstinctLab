@@ -1,19 +1,20 @@
 """mjlab pinhole camera aligned with InstinctMJ, not Isaac's grouped mesh targets.
 
-Stock ``RayCastSensorCfg`` includes geom groups ``(0, 1, 2)`` and returns the first
-kernel hit. InstinctMJ's parkour ``NoisyGroupedRayCasterCameraCfg`` inherits that default
-with empty ``mesh_prim_paths``, so there is no body-name mesh filter and no hop past a
-filtered geom. Isaac's parkour camera instead lists ``/World/ground`` plus G1 link
-visual prims; that list lives on the shared :class:`RayCasterRef` for Isaac only.
-
-This module keeps Isaac's world-convention pinhole pose (+X forward, +Z up), image-plane
-depth, and ``+inf`` miss encoding while using the InstinctMJ/mjlab group mask on mjlab.
+Stock ``RayCastSensorCfg`` filters geom groups at the BVH kernel (default ``(0, 1, 2)``).
+InstinctMJ's parkour ``NoisyGroupedRayCasterCameraCfg`` inherits that with empty
+``mesh_prim_paths``, so there is no body-name mesh filter. When ``min_distance > 0``,
+``GroupedRayCaster._apply_hit_filter_and_continue`` re-raycasts past hits at or inside
+``min_distance`` (up to ``mesh_filter_max_hops``). That min-distance hop is kept here.
+Isaac's parkour camera instead lists ``/World/ground`` plus G1 link visual prims.
 """
 
 from __future__ import annotations
 
+import ast
+import os
 import torch
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from instinctlab.compat.math import quat_apply, quat_inv, quat_mul
@@ -23,8 +24,14 @@ from instinctlab.spec.sensor import RayCasterRef
 __all__ = [
     "pinhole_camera_effective_semantics",
     "pinhole_camera_geom_groups",
+    "pinhole_camera_hop_params",
     "pinhole_ray_caster",
 ]
+
+_INSTINCTMJ_GROUPED_RAY_CFG = (
+    Path(os.environ.get("INSTINCTMJ_ROOT", "/root/InstinctMJ"))
+    / "src/instinct_mj/sensors/grouped_ray_caster/grouped_ray_caster_cfg.py"
+)
 
 
 def pinhole_camera_geom_groups() -> tuple[int, ...]:
@@ -41,17 +48,49 @@ def pinhole_camera_geom_groups() -> tuple[int, ...]:
     return tuple(default)
 
 
+def pinhole_camera_hop_params() -> dict[str, int | float | str]:
+    """Hop limits InstinctMJ ``GroupedRayCasterCfg`` uses for min_distance continuation."""
+    path = _INSTINCTMJ_GROUPED_RAY_CFG
+    if not path.is_file():
+        raise RuntimeError(f"InstinctMJ GroupedRayCasterCfg not found at {path}")
+    max_hops: int | None = None
+    epsilon: float | None = None
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if not isinstance(node, ast.ClassDef) or node.name != "GroupedRayCasterCfg":
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+                continue
+            if item.value is None:
+                continue
+            if item.target.id == "mesh_filter_max_hops" and isinstance(item.value, ast.Constant):
+                max_hops = int(item.value.value)
+            if item.target.id == "mesh_filter_epsilon" and isinstance(item.value, ast.Constant):
+                epsilon = float(item.value.value)
+    if max_hops is None or epsilon is None:
+        raise RuntimeError(f"{path} missing mesh_filter_max_hops or mesh_filter_epsilon defaults")
+    return {
+        "filter": "geom_groups_min_distance_hop",
+        "hop_max": max_hops,
+        "hop_epsilon_m": epsilon,
+        "hop_triggers": ("distance <= min_distance",),
+        "mesh_prim_paths_enabled": False,
+    }
+
+
 def pinhole_camera_effective_semantics(sensor: RayCasterRef) -> dict[str, Any]:
     """Effective mjlab hit semantics for manifest metadata (Isaac uses ``hit_bodies()``)."""
     groups = pinhole_camera_geom_groups()
+    hop = pinhole_camera_hop_params()
     declared_bodies = sensor.hit_bodies()
     return {
-        "filter": "geom_groups_no_hop",
+        **hop,
         "include_geom_groups": groups,
-        "hop_max": 0,
+        "min_distance_m": float(sensor.min_distance),
         "declared_hit_bodies_for_isaac": declared_bodies,
         "declared_hit_bodies_ignored_on_mjlab": bool(declared_bodies),
         "declared_hits_terrain": sensor.hits_terrain(),
+        "group_filter_stage": "mujoco_warp_bvh_kernel",
     }
 
 
@@ -67,6 +106,7 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
         raise ValueError(f"mjlab camera {sensor.name!r} has miss={sensor.miss!r}; the portable contract is +inf.")
 
     geom_groups = pinhole_camera_geom_groups()
+    hop = pinhole_camera_hop_params()
 
     @dataclass
     class PinholeRayCastSensorCfg(RayCastSensorCfg):
@@ -106,15 +146,11 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             self._cam_quat = torch.zeros(data.nworld, 4, device=device)
             self._min_distance = float(self.cfg.min_distance)
             self._image_plane_max = float(self.cfg.image_plane_max)
+            self._hop_epsilon = float(hop["hop_epsilon_m"])
+            self._hop_max = int(hop["hop_max"])
 
         def prepare_rays(self) -> None:
-            """Full attach-body rotation plus the world-convention offset.
-
-            Both parkour source *codes* do this. Both source *configs* write
-            ``ray_alignment="yaw"``; that field is leftover from the ray-caster
-            parent and is not what the camera uses. A pinhole declared as
-            ``yaw`` is refused at compile so the ignore cannot stay silent.
-            """
+            """Full attach-body rotation plus the world-convention offset."""
             assert self._data is not None and self._local_offsets is not None
             assert self._local_directions is not None
             if len(self._frame_infos) != 1 or self._frame_infos[0][0] != "body":
@@ -154,20 +190,73 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
 
         def postprocess_rays(self) -> None:
             super().postprocess_rays()
-            self._apply_min_distance_no_hop()
+            self._apply_min_distance_hop()
             self._write_image_plane()
 
-        def _apply_min_distance_no_hop(self) -> None:
-            """Keep the first in-group kernel hit unless it violates ``min_distance``; never hop."""
+        def _apply_min_distance_hop(self) -> None:
+            """InstinctMJ GroupedRayCaster with empty mesh_prim_paths: BVH groups + min_distance hop."""
+            if self._min_distance <= 0.0:
+                return
+            import warp as wp
+
             assert self._distances is not None and self._hit_pos_w is not None
+            assert self._cached_world_origins is not None and self._cached_world_rays is not None
             distances = self._distances
             hit_pos = self._hit_pos_w
+            origins = self._cached_world_origins
+            rays = self._cached_world_rays
             inf = torch.full_like(distances, float("inf"))
             inf3 = torch.full_like(hit_pos, float("inf"))
+
             hit = distances >= 0.0
             accept = hit & (distances > self._min_distance)
-            self._distances = torch.where(accept, distances, inf)
-            self._hit_pos_w = torch.where(accept.unsqueeze(-1), hit_pos, inf3)
+            still = hit & ~accept
+            final_dist = torch.where(accept, distances, inf)
+            final_pos = torch.where(accept.unsqueeze(-1), hit_pos, inf3)
+            if not bool(still.any()):
+                self._distances = final_dist
+                self._hit_pos_w = final_pos
+                return
+
+            eps = self._hop_epsilon
+            traveled = torch.zeros_like(distances)
+            traveled[still] = distances[still] + eps
+            current = origins.clone()
+            current[still] = hit_pos[still] + rays[still] * eps
+            pnt = wp.to_torch(self._ray_pnt).view_as(origins)
+            vec = wp.to_torch(self._ray_vec).view_as(rays)
+            if self._wp_device is None:
+                raise RuntimeError("Camera min_distance hop needs the sensor Warp device.")
+            for _ in range(self._hop_max):
+                remaining = self.cfg.max_distance - traveled
+                still = still & (remaining > 0.0)
+                if not bool(still.any()):
+                    break
+                pnt.copy_(origins)
+                vec.copy_(rays)
+                pnt[still] = current[still]
+                if self._ctx is None:
+                    raise RuntimeError("Camera min_distance hop needs a SensorContext.")
+                with wp.ScopedDevice(self._wp_device):
+                    self.raycast_kernel(self._ctx.render_context)
+                new_dist = wp.to_torch(self._ray_dist)
+                new_geom = wp.to_torch(self._ray_geomid).to(dtype=torch.long)
+                new_hit = new_dist >= 0.0
+                new_pos = current + rays * new_dist.clamp(min=0.0).unsqueeze(-1)
+                total = traveled + new_dist
+                take = still & new_hit & (total > self._min_distance) & (new_dist <= remaining)
+                final_dist = torch.where(take, total, final_dist)
+                final_pos = torch.where(take.unsqueeze(-1), new_pos, final_pos)
+                if self._ray_geomid is not None:
+                    geom_buf = wp.to_torch(self._ray_geomid).to(dtype=torch.long)
+                    geom_buf = geom_buf.view_as(final_dist)
+                    geom_buf = torch.where(take, new_geom.view_as(final_dist), geom_buf)
+                    wp.to_torch(self._ray_geomid).copy_(geom_buf.reshape(wp.to_torch(self._ray_geomid).shape))
+                still = still & new_hit & ~take
+                current = torch.where(still.unsqueeze(-1), new_pos + rays * eps, current)
+                traveled = torch.where(still, total + eps, traveled)
+            self._distances = final_dist
+            self._hit_pos_w = final_pos
 
         def _write_image_plane(self) -> None:
             """X of the hit in the world-convention camera frame. A miss is +inf."""
@@ -198,9 +287,6 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             fovy=sensor.pattern.vertical_fov_deg,
         ),
         ray_alignment="base",
-        # Isaac's camera casts to ``max_distance * 2`` so an off-axis ray whose
-        # image-plane depth is still ≤ max is not dropped. The image-plane clip
-        # below is the semantic far plane; a farther hit is +inf, not 2.5.
         max_distance=sensor.max_distance * 2,
         exclude_parent_body=True,
         include_geom_groups=geom_groups,

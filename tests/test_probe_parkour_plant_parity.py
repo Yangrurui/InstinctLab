@@ -148,21 +148,24 @@ def test_reference_camera_reader_works_without_repo_on_pythonpath():
     subprocess.run([sys.executable, "-c", code], cwd="/tmp", check=True)
 
 
-def test_native_camera_metadata_reports_groups_no_hop(probe):
+def test_native_camera_metadata_reports_min_distance_hop(probe):
     class _Cfg:
         name = "camera"
         include_geom_groups = (0, 1, 2)
+        min_distance = 0.1
 
     class _Sensor:
         cfg = _Cfg()
+        _hop_max = 6
 
-        def _apply_min_distance_no_hop(self):
+        def _apply_min_distance_hop(self):
             return None
 
     meta = probe.camera_semantics_metadata(_Sensor(), probe.CAMERA_SEMANTICS_NATIVE)
-    assert meta["camera_filter"] == "geom_groups_no_hop"
-    assert meta["hop_max"] == 0
-    assert meta["cfg_include_geom_groups"] == [0, 1, 2]
+    assert meta["camera_filter"] == "geom_groups_min_distance_hop"
+    assert meta["hop_max"] == 6
+    assert meta["hop_epsilon_m"] == pytest.approx(1e-4)
+    assert meta["min_distance_m"] == pytest.approx(0.1)
     assert meta["native_already_aligned"] is True
 
 
@@ -170,11 +173,13 @@ def test_instinctmj_alias_detects_native_already_aligned(probe):
     class _Cfg:
         name = "camera"
         include_geom_groups = (0, 1, 2)
+        min_distance = 0.1
 
     class _Sensor:
         cfg = _Cfg()
+        _hop_max = 6
 
-        def _apply_min_distance_no_hop(self):
+        def _apply_min_distance_hop(self):
             return None
 
     sensor = _Sensor()
