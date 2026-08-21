@@ -11,6 +11,14 @@ initial condition, without changing task behaviour. Run once per side and diff:
         --out /tmp/mj_dump.json
     python scripts/probe_parkour_plant_parity.py compare /tmp/ours_dump.json /tmp/mj_dump.json
 
+``state.npz`` carries robot kinematics **and**, by default, the live
+``PoseVelocityCommand`` runtime buffers (``vel_command_b``, ``pos_command_w``, …).
+Without the command snapshot, independent resets can disagree on yaw commands by
+~1.0 raw even when robot state matches — that is a probe artifact, not an MDP
+drift. Use ``--no-command-state`` for pure-plant probes; ``compare`` then records
+``command_dependent_mdp_parity=false`` and must not be read as same-state reward
+or ``velocity_commands`` obs parity.
+
 InstinctMJ **must** use ``/root/InstinctMJ/.venv/bin/python`` (the ``instinct-train``
 interpreter) and the training GPU convention ``CUDA_VISIBLE_DEVICES=<n> --device cuda:0``.
 The current process's site-packages are the wrong stack; a missing ``coacd`` there is
@@ -63,6 +71,32 @@ DEFAULT_INSTINCTMJ_ROOT = Path("/root/InstinctMJ")
 DEFAULT_INSTINCTMJ_PYTHON = DEFAULT_INSTINCTMJ_ROOT / ".venv/bin/python"
 CAMERA_NAME = "camera"
 ROOT_HEIGHT_MINIMUM = 0.5
+COMMAND_NAME = "base_velocity"
+COMMAND_STATE_SCHEMA = "parkour_pose_velocity_command/v1"
+COMMAND_STATE_PREFIX = "cmd__"
+
+# Live PoseVelocityCommand tensors that feed rewards, command metrics, and
+# velocity_commands / heading-related obs. Missing on a term is recorded, not guessed.
+COMMAND_FIELD_NAMES: tuple[str, ...] = (
+    "pos_command_w",
+    "heading_command_w",
+    "pos_command_b",
+    "vel_command_b",
+    "max_command_b",
+    "is_standing_env",
+    "lin_vel_x_range",
+    "lin_vel_y_range",
+    "ang_vel_z_range",
+    "random_lin_vel_x_range",
+    "random_lin_vel_y_range",
+    "random_ang_vel_z_range",
+    "random_velocity_indices",
+    "random_lin_vel_x",
+    "random_lin_vel_y",
+    "random_ang_vel_z",
+    "time_left",
+    "command_counter",
+)
 
 DEFAULT_THRESHOLDS: dict[str, float] = {
     "qpos": 1e-4,
@@ -102,6 +136,95 @@ def root_height_margin(root_z: float, origin_z: float, *, minimum: float = ROOT_
 def align_names_or_fail(left: list[str], right: list[str], *, label: str) -> None:
     if left != right:
         raise ValueError(f"{label} names differ: left={left!r} right={right!r}")
+
+
+def command_npz_key(field_name: str) -> str:
+    """Stable on-disk prefix for command tensors inside ``state.npz``."""
+    return f"{COMMAND_STATE_PREFIX}{field_name}"
+
+
+def command_state_status(*, captured: bool, loaded: bool, loaded_present: bool) -> str:
+    """One of ``present`` / ``absent`` / ``loaded_present`` / ``loaded_absent``."""
+    if loaded:
+        return "loaded_present" if loaded_present else "loaded_absent"
+    return "present" if captured else "absent"
+
+
+def command_state_mdp_comparable(left_status: str, right_status: str) -> bool:
+    """Both sides must carry a command snapshot for same-state MDP term parity."""
+    ok = {"present", "loaded_present"}
+    return left_status in ok and right_status in ok
+
+
+def _command_snapshot_has_fields(command_state: dict[str, Any] | None) -> bool:
+    return bool(command_state and command_state.get("fields"))
+
+
+def capture_command_state(term: Any) -> dict[str, Any]:
+    """Snapshot PoseVelocityCommand runtime buffers as host numpy arrays."""
+    fields: dict[str, Any] = {}
+    missing_on_term: list[str] = []
+    for name in COMMAND_FIELD_NAMES:
+        if not hasattr(term, name):
+            missing_on_term.append(name)
+            continue
+        arr = _to_numpy(getattr(term, name))
+        if arr is None:
+            missing_on_term.append(name)
+            continue
+        fields[name] = arr
+    return {
+        "schema": COMMAND_STATE_SCHEMA,
+        "command_name": COMMAND_NAME,
+        "fields": fields,
+        "missing_on_term": missing_on_term,
+    }
+
+
+def apply_command_state(term: Any, command_state: dict[str, Any] | None) -> dict[str, Any]:
+    """Write a captured command snapshot into the live term.
+
+    Shape or dtype mismatch raises ``ValueError``. Fields absent on the term or in
+    the snapshot are listed in the returned report rather than silently skipped.
+    """
+    import torch
+
+    if not command_state:
+        return {
+            "applied": [],
+            "missing_on_term": [],
+            "missing_in_snapshot": list(COMMAND_FIELD_NAMES),
+            "schema": None,
+        }
+    fields = command_state.get("fields") or {}
+    applied: list[str] = []
+    missing_on_term: list[str] = []
+    missing_in_snapshot: list[str] = []
+    for name in COMMAND_FIELD_NAMES:
+        if name not in fields:
+            missing_in_snapshot.append(name)
+            continue
+        if not hasattr(term, name):
+            missing_on_term.append(name)
+            continue
+        target = getattr(term, name)
+        if not isinstance(target, torch.Tensor):
+            raise TypeError(f"{name}: live attribute is {type(target)!r}, expected torch.Tensor")
+        source = fields[name]
+        tensor = torch.as_tensor(source, device=target.device)
+        if tuple(tensor.shape) != tuple(target.shape):
+            raise ValueError(f"{name}: shape {tuple(tensor.shape)} != live {tuple(target.shape)}")
+        if tensor.dtype != target.dtype:
+            tensor = tensor.to(dtype=target.dtype)
+        target.copy_(tensor)
+        applied.append(name)
+    return {
+        "applied": applied,
+        "missing_on_term": missing_on_term,
+        "missing_in_snapshot": missing_in_snapshot,
+        "schema": command_state.get("schema"),
+        "command_name": command_state.get("command_name"),
+    }
 
 
 def _as_float_list(value: Any) -> list[float]:
@@ -316,11 +439,29 @@ def compare_rollout_payloads(
                 first_failure = {"field": field, "threshold": thresholds[thresh_key], **hit}
                 break
 
+    meta_l = left.get("metadata", {})
+    meta_r = right.get("metadata", {})
+    cmd_l = str(meta_l.get("command_state", "unknown"))
+    cmd_r = str(meta_r.get("command_state", "unknown"))
+    mdp_comparable = command_state_mdp_comparable(cmd_l, cmd_r)
+    command_state_report: dict[str, Any] = {
+        "left": cmd_l,
+        "right": cmd_r,
+        "command_dependent_mdp_parity": mdp_comparable,
+    }
+    if not mdp_comparable:
+        command_state_report["note"] = (
+            "Same-state MDP compare requires PoseVelocityCommand snapshot on both sides "
+            "(metadata.command_state present or loaded_present). Pure plant kinematics "
+            "without command sync can show ~1.0 raw yaw/heading pseudo-diffs."
+        )
+
     return {
         "steps_compared": len(steps_l),
         "thresholds": thresholds,
         "per_step": per_step_report,
         "first_consecutive_two_step_exceedance": first_failure,
+        "command_state": command_state_report,
         "passed": first_failure is None,
     }
 
@@ -1190,7 +1331,11 @@ def _action_buffers(action_term) -> tuple[Any, Any]:
     return raw, processed
 
 
-def _capture_state(env, joint_order: list[str]) -> dict[str, Any]:
+def _command_term(env):
+    return env.command_manager.get_term(COMMAND_NAME)
+
+
+def _capture_state(env, joint_order: list[str], *, include_command: bool = True) -> dict[str, Any]:
     robot = env.scene["robot"]
     data = robot.data
     native_ids = _native_indices_for_names(env, joint_order)
@@ -1200,7 +1345,7 @@ def _capture_state(env, joint_order: list[str]) -> dict[str, Any]:
     root_quat = data.root_link_quat_w.detach().cpu().numpy()
     root_lin = data.root_link_lin_vel_w.detach().cpu().numpy()
     root_ang = data.root_link_ang_vel_w.detach().cpu().numpy()
-    return {
+    state: dict[str, Any] = {
         "joint_names": list(joint_order),
         "action_target_names": _action_target_names(env),
         "root_pos": root_pos,
@@ -1210,6 +1355,12 @@ def _capture_state(env, joint_order: list[str]) -> dict[str, Any]:
         "joint_pos": qpos,
         "joint_vel": qvel,
     }
+    if include_command:
+        try:
+            state["command_state"] = capture_command_state(_command_term(env))
+        except (AttributeError, KeyError):
+            state["command_state"] = None
+    return state
 
 
 def _refresh_sensors_and_obs(env) -> None:
@@ -1227,7 +1378,7 @@ def _refresh_sensors_and_obs(env) -> None:
         env.obs_buf = env.observation_manager.compute(update_history=True)
 
 
-def _apply_state(env, state: dict[str, Any]) -> None:
+def _apply_state(env, state: dict[str, Any]) -> dict[str, Any]:
     import torch
 
     stored_names = list(state["joint_names"])
@@ -1251,31 +1402,50 @@ def _apply_state(env, state: dict[str, Any]) -> None:
     robot.write_root_link_pose_to_sim(pose, env_ids=env_ids)
     robot.write_root_link_velocity_to_sim(velocity, env_ids=env_ids)
     robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+    command_report: dict[str, Any] = {"applied": [], "missing_in_snapshot": list(COMMAND_FIELD_NAMES), "schema": None}
+    if state.get("command_state"):
+        try:
+            command_report = apply_command_state(_command_term(env), state["command_state"])
+        except (AttributeError, KeyError):
+            command_report = {
+                "applied": [],
+                "missing_on_term": list(COMMAND_FIELD_NAMES),
+                "missing_in_snapshot": [],
+                "schema": state["command_state"].get("schema"),
+                "error": f"command term {COMMAND_NAME!r} unavailable",
+            }
     _refresh_sensors_and_obs(env)
+    return command_report
 
 
 def _write_state_npz(path: Path, state: dict[str, Any]) -> None:
     import numpy as np
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        path,
-        joint_names=np.array(state["joint_names"], dtype=object),
-        action_target_names=np.array(state.get("action_target_names", []), dtype=object),
-        root_pos=state["root_pos"],
-        root_quat=state["root_quat"],
-        root_lin_vel=state["root_lin_vel"],
-        root_ang_vel=state["root_ang_vel"],
-        joint_pos=state["joint_pos"],
-        joint_vel=state["joint_vel"],
-    )
+    arrays: dict[str, Any] = {
+        "joint_names": np.array(state["joint_names"], dtype=object),
+        "action_target_names": np.array(state.get("action_target_names", []), dtype=object),
+        "root_pos": state["root_pos"],
+        "root_quat": state["root_quat"],
+        "root_lin_vel": state["root_lin_vel"],
+        "root_ang_vel": state["root_ang_vel"],
+        "joint_pos": state["joint_pos"],
+        "joint_vel": state["joint_vel"],
+    }
+    command_state = state.get("command_state")
+    if _command_snapshot_has_fields(command_state):
+        arrays["command_state_schema"] = np.array(command_state.get("schema", COMMAND_STATE_SCHEMA))
+        arrays["command_name"] = np.array(command_state.get("command_name", COMMAND_NAME))
+        for name, value in command_state["fields"].items():
+            arrays[command_npz_key(name)] = value
+    np.savez(path, **arrays)
 
 
 def _load_state_npz(path: Path) -> dict[str, Any]:
     import numpy as np
 
     with np.load(path, allow_pickle=True) as archive:
-        return {
+        loaded: dict[str, Any] = {
             "joint_names": [str(x) for x in archive["joint_names"].tolist()],
             "action_target_names": [str(x) for x in archive.get("action_target_names", []).tolist()],
             "root_pos": archive["root_pos"],
@@ -1285,6 +1455,22 @@ def _load_state_npz(path: Path) -> dict[str, Any]:
             "joint_pos": archive["joint_pos"],
             "joint_vel": archive["joint_vel"],
         }
+        schema = archive.get("command_state_schema")
+        fields: dict[str, Any] = {}
+        prefix_len = len(COMMAND_STATE_PREFIX)
+        for key in archive.files:
+            if key.startswith(COMMAND_STATE_PREFIX):
+                fields[key[prefix_len:]] = archive[key]
+        if schema is None or not fields:
+            loaded["command_state"] = None
+            return loaded
+        loaded["command_state"] = {
+            "schema": str(np.asarray(schema).item()),
+            "command_name": str(np.asarray(archive.get("command_name", COMMAND_NAME)).item()),
+            "fields": fields,
+            "missing_on_term": [],
+        }
+        return loaded
 
 
 def _load_action_npz(path: Path, target_names: list[str]) -> Any:
@@ -1903,8 +2089,13 @@ def run_probe(args: argparse.Namespace) -> int:
         policy = runner.get_inference_policy(device=args.device)
 
     incoming_state = args.state_npz if args.state_npz is not None and args.state_npz.is_file() else None
+    include_command = not getattr(args, "no_command_state", False)
+    loaded_command_present = False
+    command_apply_report: dict[str, Any] | None = None
     if incoming_state is not None:
-        _apply_state(env, _load_state_npz(incoming_state))
+        loaded = _load_state_npz(incoming_state)
+        loaded_command_present = _command_snapshot_has_fields(loaded.get("command_state"))
+        command_apply_report = _apply_state(env, loaded)
 
     action_term = _action_term(env)
     joint_order = _joint_names(env)
@@ -1915,8 +2106,10 @@ def run_probe(args: argparse.Namespace) -> int:
     steps: list[dict[str, Any]] = []
 
     payload_state_npz: str | None = None
+    captured_command_state: dict[str, Any] | None = None
     if args.mode == "dump":
-        state = _capture_state(env, joint_order)
+        state = _capture_state(env, joint_order, include_command=include_command)
+        captured_command_state = state.get("command_state")
         state_path = dump_state_output_path(
             out=args.out, state_npz=args.state_npz, incoming_exists=incoming_state is not None
         )
@@ -1985,24 +2178,38 @@ def run_probe(args: argparse.Namespace) -> int:
                 break
 
     commit = _repo_commit(Path(source_path)) if source_path else None
+    cmd_status = command_state_status(
+        captured=include_command and _command_snapshot_has_fields(captured_command_state),
+        loaded=incoming_state is not None,
+        loaded_present=loaded_command_present,
+    )
+    metadata: dict[str, Any] = {
+        "side": side,
+        "mode": args.mode,
+        "seed": args.seed,
+        "steps": args.steps,
+        "num_envs": args.num_envs,
+        "task_id": task_id,
+        "commit": commit,
+        "source_path": source_path,
+        "checkpoint": str(args.checkpoint) if args.checkpoint else None,
+        "disable_obs_noise": args.disable_obs_noise,
+        "disable_terminations": args.disable_terminations,
+        "friction_fixed": args.friction_fixed,
+        "state_npz": payload_state_npz,
+        "state_npz_loaded": str(incoming_state) if incoming_state is not None else None,
+        "camera_semantics": getattr(args, "camera_semantics", CAMERA_SEMANTICS_NATIVE),
+        "command_state": cmd_status,
+        "command_state_schema": COMMAND_STATE_SCHEMA if include_command else None,
+        "command_name": COMMAND_NAME,
+    }
+    if captured_command_state is not None:
+        metadata["command_state_fields"] = sorted(captured_command_state.get("fields", {}).keys())
+        metadata["command_state_missing_on_capture"] = list(captured_command_state.get("missing_on_term", []))
+    if command_apply_report is not None:
+        metadata["command_state_apply"] = command_apply_report
     payload: dict[str, Any] = {
-        "metadata": {
-            "side": side,
-            "mode": args.mode,
-            "seed": args.seed,
-            "steps": args.steps,
-            "num_envs": args.num_envs,
-            "task_id": task_id,
-            "commit": commit,
-            "source_path": source_path,
-            "checkpoint": str(args.checkpoint) if args.checkpoint else None,
-            "disable_obs_noise": args.disable_obs_noise,
-            "disable_terminations": args.disable_terminations,
-            "friction_fixed": args.friction_fixed,
-            "state_npz": payload_state_npz,
-            "state_npz_loaded": str(incoming_state) if incoming_state is not None else None,
-            "camera_semantics": getattr(args, "camera_semantics", CAMERA_SEMANTICS_NATIVE),
-        },
+        "metadata": metadata,
         "static": static,
         "steps": steps,
     }
@@ -2034,6 +2241,14 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--state-npz", type=Path, default=None)
     run.add_argument("--action-npz", type=Path, default=None)
+    run.add_argument(
+        "--no-command-state",
+        action="store_true",
+        help=(
+            "Dump only robot kinematics into state.npz (no PoseVelocityCommand snapshot). "
+            "Compare will mark command_dependent_mdp_parity=false."
+        ),
+    )
     run.add_argument("--disable-obs-noise", action="store_true")
     run.add_argument(
         "--disable-terminations",

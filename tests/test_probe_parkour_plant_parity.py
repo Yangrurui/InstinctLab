@@ -611,6 +611,131 @@ def test_snapshot_maps_terrain_id_to_name(probe):
     assert events[0]["primary_reason"] == "root_height"
 
 
+def test_compare_marks_mdp_parity_false_without_command(probe, tmp_path):
+    names = ["j0"]
+    left = _synthetic_payload(names, [np.array([[0.0]])], side="ours_cmd")
+    right = _synthetic_payload(names, [np.array([[0.0]])], side="mj_cmd")
+    left["metadata"]["command_state"] = "absent"
+    right["metadata"]["command_state"] = "loaded_absent"
+    report = probe.compare_rollout_payloads(left, right)
+    assert report["command_state"]["command_dependent_mdp_parity"] is False
+    assert "note" in report["command_state"]
+
+
+def test_compare_marks_mdp_parity_true_with_command(probe):
+    names = ["j0"]
+    left = _synthetic_payload(names, [np.array([[0.0]])], side="ours_cmd2")
+    right = _synthetic_payload(names, [np.array([[0.0]])], side="mj_cmd2")
+    left["metadata"]["command_state"] = "present"
+    right["metadata"]["command_state"] = "loaded_present"
+    report = probe.compare_rollout_payloads(left, right)
+    assert report["command_state"]["command_dependent_mdp_parity"] is True
+
+
+def _fake_command_term(num_envs: int = 2):
+    import torch
+
+    class _Term:
+        def __init__(self):
+            self.vel_command_b = torch.zeros(num_envs, 3)
+            self.pos_command_w = torch.zeros(num_envs, 3)
+            self.heading_command_w = torch.zeros(num_envs)
+            self.pos_command_b = torch.zeros(num_envs, 3)
+            self.max_command_b = torch.zeros(num_envs, 3)
+            self.is_standing_env = torch.zeros(num_envs, dtype=torch.bool)
+            self.lin_vel_x_range = torch.tensor([[-1.0, 1.0]])
+            self.lin_vel_y_range = torch.tensor([[-1.0, 1.0]])
+            self.ang_vel_z_range = torch.tensor([[-1.0, 1.0]])
+            self.random_lin_vel_x_range = torch.tensor([[-0.5, 0.5]])
+            self.random_lin_vel_y_range = torch.tensor([[-0.5, 0.5]])
+            self.random_ang_vel_z_range = torch.tensor([[-0.5, 0.5]])
+            self.random_velocity_indices = torch.zeros(num_envs, dtype=torch.long)
+            self.random_lin_vel_x = torch.zeros(num_envs)
+            self.random_lin_vel_y = torch.zeros(num_envs)
+            self.random_ang_vel_z = torch.zeros(num_envs)
+            self.time_left = torch.ones(num_envs)
+            self.command_counter = torch.zeros(num_envs, dtype=torch.long)
+
+    return _Term()
+
+
+def _synthetic_plant_state(num_envs: int = 2) -> dict:
+    return {
+        "joint_names": ["j0", "j1"],
+        "action_target_names": ["j0", "j1"],
+        "root_pos": np.zeros((num_envs, 3), dtype=np.float32),
+        "root_quat": np.array([[1.0, 0.0, 0.0, 0.0]] * num_envs, dtype=np.float32),
+        "root_lin_vel": np.zeros((num_envs, 3), dtype=np.float32),
+        "root_ang_vel": np.zeros((num_envs, 3), dtype=np.float32),
+        "joint_pos": np.zeros((num_envs, 2), dtype=np.float32),
+        "joint_vel": np.zeros((num_envs, 2), dtype=np.float32),
+    }
+
+
+def test_command_state_roundtrip_npz(probe, tmp_path):
+    term = _fake_command_term()
+    term.vel_command_b[0, 2] = 0.75
+    term.heading_command_w[1] = 1.25
+    term.is_standing_env[0] = True
+    captured = probe.capture_command_state(term)
+    state = _synthetic_plant_state()
+    state["command_state"] = captured
+    path = tmp_path / "roundtrip.state.npz"
+    probe._write_state_npz(path, state)
+    loaded = probe._load_state_npz(path)
+    assert loaded["command_state"]["schema"] == probe.COMMAND_STATE_SCHEMA
+    assert set(loaded["command_state"]["fields"]) == set(probe.COMMAND_FIELD_NAMES)
+    np.testing.assert_allclose(loaded["command_state"]["fields"]["vel_command_b"], captured["fields"]["vel_command_b"])
+    np.testing.assert_array_equal(
+        loaded["command_state"]["fields"]["is_standing_env"], captured["fields"]["is_standing_env"]
+    )
+
+    target = _fake_command_term()
+    report = probe.apply_command_state(target, loaded["command_state"])
+    assert report["missing_on_term"] == []
+    assert report["missing_in_snapshot"] == []
+    assert set(report["applied"]) == set(probe.COMMAND_FIELD_NAMES)
+    assert target.vel_command_b[0, 2].item() == pytest.approx(0.75)
+    assert target.heading_command_w[1].item() == pytest.approx(1.25)
+    assert target.is_standing_env[0].item() is True
+
+
+def test_apply_command_state_shape_mismatch_raises(probe):
+    term = _fake_command_term()
+    snapshot = probe.capture_command_state(term)
+    snapshot["fields"]["vel_command_b"] = np.zeros((3, 3), dtype=np.float32)
+    with pytest.raises(ValueError, match="vel_command_b: shape"):
+        probe.apply_command_state(term, snapshot)
+
+
+def test_apply_command_state_missing_fields_reported(probe):
+    full = _fake_command_term()
+    snapshot = probe.capture_command_state(full)
+    del snapshot["fields"]["heading_command_w"]
+    term = _fake_command_term()
+    term.vel_command_b = None  # type: ignore[assignment]
+    del term.vel_command_b
+    report = probe.apply_command_state(term, snapshot)
+    assert "vel_command_b" in report["missing_on_term"]
+    assert "heading_command_w" in report["missing_in_snapshot"]
+    assert "vel_command_b" not in report["applied"]
+
+
+def test_load_legacy_state_npz_without_command(probe, tmp_path):
+    state = _synthetic_plant_state()
+    path = tmp_path / "legacy.state.npz"
+    probe._write_state_npz(path, state)
+    loaded = probe._load_state_npz(path)
+    assert loaded["command_state"] is None
+    assert probe.command_state_status(captured=False, loaded=True, loaded_present=False) == "loaded_absent"
+
+
+def test_command_state_status_helpers(probe):
+    assert probe.command_state_status(captured=True, loaded=False, loaded_present=False) == "present"
+    assert probe.command_state_status(captured=False, loaded=True, loaded_present=True) == "loaded_present"
+    assert probe.command_npz_key("vel_command_b") == "cmd__vel_command_b"
+
+
 def test_reweight_and_2x2_effects(probe):
     ours = {
         "metadata": {"side": "ours", "checkpoint": "/ckpt/ours.pt", "seed": 42},
