@@ -347,10 +347,12 @@ def test_depth_image_turns_a_past_far_plane_hit_into_infinity() -> None:
     assert math.isinf(image[0, 0, 1, 0]) and image[0, 0, 1, 0] > 0
 
 
-def test_mjlab_camera_cfg_is_world_convention_and_not_a_group_mask() -> None:
+def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
     pytest.importorskip("mjlab")
+    from instinctlab.engines.mjlab.camera import pinhole_camera_geom_groups
     from instinctlab.engines.mjlab.scene import _ray_caster
 
+    expected = pinhole_camera_geom_groups()
     cfg = _ray_caster(
         RayCasterRef(
             name="camera",
@@ -369,21 +371,16 @@ def test_mjlab_camera_cfg_is_world_convention_and_not_a_group_mask() -> None:
     assert cfg.max_distance == 5.0
     assert cfg.image_plane_max == 2.5
     assert cfg.min_distance == 0.1
-    assert cfg.include_geom_groups is None
+    assert cfg.include_geom_groups == expected
     assert cfg.ray_alignment == "base"
     assert cfg.pattern.width == 64
     assert cfg.pattern.height == 36
 
 
-def test_camera_mask_is_named_bodies_not_a_group_number() -> None:
-    """Group 2 is the visual shoe. Listing the ankle must not pull in every group-2 geom.
-
-    A listed body with a mesh keeps the mesh and drops its collision capsule --
-    Isaac's ``/visuals`` targets do the same. A capsule-only body is the fallback
-    in the next test, not this one.
-    """
+def test_geom_groups_mask_includes_all_group012_geoms() -> None:
+    """Group 2 is the visual shoe; the mask is by group number, not body name."""
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.engines.mjlab.camera import _camera_geom_mask
+    from instinctlab.engines.mjlab.camera import geom_groups_camera_mask, pinhole_camera_geom_groups
 
     model = mujoco.MjModel.from_xml_string("""
         <mujoco>
@@ -404,36 +401,29 @@ def test_camera_mask_is_named_bodies_not_a_group_number() -> None:
           </worldbody>
         </mujoco>
         """)
-    mask = _camera_geom_mask(model, bodies=("left_ankle_roll_link",), include_terrain=True, device="cpu")
+    groups = pinhole_camera_geom_groups()
+    mask = geom_groups_camera_mask(model, groups, device="cpu")
     names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i) for i in range(model.ngeom)]
     allowed = {names[i] for i, keep in enumerate(mask.tolist()) if keep}
-    assert "ground" in allowed
-    assert "shoe_visual" in allowed
+    assert allowed == {"ground", "shoe_visual", "head_visual"}
     assert "shoe_collision" not in allowed
-    assert "head_visual" not in allowed
 
 
-def test_camera_mask_falls_back_to_every_geom_on_a_meshless_body() -> None:
-    """A capsule-only listed link must stay visible rather than silently vanish."""
+def test_geom_groups_mask_rejects_empty_groups() -> None:
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.engines.mjlab.camera import _camera_geom_mask
+    from instinctlab.engines.mjlab.camera import geom_groups_camera_mask
 
     model = mujoco.MjModel.from_xml_string("""
         <mujoco>
           <worldbody>
-            <body name="terrain">
-              <geom name="ground" type="plane" size="1 1 0.01" group="0"/>
-            </body>
-            <body name="left_ankle_roll_link">
-              <geom name="shoe_collision" type="capsule" size="0.03 0.02" group="3"/>
+            <body name="robot">
+              <geom name="capsule" type="capsule" size="0.03 0.02" group="3"/>
             </body>
           </worldbody>
         </mujoco>
         """)
-    mask = _camera_geom_mask(model, bodies=("left_ankle_roll_link",), include_terrain=True, device="cpu")
-    names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i) for i in range(model.ngeom)]
-    allowed = {names[i] for i, keep in enumerate(mask.tolist()) if keep}
-    assert allowed == {"ground", "shoe_collision"}
+    with pytest.raises(RuntimeError, match="geom group mask empty"):
+        geom_groups_camera_mask(model, (0, 1, 2), device="cpu")
 
 
 def test_processed_depth_turns_infinity_into_the_normalisation_ceiling() -> None:

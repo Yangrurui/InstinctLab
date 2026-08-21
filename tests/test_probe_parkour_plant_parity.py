@@ -148,7 +148,42 @@ def test_reference_camera_reader_works_without_repo_on_pythonpath():
     subprocess.run([sys.executable, "-c", code], cwd="/tmp", check=True)
 
 
-def test_native_camera_metadata_keeps_hop(probe):
+def test_native_camera_metadata_reports_groups_no_hop(probe):
+    class _Cfg:
+        name = "camera"
+        include_geom_groups = (0, 1, 2)
+
+    class _Sensor:
+        cfg = _Cfg()
+
+        def _apply_min_distance_no_hop(self):
+            return None
+
+    meta = probe.camera_semantics_metadata(_Sensor(), probe.CAMERA_SEMANTICS_NATIVE)
+    assert meta["camera_filter"] == "geom_groups_no_hop"
+    assert meta["hop_max"] == 0
+    assert meta["cfg_include_geom_groups"] == [0, 1, 2]
+    assert meta["native_already_aligned"] is True
+
+
+def test_instinctmj_alias_detects_native_already_aligned(probe):
+    class _Cfg:
+        name = "camera"
+        include_geom_groups = (0, 1, 2)
+
+    class _Sensor:
+        cfg = _Cfg()
+
+        def _apply_min_distance_no_hop(self):
+            return None
+
+    sensor = _Sensor()
+    assert probe.native_camera_already_instinctmj_aligned(sensor) is True
+    meta = probe.camera_semantics_metadata(sensor, probe.CAMERA_SEMANTICS_INSTINCTMJ)
+    assert meta["alias_note"].startswith("instinctmj_geom_groups is a no-op alias")
+
+
+def test_legacy_body_mask_metadata_still_detectable(probe):
     class _Sensor:
         cfg = type("Cfg", (), {"name": "camera", "include_geom_groups": None})()
         _allowed_geom_mask = __import__("torch").ones(10, dtype=bool)
@@ -159,23 +194,7 @@ def test_native_camera_metadata_keeps_hop(probe):
     meta = probe.camera_semantics_metadata(_Sensor(), probe.CAMERA_SEMANTICS_NATIVE)
     assert meta["camera_filter"] == "body_mesh_mask_with_hop"
     assert meta["hop_max"] == 6
-
-
-def test_instinctmj_camera_metadata_records_no_hop(probe):
-    import types
-
-    class _Sensor:
-        cfg = type("Cfg", (), {"name": "camera"})()
-        _allowed_geom_mask = __import__("torch").ones(100, dtype=bool)
-
-        def _filter_and_continue(self):
-            return None
-
-    sensor = _Sensor()
-    sensor._filter_and_continue = types.MethodType(probe.filter_first_hit_no_hop, sensor)
-    meta = probe.camera_semantics_metadata(sensor, probe.CAMERA_SEMANTICS_INSTINCTMJ)
-    assert meta["camera_filter"] == "geom_groups_no_hop"
-    assert meta["hop_max"] == 0
+    assert meta["native_already_aligned"] is False
 
 
 def test_summarize_policy_eval_counts_root_height(probe):

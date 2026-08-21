@@ -583,7 +583,9 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     assert camera.image_plane_max == 2.5
     assert camera.min_distance == 0.1
     assert camera.origin_offset_rot[0] == pytest.approx(0.9135367613482678)
-    assert camera.include_geom_groups is None
+    from instinctlab.engines.mjlab.camera import pinhole_camera_geom_groups
+
+    assert camera.include_geom_groups == pinhole_camera_geom_groups()
     depth = compiled.env_cfg.observations["policy"].terms["depth_image"]
     assert depth.history_length == 0
     assert getattr(depth, "delay_max_lag", 0) == 0

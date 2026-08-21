@@ -1,16 +1,13 @@
-"""mjlab pinhole camera that measures Isaac's quantity, not mjlab's stock default.
+"""mjlab pinhole camera aligned with InstinctMJ, not Isaac's grouped mesh targets.
 
-Stock ``RayCastSensorCfg`` generates MuJoCo-camera rays (-Z forward), starts at the
-attach frame with no offset, includes geom groups ``(0, 1, 2)``, and reports a miss
-as ``distance=-1``. The parkour camera is a world-convention pinhole (+X forward,
-+Z up) hung from the torso by a pose offset, hits an explicit list of bodies plus
-the terrain, and reports a miss as ``+inf``.
+Stock ``RayCastSensorCfg`` includes geom groups ``(0, 1, 2)`` and returns the first
+kernel hit. InstinctMJ's parkour ``NoisyGroupedRayCasterCameraCfg`` inherits that default
+with empty ``mesh_prim_paths``, so there is no body-name mesh filter and no hop past a
+filtered geom. Isaac's parkour camera instead lists ``/World/ground`` plus G1 link
+visual prims; that list lives on the shared :class:`RayCasterRef` for Isaac only.
 
-The group mask is the trap this module exists to avoid. Group 2 on the G1 is the
-visual shoe; group 3 is the collision capsule. Hits are selected by body name,
-then by mesh geoms of those bodies. Unlisted geoms that share a group are hopped
-over rather than accepted -- a first-hit on an unlisted hand must not hide the
-ground behind it, and must not look like a hit on a listed link.
+This module keeps Isaac's world-convention pinhole pose (+X forward, +Z up), image-plane
+depth, and ``+inf`` miss encoding while using the InstinctMJ/mjlab group mask on mjlab.
 """
 
 from __future__ import annotations
@@ -23,15 +20,43 @@ from instinctlab.compat.math import quat_apply, quat_inv, quat_mul
 from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
 from instinctlab.spec.sensor import RayCasterRef
 
-__all__ = ["pinhole_ray_caster"]
+__all__ = [
+    "pinhole_camera_effective_semantics",
+    "pinhole_camera_geom_groups",
+    "pinhole_ray_caster",
+]
 
-_TERRAIN_BODY = "terrain"
-_MAX_HOPS = 6
-_HOP_EPS = 1e-4
+
+def pinhole_camera_geom_groups() -> tuple[int, ...]:
+    """Geom groups InstinctMJ parkour inherits from mjlab ``RayCastSensorCfg``."""
+    from mjlab.sensor.raycast_sensor import RayCastSensorCfg
+
+    field = RayCastSensorCfg.__dataclass_fields__["include_geom_groups"]
+    default = field.default
+    if default is None:
+        raise RuntimeError(
+            "mjlab RayCastSensorCfg.include_geom_groups default is None; "
+            "InstinctMJ parkour expects the stock (0, 1, 2) mask."
+        )
+    return tuple(default)
+
+
+def pinhole_camera_effective_semantics(sensor: RayCasterRef) -> dict[str, Any]:
+    """Effective mjlab hit semantics for manifest metadata (Isaac uses ``hit_bodies()``)."""
+    groups = pinhole_camera_geom_groups()
+    declared_bodies = sensor.hit_bodies()
+    return {
+        "filter": "geom_groups_no_hop",
+        "include_geom_groups": groups,
+        "hop_max": 0,
+        "declared_hit_bodies_for_isaac": declared_bodies,
+        "declared_hit_bodies_ignored_on_mjlab": bool(declared_bodies),
+        "declared_hits_terrain": sensor.hits_terrain(),
+    }
 
 
 def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
-    """A mjlab sensor cfg that implements a pinhole :class:`RayCasterRef`."""
+    """A mjlab sensor cfg that implements a pinhole :class:`RayCasterRef` under InstinctMJ semantics."""
     from mjlab.sensor import ObjRef, PinholeCameraPatternCfg
     from mjlab.sensor.raycast_sensor import RayCastSensor, RayCastSensorCfg
 
@@ -40,8 +65,8 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
     refuse_unhonored_ray_alignment(sensor)
     if sensor.miss != "infinity":
         raise ValueError(f"mjlab camera {sensor.name!r} has miss={sensor.miss!r}; the portable contract is +inf.")
-    if not sensor.hit_bodies() and not sensor.hits_terrain():
-        raise ValueError(f"mjlab camera {sensor.name!r} names nothing to hit.")
+
+    geom_groups = pinhole_camera_geom_groups()
 
     @dataclass
     class PinholeRayCastSensorCfg(RayCastSensorCfg):
@@ -63,13 +88,6 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             from .ray_device import ensure_warp_ray_on_device
 
             ensure_warp_ray_on_device(device)
-            mask = _camera_geom_mask(
-                mj_model,
-                bodies=sensor.hit_bodies(),
-                include_terrain=sensor.hits_terrain(),
-                device=device,
-            )
-            self._allowed_geom_mask = mask
             super().initialize(mj_model, model, data, device)
             self._local_offsets, self._local_directions = _world_pinhole_rays(
                 width=sensor.pattern.width,
@@ -136,77 +154,20 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
 
         def postprocess_rays(self) -> None:
             super().postprocess_rays()
-            self._filter_and_continue()
+            self._apply_min_distance_no_hop()
             self._write_image_plane()
 
-        def _filter_and_continue(self) -> None:
-            """Keep listed hits; hop past anything else, including closer collision capsules."""
-            import warp as wp
-
+        def _apply_min_distance_no_hop(self) -> None:
+            """Keep the first in-group kernel hit unless it violates ``min_distance``; never hop."""
             assert self._distances is not None and self._hit_pos_w is not None
-            assert self._ray_geomid is not None
-            assert self._cached_world_origins is not None and self._cached_world_rays is not None
-            geom_ids = wp.to_torch(self._ray_geomid).to(dtype=torch.long)
             distances = self._distances
             hit_pos = self._hit_pos_w
-            origins = self._cached_world_origins
-            rays = self._cached_world_rays
             inf = torch.full_like(distances, float("inf"))
             inf3 = torch.full_like(hit_pos, float("inf"))
-
             hit = distances >= 0.0
-            allowed = torch.zeros_like(hit)
-            valid_ids = geom_ids.clamp(min=0, max=self._allowed_geom_mask.numel() - 1)
-            allowed[hit] = self._allowed_geom_mask[valid_ids[hit]]
-            accept = hit & allowed & (distances > self._min_distance)
-            still = hit & ~accept
-            final_dist = torch.where(accept, distances, inf)
-            final_pos = torch.where(accept.unsqueeze(-1), hit_pos, inf3)
-            if not bool(still.any()):
-                self._distances = final_dist
-                self._hit_pos_w = final_pos
-                return
-
-            traveled = torch.zeros_like(distances)
-            traveled[still] = distances[still] + _HOP_EPS
-            current = origins.clone()
-            current[still] = hit_pos[still] + rays[still] * _HOP_EPS
-            pnt = wp.to_torch(self._ray_pnt).view_as(origins)
-            vec = wp.to_torch(self._ray_vec).view_as(rays)
-            if self._wp_device is None:
-                raise RuntimeError("Camera hop needs the sensor Warp device.")
-            for _ in range(_MAX_HOPS):
-                remaining = self.cfg.max_distance - traveled
-                still = still & (remaining > 0.0)
-                if not bool(still.any()):
-                    break
-                pnt.copy_(origins)
-                vec.copy_(rays)
-                pnt[still] = current[still]
-                if self._ctx is None:
-                    raise RuntimeError("Camera hop needs a SensorContext.")
-                # The in-graph launch is wrapped in Simulation.sense's ScopedDevice.
-                # A hop is post-graph: without the same device, Warp falls back to
-                # cuda:0 and the kernel reads cuda:2 arrays -- illegal access, no
-                # Python exception until the next tensor op.
-                with wp.ScopedDevice(self._wp_device):
-                    self.raycast_kernel(self._ctx.render_context)
-                new_dist = wp.to_torch(self._ray_dist)
-                new_geom = wp.to_torch(self._ray_geomid).to(dtype=torch.long)
-                new_hit = new_dist >= 0.0
-                new_allowed = torch.zeros_like(new_hit)
-                new_ids = new_geom.clamp(min=0, max=self._allowed_geom_mask.numel() - 1)
-                new_allowed[new_hit] = self._allowed_geom_mask[new_ids[new_hit]]
-                new_pos = current + rays * new_dist.clamp(min=0.0).unsqueeze(-1)
-                total = traveled + new_dist
-                take = still & new_hit & new_allowed & (total > self._min_distance) & (new_dist <= remaining)
-                final_dist = torch.where(take, total, final_dist)
-                final_pos = torch.where(take.unsqueeze(-1), new_pos, final_pos)
-                still = still & new_hit & ~take
-                current = torch.where(still.unsqueeze(-1), new_pos + rays * _HOP_EPS, current)
-                traveled = torch.where(still, total + _HOP_EPS, traveled)
-            self._distances = final_dist
-            self._hit_pos_w = final_pos
+            accept = hit & (distances > self._min_distance)
+            self._distances = torch.where(accept, distances, inf)
+            self._hit_pos_w = torch.where(accept.unsqueeze(-1), hit_pos, inf3)
 
         def _write_image_plane(self) -> None:
             """X of the hit in the world-convention camera frame. A miss is +inf."""
@@ -242,7 +203,7 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
         # below is the semantic far plane; a farther hit is +inf, not 2.5.
         max_distance=sensor.max_distance * 2,
         exclude_parent_body=True,
-        include_geom_groups=None,
+        include_geom_groups=geom_groups,
         debug_vis=False,
         origin_offset=sensor.offset,
         origin_offset_rot=sensor.offset_rot,
@@ -287,51 +248,14 @@ def _world_pinhole_rays(
     return starts, directions
 
 
-def _camera_geom_mask(
-    mj_model,
-    *,
-    bodies: tuple[str, ...],
-    include_terrain: bool,
-    device: str,
-) -> torch.Tensor:
-    """Geoms the camera may keep: terrain body, plus mesh geoms of named bodies.
-
-    A listed body with no mesh falls back to every geom on that body so a
-    capsule-only link is still visible rather than silently absent. Group
-    numbers are not consulted.
-    """
-    import mujoco
-
-    wanted: set[int] = set()
-    for body_id in range(int(mj_model.nbody)):
-        name = mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
-        short = name.rsplit("/", 1)[-1]
-        if include_terrain and (name == _TERRAIN_BODY or short == _TERRAIN_BODY):
-            wanted.add(body_id)
-        if short in bodies or name in bodies:
-            wanted.add(body_id)
-    if not wanted:
-        raise RuntimeError(
-            f"Camera hit list matched no bodies. Asked for terrain={include_terrain} "
-            f"bodies={list(bodies)}. A group mask is not a substitute."
-        )
-
+def geom_groups_camera_mask(mj_model, groups: tuple[int, ...], device: str) -> torch.Tensor:
+    """All geoms whose MuJoCo group is in ``groups`` — matches kernel include-list semantics."""
     ngeom = int(mj_model.ngeom)
-    mesh_by_body: dict[int, list[int]] = {body_id: [] for body_id in wanted}
-    all_by_body: dict[int, list[int]] = {body_id: [] for body_id in wanted}
-    for geom_id in range(ngeom):
-        body_id = int(mj_model.geom_bodyid[geom_id])
-        if body_id not in wanted:
-            continue
-        all_by_body[body_id].append(geom_id)
-        if int(mj_model.geom_type[geom_id]) == int(mujoco.mjtGeom.mjGEOM_MESH):
-            mesh_by_body[body_id].append(geom_id)
-
     mask = torch.zeros(ngeom, device=device, dtype=torch.bool)
-    for body_id in wanted:
-        chosen = mesh_by_body[body_id] or all_by_body[body_id]
-        if chosen:
-            mask[torch.tensor(chosen, device=device, dtype=torch.long)] = True
+    group_arr = mj_model.geom_group
+    for geom_id in range(ngeom):
+        if int(group_arr[geom_id]) in groups:
+            mask[geom_id] = True
     if not bool(mask.any()):
-        raise RuntimeError("Camera hit list resolved bodies but those bodies have no geoms.")
+        raise RuntimeError(f"geom group mask empty for groups={groups}")
     return mask

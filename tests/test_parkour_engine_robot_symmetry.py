@@ -298,38 +298,30 @@ def test_shoe_geometry_hangs_off_a_camera_hit_body() -> None:
     assert urdf_parents == {"left_ankle_roll_link", "right_ankle_roll_link"}
 
 
-def test_mjlab_camera_mask_keeps_ankle_geoms_from_the_hit_list() -> None:
-    """Named-body mask must include the ankle. A missing mesh must not drop the foot."""
+def test_mjlab_camera_uses_geom_groups_not_body_mask() -> None:
+    """Production mjlab camera hits geom groups (0,1,2), not the Isaac G1 link list."""
     mujoco = pytest.importorskip("mujoco")
     from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
-    from instinctlab.engines.mjlab.camera import _camera_geom_mask
+    from instinctlab.engines.mjlab.camera import geom_groups_camera_mask, pinhole_camera_geom_groups
 
     shoe_xml = REPO / "source/instinctlab/instinctlab/tasks/parkour/mjcf" / SHOE_MJCF
     try:
         model = mujoco.MjModel.from_xml_path(str(shoe_xml))
     except (ValueError, OSError) as exc:
         pytest.skip(f"shoe MJCF did not load ({exc}); mesh-free fallback is an adapter concern")
-    mask = _camera_geom_mask(model, bodies=tuple(G1_29DOF_LINKS), include_terrain=False, device="cpu")
-    kept = 0
-    for geom_id in range(int(model.ngeom)):
-        if not bool(mask[geom_id]):
-            continue
-        body_id = int(model.geom_bodyid[geom_id])
-        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
-        if name.rsplit("/", 1)[-1] in {"left_ankle_roll_link", "right_ankle_roll_link"}:
-            kept += 1
-    assert kept >= 2, f"camera mask kept {kept} ankle geoms; the feet would be invisible"
-    mesh_kept = {"left_ankle_roll_link": 0, "right_ankle_roll_link": 0}
+    groups = pinhole_camera_geom_groups()
+    mask = geom_groups_camera_mask(model, groups, device="cpu")
+    group012 = sum(1 for geom_id in range(int(model.ngeom)) if int(model.geom_group[geom_id]) in groups)
+    assert int(mask.sum()) == group012
+    body_mask_names = set(G1_29DOF_LINKS)
+    kept_bodies: set[str] = set()
     for geom_id in range(int(model.ngeom)):
         if not bool(mask[geom_id]):
             continue
         body_id = int(model.geom_bodyid[geom_id])
         name = (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id) or "").rsplit("/", 1)[-1]
-        if name in mesh_kept and int(model.geom_type[geom_id]) == int(mujoco.mjtGeom.mjGEOM_MESH):
-            mesh_kept[name] += 1
-    assert all(
-        count >= 1 for count in mesh_kept.values()
-    ), f"camera kept no ankle mesh {mesh_kept}; shoe capsules are not the hit surface"
+        kept_bodies.add(name)
+    assert kept_bodies - body_mask_names, "group mask must hit geoms outside the Isaac link list"
 
 
 def test_camera_hit_list_does_not_name_a_merged_away_link() -> None:

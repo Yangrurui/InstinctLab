@@ -94,14 +94,6 @@ REFERENCE_DIVERGENCE: dict[str, tuple[str, str, str]] = {
             "follows Isaac so a later 'fix' toward InstinctMJ would retune the Isaac side."
         ),
     ),
-    "camera/hit_targets": (
-        "InstinctMJ: default geom groups (0, 1, 2); Isaac main: /World/ground + G1_29DOF_LINKS",
-        "terrain + G1_29DOF_LINKS by body name (track Isaac)",
-        (
-            "Named-body hits, as main's Isaac parkour. InstinctMJ's group mask is a "
-            "reference-vs-reference split. 'Fixing' toward groups would retune the Isaac side."
-        ),
-    ),
     "actuation/pd": (
         "InstinctMJ: BuiltinPd implicit-integration + delay; main: ImplicitPD, no delay",
         "both engines delayed: mjlab matches InstinctMJ, Isaac deliberately does not match main",
@@ -356,7 +348,9 @@ def test_compiled_scanners_volume_contact_and_camera_are_the_documented_drifts(t
     assert contact.force_threshold == reference_sensors["contact_forces"]["force_threshold"] == 1.0
     assert "found" not in reference_sensors["contact_forces"]["fields"]
     camera = sensors["camera"]
-    assert camera.include_geom_groups is None
+    reference_groups = mj_ref.camera_include_geom_groups()
+    assert reference_groups == (0, 1, 2), reference_groups
+    assert camera.include_geom_groups == reference_groups
     assert "camera" in reference_sensors
     assert reference_sensors["camera"]["cfg_class"] == "NoisyGroupedRayCasterCameraCfg"
     assert reference_sensors["camera"]["max_distance"] == 2.5
@@ -548,11 +542,12 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
     assert len(KNOWN_DRIFTS) == 1
     assert len(DELIBERATE) == 8
-    assert len(REFERENCE_DIVERGENCE) == 3
+    assert len(REFERENCE_DIVERGENCE) == 2
     assert "agent/normalizers" not in KNOWN_DRIFTS
     assert "scene/height_scanner/offset" not in KNOWN_DRIFTS
     assert "reward/dof_vel_limits" not in KNOWN_DRIFTS
     assert "camera/hit_targets" not in KNOWN_DRIFTS
+    assert "camera/hit_targets" not in REFERENCE_DIVERGENCE
     assert "contact/threshold" not in KNOWN_DRIFTS
     assert "sim/ccd_iterations" not in KNOWN_DRIFTS
     assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
@@ -773,17 +768,53 @@ def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
     assert main_ref.reward_weights()["dof_vel_limits"] == -1.0
 
 
-def test_reference_divergence_camera_hit_tracks_isaac(task, compiled) -> None:
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
+def test_mjlab_camera_hit_semantics_match_instinctmj(task, compiled) -> None:
+    """mjlab production uses InstinctMJ geom groups (0,1,2), no body mask, no hop."""
+    from instinctlab.engines.mjlab.camera import pinhole_camera_effective_semantics, pinhole_camera_geom_groups
+
+    reference_groups = mj_ref.camera_include_geom_groups()
+    assert reference_groups == (0, 1, 2), reference_groups
+    assert pinhole_camera_geom_groups() == reference_groups
 
     camera = {s.name: s for s in compiled.env_cfg.scene.sensors}["camera"]
-    theirs = mj_ref.camera_include_geom_groups()
-    assert theirs == (0, 1, 2), theirs
-    assert "include_geom_groups" not in mj_ref.sensor_cfgs()["camera"]
-    assert camera.include_geom_groups is None
+    assert camera.include_geom_groups == reference_groups
+
+    semantics = pinhole_camera_effective_semantics(task.scene.ray_caster("camera"))
+    assert semantics["filter"] == "geom_groups_no_hop"
+    assert semantics["include_geom_groups"] == reference_groups
+    assert semantics["hop_max"] == 0
+    assert semantics["declared_hit_bodies_ignored_on_mjlab"] is True
+
+    manifest = compiled.resolution.manifest()
+    assert manifest["profile"]["pinhole_camera_semantics"]["camera"] == semantics
+
+
+def test_isaac_camera_hit_semantics_track_main(task) -> None:
+    """Isaac keeps main's terrain + G1 link mesh targets; mjlab does not."""
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
+
     assert task.scene.ray_caster("camera").hit_bodies() == tuple(G1_29DOF_LINKS)
+    assert "include_geom_groups" not in mj_ref.sensor_cfgs()["camera"]
     assert mj_ref.sensor_cfgs()["camera"]["cfg_class"] == "NoisyGroupedRayCasterCameraCfg"
-    assert theirs != tuple(G1_29DOF_LINKS)
+
+
+def test_camera_hit_mutation_body_mask_would_fail_mjlab_reference(task, compiled) -> None:
+    """Reverting mjlab to Isaac body-mask semantics must fail the InstinctMJ alignment test."""
+    reference_groups = mj_ref.camera_include_geom_groups()
+    camera = {s.name: s for s in compiled.env_cfg.scene.sensors}["camera"]
+    assert camera.include_geom_groups == reference_groups
+    wrong = (0, 3)
+    assert wrong != reference_groups
+    with pytest.raises(AssertionError):
+        assert wrong == reference_groups
+
+
+def test_camera_hit_mutation_reference_groups_would_fail(task) -> None:
+    """If InstinctMJ's default groups change, the reader-backed assertion must fail."""
+    groups = mj_ref.camera_include_geom_groups()
+    assert groups == (0, 1, 2)
+    with pytest.raises(AssertionError):
+        assert groups == (0, 1)
 
 
 def test_reference_divergence_pd_tracks_each_reference(task, compiled) -> None:

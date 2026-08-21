@@ -64,6 +64,19 @@ def _rewards(compiled: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     return {name: term for group in compiled.values() for name, term in group.items()}
 
 
+def _record_pinhole_camera_semantics(profile: dict[str, Any], spec: TaskSpec) -> None:
+    """Expose mjlab-only camera hit semantics beside the checkpoint manifest."""
+    from .camera import pinhole_camera_effective_semantics
+
+    semantics = {
+        sensor.name: pinhole_camera_effective_semantics(sensor)
+        for sensor in spec.scene.ray_casters
+        if sensor.pattern.kind == "pinhole"
+    }
+    if semantics:
+        profile["pinhole_camera_semantics"] = semantics
+
+
 class MjlabAdapter:
     """Compiles a :class:`TaskSpec` into an mjlab ``ManagerBasedRlEnvCfg``."""
 
@@ -122,6 +135,7 @@ class MjlabAdapter:
         from mjlab.sim import MujocoCfg, SimulationCfg
 
         profile = self.profile(spec)
+        _record_pinhole_camera_semantics(profile, spec)
         resolution = Resolution(
             engine=self.name,
             task_id=spec.task_id,
