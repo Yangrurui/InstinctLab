@@ -32,6 +32,12 @@ NCONMAX = 128
 CCD_ITERATIONS = 128
 SCANNER_MAX_DISTANCE = 10.0
 SCANNER_ORIGIN_OFFSET = (0.0, 0.0, 0.0)
+MJLAB_RAYCAST_SENSOR = Path("/root/mjlab/src/mjlab/sensor/raycast_sensor.py")
+MJLAB_TERRAIN_GENERATOR = Path("/root/mjlab/src/mjlab/terrains/terrain_generator.py")
+INSTINCTMJ_TERRAIN_GENERATOR = Path("/root/InstinctMJ/src/instinct_mj/terrains/terrain_generator.py")
+OURS_MJLAB_TERRAIN_GENERATOR = Path(
+    "/root/InstinctLab/source/instinctlab/instinctlab/engines/mjlab/terrains/terrain_generator.py"
+)
 
 
 def available() -> bool:
@@ -245,6 +251,123 @@ def sensor_cfgs() -> dict[str, dict[str, Any]]:
         if isinstance(name, str):
             result[name] = {"cfg_class": cls, **kwargs}
     return result
+
+
+def _mjlab_raycast_default_include_geom_groups() -> tuple[int, ...]:
+    """mjlab ``RayCastSensorCfg.include_geom_groups`` class default, read not transcribed."""
+    path = _require_file(MJLAB_RAYCAST_SENSOR)
+    for node in ast.parse(path.read_text()).body:
+        if not isinstance(node, ast.ClassDef) or node.name != "RayCastSensorCfg":
+            continue
+        for item in node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                if item.target.id != "include_geom_groups" or item.value is None:
+                    continue
+                parsed = _literal(item.value)
+                if parsed is None:
+                    raise LookupError("mjlab RayCastSensorCfg.include_geom_groups default is None")
+                if isinstance(parsed, tuple):
+                    return parsed
+                if isinstance(parsed, list):
+                    return tuple(parsed)
+                raise LookupError(f"unparsed include_geom_groups default: {parsed!r}")
+    raise LookupError(f"{path} has no RayCastSensorCfg.include_geom_groups default")
+
+
+def camera_include_geom_groups() -> tuple[int, ...] | None:
+    """Effective geom-group mask on InstinctMJ parkour camera.
+
+    The factory does not pass ``include_geom_groups`` on ``NoisyGroupedRayCasterCameraCfg``,
+    so mjlab's ``RayCastSensorCfg`` default applies. An explicit ``None`` would mean all groups.
+    """
+    camera = sensor_cfgs().get("camera")
+    if camera is None:
+        raise LookupError("InstinctMJ parkour factory has no camera sensor")
+    if "include_geom_groups" not in camera:
+        return _mjlab_raycast_default_include_geom_groups()
+    value = camera["include_geom_groups"]
+    if value is None:
+        return None
+    if isinstance(value, tuple):
+        return value
+    raise LookupError(f"camera include_geom_groups did not parse: {value!r}")
+
+
+def _instinctmj_curriculum_built_one_column_per_type() -> None:
+    """InstinctMJ still uses mjlab core curriculum width (= len(sub_terrains)), not declared num_cols."""
+    instinctmj = _require_file(INSTINCTMJ_TERRAIN_GENERATOR)
+    if "_honor_declared_num_cols" in instinctmj.read_text():
+        raise LookupError("InstinctMJ terrain generator now honors declared num_cols; update terrain_curriculum_grid()")
+    mjlab = _require_file(MJLAB_TERRAIN_GENERATOR)
+    tree = ast.parse(mjlab.read_text())
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != "TerrainGenerator":
+            continue
+        post_init = next(
+            (item for item in node.body if isinstance(item, ast.FunctionDef) and item.name == "__init__"), None
+        )
+        if post_init is None:
+            break
+        src = ast.unparse(post_init)
+        if "self._num_cols = len(self.cfg.sub_terrains)" not in src.replace("\n", " "):
+            raise LookupError("mjlab curriculum built-width rule moved; re-read TerrainGenerator.__init__")
+        return
+    raise LookupError("mjlab TerrainGenerator.__init__ not found")
+
+
+def _ours_honors_declared_num_cols() -> None:
+    ours = _require_file(OURS_MJLAB_TERRAIN_GENERATOR)
+    if "_honor_declared_num_cols" not in ours.read_text():
+        raise LookupError("our mjlab terrain generator no longer honors declared num_cols")
+
+
+def _terrain_curriculum_grid() -> dict[str, Any]:
+    """Built grid width and column assignment semantics for parkour curriculum terrain.
+
+    Both sides declare ``num_cols=20``. InstinctMJ's mjlab core builds ``len(sub_terrains)=10``
+    columns (one name per type). Our mjlab adapter resizes to the declaration and assigns columns
+    with Isaac's cumulative-proportion formula.
+    """
+    recipe = terrain_recipe()
+    if not recipe.get("curriculum"):
+        raise LookupError("parkour terrain recipe must use curriculum=True")
+    names = list(recipe["sub_terrains"])
+    proportions = [float(recipe["sub_terrains"][name]["proportion"]) for name in names]
+    declared = int(recipe["num_cols"])
+    n_types = len(names)
+    if n_types == 0:
+        raise LookupError("terrain recipe has no sub_terrains")
+    _instinctmj_curriculum_built_one_column_per_type()
+    _ours_honors_declared_num_cols()
+    return {
+        "declared_num_cols": declared,
+        "instinctmj_built_num_cols": n_types,
+        "ours_built_num_cols": declared,
+        "instinctmj_allocation": "one_column_per_type",
+        "ours_allocation": "isaac_cumulative_proportion",
+        "sub_terrain_names": names,
+        "proportions": proportions,
+    }
+
+
+def terrain_column_maps() -> dict[str, Any]:
+    """Column-to-sub-terrain names on the *built* grid, not the declared width alone."""
+    from instinctlab.engines.pose_velocity import curriculum_column_indices
+
+    grid = _terrain_curriculum_grid()
+    names = grid["sub_terrain_names"]
+    proportions = grid["proportions"]
+
+    def _column_names(built_cols: int) -> list[str]:
+        if built_cols == len(names):
+            return list(names)
+        return [names[index] for index in curriculum_column_indices(proportions, built_cols)]
+
+    return {
+        **grid,
+        "instinctmj_column_to_name": _column_names(grid["instinctmj_built_num_cols"]),
+        "ours_column_to_name": _column_names(grid["ours_built_num_cols"]),
+    }
 
 
 def shoe_effective() -> dict[str, Any]:

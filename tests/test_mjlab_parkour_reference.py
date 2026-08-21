@@ -569,8 +569,13 @@ def test_documented_drifts_are_still_present(task, compiled) -> None:
     """Each KNOWN_DRIFTS row must still describe a real difference."""
     from tests import reference_mjlab_parkour as mj_ref
 
-    assert task.scene.motion_references[0].clip.endswith(".npz")
-    assert mj_ref.motion_source()["symmetric_augmentation_link_mapping"] is not None
+    clip = task.scene.motion_references[0].clip
+    assert clip.endswith("parkour_motion_without_run_retargetted.npz")
+    assert clip.endswith(".npz")
+    source = mj_ref.motion_source()
+    assert "parkour_motion_without_run.yaml" in (source.get("filter") or "")
+    assert "parkour_motion_without_run_retargetted.npz" not in (source.get("filter") or "")
+    assert source["symmetric_augmentation_link_mapping"] is not None
 
 
 def _lag_partition(robot) -> set[frozenset[str]]:
@@ -720,15 +725,21 @@ def test_reference_divergence_camera_hit_tracks_isaac(task, compiled) -> None:
     from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
 
     camera = {s.name: s for s in compiled.env_cfg.scene.sensors}["camera"]
+    theirs = mj_ref.camera_include_geom_groups()
+    assert theirs == (0, 1, 2), theirs
+    assert "include_geom_groups" not in mj_ref.sensor_cfgs()["camera"]
     assert camera.include_geom_groups is None
     assert task.scene.ray_caster("camera").hit_bodies() == tuple(G1_29DOF_LINKS)
     assert mj_ref.sensor_cfgs()["camera"]["cfg_class"] == "NoisyGroupedRayCasterCameraCfg"
+    assert theirs != tuple(G1_29DOF_LINKS)
 
 
 def test_reference_divergence_pd_tracks_each_reference(task, compiled) -> None:
     robot = compiled.env_cfg.scene.entities["robot"]
     assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in robot.articulation.actuators)
+    assert mj_ref.delayed_actuator_lags() == (0, mj_ref.DELAY_MAX_LAG)
     assert task.robot.actuator_delay == (0, 2)
+    assert main_ref.effective_robot_actuators()["delayed"] is False
 
 
 def test_deliberate_rows_are_still_present(task, compiled) -> None:
@@ -755,6 +766,15 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     # They write 20 columns too; the drift is that their curriculum path builds one column per
     # sub-terrain regardless, and ours honours the declaration.
     assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == theirs_terrain["num_cols"] == 20
+    column_maps = mj_ref.terrain_column_maps()
+    assert column_maps["declared_num_cols"] == 20
+    assert column_maps["instinctmj_built_num_cols"] == len(column_maps["sub_terrain_names"])
+    assert column_maps["ours_built_num_cols"] == 20
+    assert column_maps["instinctmj_allocation"] == "one_column_per_type"
+    assert column_maps["ours_allocation"] == "isaac_cumulative_proportion"
+    assert column_maps["instinctmj_column_to_name"] != column_maps["ours_column_to_name"]
+    assert column_maps["instinctmj_column_to_name"].count("pyramid_stairs") == 1
+    assert column_maps["ours_column_to_name"].count("pyramid_stairs") == 3
 
     assert compiled.env_cfg.sim.nconmax == 256
     assert theirs_sim["nconmax"] == 128

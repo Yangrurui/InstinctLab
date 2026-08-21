@@ -560,12 +560,18 @@ def policy_eval_summary_keys() -> frozenset[str]:
 CAMERA_SEMANTICS_NATIVE = "native"
 CAMERA_SEMANTICS_INSTINCTMJ = "instinctmj_geom_groups"
 CAMERA_SEMANTICS_CHOICES = (CAMERA_SEMANTICS_NATIVE, CAMERA_SEMANTICS_INSTINCTMJ)
-INSTINCTMJ_CAMERA_GEOM_GROUPS = (0, 1, 2)
 
 
 def instinctmj_reference_camera_geom_groups() -> tuple[int, ...]:
-    """mjlab ``RayCastSensorCfg.include_geom_groups`` default used by InstinctMJ parkour."""
-    return INSTINCTMJ_CAMERA_GEOM_GROUPS
+    """Geom groups InstinctMJ parkour camera inherits from mjlab ``RayCastSensorCfg``."""
+    from tests.reference_mjlab_parkour import available, camera_include_geom_groups
+
+    if not available():
+        raise FileNotFoundError("InstinctMJ reference tree is not checked out")
+    groups = camera_include_geom_groups()
+    if groups is None:
+        raise RuntimeError("InstinctMJ parkour camera would include all geom groups, not (0, 1, 2)")
+    return groups
 
 
 def geom_groups_camera_mask(mj_model, groups: tuple[int, ...], device: str):
@@ -609,7 +615,7 @@ def camera_semantics_metadata(sensor, semantics: str) -> dict[str, Any]:
     """Runtime dump proving which camera filter is active."""
     base = _collect_camera_runtime_from_sensor(sensor) if sensor is not None else {"available": False}
     base["semantics"] = semantics
-    base["instinctmj_reference_groups"] = list(INSTINCTMJ_CAMERA_GEOM_GROUPS)
+    base["instinctmj_reference_groups"] = list(instinctmj_reference_camera_geom_groups())
     return base
 
 
@@ -666,7 +672,8 @@ class _CameraSemanticsPatch:
             raise ValueError(f"unknown camera semantics {self.semantics!r}")
         self._orig_mask = self.sensor._allowed_geom_mask.clone()
         self._orig_filter = self.sensor._filter_and_continue
-        self.sensor._allowed_geom_mask = geom_groups_camera_mask(mj_model, INSTINCTMJ_CAMERA_GEOM_GROUPS, device)
+        groups = instinctmj_reference_camera_geom_groups()
+        self.sensor._allowed_geom_mask = geom_groups_camera_mask(mj_model, groups, device)
         import types
 
         self.sensor._filter_and_continue = types.MethodType(filter_first_hit_no_hop, self.sensor)

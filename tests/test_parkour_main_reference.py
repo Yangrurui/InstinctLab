@@ -310,6 +310,17 @@ def test_main_used_instinct_rl_env_with_single_reward_group() -> None:
     assert main_ref.uses_multi_reward_cfg()
 
 
+def test_env_entry_class_drift_is_guarded_without_isaacsim() -> None:
+    """KNOWN_DRIFTS['env/entry_class']: main InstinctRlEnv vs our ManagerBasedRLEnv compile path."""
+    assert main_ref.uses_instinct_rl_env()
+    isaac_adapter = (REPO / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py").read_text()
+    assert "env_cls=ManagerBasedRLEnv" in isaac_adapter
+    assert "InstinctRlEnv" not in isaac_adapter
+    train = (REPO / "scripts/train.py").read_text()
+    assert "InstinctRlEnv" not in train
+    assert "compiled.make_env()" in train
+
+
 def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
     """Fields both runners declare must match; AMP routing keys are new-only."""
     ignore = {
@@ -392,6 +403,12 @@ def test_documented_drifts_are_still_present(task) -> None:
     # green if main grew one too, which is precisely how this row got written backwards.
     assert task.robot.actuator_delay == (0, 2)
     assert main_ref.effective_robot_actuators()["delayed"] is False
+    isaac_adapter = (
+        Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py"
+    ).read_text()
+    assert main_ref.uses_instinct_rl_env()
+    assert "env_cls=ManagerBasedRLEnv" in isaac_adapter
+    assert "InstinctRlEnv" not in isaac_adapter
 
 
 def test_dof_vel_limits_match_mains_actuator_table(task) -> None:
