@@ -368,7 +368,7 @@ def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
     )
     assert cfg.origin_offset == (0.05, 0.01, 0.44)
     assert cfg.origin_offset_rot[0] == pytest.approx(0.9)
-    assert cfg.max_distance == 5.0
+    assert cfg.max_distance == 2.5
     assert cfg.image_plane_max == 2.5
     assert cfg.min_distance == 0.1
     assert cfg.include_geom_groups == expected

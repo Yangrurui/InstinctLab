@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+import instinctlab.mdp as mdp
 from instinctlab.spec.capability import Requirement
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 
@@ -355,12 +356,17 @@ def test_feet_air_time_stays_on_the_portable_path(task) -> None:
     assert term.kind is None
 
 
-def test_dataset_exhausted_is_absent(task) -> None:
-    assert "dataset_exhausted" not in task.mdp.terminations
+def test_dataset_exhausted_matches_original_silent_reset(task) -> None:
+    term = task.mdp.terminations["dataset_exhausted"]
+    assert term.func is mdp.dataset_exhausted
+    assert term.time_out is True
+    assert term.params["sensor"].name == "motion_reference"
+    assert term.params["reset_without_notice"] is True
+    assert term.params["print_reason"] is False
 
 
 def test_the_motion_reference_and_amp_groups_are_declared(task) -> None:
-    """Clip sensor plus both AMP branches. dataset_exhausted stays off the termination list."""
+    """Clip sensor, both AMP branches, and the original silent exhaustion reset are declared."""
     from instinctlab.mdp.amp import AMP_TERM_ORDER
     from instinctlab.tasks.parkour.config.g1.target_env_cfg import PARKOUR_MOTION_CLIP, PARKOUR_MOTION_LINKS
 
@@ -573,13 +579,18 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     assert compiled.env_cfg.rewards["volume_points_penetration"].weight == -4.0
     assert "found" in sensors["contact_forces"].fields
     assert sensors["left_height_scanner"].ray_alignment == "yaw"
-    assert sensors["left_height_scanner"].max_distance == 1e6
-    assert sensors["left_height_scanner"].origin_offset == (0.04, 0.0, 20.0)
-    assert sensors["right_height_scanner"].origin_offset == (0.04, 0.0, 20.0)
+    assert sensors["left_height_scanner"].max_distance == 10.0
+    exhausted = compiled.env_cfg.terminations["dataset_exhausted"]
+    assert exhausted.func is mdp.dataset_exhausted
+    assert exhausted.time_out is True
+    assert exhausted.params["sensor"].name == "motion_reference"
+    assert exhausted.params["reset_without_notice"] is True
+    assert not hasattr(sensors["left_height_scanner"], "origin_offset")
+    assert not hasattr(sensors["right_height_scanner"], "origin_offset")
     camera = sensors["camera"]
     assert camera.pattern.width == 64
     assert camera.pattern.height == 36
-    assert camera.max_distance == 5.0
+    assert camera.max_distance == 2.5
     assert camera.image_plane_max == 2.5
     assert camera.min_distance == 0.1
     assert camera.origin_offset_rot[0] == pytest.approx(0.9135367613482678)
@@ -598,7 +609,7 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
         assert tuple(asset_cfg.joint_names) == tuple(task.robot.joint_names)
         assert asset_cfg.preserve_order is True
     generator = compiled.env_cfg.scene.terrain.terrain_generator
-    assert generator.num_cols == 20
+    assert generator.num_cols == 10
     assert generator.curriculum is True
     assert list(generator.sub_terrains) == [
         "perlin_rough",

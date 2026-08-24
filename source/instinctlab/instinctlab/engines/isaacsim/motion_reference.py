@@ -55,6 +55,10 @@ def build_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         def bind_origins(self, origins: torch.Tensor) -> None:
             self._runtime.bind_origins(origins)
 
+        @property
+        def aiming_frame_idx(self):
+            return self._runtime.aiming_frame_idx
+
         def _update_buffers_impl(self, env_ids):
             env_ids = torch.as_tensor(env_ids, device=self.device)
             self._runtime.buffers.timestamp[env_ids] = self._timestamp[env_ids]

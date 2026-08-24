@@ -13,8 +13,8 @@ extractors. Half of ``amp_reference`` trajectories are left-right mirrored on re
 (name maps, not source-repo indices). The agent is WasabiPPO with a 4-expert MoE;
 ``depth_image`` is routed through a Conv2d encoder (``component_names=["depth_image"]``),
 not flattened into the MLP.
-``dataset_exhausted`` stays out: with ``reset_without_notice=True`` it reports 0.
-Exhaustion is visible on the sensor (``validity``, ``exhausted_count``) instead.
+``dataset_exhausted`` preserves the original Isaac/InstinctMJ behavior: an exhausted motion
+reference is silently resampled while the robot episode continues.
 """
 
 from __future__ import annotations
@@ -561,6 +561,9 @@ def parkour_target_g1() -> TaskSpec:
                     "njmax": 700,
                     "contact_sensor_maxmatch": 128,
                     "ccd_iterations": 128,
+                    "num_cols": 10,
+                    "height_scanner_semantics": "instinctmj",
+                    "omit_rewards": ("dof_vel_limits",),
                 },
             },
         ),
@@ -589,6 +592,15 @@ def parkour_target_g1() -> TaskSpec:
                 "bad_orientation": DoneTermSpec(func=mdp.bad_orientation, params={"limit_angle": 1.0}),
                 "root_height": DoneTermSpec(
                     func=mdp.root_height_below_env_origin_minimum, params={"minimum_height": 0.5}
+                ),
+                "dataset_exhausted": DoneTermSpec(
+                    func=mdp.dataset_exhausted,
+                    time_out=True,
+                    params={
+                        "sensor": motion_reference,
+                        "print_reason": False,
+                        "reset_without_notice": True,
+                    },
                 ),
             },
             events=_events(),

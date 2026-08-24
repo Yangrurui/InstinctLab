@@ -362,6 +362,29 @@ def test_compare_depth_before_qpos_in_causal_order(probe, tmp_path):
     assert report["first_consecutive_two_step_exceedance"]["field"] == "depth_processed"
 
 
+def test_compare_reports_height_scanner_hit_drift(probe):
+    names = ["j0"]
+    zeros = [np.array([[0.0]]), np.array([[0.0]])]
+    left = _synthetic_payload(names, zeros, side="ours_scanner", with_required=True)
+    right = _synthetic_payload(names, zeros, side="mj_scanner", with_required=True)
+    companion_l = Path(left["companion_npz"])
+    companion_r = Path(right["companion_npz"])
+    with np.load(companion_l) as archive:
+        arrays_l = {key: archive[key] for key in archive.files}
+    with np.load(companion_r) as archive:
+        arrays_r = {key: archive[key] for key in archive.files}
+    for idx in range(2):
+        arrays_l[f"step_{idx}_left_height_scanner_hits"] = np.zeros((1, 4, 3), dtype=np.float32)
+        arrays_r[f"step_{idx}_left_height_scanner_hits"] = np.full((1, 4, 3), 0.5, dtype=np.float32)
+    np.savez(companion_l, **arrays_l)
+    np.savez(companion_r, **arrays_r)
+
+    report = probe.compare_rollout_payloads(left, right)
+
+    assert report["passed"] is False
+    assert report["first_consecutive_two_step_exceedance"]["field"] == "left_height_scanner_hits"
+
+
 def test_inference_action_detaches_grad(probe):
     import torch
 

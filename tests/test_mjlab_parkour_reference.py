@@ -25,54 +25,20 @@ from tests import reference_mjlab_parkour as mj_ref
 pytestmark = pytest.mark.skipif(not mj_ref.available(), reason="InstinctMJ is not checked out")
 
 DELIBERATE = {
-    "termination/dataset_exhausted": (
-        "InstinctMJ: dataset_exhausted with reset_without_notice=True (reports 0)",
-        "absent",
-        "Omitted by design; exhaustion is on the sensor (validity / exhausted_count).",
-    ),
     "volume_points/velocity": (
         "foot-subtree cvel (ω × (pelvis − ankle) lever)",
         "attach_link",
         "Upstream bug; compat/denylist.py. Deliberately not reproduced.",
-    ),
-    "terrain/num_cols": (
-        "written 20, curriculum mode builds one column per type",
-        "honored: 20 columns",
-        (
-            "Isaac's cumulative-proportion allocation. InstinctMJ ignores num_cols in curriculum."
-            " Changes the type mix: 20 columns by proportion give 50% stairs and 10% perlin against"
-            " their 40% / 20%. Not the cause of our shorter episodes, and checked rather than assumed:"
-            " reweighting our own per-sub-terrain lengths to their mix moves the mean 126.8 -> 122.1,"
-            " i.e. 4.7 steps the WRONG WAY against the 29-56 needed to reach them. Stairs are the"
-            " terrains our policy survives longest on (~137) and perlin the shortest (~90), so having"
-            " more stairs helps us. Both seeds agree."
-        ),
     ),
     "viz": (
         "collision_debug_vis / debug_vis on",
         "omitted",
         "Play-time markers only; they do not enter the observation or the reward.",
     ),
-    "scene/height_scanner/offset": (
-        f"{mj_ref.SCANNER_ORIGIN_OFFSET}, max_distance={mj_ref.SCANNER_MAX_DISTANCE}",
-        "(0.04, 0.0, 20.0), max_distance=1e6",
-        (
-            "Isaac sky-ray on both engines: origin 20 m above the ankle, miss=+inf. "
-            "Verified on flat ground, step edges, and a tilted ankle. InstinctMJ starts at the ankle."
-        ),
-    ),
 }
 
 # Two references disagree; we track Isaac so the Isaac engine does not silently change.
 REFERENCE_DIVERGENCE: dict[str, tuple[str, str, str]] = {
-    "reward/dof_vel_limits": (
-        "InstinctMJ: absent; Isaac main: weight=-1.0, soft_ratio=0.9",
-        "weight=-1.0, soft_ratio=0.9 (track Isaac)",
-        (
-            "Isaac's 26-term set includes this; InstinctMJ dropped it. Cross-engine declaration "
-            "follows Isaac so a later 'fix' toward InstinctMJ would retune the Isaac side."
-        ),
-    ),
     "actuation/pd": (
         "InstinctMJ: BuiltinPd implicit-integration + delay; main: ImplicitPD, no delay",
         "both engines delayed: mjlab matches InstinctMJ, Isaac deliberately does not match main",
@@ -202,15 +168,18 @@ def test_shared_reward_numeric_params_match_effective_shoe(task) -> None:
     assert declared["stand_still"].func.__name__ == "stand_still_when_idle"
 
 
-def test_terminations_only_drop_dataset_exhausted(task) -> None:
+def test_termination_names_match_instinctmj(task) -> None:
     reference = set(mj_ref.termination_names())
     declared = set(task.mdp.terminations)
     renamed = {"terrain_out_bound": "terrain_out_of_bounds"}
     dropped = reference - declared - set(renamed)
-    assert dropped == {"dataset_exhausted"}
+    assert not dropped
     for old, new in renamed.items():
         assert old in reference and new in declared
-    assert "dataset_exhausted" not in declared
+    exhausted = task.mdp.terminations["dataset_exhausted"]
+    assert exhausted.time_out is True
+    assert exhausted.params["reset_without_notice"] is True
+    assert exhausted.params["print_reason"] is False
 
 
 def test_event_names_match(task) -> None:
@@ -305,8 +274,8 @@ def test_compiled_scanners_volume_contact_and_camera_are_the_documented_drifts(t
     assert mj_ref.shoe_effective()["xml_suffix"] == mj_ref.SHOE_XML_SUFFIX
     sensors = {sensor.name: sensor for sensor in compiled.env_cfg.scene.sensors}
     for name in ("left_height_scanner", "right_height_scanner"):
-        assert sensors[name].origin_offset == (0.04, 0.0, 20.0)
-        assert sensors[name].max_distance == pytest.approx(1e6)
+        assert not hasattr(sensors[name], "origin_offset")
+        assert sensors[name].max_distance == pytest.approx(mj_ref.SCANNER_MAX_DISTANCE)
     reference_sensors = mj_ref.sensor_cfgs()
     assert reference_sensors["left_height_scanner"]["max_distance"] == mj_ref.SCANNER_MAX_DISTANCE
     assert "origin_offset" not in reference_sensors["left_height_scanner"]
@@ -358,7 +327,8 @@ def test_terrain_recipe_constants_match_instinctmj(compiled) -> None:
     gen = compiled.env_cfg.scene.terrain.terrain_generator
 
     assert gen.horizontal_scale == theirs["horizontal_scale"] == 0.07
-    assert gen.num_cols == theirs["num_cols"] == 20
+    assert theirs["num_cols"] == 20
+    assert gen.num_cols == len(theirs["sub_terrains"]) == 10
     assert gen.num_rows == theirs["num_rows"] == 10
     assert gen.curriculum is theirs["curriculum"] is True
     assert tuple(gen.size) == tuple(theirs["size"])
@@ -517,8 +487,8 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
     assert len(KNOWN_DRIFTS) == 1
-    assert len(DELIBERATE) == 5
-    assert len(REFERENCE_DIVERGENCE) == 2
+    assert len(DELIBERATE) == 2
+    assert len(REFERENCE_DIVERGENCE) == 1
     assert "agent/normalizers" not in KNOWN_DRIFTS
     assert "scene/height_scanner/offset" not in KNOWN_DRIFTS
     assert "reward/dof_vel_limits" not in KNOWN_DRIFTS
@@ -736,9 +706,10 @@ def test_every_extractor_has_a_caller() -> None:
     assert ast.parse(source)
 
 
-def test_reference_divergence_dof_vel_limits_tracks_isaac(task) -> None:
+def test_dof_vel_limits_tracks_each_engine_reference(task, compiled) -> None:
     assert "dof_vel_limits" in task.mdp.rewards["rewards"]
     assert task.mdp.rewards["rewards"]["dof_vel_limits"].weight == -1.0
+    assert "dof_vel_limits" not in compiled.env_cfg.rewards
     assert "dof_vel_limits" not in mj_ref.reward_names()
     assert "dof_vel_limits" in main_ref.reward_names()
     assert main_ref.reward_weights()["dof_vel_limits"] == -1.0
@@ -816,7 +787,7 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     theirs_terrain = mj_ref.terrain_recipe()
     theirs_sensors = mj_ref.sensor_cfgs()
 
-    assert "dataset_exhausted" not in task.mdp.terminations
+    assert "dataset_exhausted" in task.mdp.terminations
     assert "dataset_exhausted" in mj_ref.termination_names()
 
     assert task.scene.volume_point("leg_volume_points").velocity == "attach_link"
@@ -824,22 +795,18 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     # sensor, which is why this is a code drift rather than a config one.
     assert "velocity" not in theirs_sensors["leg_volume_points"]
 
-    # They write 20 columns too; the drift is that their curriculum path builds one column per
-    # sub-terrain regardless, and ours honours the declaration.
-    assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == theirs_terrain["num_cols"] == 20
+    # Both effective generators build one column per sub-terrain type. Their declaration still
+    # says 20, but upstream curriculum ignores it; our mjlab profile requests the effective 10.
+    assert theirs_terrain["num_cols"] == 20
+    assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == 10
     column_maps = mj_ref.terrain_column_maps()
     assert column_maps["declared_num_cols"] == 20
     assert column_maps["instinctmj_built_num_cols"] == len(column_maps["sub_terrain_names"])
-    assert column_maps["ours_built_num_cols"] == 20
     assert column_maps["instinctmj_allocation"] == "one_column_per_type"
-    assert column_maps["ours_allocation"] == "isaac_cumulative_proportion"
-    assert column_maps["instinctmj_column_to_name"] != column_maps["ours_column_to_name"]
-    assert column_maps["instinctmj_column_to_name"].count("pyramid_stairs") == 1
-    assert column_maps["ours_column_to_name"].count("pyramid_stairs") == 3
 
     scanners = {s.name: s for s in compiled.env_cfg.scene.sensors}
-    assert scanners["left_height_scanner"].origin_offset == (0.04, 0.0, 20.0)
-    assert scanners["left_height_scanner"].max_distance == pytest.approx(1e6)
+    assert not hasattr(scanners["left_height_scanner"], "origin_offset")
+    assert scanners["left_height_scanner"].max_distance == pytest.approx(10.0)
     assert "origin_offset" not in theirs_sensors["left_height_scanner"]
     assert theirs_sensors["left_height_scanner"]["max_distance"] == 10.0
 

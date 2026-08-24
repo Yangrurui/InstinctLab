@@ -287,7 +287,10 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             fovy=sensor.pattern.vertical_fov_deg,
         ),
         ray_alignment="base",
-        max_distance=sensor.max_distance * 2,
+        # InstinctMJ applies max_distance to the Euclidean ray length before
+        # projecting the hit onto the image plane. Extending this to 2x lets
+        # oblique rays see geometry that the reference camera cannot see.
+        max_distance=sensor.max_distance,
         exclude_parent_body=True,
         include_geom_groups=geom_groups,
         debug_vis=False,

@@ -65,6 +65,10 @@ def build_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
             if self._runtime is not None:
                 self._runtime.bind_origins(origins)
 
+        @property
+        def aiming_frame_idx(self):
+            return self._runtime.aiming_frame_idx
+
         def _compute_data(self):
             return self._data
 

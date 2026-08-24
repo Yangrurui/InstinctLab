@@ -27,11 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 MAIN_AGENT = "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py"
 
 # Deliberate omissions documented in target_env_cfg.py and the user brief.
-DELIBERATE_OMISSIONS = frozenset(
-    {
-        "dataset_exhausted",
-    }
-)
+DELIBERATE_OMISSIONS = frozenset()
 
 # Cross-engine / hub-spelling drifts that change Isaac relative to main but were accepted.
 KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
@@ -341,7 +337,7 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
     assert len(KNOWN_DRIFTS) == 8
     assert "actuation/delay" in KNOWN_DRIFTS
-    assert "dataset_exhausted" in DELIBERATE_OMISSIONS
+    assert "dataset_exhausted" not in DELIBERATE_OMISSIONS
     assert "reward/undesired_contacts/threshold" not in KNOWN_DRIFTS
     assert "scene/robot/urdf" not in KNOWN_DRIFTS
     assert "scene/robot/spawn_z" not in KNOWN_DRIFTS
@@ -383,7 +379,7 @@ def test_documented_drifts_are_still_present(task) -> None:
         "velocity_from_physx_com": True,
         "lever_from_link_origin": True,
     }
-    assert "dataset_exhausted" not in task.mdp.terminations
+    assert "dataset_exhausted" in task.mdp.terminations
     assert tuple(task.robot.joint_names) == G1_29DOF_DFS_JOINT_NAMES
     assert G1_29DOF_DFS_JOINT_NAMES != G1_29DOF_ISAAC_BFS_JOINT_NAMES
     assert main_ref.observation_joint_names("policy", "joint_pos") is None

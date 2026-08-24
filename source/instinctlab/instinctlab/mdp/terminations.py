@@ -9,7 +9,7 @@ from typing import Any
 
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab.spec.sensor import ContactSensorRef, MotionReferenceRef
 
 from .observations import _name
 
@@ -17,6 +17,7 @@ _MAP_HALF: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 __all__ = [
     "bad_orientation",
+    "dataset_exhausted",
     "illegal_contact",
     "root_height_below_env_origin_minimum",
     "terrain_out_of_bounds",
@@ -27,6 +28,37 @@ __all__ = [
 def time_out(env: RlEnv) -> torch.Tensor:
     """Whether the episode reached its time limit. Identical on both engines."""
     return env.episode_length_buf >= env.max_episode_length
+
+
+def dataset_exhausted(
+    env: RlEnv,
+    sensor: MotionReferenceRef,
+    reset_without_notice: bool = False,
+    print_reason: bool = False,
+) -> torch.Tensor:
+    """Reset an exhausted motion reference and optionally hide the episode termination.
+
+    This preserves the original Isaac and InstinctMJ parkour behavior. With
+    ``reset_without_notice=True`` the reference stream is resampled immediately, while the
+    termination manager receives an all-false result and leaves the robot episode running.
+    """
+    motion_reference = env.scene.sensors[sensor.name]
+    all_indices = getattr(motion_reference, "ALL_INDICES", None)
+    if all_indices is None:
+        all_indices = torch.arange(
+            motion_reference.data.validity.shape[0],
+            device=motion_reference.data.validity.device,
+        )
+    aiming_frame_idx = getattr(motion_reference, "aiming_frame_idx", None)
+    if aiming_frame_idx is None:
+        aiming_frame_idx = torch.zeros_like(all_indices)
+    exhausted = torch.logical_not(motion_reference.data.validity[all_indices, aiming_frame_idx])
+    if print_reason and exhausted.any():
+        print("dataset_exhausted: ", exhausted.sum())
+    if reset_without_notice:
+        motion_reference.reset(env_ids=exhausted.nonzero(as_tuple=True)[0])
+        exhausted[:] = False
+    return exhausted
 
 
 def illegal_contact(env: RlEnv, sensor: ContactSensorRef) -> torch.Tensor:

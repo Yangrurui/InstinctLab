@@ -901,6 +901,20 @@ class MotionReferenceRuntime:
     def enabled(self) -> bool:
         return self.resolved is not None
 
+    @property
+    def aiming_frame_idx(self) -> torch.Tensor:
+        """Current target slot, using the source managers' strict time comparison."""
+        elapsed = self.buffers.timestamp - self.last_update
+        aiming = torch.sum(
+            torch.logical_and(
+                elapsed.unsqueeze(-1) > self.buffers.time_to_target_frame,
+                self.buffers.time_to_target_frame > 0.0,
+            ),
+            dim=-1,
+        )
+        aiming[aiming >= self.ref.num_frames] = -1
+        return aiming
+
     def bind_origins(self, origins: torch.Tensor) -> None:
         self.env_origins = origins
 

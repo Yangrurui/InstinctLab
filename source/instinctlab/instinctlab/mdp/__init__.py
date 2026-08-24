@@ -70,6 +70,7 @@ from .rewards import (
 )
 from .terminations import (
     bad_orientation,
+    dataset_exhausted,
     illegal_contact,
     root_height_below_env_origin_minimum,
     terrain_out_of_bounds,
@@ -80,6 +81,7 @@ __all__ = [
     "action_rate_l2",
     "ang_vel_xy_l2",
     "bad_orientation",
+    "dataset_exhausted",
     "DelayedDepthImage",
     "clear_delayed_depth_history",
     "base_ang_vel",

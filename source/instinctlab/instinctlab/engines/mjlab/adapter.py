@@ -60,8 +60,9 @@ def _observation_groups(compiled: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _rewards(compiled: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    return {name: term for group in compiled.values() for name, term in group.items()}
+def _rewards(compiled: Mapping[str, Mapping[str, Any]], omit: tuple[str, ...] = ()) -> dict[str, Any]:
+    omitted = set(omit)
+    return {name: term for group in compiled.values() for name, term in group.items() if name not in omitted}
 
 
 def _record_pinhole_camera_semantics(profile: dict[str, Any], spec: TaskSpec) -> None:
@@ -191,7 +192,7 @@ class MjlabAdapter:
             scene=build_scene(spec.scene, spec.robot, profile, num_envs=num_envs),
             observations=_observation_groups(mdp["observations"]),
             actions=mdp["actions"],
-            rewards=_rewards(mdp["rewards"]),
+            rewards=_rewards(mdp["rewards"], tuple(profile.get("omit_rewards", ()))),
             terminations=mdp["terminations"],
             events=mdp["events"],
             commands=mdp["commands"],

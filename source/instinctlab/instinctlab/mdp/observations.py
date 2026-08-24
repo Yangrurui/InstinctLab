@@ -295,7 +295,9 @@ def _gaussian_blur(image: torch.Tensor, kernel_size: int, sigma: float) -> torch
     gauss = gauss / gauss.sum()
     kernel = (gauss[:, None] * gauss[None, :]).view(1, 1, kernel_size, kernel_size)
     pad = kernel_size // 2
-    padded = F.pad(image.unsqueeze(1), (pad, pad, pad, pad), mode="replicate")
+    # torchvision.transforms.GaussianBlur (used by InstinctMJ) pads by
+    # reflection before applying the separable Gaussian kernel.
+    padded = F.pad(image.unsqueeze(1), (pad, pad, pad, pad), mode="reflect")
     return F.conv2d(padded, kernel).squeeze(1)
 
 

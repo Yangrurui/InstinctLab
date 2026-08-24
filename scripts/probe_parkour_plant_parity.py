@@ -112,6 +112,8 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
 COMPARE_FIELDS: tuple[tuple[str, str], ...] = (
     ("depth_processed", "depth"),
     ("depth_raw", "depth"),
+    ("left_height_scanner_hits", "depth"),
+    ("right_height_scanner_hits", "depth"),
     ("raw_action", "action"),
     ("processed_action", "action"),
     ("qfrc_actuator", "qfrc"),
@@ -458,12 +460,33 @@ def compare_rollout_payloads(
             "without command sync can show ~1.0 raw yaw/heading pseudo-diffs."
         )
 
+    geom_l = static_l.get("geometry_fingerprint") or {}
+    geom_r = static_r.get("geometry_fingerprint") or {}
+    geometry_report = {
+        "available": bool(geom_l.get("available") and geom_r.get("available")),
+        "combined_equal": (
+            geom_l.get("combined_sha256") == geom_r.get("combined_sha256")
+            if geom_l.get("available") and geom_r.get("available")
+            else None
+        ),
+        "terrain_origins_equal": (
+            geom_l.get("terrain_origins_sha256") == geom_r.get("terrain_origins_sha256")
+            if geom_l.get("available") and geom_r.get("available")
+            else None
+        ),
+        "left_ngeom": geom_l.get("ngeom"),
+        "right_ngeom": geom_r.get("ngeom"),
+        "left_nmesh": geom_l.get("nmesh"),
+        "right_nmesh": geom_r.get("nmesh"),
+    }
+
     return {
         "steps_compared": len(steps_l),
         "thresholds": thresholds,
         "per_step": per_step_report,
         "first_consecutive_two_step_exceedance": first_failure,
         "command_state": command_state_report,
+        "geometry": geometry_report,
         "passed": first_failure is None,
     }
 
@@ -598,6 +621,9 @@ def _production_camera_filter_name(sensor) -> str | None:
     body_hop = getattr(sensor, "_filter_and_continue", None)
     if body_hop is not None and getattr(body_hop, "__name__", "") == "_filter_and_continue":
         return "body_mesh_mask_with_hop"
+    grouped_hop = getattr(sensor, "_apply_hit_filter_and_continue", None)
+    if grouped_hop is not None and bool(getattr(sensor, "_needs_filter_continue", False)):
+        return "geom_groups_min_distance_hop"
     return None
 
 
@@ -613,7 +639,12 @@ def _production_hop_metadata(sensor) -> dict[str, Any]:
         "hop_epsilon_m": hop.get("hop_epsilon_m"),
     }
     if name == "geom_groups_min_distance_hop":
-        out["hop_max"] = getattr(sensor, "_hop_max", hop["hop_max"])
+        out["hop_max"] = getattr(
+            sensor,
+            "_hop_max",
+            getattr(sensor, "_mesh_filter_max_hops", hop["hop_max"]),
+        )
+        out["hop_epsilon_m"] = getattr(sensor, "_mesh_filter_epsilon", out["hop_epsilon_m"])
     elif name == "body_mesh_mask_with_hop":
         out["hop_max"] = 6
     else:
@@ -1271,6 +1302,17 @@ def _disable_friction_randomization(env_cfg: object) -> None:
         events.physics_material = None
 
 
+def _fix_actuator_lag(env_cfg: object, lag: int | None) -> None:
+    """Set every builtin actuator to one deterministic lag before the env is built."""
+    if lag is None:
+        return
+    robot_cfg = env_cfg.scene.entities["robot"]
+    for actuator in robot_cfg.articulation.actuators:
+        if hasattr(actuator, "delay_min_lag"):
+            actuator.delay_min_lag = int(lag)
+            actuator.delay_max_lag = int(lag)
+
+
 def _build_ours(
     *,
     num_envs: int,
@@ -1279,16 +1321,21 @@ def _build_ours(
     disable_obs_noise: bool,
     disable_terminations: bool,
     friction_fixed: bool,
+    terrain_num_cols: int | None = None,
+    actuator_lag: int | None = None,
 ):
     from instinctlab.engines.mjlab import MjlabAdapter
     from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 
     spec = parkour_target_g1()
+    if terrain_num_cols is not None:
+        spec.sim.profiles.setdefault("mjlab", {})["num_cols"] = int(terrain_num_cols)
     MjlabAdapter.bootstrap(argparse.Namespace(device=device))
     compiled = MjlabAdapter().compile(spec, num_envs=num_envs, device=device)
     compiled.env_cfg.seed = seed
     if disable_obs_noise:
         _silence_observation_noise(compiled.env_cfg)
+    _fix_actuator_lag(compiled.env_cfg, actuator_lag)
     _prepare_probe_env_cfg(compiled.env_cfg, disable_terminations=disable_terminations, friction_fixed=friction_fixed)
     env = compiled.make_env()
     return env, compiled, spec
@@ -1303,6 +1350,8 @@ def _build_instinctmj(
     disable_terminations: bool,
     friction_fixed: bool,
     root: Path,
+    terrain_num_cols: int | None = None,
+    actuator_lag: int | None = None,
 ):
     _ensure_instinctmj_root(root)
     try:
@@ -1317,8 +1366,11 @@ def _build_instinctmj(
         raise SystemExit(f"{INSTINCTMJ_TASK_ID} train factory returned None; play=False is required")
     env_cfg.seed = seed
     env_cfg.scene.num_envs = num_envs
+    if terrain_num_cols is not None and env_cfg.scene.terrain.terrain_generator is not None:
+        env_cfg.scene.terrain.terrain_generator.num_cols = int(terrain_num_cols)
     if disable_obs_noise:
         _silence_observation_noise(env_cfg)
+    _fix_actuator_lag(env_cfg, actuator_lag)
     _prepare_probe_env_cfg(env_cfg, disable_terminations=disable_terminations, friction_fixed=friction_fixed)
     from mjlab.utils.torch import configure_torch_backends
 
@@ -1414,6 +1466,66 @@ def _refresh_sensors_and_obs(env) -> None:
     if hasattr(env, "observation_manager"):
         env.observation_manager.reset(env_ids)
         env.obs_buf = env.observation_manager.compute(update_history=True)
+
+
+def _camera_observation_terms(env) -> list[Any]:
+    """Return the live depth observation callables without importing either project."""
+    manager = getattr(env, "observation_manager", None)
+    cfgs = getattr(manager, "_group_obs_term_cfgs", {}) if manager is not None else {}
+    found: list[Any] = []
+    seen: set[int] = set()
+    for group_cfgs in cfgs.values():
+        for cfg in group_cfgs:
+            term = getattr(cfg, "func", None)
+            if term is None or id(term) in seen:
+                continue
+            if hasattr(term, "_delay") or hasattr(term, "_num_delayed_frames"):
+                found.append(term)
+                seen.add(id(term))
+    return found
+
+
+def _prime_camera_history_at_current_state(env, *, reference_ray_range: bool = False) -> dict[str, Any]:
+    """Clear both camera implementations and prime exactly one frame at the current pose."""
+    import torch
+
+    sensor = env.scene.sensors.get(CAMERA_NAME)
+    if sensor is None:
+        raise RuntimeError(f"controlled camera probe needs sensor {CAMERA_NAME!r}")
+    env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.long)
+    range_report: dict[str, Any] | None = None
+    cfg = getattr(sensor, "cfg", None)
+    image_plane_max = getattr(cfg, "image_plane_max", None) if cfg is not None else None
+    if reference_ray_range and image_plane_max is not None:
+        original = float(cfg.max_distance)
+        cfg.max_distance = float(image_plane_max)
+        range_report = {"original_m": original, "controlled_m": float(cfg.max_distance)}
+    sensor.reset(env_ids)
+    terms = _camera_observation_terms(env)
+    term_report: list[dict[str, Any]] = []
+    for term in terms:
+        if hasattr(term, "clear_history"):
+            term.clear_history(env_ids)
+        if hasattr(term, "reset"):
+            term.reset(env_ids)
+        delay_name = "_delay" if hasattr(term, "_delay") else "_num_delayed_frames"
+        delay = getattr(term, delay_name)
+        delay[env_ids] = 0
+        term_report.append({"type": type(term).__name__, "delay_field": delay_name, "delay": 0})
+
+    env.scene.write_data_to_sim()
+    if hasattr(env.sim, "forward"):
+        env.sim.forward()
+    if hasattr(env.sim, "sense"):
+        env.sim.sense()
+    env.obs_buf = env.observation_manager.compute(update_history=True)
+    return {
+        "enabled": True,
+        "sensor_type": type(sensor).__name__,
+        "history_phase": "sensor reset, one sense, one observation compute",
+        "terms": term_report,
+        "ray_range": range_report,
+    }
 
 
 def _apply_state(env, state: dict[str, Any]) -> dict[str, Any]:
@@ -1587,6 +1699,57 @@ def _collect_camera_runtime(env) -> dict[str, Any]:
     return camera_semantics_metadata(sensor, semantics)
 
 
+def _model_geometry_fingerprint(env) -> dict[str, Any]:
+    """Hash camera-visible MuJoCo geometry so a same-mesh claim is auditable."""
+    import numpy as np
+
+    model = getattr(env.sim, "mj_model", None)
+    if model is None:
+        return {"available": False, "reason": "sim.mj_model unavailable"}
+    fields = (
+        "mesh_vert",
+        "mesh_face",
+        "mesh_vertadr",
+        "mesh_vertnum",
+        "mesh_faceadr",
+        "mesh_facenum",
+        "hfield_data",
+        "hfield_size",
+        "geom_type",
+        "geom_dataid",
+        "geom_pos",
+        "geom_quat",
+        "geom_group",
+    )
+    per_field: dict[str, Any] = {}
+    combined = hashlib.sha256()
+    for name in fields:
+        value = getattr(model, name, None)
+        if value is None:
+            continue
+        arr = np.ascontiguousarray(np.asarray(value))
+        digest = hashlib.sha256(arr.tobytes()).hexdigest()
+        per_field[name] = {"shape": list(arr.shape), "dtype": str(arr.dtype), "sha256": digest}
+        combined.update(name.encode("utf-8"))
+        combined.update(str(arr.dtype).encode("ascii"))
+        combined.update(np.asarray(arr.shape, dtype=np.int64).tobytes())
+        combined.update(arr.tobytes())
+    terrain = _scene_terrain(env)
+    origins = _to_numpy(getattr(terrain, "terrain_origins", None)) if terrain is not None else None
+    origins_digest = None
+    if origins is not None:
+        origins_arr = np.ascontiguousarray(origins)
+        origins_digest = hashlib.sha256(origins_arr.tobytes()).hexdigest()
+    return {
+        "available": True,
+        "ngeom": int(model.ngeom),
+        "nmesh": int(model.nmesh),
+        "combined_sha256": combined.hexdigest(),
+        "terrain_origins_sha256": origins_digest,
+        "fields": per_field,
+    }
+
+
 def _collect_static(env, *, side: str, task_id: str, source_path: str | None) -> dict[str, Any]:
     import numpy as np
 
@@ -1628,6 +1791,7 @@ def _collect_static(env, *, side: str, task_id: str, source_path: str | None) ->
         "nconmax": getattr(sim_cfg, "nconmax", None) if sim_cfg is not None else None,
         "njmax": getattr(sim_cfg, "njmax", None) if sim_cfg is not None else None,
         "camera": _collect_camera_runtime(env),
+        "geometry_fingerprint": _model_geometry_fingerprint(env),
         "side": side,
         "task_id": task_id,
         "source_path": source_path,
@@ -1670,7 +1834,9 @@ def _depth_raw_from_sensor(sensor):
     if far is None and cfg is not None:
         far = getattr(cfg, "max_distance", None)
     needs_inf = ~torch.isfinite(image)
-    too_far = image > float(far) if far is not None else torch.zeros_like(image, dtype=torch.bool)
+    # InstinctMJ clips misses and out-of-range rays to exactly max_distance, so
+    # equality must be canonicalized to +inf as well for a semantic raw compare.
+    too_far = image >= float(far) if far is not None else torch.zeros_like(image, dtype=torch.bool)
     if not bool(needs_inf.any()) and not bool(too_far.any()):
         return image
     cleaned = image.clone()
@@ -1698,6 +1864,35 @@ def _depth_payload(raw, processed) -> dict[str, Any]:
             else {"available": False, "reason": "policy depth_image missing from obs_buf"}
         ),
     }
+
+
+def _camera_debug_tensors(env) -> dict[str, Any]:
+    """Best-effort common camera internals for ray-level parity diagnosis."""
+    sensor = env.scene.sensors.get(CAMERA_NAME)
+    if sensor is None:
+        return {}
+    data = getattr(sensor, "data", None)
+    raycast_data = getattr(sensor, "raycast_data", None)
+    candidates = {
+        "ray_origins": getattr(sensor, "_cached_world_origins", None),
+        "ray_directions": getattr(sensor, "_cached_world_rays", None),
+        "camera_pos": getattr(sensor, "_cam_pos", getattr(data, "pos_w", None)),
+        "camera_quat": getattr(sensor, "_cam_quat", getattr(data, "quat_w_world", None)),
+        "hit_positions": getattr(sensor, "_hit_pos_w", getattr(raycast_data, "positions", None)),
+        "ray_distances": getattr(sensor, "_distances", getattr(raycast_data, "distances", None)),
+    }
+    return {name: value for name, value in candidates.items() if value is not None}
+
+
+def _height_scanner_hits(env, name: str) -> Any | None:
+    sensor = env.scene.sensors.get(name)
+    if sensor is None:
+        return None
+    data = getattr(sensor, "data", None)
+    hits = getattr(data, "ray_hits_w", None)
+    if hits is None:
+        hits = getattr(data, "hit_pos_w", None)
+    return hits
 
 
 def _torch_summary(tensor) -> dict[str, Any]:
@@ -1800,6 +1995,15 @@ def _collect_step_record(
         store_arrays[f"{prefix}_depth_raw"] = depth_raw.detach().float().cpu().numpy()
     if depth_processed is not None:
         store_arrays[f"{prefix}_depth_processed"] = depth_processed.detach().float().cpu().numpy()
+    for name, value in _camera_debug_tensors(env).items():
+        array = _to_numpy(value)
+        if array is not None:
+            store_arrays[f"{prefix}_camera_{name}"] = array
+    for scanner_name in ("left_height_scanner", "right_height_scanner"):
+        hits = _height_scanner_hits(env, scanner_name)
+        array = _to_numpy(hits)
+        if array is not None:
+            store_arrays[f"{prefix}_{scanner_name}_hits"] = array
     record["qpos_summary"] = tensor_summary(qpos)
     return record
 
@@ -1816,6 +2020,8 @@ def _inference_action(policy, obs):
 
 
 def _validate_run_args(args: argparse.Namespace) -> None:
+    if getattr(args, "camera_reference_ray_range", False) and not getattr(args, "camera_controlled", False):
+        raise SystemExit("--camera-reference-ray-range requires --camera-controlled")
     if args.mode == "policy_eval":
         if args.checkpoint is None:
             raise SystemExit("--checkpoint is required for --mode policy_eval")
@@ -2075,6 +2281,8 @@ def run_probe(args: argparse.Namespace) -> int:
             disable_obs_noise=args.disable_obs_noise,
             disable_terminations=args.disable_terminations,
             friction_fixed=args.friction_fixed,
+            terrain_num_cols=args.terrain_num_cols,
+            actuator_lag=args.actuator_lag,
         )
         source_path = str(Path(__file__).resolve().parents[1])
     elif side == "instinctmj":
@@ -2087,6 +2295,8 @@ def run_probe(args: argparse.Namespace) -> int:
             disable_terminations=args.disable_terminations,
             friction_fixed=args.friction_fixed,
             root=instinctmj_root,
+            terrain_num_cols=args.terrain_num_cols,
+            actuator_lag=args.actuator_lag,
         )
         source_path = str(instinctmj_root)
     else:
@@ -2134,6 +2344,12 @@ def run_probe(args: argparse.Namespace) -> int:
         loaded = _load_state_npz(incoming_state)
         loaded_command_present = _command_snapshot_has_fields(loaded.get("command_state"))
         command_apply_report = _apply_state(env, loaded)
+
+    camera_control_report: dict[str, Any] | None = None
+    if args.camera_controlled:
+        camera_control_report = _prime_camera_history_at_current_state(
+            env, reference_ray_range=args.camera_reference_ray_range
+        )
 
     action_term = _action_term(env)
     joint_order = _joint_names(env)
@@ -2240,12 +2456,18 @@ def run_probe(args: argparse.Namespace) -> int:
         "command_state": cmd_status,
         "command_state_schema": COMMAND_STATE_SCHEMA if include_command else None,
         "command_name": COMMAND_NAME,
+        "terrain_num_cols_requested": args.terrain_num_cols,
+        "camera_controlled": bool(args.camera_controlled),
+        "camera_reference_ray_range": bool(args.camera_reference_ray_range),
+        "actuator_lag": args.actuator_lag,
     }
     if captured_command_state is not None:
         metadata["command_state_fields"] = sorted(captured_command_state.get("fields", {}).keys())
         metadata["command_state_missing_on_capture"] = list(captured_command_state.get("missing_on_term", []))
     if command_apply_report is not None:
         metadata["command_state_apply"] = command_apply_report
+    if camera_control_report is not None:
+        metadata["camera_control"] = camera_control_report
     payload: dict[str, Any] = {
         "metadata": metadata,
         "static": static,
@@ -2303,6 +2525,35 @@ def _parse(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Disable startup physics_material DR. Does not write a numeric friction; both sides keep the MJCF default."
         ),
+    )
+    run.add_argument(
+        "--terrain-num-cols",
+        type=int,
+        default=None,
+        help="Force the declared terrain width. Use 10 for InstinctMJ's one-column-per-type curriculum mesh.",
+    )
+    run.add_argument(
+        "--camera-controlled",
+        action="store_true",
+        help=(
+            "After state injection, reset camera/history, force visual delay to zero, then perform exactly "
+            "one sense and one observation compute."
+        ),
+    )
+    run.add_argument(
+        "--camera-reference-ray-range",
+        action="store_true",
+        help=(
+            "Controlled diagnostic: force the ray-cast max distance to image_plane_max. Production MJLab "
+            "now already uses this InstinctMJ-compatible range, so this normally records a no-op."
+        ),
+    )
+    run.add_argument(
+        "--actuator-lag",
+        type=int,
+        choices=(0, 1, 2),
+        default=None,
+        help="Controlled plant probe: force every builtin actuator to this deterministic physics-step lag.",
     )
     run.add_argument(
         "--camera-semantics",

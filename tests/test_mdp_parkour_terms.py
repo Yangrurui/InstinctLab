@@ -24,6 +24,27 @@ class _CommandTerm:
         self.metrics = metrics
 
 
+def test_dataset_exhausted_silently_resets_only_invalid_references() -> None:
+    class _MotionReference:
+        aiming_frame_idx = torch.tensor([0, 1, 0])
+
+        def __init__(self):
+            self.data = SimpleNamespace(validity=torch.tensor([[True, True], [True, False], [True, True]]))
+            self.reset_ids = None
+
+        def reset(self, *, env_ids):
+            self.reset_ids = env_ids.clone()
+
+    reference = _MotionReference()
+    env = SimpleNamespace(scene=SimpleNamespace(sensors={"motion_reference": reference}))
+    sensor = SimpleNamespace(name="motion_reference")
+
+    result = mdp.dataset_exhausted(env, sensor, reset_without_notice=True)
+
+    assert result.tolist() == [False, False, False]
+    assert reference.reset_ids.tolist() == [1]
+
+
 class _CommandManager:
     def __init__(self, commands, terms=None):
         self.active_terms = list(commands)

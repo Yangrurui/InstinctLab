@@ -20,9 +20,31 @@ from typing import Any
 
 from instinctlab.spec.sensor import RayCasterRef
 
-__all__ = ["terrain_sky_ray_caster"]
+__all__ = ["terrain_native_ray_caster", "terrain_sky_ray_caster"]
 
 _TERRAIN_BODY = "terrain"
+
+
+def terrain_native_ray_caster(sensor: RayCasterRef) -> Any:
+    """InstinctMJ-compatible ankle-origin grid ray caster."""
+    from mjlab.sensor import GridPatternCfg, ObjRef
+    from mjlab.sensor.raycast_sensor import RayCastSensorCfg
+
+    if sensor.hit != "terrain" or sensor.pattern.kind != "grid":
+        raise ValueError(f"native terrain ray caster cannot lower {sensor.name!r}")
+    return RayCastSensorCfg(
+        name=sensor.name,
+        frame=ObjRef(type="body", name=sensor.attach, entity=sensor.entity),
+        pattern=GridPatternCfg(
+            size=sensor.pattern.size,
+            resolution=sensor.pattern.resolution,
+            direction=sensor.direction,
+        ),
+        ray_alignment=sensor.ray_alignment,
+        max_distance=10.0,
+        exclude_parent_body=True,
+        debug_vis=False,
+    )
 
 
 def terrain_sky_ray_caster(sensor: RayCasterRef) -> Any:
