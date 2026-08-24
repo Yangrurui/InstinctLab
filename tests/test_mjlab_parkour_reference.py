@@ -109,7 +109,7 @@ def compiled(task):
 
 @pytest.fixture(scope="module")
 def our_agent() -> dict:
-    from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_parkour_cfg import G1ParkourTargetPPORunnerCfg
+    from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_amp_cfg import G1ParkourTargetPPORunnerCfg
 
     return class_to_dict(G1ParkourTargetPPORunnerCfg())
 

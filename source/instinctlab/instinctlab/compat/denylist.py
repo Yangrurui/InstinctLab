@@ -180,7 +180,7 @@ _ENTRIES: tuple[DenylistEntry, ...] = (
             "Hub is attach-body link origin: v_link + ω × (p_w - origin_w). The new-stack Isaac"
             " sensor sets velocity='attach_link' and converts COM → link before the cross product."
             " Portable terms read compat.sensors.volume_points_vel_w, which refuses a COM sensor."
-            " Do not change the legacy default — parkour_env_cfg.py still wants COM."
+            " Keep the legacy default for remaining Isaac-only consumers."
             " Consequence: the cross-engine task deliberately does not reproduce"
             " InstinctMJ's volume_points_penetration magnitudes, so that penalty is not"
             " a number to match against the upstream project either."

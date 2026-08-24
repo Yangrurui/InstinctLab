@@ -33,7 +33,7 @@ from instinctlab.engines.motion_reference import (
     load_retargetted_clip,
     pack_motion_clip,
 )
-from instinctlab.tasks.parkour.config.g1.target_env_cfg import PARKOUR_MOTION_CLIP, PARKOUR_MOTION_LINKS
+from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import PARKOUR_MOTION_CLIP, PARKOUR_MOTION_LINKS
 
 pytest.importorskip("pytorch_kinematics")
 

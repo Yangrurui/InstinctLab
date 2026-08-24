@@ -1,7 +1,22 @@
-from isaaclab.utils import configclass
+"""AMP runner for proprioceptive G1 parkour, shared by both engines.
 
-from instinctlab.utils.wrappers.instinct_rl import (
-    InstinctRlConv2dHeadCfg,
+WasabiPPO plus a 4-expert MoE whose Conv2d depth encoder consumes the
+``depth_image`` component the task declares. Hyperparameters are shared by both
+engines. This file stays engine-free: vendored
+``configclass``, no Isaac imports.
+
+The discriminator lives in ``instinct_rl`` and operates on flattened tensors
+from ``amp_policy`` / ``amp_reference``. It does not import an engine.
+
+``component_names=["depth_image"]`` must resolve against the observation group
+the task declares. A wired encoder that is never fed is invisible: shapes are
+fine, training runs, the policy is blind. ``takeout_input_components`` is True
+so the 8×18×32 image is not also flattened into the MLP.
+"""
+
+from instinctlab.utils.configclass import configclass
+from instinctlab.utils.wrappers.instinct_rl.module_cfg import InstinctRlConv2dHeadCfg
+from instinctlab.utils.wrappers.instinct_rl.rl_cfg import (
     InstinctRlEncoderMoEActorCriticCfg,
     InstinctRlOnPolicyRunnerCfg,
     InstinctRlPpoAlgorithmCfg,
@@ -18,9 +33,8 @@ class DepthEncoderConv2dCfg(InstinctRlConv2dHeadCfg):
     paddings = [1]
     nonlinearity = "ReLU"
     use_maxpool = True
-    component_names = [
-        "depth_image",
-    ]
+    component_names = ["depth_image"]
+    takeout_input_components = True
 
 
 @configclass
@@ -42,11 +56,12 @@ class MoEPolicyCfg(InstinctRlEncoderMoEActorCriticCfg):
 @configclass
 class AmpAlgoCfg(InstinctRlPpoAlgorithmCfg):
     class_name = "WasabiPPO"
+    actor_state_key = "amp_policy"
+    reference_state_key = "amp_reference"
     discriminator_kwargs = {
         "hidden_sizes": [1024, 512],
         "nonlinearity": "ReLU",
     }
-
     discriminator_reward_coef = 0.25
     discriminator_reward_type = "quad"
     discriminator_loss_func = "MSELoss"
@@ -64,7 +79,7 @@ class AmpAlgoCfg(InstinctRlPpoAlgorithmCfg):
     entropy_coef = 0.006
     num_learning_epochs = 5
     num_mini_batches = 4
-    learning_rate = 1.0e-3
+    learning_rate = 1e-3
     schedule = "adaptive"
     gamma = 0.99
     lam = 0.95
@@ -73,13 +88,24 @@ class AmpAlgoCfg(InstinctRlPpoAlgorithmCfg):
 
 
 @configclass
-class G1ParkourPPORunnerCfg(InstinctRlOnPolicyRunnerCfg):
+class G1ParkourTargetPPORunnerCfg(InstinctRlOnPolicyRunnerCfg):
+    policy: MoEPolicyCfg = MoEPolicyCfg()
+    algorithm: AmpAlgoCfg = AmpAlgoCfg()
+    # Empty on purpose. InstinctMJ and the legacy Isaac AMP runner both leave
+    # this unset (``empirical_normalization=False``). ``InstinctRlNormalizerCfg()``
+    # is not an identity: its default ``class_name`` is EmpiricalNormalization,
+    # a running z-score the runner applies to flattened policy/critic obs.
+    normalizers = dict()
+
     num_steps_per_env = 24
     max_iterations = 30000
-    save_interval = 5000
+    save_interval = 500
+    log_interval = 10
     experiment_name = "g1_parkour"
-    resume = False
-    load_run = ""
-    empirical_normalization = False
-    policy = MoEPolicyCfg()
-    algorithm = AmpAlgoCfg()
+
+    load_run = None
+
+    def __post_init__(self):
+        super().__post_init__()  # type: ignore
+        self.resume = self.load_run is not None
+        self.run_name = ""

@@ -26,7 +26,7 @@ from instinctlab.engines.motion_reference import (
     resolve_clip_path,
     sample_clip,
 )
-from instinctlab.tasks.parkour.config.g1.target_env_cfg import PARKOUR_MOTION_CLIP
+from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import PARKOUR_MOTION_CLIP
 
 CLIP = os.path.expanduser(PARKOUR_MOTION_CLIP)
 ISAAC_SYMLINK = os.path.expanduser("~/Datasets/parkour_motion_without_run_retargetted.npz")

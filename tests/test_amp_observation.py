@@ -30,7 +30,7 @@ from instinctlab.mdp.amp import (
     amp_obs_from_robot_like,
     robot_like_from_clip,
 )
-from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_parkour_cfg import G1ParkourTargetPPORunnerCfg
+from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_amp_cfg import G1ParkourTargetPPORunnerCfg
 
 # Elementwise tolerance for the same-function check. Synthetic float32, same ops.
 SAME_FUNCTION_ATOL = 1e-6
@@ -133,7 +133,7 @@ def test_amp_joints_are_canonical_names_not_bfs_or_clip_order() -> None:
     import os
 
     from instinctlab.engines.motion_reference import load_retargetted_clip, remap_by_name
-    from instinctlab.tasks.parkour.config.g1.target_env_cfg import PARKOUR_MOTION_CLIP
+    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import PARKOUR_MOTION_CLIP
 
     path = os.path.expanduser(PARKOUR_MOTION_CLIP)
     if not os.path.isfile(os.path.realpath(path)):

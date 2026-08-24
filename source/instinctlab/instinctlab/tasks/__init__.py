@@ -19,9 +19,9 @@ def register_legacy_isaac_tasks() -> None:
     # The blocklist is matched as a substring against every module the walker reaches, so "agents"
     # skips each task's own ``config/<robot>/agents`` -- not the flattened package that used to sit
     # in ``locomotion/``. Registration is unaffected either way: ``gym.register`` runs in
-    # ``config/<robot>/__init__.py`` (or a sibling such as parkour's ``legacy_gym``, whose name
-    # does not contain a blocked word), and that module imports its agents itself. "utils" matches
-    # nothing under this package and is Isaac Lab's template.
+    # ``config/<robot>/__init__.py`` or another explicitly retained registration module, and that
+    # module imports its agents itself. "utils" matches nothing under this package and is Isaac
+    # Lab's template.
     import_packages(__name__, ["utils", "registry", "agents"])
 
 

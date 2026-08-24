@@ -161,7 +161,14 @@ def _call_kwargs(call: ast.Call, helpers: dict[str, ast.AST]) -> dict[str, Any]:
 def _load(path: Path) -> tuple[str, dict[str, Any]]:
     tree = ast.parse(path.read_text())
     call = _generator_call(tree)
-    return ast.unparse(call.func).rsplit(".", 1)[-1], _call_kwargs(call, _helpers(tree))
+    helpers = _helpers(tree)
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or node.name != "rough_generator_cfg":
+            continue
+        for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True):
+            if default is not None:
+                helpers[arg.arg] = default
+    return ast.unparse(call.func).rsplit(".", 1)[-1], _call_kwargs(call, helpers)
 
 
 def _class_attr_default(path: Path, class_name: str, attr: str) -> Any:

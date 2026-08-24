@@ -32,7 +32,6 @@ UNTOUCHED = (
     "source/instinctlab/instinctlab/tasks/locomotion/config/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/__init__.py",
     "source/instinctlab/instinctlab/tasks/locomotion/__init__.py",
-    "source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py",
     "source/instinctlab/instinctlab/envs/manager_based_rl_env.py",
     "source/instinctlab/instinctlab/managers/reward_manager.py",
 )
@@ -44,15 +43,14 @@ first edit has to say why.
 """
 
 EDITED = {
+    "source/instinctlab/instinctlab/tasks/parkour/README.md": (
+        "documents the engine-neutral task id and unified train/play entry points"
+    ),
     "source/instinctlab/instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py": (
-        "imports ArticulationCfg from assets.unitree_g1.isaacsim; keeps PhysX BFS remaps"
+        "Isaac-only EnvCfg replaced by the engine-neutral TaskSpec shared with MJLab"
     ),
-    "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py": (
-        "imports beyondmimic_action_scale from assets.unitree_g1.isaacsim"
-    ),
-    "source/instinctlab/instinctlab/tasks/parkour/mdp/__init__.py": (
-        "star imports replaced by an explicit __all__ and a lazy __getattr__ that raises on "
-        "cross-layer name collisions instead of silently last-winning"
+    "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py": (
+        "Isaac-only runner config replaced by the engine-neutral runner shared by both engines"
     ),
     "source/instinctlab/instinctlab/assets/__init__.py": "each robot is a package; G1 numbers live in isaacsim.py",
     # The training path, which the parity argument covers just as much as the env config does.
@@ -84,9 +82,6 @@ EDITED = {
     "source/instinctlab/instinctlab/sim/__init__.py": (
         "now fronts the engine-neutral contract; legacy spawners load lazily"
     ),
-    "source/instinctlab/instinctlab/tasks/parkour/scripts/play.py": (
-        "calls register_legacy_isaac_tasks() before using a Gym id"
-    ),
     "source/instinctlab/instinctlab/tasks/shadowing/play.py": (
         "calls register_legacy_isaac_tasks() before using a Gym id"
     ),
@@ -98,8 +93,7 @@ EDITED = {
         "no longer registers Gym ids; re-exports the TaskSpec factory so the package stays engine-free"
     ),
     "source/instinctlab/instinctlab/tasks/parkour/config/g1/__init__.py": (
-        "no longer registers Gym ids; re-exports the TaskSpec factory so the package stays engine-free. "
-        "The two AMP ids moved to legacy_gym so register_legacy_isaac_tasks() still finds them"
+        "no longer registers Isaac-only Gym ids; re-exports the shared TaskSpec factory"
     ),
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
         "same hyperparameters; configclass is vendored so reading them does not start Isaac Sim"
@@ -136,6 +130,37 @@ EDITED = {
 """Main's, with a deliberate edit. The text says which one."""
 
 REMOVED = {
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/__init__.py": (
+        "the shared Parkour TaskSpec uses the portable instinctlab.mdp package"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/commands/__init__.py": (
+        "the Isaac-only Parkour command package has no production consumers"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/commands/commands_cfg.py": (
+        "the shared TaskSpec declares its command without an Isaac config class"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/commands/pose_velocity_command.py": (
+        "the shared TaskSpec uses the portable command implementation"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/curriculums.py": (
+        "portable curriculum terms live in instinctlab.mdp"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/events.py": "portable event terms live in instinctlab.mdp",
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py": (
+        "portable rewards live in instinctlab.mdp or their engine adapter"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/mdp/terminations.py": (
+        "portable termination terms live in instinctlab.mdp"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py": (
+        "Isaac-only Parkour EnvCfg was replaced by the shared G1 TaskSpec"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/scripts/play.py": (
+        "the unified scripts/play.py handles Parkour on either engine"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/scripts/onnxer.py": (
+        "its only consumer was the removed Isaac-only Parkour player"
+    ),
     "source/instinctlab/instinctlab/assets/unitree_g1.py": (
         "became the unitree_g1 package: numbers and RobotSpec in isaacsim.py"
     ),

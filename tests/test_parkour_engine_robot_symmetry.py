@@ -15,7 +15,7 @@ import pytest
 from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS, make_g1_29dof_robot_spec
 from instinctlab.engines.mjlab.assets import DELAY_RESET_ONLY_PERIOD
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
-from instinctlab.tasks.parkour.config.g1.target_env_cfg import (
+from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import (
     DEPTH_CAMERA,
     LEFT_HEIGHT_SCANNER,
     LEG_VOLUME_POINTS,
@@ -274,7 +274,7 @@ def test_isaac_ankle_visuals_exist_for_the_camera_hit_suffix() -> None:
 
 def test_shoe_geometry_hangs_off_a_camera_hit_body() -> None:
     """Shoe capsules live on ankle_roll_link. Off-list they would be invisible, not an error."""
-    from instinctlab.tasks.parkour.config.g1.target_env_cfg import DEPTH_CAMERA
+    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import DEPTH_CAMERA
 
     hit = set(DEPTH_CAMERA.hit_bodies())
     assert "left_ankle_roll_link" in hit

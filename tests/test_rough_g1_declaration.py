@@ -18,6 +18,7 @@ ISAAC_ROUGH = REPO / "source/instinctlab/instinctlab/engines/isaacsim/rough.py"
 MJLAB_ROUGH = REPO / "source/instinctlab/instinctlab/engines/mjlab/rough.py"
 MJLAB_INIT = REPO / "source/instinctlab/instinctlab/engines/mjlab/__init__.py"
 INSTINCTMJ_PARKOUR = Path("/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/parkour_env_cfg.py")
+MAIN_PARKOUR = Path("/root/InstinctLab-main/source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py")
 
 _ENGINE_ROOTS = frozenset({"isaaclab", "isaacsim", "mjlab", "omni", "mujoco"})
 
@@ -309,7 +310,6 @@ def test_the_mjlab_recipe_matches_instinctmj_parkour_literals() -> None:
 
 def test_isaac_recipe_matches_main_parkour() -> None:
     """Ask main's parkour file, not an import that needs the USD stack."""
-    parkour = REPO / "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py"
     _compare_generator_call(
-        _first_call_named(ISAAC_ROUGH, "TerrainGeneratorCfg"), _assigned_call(parkour, "ROUGH_TERRAINS_CFG")
+        _first_call_named(ISAAC_ROUGH, "TerrainGeneratorCfg"), _assigned_call(MAIN_PARKOUR, "ROUGH_TERRAINS_CFG")
     )

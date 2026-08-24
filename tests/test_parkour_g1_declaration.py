@@ -19,16 +19,9 @@ from instinctlab.spec.capability import Requirement
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 
 REPO = Path(__file__).resolve().parent.parent
-DECLARATION = REPO / "source/instinctlab/instinctlab/tasks/parkour/config/g1/target_env_cfg.py"
+DECLARATION = REPO / "source/instinctlab/instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py"
 PACKAGE_INIT = REPO / "source/instinctlab/instinctlab/tasks/parkour/config/g1/__init__.py"
-AGENT = REPO / "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_parkour_cfg.py"
-LEGACY_GYM = REPO / "source/instinctlab/instinctlab/tasks/parkour/config/g1/legacy_gym.py"
-
-LEGACY_GYM_IDS = (
-    "Instinct-Parkour-Target-Amp-G1-v0",
-    "Instinct-Parkour-Target-Amp-G1-Play-v0",
-)
-
+AGENT = REPO / "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py"
 NOT_PORTABLE = {
     "feet_slide",
     "dof_torques_l2",
@@ -368,7 +361,7 @@ def test_dataset_exhausted_matches_original_silent_reset(task) -> None:
 def test_the_motion_reference_and_amp_groups_are_declared(task) -> None:
     """Clip sensor, both AMP branches, and the original silent exhaustion reset are declared."""
     from instinctlab.mdp.amp import AMP_TERM_ORDER
-    from instinctlab.tasks.parkour.config.g1.target_env_cfg import PARKOUR_MOTION_CLIP, PARKOUR_MOTION_LINKS
+    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import PARKOUR_MOTION_CLIP, PARKOUR_MOTION_LINKS
 
     sensor = task.scene.motion_reference("motion_reference")
     assert sensor.clip == PARKOUR_MOTION_CLIP
@@ -394,7 +387,7 @@ def test_the_motion_reference_and_amp_groups_are_declared(task) -> None:
 
 def test_the_agent_is_wasabi_moe_and_names_the_depth_component(task) -> None:
     """A depth encoder whose component_names miss the declared term is a blind policy."""
-    from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_parkour_cfg import G1ParkourTargetPPORunnerCfg
+    from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_amp_cfg import G1ParkourTargetPPORunnerCfg
 
     agent = G1ParkourTargetPPORunnerCfg()
     assert agent.algorithm.class_name == "WasabiPPO"
@@ -446,7 +439,7 @@ def test_the_declaration_imports_with_both_engines_blocked(monkeypatch) -> None:
     monkeypatch.setattr(sys, "meta_path", [Blocker(), *sys.meta_path])
     import importlib
 
-    module = importlib.import_module("instinctlab.tasks.parkour.config.g1.target_env_cfg")
+    module = importlib.import_module("instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg")
     assert module.parkour_target_g1().task_id == "Instinct-Parkour-Target-G1"
 
 
@@ -623,21 +616,3 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
         "dense_boxes",
         "hf_pyramid_slope_inv",
     ]
-
-
-def test_the_legacy_gym_ids_still_register() -> None:
-    """The AMP ids moved out of ``__init__.py``; the walker and the static scan must still see them."""
-    text = LEGACY_GYM.read_text()
-    for task_id in LEGACY_GYM_IDS:
-        assert f'id="{task_id}"' in text
-    assert "gymnasium" not in _imported_roots(PACKAGE_INIT)
-    assert not any(
-        isinstance(node, ast.Attribute) and node.attr == "register"
-        for node in ast.walk(ast.parse(PACKAGE_INIT.read_text()))
-    )
-
-    from tests.test_legacy_entry_points import ENTRY_POINTS
-
-    found_ids = {task_id for task_id, _, _ in ENTRY_POINTS}
-    for task_id in LEGACY_GYM_IDS:
-        assert task_id in found_ids, f"{task_id} vanished from the entry-point scan after the __init__ surgery"

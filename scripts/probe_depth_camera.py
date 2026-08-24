@@ -214,7 +214,7 @@ def _torso_pose(env) -> tuple[torch.Tensor, torch.Tensor]:
 def _camera_pose(env) -> tuple[torch.Tensor, torch.Tensor]:
     """Live camera pose. Prefer the sensor's own buffers; reconstruct if absent."""
     from instinctlab.compat.math import quat_apply, quat_mul
-    from instinctlab.tasks.parkour.config.g1.target_env_cfg import DEPTH_CAMERA
+    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import DEPTH_CAMERA
 
     data = env.scene.sensors[CAMERA].data
     pos = getattr(data, "pos_w", None)
@@ -254,7 +254,7 @@ def _fmt(value: float) -> str:
 
 def _read(env) -> dict:
     from instinctlab.compat.sensors import depth_image
-    from instinctlab.tasks.parkour.config.g1.target_env_cfg import DEPTH_CAMERA
+    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import DEPTH_CAMERA
 
     raw = depth_image(env.scene.sensors[CAMERA])[0, ..., 0].detach()
     pos, quat = _camera_pose(env)

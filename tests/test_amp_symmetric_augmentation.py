@@ -31,7 +31,7 @@ from instinctlab.engines.motion_reference import (
     resolve_symmetric_augmentation,
 )
 from instinctlab.spec.sensor import MotionReferenceRef, SymmetricAugmentationSpec
-from instinctlab.tasks.parkour.config.g1.target_env_cfg import PARKOUR_MOTION_LINKS
+from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import PARKOUR_MOTION_LINKS
 
 REPO = Path(__file__).resolve().parents[1]
 INSTINCTMJ_ASSET = Path("/root/InstinctMJ/src/instinct_mj/assets/unitree_g1.py")
@@ -503,7 +503,7 @@ def test_both_engines_delegate_to_the_shared_runtime() -> None:
 
 
 def test_parkour_turns_named_mirroring_on() -> None:
-    from instinctlab.tasks.parkour.config.g1.target_env_cfg import parkour_target_g1
+    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import parkour_target_g1
 
     sensor = parkour_target_g1().scene.motion_reference("motion_reference")
     spec = sensor.symmetric_augmentation

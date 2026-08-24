@@ -1,8 +1,8 @@
 """Isaac Sim's reference rough: main's parkour ``ROUGH_TERRAINS_CFG``.
 
-The numbers are reconstructed here rather than imported from
-``tasks/parkour/config/parkour_env_cfg.py``, which would drag the rest of that Isaac-only
-tree into locomotion compile. ``tests/test_rough_g1_declaration.py`` compares the two.
+The numbers are reconstructed here from the upstream Isaac Parkour recipe without dragging an
+Isaac-only task configuration tree into locomotion compile. ``tests/test_rough_g1_declaration.py``
+compares the two.
 """
 
 from __future__ import annotations

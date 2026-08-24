@@ -205,7 +205,7 @@ class IsaacSimAdapter:
             # Mesh tiles create far more contact patches than a plane; Isaac Lab's own rough
             # locomotion raises this, and leaving the default silently drops contacts.
             sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
-            # Main's ParkourEnvCfg.__post_init__ (parkour_env_cfg.py:924) raises this
+            # The upstream Isaac Parkour configuration raises this
             # from Isaac Lab PhysxCfg's default 2**26. GPU PhysX cannot grow the
             # collision stack: overflow logs a PhysX error, drops contacts, and the
             # step still succeeds. 2**29 is 512 MiB of pinned host memory.

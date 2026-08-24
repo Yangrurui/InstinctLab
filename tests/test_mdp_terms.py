@@ -34,6 +34,7 @@ _ENGINE_ROOTS = frozenset({"isaaclab", "isaacsim", "mjlab", "omni", "pxr", "carb
 # Frame-free quantities the hub does not carry because there is nothing to disambiguate about them.
 # Their presence on both engines is checked below rather than taken on trust.
 _FRAME_FREE = frozenset({"default_joint_pos", "default_joint_vel", "soft_joint_pos_limits"})
+_SENSOR_METADATA = frozenset({"validity"})
 
 
 def _mdp_modules() -> list[pathlib.Path]:
@@ -81,7 +82,11 @@ def test_no_term_reads_an_isaac_legacy_alias():
 
 
 def test_every_attribute_read_is_either_in_the_hub_or_frame_free():
-    unknown = {a: sorted(u) for a, u in _data_attributes().items() if a not in HUB and a not in _FRAME_FREE}
+    unknown = {
+        a: sorted(u)
+        for a, u in _data_attributes().items()
+        if a not in HUB and a not in _FRAME_FREE and a not in _SENSOR_METADATA
+    }
     assert not unknown, (
         f"attributes outside the signed vocabulary: {unknown}. Add a hub entry naming the frame and "
         "origin, or record why the quantity has no frame to name."

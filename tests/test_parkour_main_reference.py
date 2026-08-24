@@ -26,7 +26,7 @@ from tests import reference_main_parkour as main_ref
 REPO = Path(__file__).resolve().parents[1]
 MAIN_AGENT = "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py"
 
-# Deliberate omissions documented in target_env_cfg.py and the user brief.
+# Deliberate omissions documented in g1_parkour_target_amp_cfg.py and the user brief.
 DELIBERATE_OMISSIONS = frozenset()
 
 # Cross-engine / hub-spelling drifts that change Isaac relative to main but were accepted.
@@ -149,7 +149,7 @@ def main_agent() -> dict:
 
 @pytest.fixture(scope="module")
 def our_agent() -> dict:
-    from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_parkour_cfg import G1ParkourTargetPPORunnerCfg
+    from instinctlab.tasks.parkour.config.g1.agents.instinct_rl_amp_cfg import G1ParkourTargetPPORunnerCfg
 
     return _flatten(class_to_dict(G1ParkourTargetPPORunnerCfg()))
 
@@ -318,7 +318,7 @@ def test_env_entry_class_drift_is_guarded_without_isaacsim() -> None:
 
 
 def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
-    """Fields both runners declare must match; AMP routing keys are new-only."""
+    """Learning fields match; checkpoint and logging cadence are operational settings."""
     ignore = {
         "algorithm.actor_state_key",
         "algorithm.reference_state_key",
@@ -326,7 +326,9 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
         "normalizers.policy.class_name",
         "empirical_normalization",
         "load_run",
+        "log_interval",
         "resume",
+        "save_interval",
     }
     shared = (set(main_agent) & set(our_agent)) - ignore
     assert len(shared) >= 30

@@ -55,6 +55,7 @@ def _assert_depth_stack_primed(image: torch.Tensor, env_idx: int, *, tol: float 
         assert float(delta) <= tol, f"slot {slot} not primed (delta={float(delta)})"
 
 
+@pytest.mark.mjlab
 def test_mjlab_reset_idx_clears_subset_before_first_post_reset_obs() -> None:
     pytest.importorskip("mjlab")
     from instinctlab.engines.mjlab import MjlabAdapter

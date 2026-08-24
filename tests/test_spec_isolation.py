@@ -92,11 +92,8 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
     import is therefore done with both engines cut off, the same way ``instinctlab.spec`` is above.
 
     The negative control below matters as much as the positive one: without it, a blocker that had
-    quietly stopped blocking would make this test pass while checking nothing. It points at
-    parkour's config, which is Isaac-only and stays that way, rather than at a sibling of the file
-    under test -- the previous control named ``config/g1``, and when that package was deleted the
-    empty directory left behind stayed importable as a namespace package, so the control passed for
-    a reason unrelated to blocking.
+    quietly stopped blocking would make this test pass while checking nothing. It points at an
+    explicitly Isaac-only shadowing task rather than the shared declarations under test.
     """
 
     class _Blocker:
@@ -110,7 +107,7 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
     reloaded = "instinctlab.tasks.locomotion.config"
     # The control's module is evicted too: a cached copy would import from ``sys.modules`` without
     # consulting the blocker, and the control would pass without testing anything.
-    isaac_only = "instinctlab.tasks.parkour.config.parkour_env_cfg"
+    isaac_only = "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg"
     parkour_decl = "instinctlab.tasks.parkour.config.g1"
     evicted = {
         name: module
@@ -124,8 +121,8 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
         declaration = importlib.import_module(f"{reloaded}.g1.flat_env_cfg")
         rough = importlib.import_module(f"{reloaded}.g1.rough_env_cfg")
         agent = importlib.import_module(f"{reloaded}.g1.agents.instinct_rl_ppo_cfg")
-        parkour = importlib.import_module("instinctlab.tasks.parkour.config.g1.target_env_cfg")
-        parkour_agent = importlib.import_module("instinctlab.tasks.parkour.config.g1.agents.instinct_rl_parkour_cfg")
+        parkour = importlib.import_module("instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg")
+        parkour_agent = importlib.import_module("instinctlab.tasks.parkour.config.g1.agents.instinct_rl_amp_cfg")
         assert declaration.flat_g1().task_id == "Instinct-Velocity-Flat-G1"
         assert rough.rough_g1().task_id == "Instinct-Velocity-Rough-G1"
         assert agent.G1FlatPPORunnerCfg().max_iterations > 0
@@ -134,7 +131,7 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
 
         # The other side of the boundary. An Isaac-only task must still be unreachable here.
         assert (
-            pathlib.Path(instinctlab.__file__).parent / "tasks/parkour/config/parkour_env_cfg.py"
+            pathlib.Path(instinctlab.__file__).parent / "tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py"
         ).is_file(), "the control points at a file that no longer exists, which would make it pass vacuously"
         with pytest.raises(ImportError):
             importlib.import_module(isaac_only)
