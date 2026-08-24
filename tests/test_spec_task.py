@@ -315,6 +315,51 @@ def test_a_term_may_not_read_a_sensor_the_scene_does_not_declare():
         task.validate()
 
 
+def test_scene_sensors_must_name_real_robot_parts_and_entities():
+    bad_ray = RayCasterRef(name="scanner", attach="missing")
+    with pytest.raises(ValueError, match="not a declared robot body"):
+        _task(scene=SceneSpec(ray_casters=(bad_ray,))).validate()
+
+    bad_contact = ContactSensorRef(name="contact", elements=("missing_.*",))
+    with pytest.raises(ValueError, match="match no robot body"):
+        _task(scene=SceneSpec(contact_sensors=(bad_contact,))).validate()
+
+    bad_volume = VolumePointsRef(name="volume", attach=("missing",))
+    with pytest.raises(ValueError, match="unknown bodies"):
+        _task(scene=SceneSpec(volume_points=(bad_volume,))).validate()
+
+
+def test_scene_sensor_names_may_not_shadow_scene_entities_or_isaac_fields():
+    with pytest.raises(ValueError, match="collide with scene entities"):
+        _task(scene=SceneSpec(contact_sensors=(ContactSensorRef(name="robot", elements="foot"),))).validate()
+
+    from instinctlab.engines.isaacsim import IsaacSimAdapter
+
+    task = _task(scene=SceneSpec(contact_sensors=(ContactSensorRef(name="lazy_sensor_update", elements="foot"),)))
+    with pytest.raises(ValueError, match="InteractiveSceneCfg fields"):
+        IsaacSimAdapter().contract_report(task)
+
+
+def test_term_sensor_references_must_match_what_the_scene_built():
+    scene_contact = ContactSensorRef(name="contact", elements="foot")
+    term_contact = ContactSensorRef(name="contact", elements="root")
+    task = _task(
+        scene=SceneSpec(contact_sensors=(scene_contact,)),
+        mdp=MdpSpec(rewards={"rewards": {"contact": RewardTermSpec(_observed, params={"sensor": term_contact})}}),
+    )
+    with pytest.raises(ValueError, match="outside sensor"):
+        task.validate()
+
+    scene_ray = RayCasterRef(name="scanner", attach="foot")
+    term_ray = replace(scene_ray, max_distance=2.0)
+    task = _task(
+        scene=SceneSpec(ray_casters=(scene_ray,)),
+        mdp=MdpSpec(rewards={"rewards": {"height": RewardTermSpec(_observed, params={"sensor": term_ray})}}),
+    )
+    with pytest.raises(ValueError, match="different from scene sensor"):
+        task.validate()
+
+
 def test_a_task_must_name_at_least_one_engine_and_may_not_repeat_one():
     with pytest.raises(ValueError, match="names no engines"):
         _task(engines=())

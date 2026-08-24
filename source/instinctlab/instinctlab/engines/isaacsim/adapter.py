@@ -37,6 +37,18 @@ __all__ = ["IsaacSimAdapter", "IsaacSimCompileCtx"]
 _OBSERVATION_GROUP_RESERVED_NAMES = frozenset(
     {"concatenate_terms", "concatenate_dim", "enable_corruption", "history_length", "flatten_history_dim"}
 )
+_SCENE_SENSOR_RESERVED_NAMES = frozenset(
+    {
+        "env_spacing",
+        "filter_collisions",
+        "lazy_sensor_update",
+        "num_envs",
+        "replicate_physics",
+        "robot",
+        "sky_light",
+        "terrain",
+    }
+)
 
 
 def _validate_observation_term_names(spec: TaskSpec) -> None:
@@ -48,6 +60,21 @@ def _validate_observation_term_names(spec: TaskSpec) -> None:
                 f"Isaac Sim observation group {group_name!r} uses reserved term names {collisions}; "
                 "Isaac Lab would interpret them as group settings instead of observations."
             )
+
+
+def _validate_scene_sensor_names(spec: TaskSpec) -> None:
+    names = {
+        *(sensor.name for sensor in spec.scene.contact_sensors),
+        *(sensor.name for sensor in spec.scene.ray_casters),
+        *(sensor.name for sensor in spec.scene.motion_references),
+        *(sensor.name for sensor in spec.scene.volume_points),
+    }
+    collisions = sorted(names & _SCENE_SENSOR_RESERVED_NAMES)
+    if collisions:
+        raise ValueError(
+            f"Isaac Sim sensor names collide with InteractiveSceneCfg fields: {collisions}; "
+            "registration would overwrite the scene configuration."
+        )
 
 
 def _play_native(env: Any, policy: Any) -> None:
@@ -199,6 +226,7 @@ class IsaacSimAdapter:
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
         spec.validate_for_engine(self.name)
         _validate_observation_term_names(spec)
+        _validate_scene_sensor_names(spec)
 
         from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
         from isaaclab.sim import SimulationCfg
@@ -319,4 +347,5 @@ class IsaacSimAdapter:
         every task against every engine in one CI job.
         """
         _validate_observation_term_names(spec)
+        _validate_scene_sensor_names(spec)
         return contract_report(spec, engine=self.name, registry=TERMS, capabilities=self.capabilities())

@@ -67,6 +67,10 @@ def test_volume_points_ref_refuses_a_frame_or_velocity_flip() -> None:
         VolumePointsRef(name="legs", attach=("foot",), velocity="com")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="no attach"):
         VolumePointsRef(name="legs", attach=())
+    with pytest.raises(ValueError, match="repeats an attach body"):
+        VolumePointsRef(name="legs", attach=("foot", "foot"))
+    with pytest.raises(ValueError, match="non-positive update_period"):
+        VolumePointsRef(name="legs", attach=("foot",), update_period=0.0)
 
 
 def test_virtual_obstacle_ref_is_greedy_edge_cylinders_only() -> None:

@@ -34,6 +34,14 @@ def test_a_ray_caster_states_isaac_semantics_and_refuses_the_zero_miss() -> None
         RayCasterRef(name="x", attach="")
     with pytest.raises(ValueError, match="non-positive max_distance"):
         RayCasterRef(name="x", attach="foot", max_distance=0.0)
+    with pytest.raises(ValueError, match="direction must be unit length"):
+        RayCasterRef(name="x", attach="foot", direction=(0.0, 0.0, -2.0))
+    with pytest.raises(ValueError, match="offset_rot must be unit length"):
+        RayCasterRef(name="x", attach="foot", offset_rot=(0.9, 0.0, 0.4, 0.0))
+    with pytest.raises(ValueError, match="non-positive update_period"):
+        RayCasterRef(name="x", attach="foot", update_period=0.0)
+    with pytest.raises(ValueError, match="non-pinhole"):
+        RayCasterRef(name="x", attach="foot", crop=(0, 0, 0, 0))
     with pytest.raises(ValueError, match="unsupported mode"):
         RayCasterRef(name="x", attach="foot", mode="unknown")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="requires a terrain-only grid"):
@@ -44,6 +52,11 @@ def test_a_ray_caster_states_isaac_semantics_and_refuses_the_zero_miss() -> None
             pattern=RayPatternRef(kind="pinhole"),
             hit=("terrain",),
         )
+
+
+def test_pinhole_fov_must_describe_a_finite_forward_facing_plane() -> None:
+    with pytest.raises(ValueError, match="between 0 and 180"):
+        RayPatternRef(kind="pinhole", horizontal_fov_deg=180.0)
 
 
 def test_the_grid_this_increment_uses_is_two_rays() -> None:
@@ -385,7 +398,7 @@ def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
             name="camera",
             attach="torso_link",
             offset=(0.05, 0.01, 0.44),
-            offset_rot=(0.9, 0.0, 0.4, 0.0),
+            offset_rot=(0.9138115486, 0.0, 0.4061384661, 0.0),
             pattern=RayPatternRef(kind="pinhole"),
             hit=("terrain", "left_ankle_roll_link"),
             ray_alignment="base",
@@ -394,7 +407,7 @@ def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
         )
     )
     assert cfg.origin_offset == (0.05, 0.01, 0.44)
-    assert cfg.origin_offset_rot[0] == pytest.approx(0.9)
+    assert cfg.origin_offset_rot[0] == pytest.approx(0.9138115486)
     assert cfg.max_distance == 2.5
     assert cfg.image_plane_max == 2.5
     assert cfg.min_distance == 0.1

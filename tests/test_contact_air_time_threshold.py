@@ -81,6 +81,13 @@ def test_the_threshold_is_declared_rather_than_inherited() -> None:
     assert ContactSensorRef(name="c", elements=".*").air_time_force_threshold == 1.0
 
 
+def test_contact_sensor_rejects_an_invalid_force_threshold() -> None:
+    with pytest.raises(ValueError, match="invalid air_time_force_threshold"):
+        ContactSensorRef(name="c", elements=".*", air_time_force_threshold=float("nan"))
+    with pytest.raises(ValueError, match="invalid air_time_force_threshold"):
+        ContactSensorRef(name="c", elements=".*", air_time_force_threshold=-1.0)
+
+
 def test_mjlab_builds_a_sensor_that_clocks_off_force() -> None:
     pytest.importorskip("mjlab")
     from instinctlab.engines.mjlab.scene import _build_contact_sensor

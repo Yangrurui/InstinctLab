@@ -87,8 +87,14 @@ class ContactSensorRef:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "elements", _normalise(self.elements))
+        if not self.name or not self.entity:
+            raise ValueError("Contact sensor name and entity must be non-empty.")
         if not self.elements:
             raise ValueError(f"Contact sensor {self.name!r} was given no element patterns.")
+        if self.against == "":
+            raise ValueError(f"Contact sensor {self.name!r} has an empty against pattern.")
+        if not math.isfinite(self.air_time_force_threshold) or self.air_time_force_threshold < 0.0:
+            raise ValueError(f"Contact sensor {self.name!r} has an invalid air_time_force_threshold.")
         if self.history_length < 0:
             raise ValueError(f"Contact sensor {self.name!r} has a negative history_length.")
 
@@ -113,20 +119,20 @@ class RayPatternRef:
 
     def __post_init__(self) -> None:
         if self.kind == "grid":
-            if self.resolution <= 0.0:
+            if not math.isfinite(self.resolution) or self.resolution <= 0.0:
                 raise ValueError(f"Ray pattern resolution must be positive, got {self.resolution}.")
-            if self.size[0] < 0.0 or self.size[1] < 0.0:
+            if not all(math.isfinite(value) for value in self.size) or self.size[0] < 0.0 or self.size[1] < 0.0:
                 raise ValueError(f"Ray pattern size must be non-negative, got {self.size}.")
             return
         if self.kind == "pinhole":
             if self.width < 1 or self.height < 1:
                 raise ValueError(f"Pinhole resolution must be at least 1x1, got {self.width}x{self.height}.")
-            if self.horizontal_fov_deg <= 0.0 or self.vertical_fov_deg <= 0.0:
+            if not 0.0 < self.horizontal_fov_deg < 180.0 or not 0.0 < self.vertical_fov_deg < 180.0:
                 raise ValueError(
-                    "Pinhole FOV must be positive, got "
+                    "Pinhole FOV must be between 0 and 180 degrees, got "
                     f"horizontal={self.horizontal_fov_deg}, vertical={self.vertical_fov_deg}."
                 )
-            if self.focal_length <= 0.0:
+            if not math.isfinite(self.focal_length) or self.focal_length <= 0.0:
                 raise ValueError(f"Pinhole focal_length must be positive, got {self.focal_length}.")
             return
         raise ValueError(f"RayPatternRef.kind must be 'grid' or 'pinhole', got {self.kind!r}.")
@@ -216,6 +222,8 @@ class RayCasterRef:
     update_period: float | None = 0.02
 
     def __post_init__(self) -> None:
+        if not self.name or not self.entity:
+            raise ValueError("Ray caster name and entity must be non-empty.")
         if not self.attach:
             raise ValueError(f"Ray caster {self.name!r} has no attach body.")
         if self.mode not in {"ray", "terrain_height"}:
@@ -250,20 +258,28 @@ class RayCasterRef:
                 f"Ray caster {self.name!r} has offset_convention={self.offset_convention!r}; "
                 "only 'world' (+X forward, +Z up) is implemented."
             )
-        if self.max_distance <= 0.0:
+        if self.ray_alignment not in {"base", "yaw", "world"}:
+            raise ValueError(f"Ray caster {self.name!r} has unsupported ray_alignment={self.ray_alignment!r}.")
+        if not math.isfinite(self.max_distance) or self.max_distance <= 0.0:
             raise ValueError(f"Ray caster {self.name!r} has a non-positive max_distance.")
-        if self.min_distance < 0.0:
+        if not math.isfinite(self.min_distance) or self.min_distance < 0.0:
             raise ValueError(f"Ray caster {self.name!r} has a negative min_distance.")
         if self.min_distance >= self.max_distance:
             raise ValueError(
                 f"Ray caster {self.name!r} has min_distance={self.min_distance} >= max_distance={self.max_distance}."
             )
-        if self.update_period is not None and self.update_period < 0.0:
-            raise ValueError(f"Ray caster {self.name!r} has a negative update_period.")
-        if abs(self.direction[0]) + abs(self.direction[1]) + abs(self.direction[2]) <= 0.0:
-            raise ValueError(f"Ray caster {self.name!r} has a zero direction.")
-        if sum(c * c for c in self.offset_rot) <= 0.0:
-            raise ValueError(f"Ray caster {self.name!r} has a zero offset_rot.")
+        if self.update_period is not None and (not math.isfinite(self.update_period) or self.update_period <= 0.0):
+            raise ValueError(f"Ray caster {self.name!r} has a non-positive update_period.")
+        if not all(math.isfinite(value) for value in (*self.offset, *self.direction, *self.offset_rot)):
+            raise ValueError(f"Ray caster {self.name!r} has non-finite pose or direction values.")
+        direction_norm = math.sqrt(sum(value * value for value in self.direction))
+        if not math.isclose(direction_norm, 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise ValueError(f"Ray caster {self.name!r} direction must be unit length, got norm={direction_norm}.")
+        quaternion_norm = math.sqrt(sum(value * value for value in self.offset_rot))
+        if not math.isclose(quaternion_norm, 1.0, rel_tol=0.0, abs_tol=1e-5):
+            raise ValueError(f"Ray caster {self.name!r} offset_rot must be unit length, got norm={quaternion_norm}.")
+        if self.crop is not None and self.pattern.kind != "pinhole":
+            raise ValueError(f"Ray caster {self.name!r} sets crop on a non-pinhole pattern.")
         if self.crop is not None:
             if any(v < 0 for v in self.crop):
                 raise ValueError(f"Ray caster {self.name!r} has a negative crop {self.crop}.")
@@ -470,14 +486,14 @@ class MotionReferenceRef:
             raise ValueError(f"Motion reference {self.name!r} repeats a link name.")
         if self.num_frames < 1:
             raise ValueError(f"Motion reference {self.name!r} has num_frames={self.num_frames}.")
-        if self.frame_interval_s <= 0.0:
+        if not math.isfinite(self.frame_interval_s) or self.frame_interval_s <= 0.0:
             raise ValueError(f"Motion reference {self.name!r} has a non-positive frame_interval_s.")
-        if self.update_period < 0.0:
-            raise ValueError(f"Motion reference {self.name!r} has a negative update_period.")
-        if self.clip_target_fps <= 0.0:
+        if not math.isfinite(self.update_period) or self.update_period <= 0.0:
+            raise ValueError(f"Motion reference {self.name!r} has a non-positive update_period.")
+        if not math.isfinite(self.clip_target_fps) or self.clip_target_fps <= 0.0:
             raise ValueError(f"Motion reference {self.name!r} has a non-positive clip_target_fps.")
         lo, hi = self.start_range
-        if lo < 0.0 or hi < lo or hi > 1.0:
+        if not math.isfinite(lo) or not math.isfinite(hi) or lo < 0.0 or hi < lo or hi > 1.0:
             raise ValueError(
                 f"Motion reference {self.name!r} has start_range={self.start_range}; "
                 "it must satisfy 0 <= lo <= hi <= 1 (a fraction of clip duration)."
@@ -543,6 +559,8 @@ class Grid3dPointsRef:
         ):
             if count < 1:
                 raise ValueError(f"Grid3dPointsRef.{axis}_num must be at least 1, got {count}.")
+            if not math.isfinite(lo) or not math.isfinite(hi):
+                raise ValueError(f"Grid3dPointsRef.{axis} bounds must be finite.")
             if lo > hi:
                 raise ValueError(f"Grid3dPointsRef.{axis} has min={lo} above max={hi}.")
 
@@ -599,10 +617,12 @@ class VolumePointsRef:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "attach", _normalise(self.attach))
-        if not self.name:
-            raise ValueError("Volume points sensor has no name.")
+        if not self.name or not self.entity:
+            raise ValueError("Volume points sensor name and entity must be non-empty.")
         if not self.attach:
             raise ValueError(f"Volume points {self.name!r} was given no attach bodies.")
+        if len(set(self.attach)) != len(self.attach):
+            raise ValueError(f"Volume points {self.name!r} repeats an attach body.")
         if self.frame != "attach":
             raise ValueError(
                 f"Volume points {self.name!r} has frame={self.frame!r}; the grid is in the attach-body local frame."
@@ -614,8 +634,8 @@ class VolumePointsRef:
                 f"Volume points {self.name!r} has velocity={self.velocity!r}; "
                 "point speed is link-origin velocity plus ω × r."
             )
-        if self.update_period is not None and self.update_period < 0.0:
-            raise ValueError(f"Volume points {self.name!r} has a negative update_period.")
+        if self.update_period is not None and (not math.isfinite(self.update_period) or self.update_period <= 0.0):
+            raise ValueError(f"Volume points {self.name!r} has a non-positive update_period.")
 
     @property
     def bodies(self) -> tuple[str, ...]:
@@ -646,9 +666,9 @@ class VirtualObstacleRef:
                 f"Virtual obstacle {self.name!r} has kind={self.kind!r}; "
                 "only greedy-concat edge cylinders are implemented."
             )
-        if self.cylinder_radius <= 0.0:
+        if not math.isfinite(self.cylinder_radius) or self.cylinder_radius <= 0.0:
             raise ValueError(f"Virtual obstacle {self.name!r} has a non-positive cylinder_radius.")
         if self.min_points < 2:
             raise ValueError(f"Virtual obstacle {self.name!r} has min_points={self.min_points}.")
-        if self.angle_threshold <= 0.0:
-            raise ValueError(f"Virtual obstacle {self.name!r} has a non-positive angle_threshold.")
+        if not math.isfinite(self.angle_threshold) or not 0.0 < self.angle_threshold <= 180.0:
+            raise ValueError(f"Virtual obstacle {self.name!r} angle_threshold must be in (0, 180].")
