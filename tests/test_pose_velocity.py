@@ -502,6 +502,30 @@ def test_debug_vis_draws_the_instinctmj_goal_cylinder() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"resampling_time_range": (0.0, 1.0)}, "must be positive"),
+        ({"lin_vel_x": (1.0, 0.0)}, "finite and ordered"),
+        ({"rel_standing_envs": 1.1}, "must be in \\[0, 1\\]"),
+        ({"lin_vel_metrics_std": 0.0}, "at least"),
+        ({"random_velocity_terrain": "flat"}, "must be a sequence"),
+        ({"random_velocity_terrain": ["flat", "flat"]}, "duplicate"),
+        ({"velocity_ranges": {"flat": {"lin_vel_x": (0.0, 1.0)}}}, "must contain exactly"),
+    ],
+)
+def test_pose_velocity_rejects_invalid_numeric_and_terrain_ranges(override, message) -> None:
+    params = {
+        "resampling_time_range": (8.0, 12.0),
+        "lin_vel_x": (0.0, 1.0),
+        "lin_vel_y": (0.0, 0.0),
+        "ang_vel_z": (-1.0, 1.0),
+    }
+    params.update(override)
+    with pytest.raises(ValueError, match=message):
+        command_params(params)
+
+
 def test_body_frame_command_and_tracking_metrics() -> None:
     cmd = _StubCommand()
     cmd.pos_command_w[:] = torch.tensor([[1.0, 0.0, 0.8]])

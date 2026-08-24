@@ -7,6 +7,7 @@ orders is not a remap test.
 
 from __future__ import annotations
 
+import numpy as np
 import os
 import torch
 
@@ -38,6 +39,36 @@ def raw_clip():
     if not os.path.isfile(os.path.realpath(CLIP)):
         pytest.skip(f"parkour clip is not at {CLIP}")
     return load_retargetted_clip(CLIP, device="cpu")
+
+
+def _write_raw_clip(path, **overrides) -> None:
+    arrays = {
+        "framerate": np.asarray(50.0),
+        "joint_names": np.asarray(["a", "b"]),
+        "joint_pos": np.zeros((3, 2), dtype=np.float32),
+        "base_pos_w": np.zeros((3, 3), dtype=np.float32),
+        "base_quat_w": np.asarray([[1.0, 0.0, 0.0, 0.0]] * 3, dtype=np.float32),
+    }
+    arrays.update(overrides)
+    np.savez(path, **arrays)
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"framerate": np.asarray(0.0)}, "invalid framerate"),
+        ({"joint_names": np.asarray(["a", "a"])}, "repeats joint names"),
+        ({"joint_pos": np.zeros((3, 1), dtype=np.float32)}, "joint_pos must have shape"),
+        ({"base_pos_w": np.zeros((2, 3), dtype=np.float32)}, "aligned frames"),
+        ({"joint_pos": np.asarray([[0.0, 0.0], [np.nan, 0.0], [0.0, 0.0]])}, "non-finite"),
+        ({"base_quat_w": np.asarray([[2.0, 0.0, 0.0, 0.0]] * 3)}, "non-unit"),
+    ],
+)
+def test_clip_loader_rejects_malformed_motion_arrays(tmp_path, override, message) -> None:
+    path = tmp_path / "bad.npz"
+    _write_raw_clip(path, **override)
+    with pytest.raises(ValueError, match=message):
+        load_retargetted_clip(str(path))
 
 
 def test_the_declared_clip_is_the_real_file_not_a_dangling_symlink() -> None:

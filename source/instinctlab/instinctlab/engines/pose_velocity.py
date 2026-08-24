@@ -24,6 +24,7 @@ rows are the same tensor on Isaac anyway.
 
 from __future__ import annotations
 
+import math
 import numpy as np
 import torch
 from collections.abc import Iterable, Mapping, Sequence
@@ -75,6 +76,37 @@ POSE_VELOCITY_PARAM_KEYS: frozenset[str] = frozenset(
 """TermSpec parameter surface both engine builders accept. Extra keys are rejected."""
 
 
+def _range_pair(value: Any, name: str, *, positive: bool = False) -> tuple[float, float]:
+    """Return a finite ordered two-value range with a useful declaration error."""
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 2:
+        raise ValueError(f"pose_velocity {name} must be a two-value range, got {value!r}.")
+    lo, hi = value
+    if isinstance(lo, bool) or isinstance(hi, bool):
+        raise ValueError(f"pose_velocity {name} must contain numbers, got {value!r}.")
+    try:
+        pair = (float(lo), float(hi))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"pose_velocity {name} must contain numbers, got {value!r}.") from exc
+    if not all(math.isfinite(item) for item in pair) or pair[0] > pair[1]:
+        raise ValueError(f"pose_velocity {name} must be finite and ordered, got {value!r}.")
+    if positive and pair[0] <= 0.0:
+        raise ValueError(f"pose_velocity {name} must be positive, got {value!r}.")
+    return pair
+
+
+def _finite_scalar(value: Any, name: str, *, minimum: float | None = None) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"pose_velocity {name} must be numeric, got {value!r}.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"pose_velocity {name} must be numeric, got {value!r}.") from exc
+    if not math.isfinite(number) or (minimum is not None and number < minimum):
+        qualifier = f" and at least {minimum}" if minimum is not None else ""
+        raise ValueError(f"pose_velocity {name} must be finite{qualifier}, got {value!r}.")
+    return number
+
+
 def command_params(params: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize a TermSpec's params into the fields both engine configs carry.
 
@@ -95,23 +127,75 @@ def command_params(params: Mapping[str, Any]) -> dict[str, Any]:
     missing = [key for key in required if key not in params]
     if missing:
         raise ValueError(f"pose_velocity needs {missing}.")
+    resampling_time_range = _range_pair(params["resampling_time_range"], "resampling_time_range", positive=True)
+    lin_vel_x = _range_pair(params["lin_vel_x"], "lin_vel_x")
+    lin_vel_y = _range_pair(params["lin_vel_y"], "lin_vel_y")
+    ang_vel_z = _range_pair(params["ang_vel_z"], "ang_vel_z")
+    rel_standing_envs = _finite_scalar(params.get("rel_standing_envs", 0.0), "rel_standing_envs")
+    if not 0.0 <= rel_standing_envs <= 1.0:
+        raise ValueError(f"pose_velocity rel_standing_envs must be in [0, 1], got {rel_standing_envs}.")
+
+    velocity_ranges = params.get("velocity_ranges")
+    if velocity_ranges is not None:
+        if not isinstance(velocity_ranges, Mapping):
+            raise ValueError("pose_velocity velocity_ranges must map terrain names to velocity boxes.")
+        normalized_boxes: dict[str, dict[str, tuple[float, float]]] = {}
+        required_box_keys = {"lin_vel_x", "lin_vel_y", "ang_vel_z"}
+        for terrain_name, box in velocity_ranges.items():
+            if not isinstance(terrain_name, str) or not terrain_name:
+                raise ValueError(f"pose_velocity velocity_ranges has an invalid terrain name {terrain_name!r}.")
+            if not isinstance(box, Mapping) or set(box) != required_box_keys:
+                have = sorted(box) if isinstance(box, Mapping) else type(box).__name__
+                raise ValueError(
+                    f"pose_velocity velocity box {terrain_name!r} must contain exactly "
+                    f"{sorted(required_box_keys)}, got {have}."
+                )
+            normalized_boxes[terrain_name] = {
+                key: _range_pair(box[key], f"velocity_ranges[{terrain_name!r}][{key!r}]")
+                for key in sorted(required_box_keys)
+            }
+        velocity_ranges = normalized_boxes
+
+    random_velocity_terrain = params.get("random_velocity_terrain")
+    if random_velocity_terrain is not None:
+        if isinstance(random_velocity_terrain, str) or not isinstance(random_velocity_terrain, Sequence):
+            raise ValueError("pose_velocity random_velocity_terrain must be a sequence of terrain names.")
+        random_velocity_terrain = list(random_velocity_terrain)
+        if any(not isinstance(name, str) or not name for name in random_velocity_terrain):
+            raise ValueError("pose_velocity random_velocity_terrain contains an invalid terrain name.")
+        if len(set(random_velocity_terrain)) != len(random_velocity_terrain):
+            raise ValueError("pose_velocity random_velocity_terrain contains duplicate names.")
+
+    entity = params.get("entity") or params.get("asset_name") or params.get("entity_name") or "robot"
+    if not isinstance(entity, str) or not entity:
+        raise ValueError(f"pose_velocity entity must be a non-empty string, got {entity!r}.")
     return {
-        "entity": params.get("entity") or params.get("asset_name") or params.get("entity_name") or "robot",
-        "resampling_time_range": params["resampling_time_range"],
-        "velocity_control_stiffness": params.get("velocity_control_stiffness", 1.0),
-        "heading_control_stiffness": params.get("heading_control_stiffness", 1.0),
+        "entity": entity,
+        "resampling_time_range": resampling_time_range,
+        "velocity_control_stiffness": _finite_scalar(
+            params.get("velocity_control_stiffness", 1.0), "velocity_control_stiffness", minimum=0.0
+        ),
+        "heading_control_stiffness": _finite_scalar(
+            params.get("heading_control_stiffness", 1.0), "heading_control_stiffness", minimum=0.0
+        ),
         "only_positive_lin_vel_x": params.get("only_positive_lin_vel_x", False),
-        "lin_vel_x": params["lin_vel_x"],
-        "lin_vel_y": params["lin_vel_y"],
-        "ang_vel_z": params["ang_vel_z"],
-        "rel_standing_envs": params.get("rel_standing_envs", 0.0),
-        "random_velocity_terrain": params.get("random_velocity_terrain"),
-        "velocity_ranges": params.get("velocity_ranges"),
-        "lin_vel_threshold": params.get("lin_vel_threshold", 0.15),
-        "ang_vel_threshold": params.get("ang_vel_threshold", 0.15),
-        "lin_vel_metrics_std": params.get("lin_vel_metrics_std", 0.5),
-        "ang_vel_metrics_std": params.get("ang_vel_metrics_std", 0.5),
-        "target_dis_threshold": params.get("target_dis_threshold", 0.2),
+        "lin_vel_x": lin_vel_x,
+        "lin_vel_y": lin_vel_y,
+        "ang_vel_z": ang_vel_z,
+        "rel_standing_envs": rel_standing_envs,
+        "random_velocity_terrain": random_velocity_terrain,
+        "velocity_ranges": velocity_ranges,
+        "lin_vel_threshold": _finite_scalar(params.get("lin_vel_threshold", 0.15), "lin_vel_threshold", minimum=0.0),
+        "ang_vel_threshold": _finite_scalar(params.get("ang_vel_threshold", 0.15), "ang_vel_threshold", minimum=0.0),
+        "lin_vel_metrics_std": _finite_scalar(
+            params.get("lin_vel_metrics_std", 0.5), "lin_vel_metrics_std", minimum=1e-12
+        ),
+        "ang_vel_metrics_std": _finite_scalar(
+            params.get("ang_vel_metrics_std", 0.5), "ang_vel_metrics_std", minimum=1e-12
+        ),
+        "target_dis_threshold": _finite_scalar(
+            params.get("target_dis_threshold", 0.2), "target_dis_threshold", minimum=0.0
+        ),
         "debug_vis": False,
     }
 

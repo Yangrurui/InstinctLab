@@ -119,6 +119,25 @@ def test_engine_params_override_params_for_that_engine_only():
     assert term.params == {"std": 0.5, "command_name": "base_velocity"}  # not mutated
 
 
+def test_task_rejects_a_term_that_reads_an_unknown_command():
+    task = _task(
+        mdp=MdpSpec(
+            commands={"base_velocity": CommandTermSpec(_observed)},
+            rewards={
+                "rewards": {
+                    "tracking": RewardTermSpec(
+                        _observed,
+                        weight=1.0,
+                        params={"command_name": "misspelled_velocity"},
+                    )
+                }
+            },
+        )
+    )
+    with pytest.raises(ValueError, match="reads command 'misspelled_velocity'"):
+        task.validate()
+
+
 def test_engine_params_merge_nested_mappings() -> None:
     """A shared dict keeps its keys; the engine only adds the ones it names."""
     term = CommandTermSpec(

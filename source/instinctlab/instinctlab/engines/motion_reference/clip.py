@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import numpy as np
 import os
 import torch
@@ -275,15 +276,45 @@ def load_retargetted_clip(path: str, device: torch.device | str = "cpu") -> dict
     missing = [key for key in required if key not in raw]
     if missing:
         raise KeyError(f"Clip {real} is missing {missing}; have {list(raw.keys())}.")
+    framerate = float(np.asarray(raw["framerate"]).item())
+    if not math.isfinite(framerate) or framerate <= 0.0:
+        raise ValueError(f"Clip {real} has invalid framerate {framerate!r}.")
     names = raw["joint_names"]
     joint_names = tuple(names.tolist() if hasattr(names, "tolist") else list(names))
+    if any(not isinstance(name, str) or not name for name in joint_names):
+        raise ValueError(f"Clip {real} has an invalid joint name.")
+    duplicates = sorted({name for name in joint_names if joint_names.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"Clip {real} repeats joint names: {duplicates}.")
+    joint_pos = torch.as_tensor(np.asarray(raw["joint_pos"]), device=device, dtype=torch.float32)
+    base_pos_w = torch.as_tensor(np.asarray(raw["base_pos_w"]), device=device, dtype=torch.float32)
+    base_quat_w = torch.as_tensor(np.asarray(raw["base_quat_w"]), device=device, dtype=torch.float32)
+    if joint_pos.ndim != 2 or joint_pos.shape[1] != len(joint_names):
+        raise ValueError(
+            f"Clip {real} joint_pos must have shape (frames, {len(joint_names)}), got {tuple(joint_pos.shape)}."
+        )
+    frame_count = joint_pos.shape[0]
+    if frame_count < 2 or base_pos_w.shape != (frame_count, 3) or base_quat_w.shape != (frame_count, 4):
+        raise ValueError(
+            f"Clip {real} arrays must have at least two aligned frames: joint_pos={tuple(joint_pos.shape)}, "
+            f"base_pos_w={tuple(base_pos_w.shape)}, base_quat_w={tuple(base_quat_w.shape)}."
+        )
+    if (
+        not torch.isfinite(joint_pos).all()
+        or not torch.isfinite(base_pos_w).all()
+        or not torch.isfinite(base_quat_w).all()
+    ):
+        raise ValueError(f"Clip {real} contains non-finite motion values.")
+    quaternion_norm = torch.linalg.vector_norm(base_quat_w, dim=-1)
+    if not torch.allclose(quaternion_norm, torch.ones_like(quaternion_norm), atol=1e-3, rtol=1e-3):
+        raise ValueError(f"Clip {real} contains non-unit base quaternions.")
     return {
         "path": real,
-        "framerate": float(np.asarray(raw["framerate"]).item()),
+        "framerate": framerate,
         "joint_names": joint_names,
-        "joint_pos": torch.as_tensor(np.asarray(raw["joint_pos"]), device=device, dtype=torch.float32),
-        "base_pos_w": torch.as_tensor(np.asarray(raw["base_pos_w"]), device=device, dtype=torch.float32),
-        "base_quat_w": torch.as_tensor(np.asarray(raw["base_quat_w"]), device=device, dtype=torch.float32),
+        "joint_pos": joint_pos,
+        "base_pos_w": base_pos_w,
+        "base_quat_w": base_quat_w,
     }
 
 

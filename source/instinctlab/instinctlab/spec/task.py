@@ -429,6 +429,13 @@ class TaskSpec:
                 )
         for key, term in self.mdp.terms().items():
             parameter_sets = [term.params, *term.engine_params.values()]
+            for params in parameter_sets:
+                command_name = params.get("command_name")
+                if command_name is not None and command_name not in self.mdp.commands:
+                    raise ValueError(
+                        f"Term {key!r} reads command {command_name!r}, which the MDP does not declare. "
+                        f"Declared: {sorted(self.mdp.commands) or 'none'}."
+                    )
             for value in walk_parameter_values(value for params in parameter_sets for value in params.values()):
                 if isinstance(value, ContactSensorRef) and value.name not in declared_contacts:
                     raise ValueError(

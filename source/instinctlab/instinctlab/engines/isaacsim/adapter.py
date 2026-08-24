@@ -158,6 +158,20 @@ def _rewards(compiled: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     return _container(flatten_reward_groups(compiled))
 
 
+def _validate_reward_scaling(spec: TaskSpec) -> None:
+    """Isaac Lab always integrates reward weights over the environment step.
+
+    Unlike mjlab, the installed Isaac Lab release has no configuration switch:
+    ``RewardManager.compute`` unconditionally multiplies every term by ``dt``.
+    Refuse an unscaled task instead of accepting a declaration the backend cannot honor.
+    """
+    if not spec.sim.scale_rewards_by_dt:
+        raise ValueError(
+            "Isaac Lab always scales reward terms by step_dt and cannot honor "
+            "SimSpec.scale_rewards_by_dt=False. Use True for a cross-engine task."
+        )
+
+
 class IsaacSimAdapter:
     """Compiles a :class:`TaskSpec` into an Isaac Lab ``ManagerBasedRLEnvCfg``."""
 
@@ -227,6 +241,7 @@ class IsaacSimAdapter:
         spec.validate_for_engine(self.name)
         _validate_observation_term_names(spec)
         _validate_scene_sensor_names(spec)
+        _validate_reward_scaling(spec)
 
         from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
         from isaaclab.sim import SimulationCfg
@@ -276,7 +291,6 @@ class IsaacSimAdapter:
             decimation=spec.sim.decimation,
             episode_length_s=spec.sim.episode_length_s,
             is_finite_horizon=spec.sim.is_finite_horizon,
-            scale_rewards_by_dt=spec.sim.scale_rewards_by_dt,
             sim=sim,
         )
         env_cls = InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)
@@ -348,4 +362,5 @@ class IsaacSimAdapter:
         """
         _validate_observation_term_names(spec)
         _validate_scene_sensor_names(spec)
+        _validate_reward_scaling(spec)
         return contract_report(spec, engine=self.name, registry=TERMS, capabilities=self.capabilities())

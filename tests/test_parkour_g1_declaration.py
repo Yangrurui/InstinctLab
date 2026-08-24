@@ -492,6 +492,17 @@ def test_mjlab_compilation_preserves_reward_dt_scaling_switch(task) -> None:
     assert compiled.env_cfg.scale_rewards_by_dt is False
 
 
+def test_isaac_rejects_the_reward_scaling_mode_its_manager_cannot_disable(task) -> None:
+    """Isaac's RewardManager always multiplies by dt; accepting False would lie in the manifest."""
+    from dataclasses import replace
+
+    from instinctlab.engines.isaacsim import IsaacSimAdapter
+
+    unscaled = replace(task, sim=replace(task.sim, scale_rewards_by_dt=False))
+    with pytest.raises(ValueError, match="always scales reward terms by step_dt"):
+        IsaacSimAdapter().contract_report(unscaled)
+
+
 def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     """Enter every ``kind=`` builder body. ``contract_report`` never does.
 
