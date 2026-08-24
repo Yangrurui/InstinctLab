@@ -9,9 +9,10 @@
   hangs on the second ``make_env`` (overflow after locomotion: 15 minutes
   vs 3 minutes in a fresh process).
 
-This hook collects only isaacsim-marked files and runs each module in its
-own process. A single-file invocation stays in-process and starts Kit
-before collection imports torch.
+This hook collects only isaacsim-marked files and runs each selected test item in its
+own process. The item-level boundary is required: two tests in one module can each call
+``make_env``, which is just as unsafe as two modules sharing Kit. Worker results are also
+read from JUnit XML because Kit teardown can replace pytest's non-zero process status.
 """
 
 from __future__ import annotations
@@ -19,17 +20,13 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 
-from tests.isaacsim_app import (
-    ISAACSIM_MODULE_WORKER_ENV,
-    file_has_isaacsim_mark,
-    invocation_is_single_file,
-    isaacsim_module_paths,
-    selects_isaacsim_session,
-)
+from tests.isaacsim_app import ISAACSIM_MODULE_WORKER_ENV, file_has_isaacsim_mark, selects_isaacsim_session
 
 _REPO = Path(__file__).resolve().parent.parent
 
@@ -51,8 +48,7 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     if not selects_isaacsim_session(config.option.markexpr or ""):
         return
-    parent_of_many = not os.environ.get(ISAACSIM_MODULE_WORKER_ENV) and not invocation_is_single_file(config)
-    if parent_of_many:
+    if not os.environ.get(ISAACSIM_MODULE_WORKER_ENV):
         return
     try:
         import isaaclab  # noqa: F401
@@ -70,31 +66,37 @@ def pytest_runtestloop(session: pytest.Session) -> bool | None:
         return None
     if session.config.option.collectonly:
         return None
-    modules = isaacsim_module_paths(session.items)
-    if len(modules) <= 1:
+    nodeids = [item.nodeid for item in session.items]
+    if not nodeids:
         return None
     failed: list[str] = []
     env = {**os.environ, ISAACSIM_MODULE_WORKER_ENV: "1"}
-    for path in modules:
-        rel = path.relative_to(_REPO) if path.is_relative_to(_REPO) else path
-        print(f"\n===== isaacsim module {rel} =====", flush=True)
-        cmd = [
-            sys.executable,
-            "-m",
-            "pytest",
-            str(path),
-            "-m",
-            "isaacsim",
-            "-v",
-            "--tb=short",
-            "--no-header",
-        ]
-        keyword = getattr(session.config.option, "keyword", None)
-        if keyword:
-            cmd.extend(["-k", keyword])
-        result = subprocess.run(cmd, cwd=_REPO, env=env, check=False)
-        if result.returncode != 0:
-            failed.append(str(rel))
+    for nodeid in nodeids:
+        print(f"\n===== isaacsim test {nodeid} =====", flush=True)
+        with tempfile.TemporaryDirectory(prefix="instinctlab-isaacsim-pytest-") as report_dir:
+            report = Path(report_dir) / "report.xml"
+            cmd = [
+                sys.executable,
+                "-m",
+                "pytest",
+                nodeid,
+                "-m",
+                "isaacsim",
+                "-v",
+                "--tb=short",
+                "--no-header",
+                f"--junitxml={report}",
+            ]
+            result = subprocess.run(cmd, cwd=_REPO, env=env, check=False)
+            report_failed = True
+            if report.is_file():
+                root = ET.parse(report).getroot()
+                suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+                report_failed = not suites or any(
+                    int(suite.attrib.get("failures", 0)) + int(suite.attrib.get("errors", 0)) > 0 for suite in suites
+                )
+            if result.returncode != 0 or report_failed:
+                failed.append(nodeid)
     if failed:
-        pytest.exit(f"isaacsim module workers failed: {failed}", returncode=1)
+        pytest.exit(f"isaacsim test workers failed: {failed}", returncode=1)
     return True

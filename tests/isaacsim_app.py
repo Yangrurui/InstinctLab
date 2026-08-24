@@ -12,7 +12,7 @@ in ways that look like a dead host:
 
 ``tests/conftest.py`` therefore keeps the session to isaacsim-marked files
 (so mjlab cannot load site-packages warp 1.16, which has no
-``warp.types.array``) and runs each marked module in its own process.
+``warp.types.array``) and runs each marked test item in its own process.
 
 Import-safe: no engine, no torch. Call this before either is imported.
 """
