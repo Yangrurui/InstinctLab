@@ -478,6 +478,23 @@ def test_same_seed_two_runtimes_match() -> None:
     assert torch.allclose(left.buffers.base_pos_w[~mirrored, 0, 1], torch.tensor(0.3))
 
 
+def test_environment_origin_is_applied_after_mirroring() -> None:
+    runtime = _runtime(2)
+    ids = torch.arange(2)
+    origins = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    runtime.bind_origins(origins)
+    runtime.reset(ids, generator=torch.Generator().manual_seed(3))
+
+    clip_y = torch.where(runtime.mask, -0.3, 0.3)
+    torch.testing.assert_close(runtime.buffers.base_pos_w[:, 0, 1], origins[:, 1] + clip_y)
+    torch.testing.assert_close(runtime.buffers.link_pos_w[:, 0, 0], origins)
+
+    moved_origins = origins + torch.tensor([10.0, 20.0, 30.0])
+    runtime.bind_origins(moved_origins)
+    torch.testing.assert_close(runtime.buffers.base_pos_w[:, 0, 1], moved_origins[:, 1] + clip_y)
+    torch.testing.assert_close(runtime.buffers.link_pos_w[:, 0, 0], moved_origins)
+
+
 def test_a_second_refresh_does_not_double_mirror() -> None:
     runtime = _runtime(4)
     ids = torch.arange(4)

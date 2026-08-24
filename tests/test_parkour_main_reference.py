@@ -664,6 +664,7 @@ def test_compiled_isaac_robot_matches_main_plant_and_keeps_documented_sim_drifts
     compiled = IsaacSimAdapter().compile(spec, num_envs=16, device=device)
     robot = compiled.env_cfg.scene.robot
     sim = compiled.env_cfg.sim
+    camera = compiled.env_cfg.scene.camera
 
     assert robot.init_state.pos[2] == pytest.approx(main_ref.G1_SPAWN_Z)
     assert robot.spawn.asset_path.endswith(main_ref.G1_SHOE_URDF_SUFFIX)
@@ -678,3 +679,4 @@ def test_compiled_isaac_robot_matches_main_plant_and_keeps_documented_sim_drifts
     assert compiled.env_cfg.episode_length_s == 20.0
     assert compiled.env_cfg.decimation == 4
     assert compiled.env_cfg.sim.dt == pytest.approx(0.005)
+    assert camera.depth_clipping_behavior == "none"

@@ -255,9 +255,9 @@ def _build_ray_caster(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     A grid is terrain-only (``mesh_prim_paths=['/World/ground']``). A pinhole uses
     ``GroupedRayCasterCamera`` so listed link visuals move with the robot -- stock
     ``RayCasterCamera`` only hits static meshes, and the robot would not see its
-    own legs. ``depth_clipping_behavior="max"`` matches main parkour
-    ``NoisyGroupedRayCasterCameraCfg``; the portable term still maps misses to the
-    normalisation ceiling before blur.
+    own legs. The camera keeps unclipped depth so a miss remains non-finite, as
+    required by the portable sensor contract. The observation term maps misses
+    to the normalisation ceiling before blur.
     """
     refuse_unhonored_ray_alignment(sensor)
     if sensor.miss != "infinity":
@@ -324,7 +324,7 @@ def _build_pinhole_camera(sensor: RayCasterRef, *, sensor_period: float) -> Any:
         debug_vis=False,
         data_types=["distance_to_image_plane"],
         update_period=period,
-        depth_clipping_behavior="max",
+        depth_clipping_behavior="none",
         offset=GroupedRayCasterCameraCfg.OffsetCfg(
             pos=sensor.offset,
             rot=sensor.offset_rot,

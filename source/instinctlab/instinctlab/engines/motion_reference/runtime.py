@@ -6,7 +6,14 @@ import torch
 
 from instinctlab.spec.sensor import MotionReferenceRef
 
-from .buffers import MotionReferenceBuffers, envs_due_for_update, fill_buffers, lookahead_times, make_buffers
+from .buffers import (
+    MotionReferenceBuffers,
+    envs_due_for_update,
+    fill_buffers,
+    lookahead_times,
+    make_buffers,
+    translate_world_positions,
+)
 from .clip import MotionClip, load_retargetted_clip, pack_motion_clip, sample_clip
 from .symmetry import (
     ResolvedSymmetricAugmentation,
@@ -106,6 +113,13 @@ class MotionReferenceRuntime:
         return aiming
 
     def bind_origins(self, origins: torch.Tensor) -> None:
+        if origins.shape != self.env_origins.shape:
+            raise ValueError(
+                f"motion-reference origins must have shape {tuple(self.env_origins.shape)}, got {tuple(origins.shape)}."
+            )
+        delta = origins - self.env_origins
+        self.buffers.base_pos_w += delta.unsqueeze(1)
+        self.buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
         self.env_origins = origins
 
     def reset(self, env_ids: torch.Tensor, generator: torch.Generator | None = None) -> None:
@@ -139,10 +153,10 @@ class MotionReferenceRuntime:
             env_ids,
             sample_clip(self.clip, times),
             time_to,
-            env_origins=self.env_origins,
         )
         if self.resolved is not None:
             apply_symmetric_augmentation(self.buffers, env_ids, self.mask, self.resolved)
+        translate_world_positions(self.buffers, env_ids, self.env_origins)
 
     def refresh_at_current_time(self, env_ids: torch.Tensor) -> None:
         """Rebuild selected buffers and mark their current timestamp as sampled."""
@@ -156,3 +170,9 @@ class MotionReferenceRuntime:
             return due
         self.refresh_at_current_time(due)
         return due
+
+
+def bind_motion_reference_origins(scene, references: tuple[MotionReferenceRef, ...]) -> None:
+    """Bind every declared motion sensor to its live scene's environment origins."""
+    for ref in references:
+        scene.sensors[ref.name].bind_origins(scene.env_origins)

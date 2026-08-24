@@ -739,8 +739,7 @@ def assert_amp_same_function(env, spec, *, device: str) -> None:
     ids = torch.as_tensor(joint_ids, device=device)
     native_q[:, ids] = q_canon
     native_qd[:, ids] = qd_canon
-    origins = env.scene.env_origins
-    pose = torch.cat([sensor.data.base_pos_w[:, 0] + origins, quat], dim=-1)
+    pose = torch.cat([sensor.data.base_pos_w[:, 0], quat], dim=-1)
     vel = torch.cat([lin_w, ang_w], dim=-1)
     robot.write_root_link_pose_to_sim(pose, env_ids=env_ids)
     robot.write_root_link_velocity_to_sim(vel, env_ids=env_ids)

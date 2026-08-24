@@ -225,11 +225,21 @@ class IsaacSimAdapter:
             is_finite_horizon=spec.sim.is_finite_horizon,
             sim=sim,
         )
+        env_cls = InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)
+
+        def make_env() -> Any:
+            from instinctlab.engines.motion_reference import bind_motion_reference_origins
+
+            env = env_cls(cfg=env_cfg)
+            bind_motion_reference_origins(env.scene, spec.scene.motion_references)
+            return env
+
         return CompiledTask(
-            env_cls=InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv),
+            env_cls=env_cls,
             env_cfg=env_cfg,
             resolution=resolution,
             agent_factory=lambda: spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),
+            env_factory=make_env,
         )
 
     def play(

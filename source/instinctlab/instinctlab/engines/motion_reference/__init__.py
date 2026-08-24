@@ -8,6 +8,7 @@ from .buffers import (
     fill_buffers,
     lookahead_times,
     make_buffers,
+    translate_world_positions,
 )
 from .clip import (
     ChainInventory,
@@ -26,7 +27,7 @@ from .clip import (
     resolve_clip_path,
     sample_clip,
 )
-from .runtime import MotionReferenceRuntime
+from .runtime import MotionReferenceRuntime, bind_motion_reference_origins
 from .symmetry import (
     ResolvedSymmetricAugmentation,
     SymmetricMappingError,
@@ -56,6 +57,7 @@ __all__ = [
     "augment_link_quat_buffer",
     "augment_quat_buffer",
     "build_kinematics_chain",
+    "bind_motion_reference_origins",
     "chain_inventory",
     "clip_frame",
     "draw_symmetric_mask",
@@ -74,4 +76,5 @@ __all__ = [
     "resolve_clip_path",
     "resolve_symmetric_augmentation",
     "sample_clip",
+    "translate_world_positions",
 ]

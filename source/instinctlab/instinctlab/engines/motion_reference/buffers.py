@@ -112,9 +112,8 @@ def fill_buffers(
     env_ids: torch.Tensor,
     sample: MotionSample,
     time_to_target: torch.Tensor,
-    env_origins: torch.Tensor | None = None,
 ) -> None:
-    """Write a sample into ``buffers[env_ids]``. Exhaustion increments, it does not wrap."""
+    """Write a clip-local sample into ``buffers[env_ids]``."""
     for name in (
         "joint_pos",
         "joint_vel",
@@ -134,10 +133,6 @@ def fill_buffers(
         "frame_index",
     ):
         getattr(buffers, name)[env_ids] = getattr(sample, name)
-    if env_origins is not None:
-        origin = env_origins[env_ids]
-        buffers.base_pos_w[env_ids] = buffers.base_pos_w[env_ids] + origin.unsqueeze(1)
-        buffers.link_pos_w[env_ids] = buffers.link_pos_w[env_ids] + origin.unsqueeze(1).unsqueeze(1)
     buffers.time_to_target_frame[env_ids] = time_to_target
     buffers.time_to_target_frame[env_ids] = torch.where(
         buffers.validity[env_ids],
@@ -147,6 +142,17 @@ def fill_buffers(
     newly = (~sample.validity).any(dim=-1)
     buffers.exhausted_count[env_ids] += newly.to(torch.long)
     buffers.ever_exhausted[env_ids] |= newly
+
+
+def translate_world_positions(
+    buffers: MotionReferenceBuffers,
+    env_ids: torch.Tensor,
+    env_origins: torch.Tensor,
+) -> None:
+    """Translate clip positions after augmentation into each environment's world frame."""
+    origin = env_origins[env_ids]
+    buffers.base_pos_w[env_ids] += origin.unsqueeze(1)
+    buffers.link_pos_w[env_ids] += origin.unsqueeze(1).unsqueeze(1)
 
 
 def clip_frame(

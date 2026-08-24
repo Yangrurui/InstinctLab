@@ -202,8 +202,16 @@ class MjlabAdapter:
             is_finite_horizon=spec.sim.is_finite_horizon,
             sim=SimulationCfg(**sim_kwargs),
         )
+
+        def make_env() -> Any:
+            from instinctlab.engines.motion_reference import bind_motion_reference_origins
+
+            env = TerrainAwareRlEnv(cfg=env_cfg, device=device)
+            bind_motion_reference_origins(env.scene, spec.scene.motion_references)
+            return env
+
         return CompiledTask(
-            env_factory=lambda: TerrainAwareRlEnv(cfg=env_cfg, device=device),
+            env_factory=make_env,
             env_cls=TerrainAwareRlEnv,
             env_cfg=env_cfg,
             resolution=resolution,
