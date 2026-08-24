@@ -53,7 +53,6 @@ def test_play_uses_mjlab_viser_play_viewer() -> None:
     """Isaac play used to ship a second mesh-streaming viewer; both engines share this one."""
     source = inspect.getsource(play_viser.play_with_viser)
     assert "ViserPlayViewer" in source
-    assert "set_debug_image_sink" in source
     assert "enable_pose_command_debug_vis" in source
     assert "add_mesh_trimesh" not in source
     assert "_DepthViserPlayViewer" not in source
@@ -78,12 +77,11 @@ def test_play_patches_debug_vis_on_the_live_observation_manager() -> None:
     assert term.params["debug_vis"] is True
 
 
-def test_play_turns_on_depth_debug_vis_after_the_env_exists() -> None:
-    """make_env() computes observations; cv2.imshow during that reset aborts without a display."""
+def test_play_turns_on_pose_command_debug_vis_after_the_env_exists() -> None:
+    """make_env() must finish before play patches the live command term."""
     from pathlib import Path
 
     play = (Path(__file__).resolve().parents[1] / "scripts" / "play.py").read_text()
-    assert play.index("compiled.make_env()") < play.index("enable_depth_image_debug_vis(")
     assert play.index("compiled.make_env()") < play.index("enable_pose_command_debug_vis(")
 
 

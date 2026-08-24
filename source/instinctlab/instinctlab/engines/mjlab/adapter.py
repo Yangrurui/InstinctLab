@@ -126,8 +126,12 @@ class MjlabAdapter:
         return TERMS.capabilities()
 
     def profile(self, spec: TaskSpec) -> dict[str, Any]:
+        import os
+
         merged = dict(PROFILE_DEFAULTS)
         merged.update(spec.sim.profiles.get(self.name, {}))
+        if cols := os.environ.get("INSTINCTLAB_MJLAB_NUM_COLS"):
+            merged["num_cols"] = int(cols)
         return merged
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
@@ -154,8 +158,8 @@ class MjlabAdapter:
         )
         mdp = compile_mdp(spec.mdp, ctx, TERMS)
 
+        mj_overrides = spec.sim.profile_for(self.name)
         sim_kwargs: dict[str, Any] = {
-            "njmax": profile["njmax"],
             "mujoco": MujocoCfg(
                 timestep=spec.sim.physics_dt,
                 solver=profile["solver"],
@@ -167,22 +171,20 @@ class MjlabAdapter:
         if spec.scene.terrain.kind == "generator":
             # InstinctMJ / mjlab's own G1 rough raises both; the plane defaults underflow a
             # generated grid and drop contacts without raising.
-            sim_kwargs["nconmax"] = 70
-            sim_kwargs["contact_sensor_maxmatch"] = 500
+            sim_kwargs["nconmax"] = mj_overrides.get("nconmax", 70)
+            sim_kwargs["njmax"] = mj_overrides.get("njmax", profile["njmax"])
+            sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get("contact_sensor_maxmatch", 500)
         elif spec.scene.terrain.kind == "rough":
             # Per-world allocations, multiplied by the environment count.
             # ``d.nacon`` is one global counter; per-world is nacon/nworld.
-            # Resting default pose is the measured peak, host-copied to every
-            # world: host ncon=164, host/GPU nefc=691 (64 and 256 envs, and the
-            # 2026-08-20 L7 run at 256). After reset / flail both drop
-            # (nacon ~2/world, flail nefc_max 162 at 16–32 envs). nconmax=256
-            # is 64% at rest. njmax=700 was 98.7% at rest; put_data refuses
-            # njmax < host.nefc (691). 768 is ~11% headroom. InstinctMJ still
-            # writes njmax=700 (10-col grid). The leftover ``generator`` path
-            # above is Isaac Lab's six-tile recipe and needs its own numbers.
-            sim_kwargs["nconmax"] = 256
-            sim_kwargs["njmax"] = 768
-            sim_kwargs["contact_sensor_maxmatch"] = 128
+            # InstinctMJ parkour writes nconmax=128 / njmax=700; rough locomotion
+            # without task overrides uses 256 / 768 (measured headroom at 256 envs).
+            # Tasks that need the reference caps declare them in ``sim.profiles["mjlab"]``.
+            sim_kwargs["nconmax"] = mj_overrides.get("nconmax", 256)
+            sim_kwargs["njmax"] = mj_overrides.get("njmax", 768)
+            sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get("contact_sensor_maxmatch", 128)
+        else:
+            sim_kwargs["njmax"] = mj_overrides.get("njmax", profile["njmax"])
         from .env import TerrainAwareRlEnv
 
         env_cfg = ManagerBasedRlEnvCfg(

@@ -551,7 +551,19 @@ def parkour_target_g1() -> TaskSpec:
             volume_points=(LEG_VOLUME_POINTS,),
             env_spacing=2.5,
         ),
-        sim=SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0),
+        sim=SimSpec(
+            physics_dt=0.005,
+            decimation=4,
+            episode_length_s=20.0,
+            profiles={
+                "mjlab": {
+                    "nconmax": 128,
+                    "njmax": 700,
+                    "contact_sensor_maxmatch": 128,
+                    "ccd_iterations": 128,
+                },
+            },
+        ),
         mdp=MdpSpec(
             observations={
                 "policy": _policy_observations(corrupt=True, joints=joints),

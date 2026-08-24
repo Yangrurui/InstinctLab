@@ -218,7 +218,12 @@ class FiledTerrainGenerator(TerrainGenerator):
         gets an *identical* difficulty. We do not adopt Isaac's jitter.
         """
         proportions = [sub_cfg.proportion for sub_cfg in self.cfg.sub_terrains.values()]
-        sub_indices = curriculum_column_indices(proportions, self._num_cols)
+        n_types = len(self.cfg.sub_terrains)
+        if self._num_cols == n_types:
+            # InstinctMJ upstream / play-mode width: one column per sub-terrain type.
+            sub_indices = list(range(n_types))
+        else:
+            sub_indices = curriculum_column_indices(proportions, self._num_cols)
         sub_terrains_cfgs = list(self.cfg.sub_terrains.values())
         lower, upper = self.cfg.difficulty_range
         for sub_col in range(self._num_cols):

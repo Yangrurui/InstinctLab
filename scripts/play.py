@@ -163,9 +163,8 @@ def main() -> None:
         checkpoint_dir = checkpoint.parent
 
     viewer = _resolve_viewer(args.viewer)
-    from instinctlab.play.viser import enable_depth_image_debug_vis, enable_pose_command_debug_vis
+    from instinctlab.play.viser import enable_pose_command_debug_vis
 
-    enable_depth_image_debug_vis(env)
     enable_pose_command_debug_vis(env)
     print(f"[INFO] Playing {args.task} on {args.engine} with {viewer}", flush=True)
     engine.play(

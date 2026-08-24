@@ -104,7 +104,7 @@ def _generator(spec: TerrainGeneratorSpec) -> Any:
     )
 
 
-def _terrain(spec: TerrainSpec) -> Any:
+def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     from mjlab.terrains import TerrainEntityCfg
 
     if spec.kind == "plane":
@@ -120,7 +120,8 @@ def _terrain(spec: TerrainSpec) -> Any:
     if spec.kind == "rough":
         from .rough import rough_importer_cfg
 
-        return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
+        num_cols = int(profile.get("num_cols", 20))
+        return _attach_virtual_obstacles(rough_importer_cfg(spec, num_cols=num_cols), spec)
     raise NotImplementedError(
         f"The mjlab adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
     )
@@ -220,7 +221,7 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
     return SceneCfg(
         num_envs=num_envs,
         env_spacing=spec.env_spacing,
-        terrain=_terrain(spec.terrain),
+        terrain=_terrain(spec.terrain, profile),
         entities={"robot": build_entity(robot)},
         sensors=sensors,
     )

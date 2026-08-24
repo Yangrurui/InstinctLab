@@ -100,7 +100,7 @@ class G1ParkourTargetPPORunnerCfg(InstinctRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 30000
     save_interval = 5000
-    log_interval = 1
+    log_interval = 10
     experiment_name = "g1_parkour"
 
     load_run = None

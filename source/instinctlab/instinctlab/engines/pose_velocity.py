@@ -241,6 +241,8 @@ def column_sub_terrain_names(terrain: Any) -> list[str | None]:
     if not names:
         raise RuntimeError("pose_velocity needs at least one named sub-terrain.")
     proportions = [generator.sub_terrains[name].proportion for name in names]
+    if n_cols == len(names):
+        return list(names)
     return [names[index] for index in curriculum_column_indices(proportions, n_cols)]
 
 

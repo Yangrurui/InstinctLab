@@ -135,7 +135,7 @@ def _walls() -> dict[str, Any]:
     return {"wall_prob": [0.3, 0.3, 0.3, 0.3], "wall_height": 5.0, "wall_thickness": 0.05}
 
 
-def rough_generator_cfg() -> Any:
+def rough_generator_cfg(*, num_cols: int = 20) -> Any:
     """InstinctMJ parkour's Perlin grid. Imports stay here so the module stays engine-free at rest."""
     from mjlab.terrains import FlatPatchSamplingCfg
 
@@ -180,7 +180,7 @@ def rough_generator_cfg() -> Any:
         size=(8.0, 8.0),
         border_width=3.0,
         num_rows=10,
-        num_cols=20,
+        num_cols=num_cols,
         horizontal_scale=0.07,
         vertical_scale=0.005,
         slope_threshold=1.0,
@@ -308,7 +308,7 @@ def rough_generator_cfg() -> Any:
     )
 
 
-def rough_importer_cfg(spec: TerrainSpec) -> Any:
+def rough_importer_cfg(spec: TerrainSpec, *, num_cols: int = 20) -> Any:
     """InstinctMJ parkour's importer: ``hacked_generator`` plus ``FiledTerrainGenerator``.
 
     Virtual obstacles stay off. They are a parkour sensor, not the ground.
@@ -318,6 +318,6 @@ def rough_importer_cfg(spec: TerrainSpec) -> Any:
 
     return TerrainImporterCfg(
         terrain_type="hacked_generator",
-        terrain_generator=rough_generator_cfg(),
+        terrain_generator=rough_generator_cfg(num_cols=num_cols),
         max_init_terrain_level=5,
     )

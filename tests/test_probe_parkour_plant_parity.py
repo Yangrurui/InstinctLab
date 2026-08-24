@@ -424,8 +424,8 @@ def test_first_int_reads_warp_like_array(probe):
 
 def test_contact_snapshot_does_not_call_int_on_warp_array(probe):
     class _Cfg:
-        nconmax = 256
-        njmax = 768
+        nconmax = 128
+        njmax = 700
 
     class _Wp:
         nacon = _WpArray([12])
@@ -439,7 +439,7 @@ def test_contact_snapshot_does_not_call_int_on_warp_array(probe):
         sim = _Sim()
 
     snap = probe._mjlab_contact_snapshot(_Env())
-    assert snap == {"available": True, "nacon": 12, "nefc_max": 8, "nconmax": 256, "njmax": 768}
+    assert snap == {"available": True, "nacon": 12, "nefc_max": 8, "nconmax": 128, "njmax": 700}
 
 
 def test_depth_raw_washes_nonfinite_to_inf(probe):

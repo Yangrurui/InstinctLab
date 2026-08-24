@@ -48,19 +48,6 @@ DELIBERATE = {
             " more stairs helps us. Both seeds agree."
         ),
     ),
-    "sim/nconmax": (
-        str(mj_ref.NCONMAX),
-        "256",
-        "20-column grid overflowed 128 (host mj_forward ncon=164). Per-world budget, not a task term.",
-    ),
-    "sim/njmax": (
-        "700",
-        "768",
-        (
-            "Resting pose peaked at nefc=691 (98.7% of 700); put_data refuses njmax<691. "
-            "768 is ~11% headroom. InstinctMJ still writes 700 for the 10-column grid."
-        ),
-    ),
     "viz": (
         "collision_debug_vis / debug_vis on",
         "omitted",
@@ -72,14 +59,6 @@ DELIBERATE = {
         (
             "Isaac sky-ray on both engines: origin 20 m above the ankle, miss=+inf. "
             "Verified on flat ground, step edges, and a tilted ankle. InstinctMJ starts at the ankle."
-        ),
-    ),
-    "sim/ccd_iterations": (
-        str(mj_ref.CCD_ITERATIONS),
-        "500 (PROFILE_DEFAULTS)",
-        (
-            "8-env 20-step probe: 128-vs-128 noise already 0.0027 reward / 16 ncon; 128-vs-500 "
-            "sat inside that. Per-step 31.07 vs 31.41 ms (+1%). A cost knob, not a term change."
         ),
     ),
 }
@@ -291,15 +270,12 @@ def test_sim_timings_match_and_solver_diffs_are_the_documented_ones(task, compil
     assert task.sim.physics_dt == 0.005
     assert task.sim.decimation == 4
     assert task.sim.episode_length_s == overrides["episode_length_s"] == 20.0
-    assert compiled.env_cfg.sim.njmax == 768
-    assert overrides["njmax"] == 700
+    assert compiled.env_cfg.sim.njmax == overrides["njmax"] == 700
     assert compiled.env_cfg.sim.contact_sensor_maxmatch == overrides["contact_sensor_maxmatch"] == 128
     assert compiled.env_cfg.sim.mujoco.iterations == overrides["iterations"] == 10
     assert compiled.env_cfg.sim.mujoco.ls_iterations == overrides["ls_iterations"] == 20
-    assert compiled.env_cfg.sim.nconmax == 256
-    assert overrides["nconmax"] == mj_ref.NCONMAX
-    assert compiled.env_cfg.sim.mujoco.ccd_iterations == 500
-    assert overrides["ccd_iterations"] == mj_ref.CCD_ITERATIONS
+    assert compiled.env_cfg.sim.nconmax == overrides["nconmax"] == mj_ref.NCONMAX
+    assert compiled.env_cfg.sim.mujoco.ccd_iterations == overrides["ccd_iterations"] == mj_ref.CCD_ITERATIONS
     assert overrides["init_pos"][2] == mj_ref.SPAWN_Z
 
 
@@ -541,7 +517,7 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
     assert len(KNOWN_DRIFTS) == 1
-    assert len(DELIBERATE) == 8
+    assert len(DELIBERATE) == 5
     assert len(REFERENCE_DIVERGENCE) == 2
     assert "agent/normalizers" not in KNOWN_DRIFTS
     assert "scene/height_scanner/offset" not in KNOWN_DRIFTS
@@ -860,13 +836,6 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     assert column_maps["instinctmj_column_to_name"] != column_maps["ours_column_to_name"]
     assert column_maps["instinctmj_column_to_name"].count("pyramid_stairs") == 1
     assert column_maps["ours_column_to_name"].count("pyramid_stairs") == 3
-
-    assert compiled.env_cfg.sim.nconmax == 256
-    assert theirs_sim["nconmax"] == 128
-    assert compiled.env_cfg.sim.njmax == 768
-    assert theirs_sim["njmax"] == 700
-    assert compiled.env_cfg.sim.mujoco.ccd_iterations == 500
-    assert theirs_sim["ccd_iterations"] == 128
 
     scanners = {s.name: s for s in compiled.env_cfg.scene.sensors}
     assert scanners["left_height_scanner"].origin_offset == (0.04, 0.0, 20.0)

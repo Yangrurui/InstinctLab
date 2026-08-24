@@ -255,16 +255,10 @@ def play_with_viser(
     reload_policy: Callable[[str], Callable[[Any], Any]] | None = None,
     checkpoint_dir: Path | None = None,
 ) -> None:
-    """Run ``policy`` in ``env`` through mjlab's ``ViserPlayViewer``.
-
-    Depth images come from InstinctMJ's ``delayed_visualizable_image`` ``debug_vis`` path.
-    cv2 cannot open a window here, so the same uint8 buffer is shown as a Viser GUI image.
-    """
+    """Run ``policy`` in ``env`` through mjlab's ``ViserPlayViewer``."""
     del robot
     from mjlab.viewer import ViserPlayViewer
     from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
-
-    from instinctlab.mdp.observations import set_debug_image_sink
 
     viser = _import_viser()
     manager = None
@@ -294,22 +288,8 @@ def play_with_viser(
 
     server = viser.ViserServer(label="instinctlab", port=port)
     print(f"[INFO] Viser viewer: http://0.0.0.0:{port}", flush=True)
-    with server.gui.add_folder("Depth image"):
-        depth_handle = server.gui.add_image(
-            image=np.zeros((90, 160, 3), dtype=np.uint8),
-            label="depth_image",
-            format="jpeg",
-        )
-
-    def _show_depth(_window_name: str, img: np.ndarray) -> None:
-        rgb = np.repeat(img[..., None], 3, axis=-1) if img.ndim == 2 else img
-        depth_handle.image = rgb
-
-    set_debug_image_sink(_show_depth)
-    enable_depth_image_debug_vis(env)
     enable_pose_command_debug_vis(env)
     try:
         ViserPlayViewer(env, policy, viser_server=server, checkpoint_manager=manager).run()
     finally:
-        set_debug_image_sink(None)
         server.stop()
