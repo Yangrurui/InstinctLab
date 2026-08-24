@@ -21,8 +21,6 @@ def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
     pytest.importorskip("isaaclab")
     ensure_isaac_app(device=device)
 
-    import torch
-
     from instinctlab.engines.isaacsim import IsaacSimAdapter
     from instinctlab.engines.isaacsim.pose_velocity import column_sub_terrain_names
     from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
@@ -58,6 +56,7 @@ def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
         env.reset()
         assert_observation_shapes_match_declaration(env, spec)
         assert_parkour_live_invariants(env, spec, compiled, expected_columns=ISAAC_PROPORTION_COLUMNS)
+        assert_policy_joint_dfs_runtime_semantics(env, spec, device=device)
         assert column_sub_terrain_names(env.scene.terrain) == list(ISAAC_PROPORTION_COLUMNS)
         declared = env.scene.terrain.cfg.terrain_generator.num_cols
         assert declared == 20
@@ -82,6 +81,5 @@ def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
         assert dims == {"policy": 896, "critic": 920}
         env.reset()
         assert_rewards_finite_and_alive(env, steps=8, device=device)
-        assert_policy_joint_dfs_runtime_semantics(env, spec, device=device)
     finally:
         env.close()

@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from instinctlab.sim.robot_spec import BackendAsset, JointProperties, RobotSpec
+from instinctlab.utils.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
 
@@ -128,10 +129,12 @@ G1_29DOF_DFS_COLLISION_BODY_NAMES = (
     "right_wrist_yaw_link",
 )
 
-# PhysX's breadth-first walk of the same torsobase tree: left/right/waist interleaved.
-# Not canonical. Decision D1's order is ``G1_29DOF_DFS_JOINT_NAMES``. This list exists so
-# Isaac-only tasks that still select joints with ``".*"`` can build a name-based remap
-# instead of hardcoding indices against a leftover comment.
+# Isaac/PhysX's native breadth-first-like articulation order. It is not the plain
+# breadth-first traversal of URDF children in file order: the importer places the
+# shoulder branches before the waist branch at each of the first levels.
+#
+# This is diagnostic/native order only. Policy actions, observations and motion
+# references use ``G1_29DOF_DFS_JOINT_NAMES`` and resolve native indices by name.
 G1_29DOF_ISAAC_BFS_JOINT_NAMES = (
     "left_shoulder_pitch_joint",
     "right_shoulder_pitch_joint",
@@ -182,18 +185,13 @@ def g1_symmetric_joint_augmentation(
     their sign; roll and yaw flip. Passing a different name list is what keeps Isaac-only
     tasks that still see PhysX BFS from sharing the DFS tables the rest of the stack uses.
     """
-    index = {name: i for i, name in enumerate(joint_names)}
-    if len(index) != len(joint_names):
-        raise ValueError("joint names must be unique")
-    mapping: list[int] = []
+    names = tuple(joint_names)
+    mirrored = tuple(_mirrored_joint_name(name) for name in names)
+    mapping = resolve_name_indices(names, mirrored, require_exact=True)
     reverse: list[int] = []
-    for name in joint_names:
-        other = _mirrored_joint_name(name)
-        if other not in index:
-            raise ValueError(f"{name} mirrors to {other}, which is not in the joint list")
-        mapping.append(index[other])
+    for name in names:
         reverse.append(-1 if "roll" in name or "yaw" in name else 1)
-    return tuple(mapping), tuple(reverse)
+    return mapping, tuple(reverse)
 
 
 _G1_CONTACT_BODY_ALIASES = {

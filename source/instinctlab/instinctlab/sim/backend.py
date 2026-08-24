@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
+from instinctlab.utils.name_order import resolve_name_indices
+
 from .capabilities import CapabilitySet
 from .control import JointControlTarget
 from .scene import SceneSpec, SceneView, SimulationSpec
@@ -146,14 +148,11 @@ class CanonicalIndexMap:
     ) -> CanonicalIndexMap:
         canonical = tuple(canonical_names)
         native = tuple(native_names)
-        if len(set(canonical)) != len(canonical):
-            raise ValueError("canonical names must be unique")
-        if len(set(native)) != len(native):
-            raise ValueError("native names must be unique")
-        missing = tuple(name for name in canonical if name not in native)
-        if missing:
-            raise ValueError(f"native asset is missing canonical names: {missing}")
-        ids = torch.tensor([native.index(name) for name in canonical], dtype=torch.int64, device=device)
+        try:
+            resolved = resolve_name_indices(native, canonical)
+        except ValueError as exc:
+            raise ValueError(f"cannot map native asset into canonical order: {exc}") from exc
+        ids = torch.tensor(resolved, dtype=torch.int64, device=device)
         return cls(canonical, native, ids)
 
     @property

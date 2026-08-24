@@ -445,6 +445,18 @@ def _runtime(num_envs: int = 64, enabled: bool = True) -> MotionReferenceRuntime
     return MotionReferenceRuntime.from_clip(ref, _asymmetric_clip(), num_envs, "cpu")
 
 
+def test_refresh_at_current_time_resets_the_aiming_window() -> None:
+    """Isaac supplies its sensor clock; refreshing must also advance runtime bookkeeping."""
+    runtime = _runtime(num_envs=3, enabled=False)
+    env_ids = torch.tensor([0, 2])
+    runtime.buffers.timestamp[env_ids] = 0.08
+
+    runtime.refresh_at_current_time(env_ids)
+
+    torch.testing.assert_close(runtime.last_update[env_ids], runtime.buffers.timestamp[env_ids])
+    assert runtime.aiming_frame_idx.tolist() == [0, 0, 0]
+
+
 def test_same_seed_two_runtimes_match() -> None:
     """Both engines hold this runtime. Same seed is the cross-engine contract."""
     ids = torch.arange(64)

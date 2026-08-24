@@ -619,13 +619,14 @@ def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None
     """
     import torch
 
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
+    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
 
     robot = env.scene["robot"]
     native = list(robot.joint_names)
     canonical = list(spec.robot.joint_names)
     assert len(canonical) == POLICY_JOINT_COUNT
     assert tuple(canonical) == G1_29DOF_DFS_JOINT_NAMES
+    assert tuple(native) == G1_29DOF_ISAAC_BFS_JOINT_NAMES, "recorded Isaac native joint order is stale"
     assert list(spec.robot.joint_names)[0] == "waist_pitch_joint"
     assert native.index("waist_pitch_joint") != 0, "PhysX native order must stay BFS, not DFS"
 

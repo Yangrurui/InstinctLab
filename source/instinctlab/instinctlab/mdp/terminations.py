@@ -9,6 +9,7 @@ from typing import Any
 
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv
+from instinctlab.engines.motion_reference import exhausted_envs
 from instinctlab.spec.sensor import ContactSensorRef, MotionReferenceRef
 
 from .observations import _name
@@ -43,16 +44,7 @@ def dataset_exhausted(
     termination manager receives an all-false result and leaves the robot episode running.
     """
     motion_reference = env.scene.sensors[sensor.name]
-    all_indices = getattr(motion_reference, "ALL_INDICES", None)
-    if all_indices is None:
-        all_indices = torch.arange(
-            motion_reference.data.validity.shape[0],
-            device=motion_reference.data.validity.device,
-        )
-    aiming_frame_idx = getattr(motion_reference, "aiming_frame_idx", None)
-    if aiming_frame_idx is None:
-        aiming_frame_idx = torch.zeros_like(all_indices)
-    exhausted = torch.logical_not(motion_reference.data.validity[all_indices, aiming_frame_idx])
+    exhausted = exhausted_envs(motion_reference.data, motion_reference.aiming_frame_idx)
     if print_reason and exhausted.any():
         print("dataset_exhausted: ", exhausted.sum())
     if reset_without_notice:

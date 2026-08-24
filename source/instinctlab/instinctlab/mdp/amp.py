@@ -187,12 +187,8 @@ def _reference_obs(env: RlEnv, sensor: MotionReferenceRef, asset_cfg: Any) -> di
 
 
 def _motion_reference(env: RlEnv, sensor: MotionReferenceRef) -> Any:
-    """Both engines keep sensors in ``scene.sensors``; Isaac also answers ``scene[name]``."""
-    name = sensor.name
-    sensors = getattr(env.scene, "sensors", None)
-    if sensors is not None and name in sensors:
-        return sensors[name]
-    return env.scene[name]
+    """Resolve the shared sensor contract identically on both engines."""
+    return env.scene.sensors[sensor.name]
 
 
 def _name(asset_cfg: Any) -> str:

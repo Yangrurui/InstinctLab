@@ -412,7 +412,7 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
 
 
 def _build_motion_reference(sensor: Any, robot: Any) -> Any:
-    """Clip-backed reference. Separate from the ray builders another increment owns."""
-    from .motion_reference import build_sensor
+    """Build the clip-backed reference sensor for Isaac's lifecycle."""
+    from .motion_reference import build_motion_reference_sensor
 
-    return build_sensor(sensor, robot)
+    return build_motion_reference_sensor(sensor, robot)

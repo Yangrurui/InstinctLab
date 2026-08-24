@@ -1,7 +1,7 @@
 """mjlab motion-reference sensor: InstinctMJ's Sensor lifecycle around the portable clip.
 
 ``edit_spec`` adds no MuJoCo sensors — the reference is dataset plus FK, same as
-InstinctMJ's manager. SDK imports stay inside :func:`build_sensor`. The clip
+InstinctMJ's manager. SDK imports stay inside :func:`build_motion_reference_sensor`. The clip
 clock and the 50% mirror mask live in
 :class:`~instinctlab.engines.motion_reference.MotionReferenceRuntime`.
 """
@@ -13,10 +13,10 @@ from typing import Any
 from instinctlab.engines.motion_reference import MotionReferenceRuntime
 from instinctlab.spec.sensor import MotionReferenceRef
 
-__all__ = ["build_sensor"]
+__all__ = ["build_motion_reference_sensor"]
 
 
-def build_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
+def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
     """Native mjlab ``SensorCfg`` whose ``build`` returns the clip sensor."""
     import torch
     from dataclasses import dataclass

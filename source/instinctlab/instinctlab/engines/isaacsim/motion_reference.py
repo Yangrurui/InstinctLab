@@ -1,6 +1,6 @@
 """Isaac Sim motion-reference sensor: a thin ``SensorBase`` around the portable clip.
 
-SDK imports stay inside :func:`build_sensor` so ``contract_report`` still answers
+SDK imports stay inside :func:`build_motion_reference_sensor` so ``contract_report`` still answers
 without Isaac. The clip clock and the 50% mirror mask live in
 :class:`~instinctlab.engines.motion_reference.MotionReferenceRuntime`.
 """
@@ -12,10 +12,10 @@ from typing import Any
 from instinctlab.engines.motion_reference import MotionReferenceRuntime
 from instinctlab.spec.sensor import MotionReferenceRef
 
-__all__ = ["build_sensor"]
+__all__ = ["build_motion_reference_sensor"]
 
 
-def build_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
+def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
     """Native Isaac ``SensorBaseCfg`` whose class loads the clip at initialize."""
     import torch
     from collections.abc import Sequence
@@ -62,7 +62,7 @@ def build_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         def _update_buffers_impl(self, env_ids):
             env_ids = torch.as_tensor(env_ids, device=self.device)
             self._runtime.buffers.timestamp[env_ids] = self._timestamp[env_ids]
-            self._runtime.refresh(env_ids)
+            self._runtime.refresh_at_current_time(env_ids)
 
     @configclass
     class MotionReferenceSensorCfg(SensorBaseCfg):

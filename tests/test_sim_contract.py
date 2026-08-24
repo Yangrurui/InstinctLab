@@ -31,6 +31,19 @@ def test_canonical_index_map_round_trip() -> None:
     torch.testing.assert_close(rebuilt, native)
 
 
+def test_isaac_native_to_dfs_mapping_has_the_correct_direction() -> None:
+    """A round trip alone only proves a permutation; named landmarks prove its direction."""
+    mapping = CanonicalIndexMap.build(G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES, device="cpu")
+    native = torch.arange(29)
+    canonical = mapping.to_canonical(native)
+
+    for name in ("waist_pitch_joint", "left_hip_pitch_joint", "right_wrist_yaw_joint"):
+        dfs_id = G1_29DOF_DFS_JOINT_NAMES.index(name)
+        native_id = G1_29DOF_ISAAC_BFS_JOINT_NAMES.index(name)
+        assert int(mapping.native_ids_for_canonical[dfs_id]) == native_id
+        assert int(canonical[dfs_id]) == native_id
+
+
 def test_canonical_index_map_identity_avoids_reordering() -> None:
     names = ("first", "second")
     mapping = CanonicalIndexMap.build(names, names, device="cpu")
