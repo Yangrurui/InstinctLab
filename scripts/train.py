@@ -175,14 +175,26 @@ def main() -> None:
     agent_cfg.resume = bool(args.resume or args.load_run or args.checkpoint or agent_cfg.resume)
 
     resume_path = _resolve_resume_checkpoint(args, agent_cfg)
+    if resume_path is not None:
+        from instinctlab.checkpoint import validate_checkpoint_contract
+
+        validate_checkpoint_contract(resume_path, spec)
 
     log_dir = _log_dir(args, agent_cfg.experiment_name)
     os.makedirs(log_dir, exist_ok=True)
 
     print(compiled.resolution.summary_table())
     manifest_path = os.path.join(log_dir, "manifest.json")
+    from instinctlab.checkpoint import add_task_contract
+
     with open(manifest_path, "w") as handle:
-        json.dump(compiled.resolution.manifest(), handle, indent=2, sort_keys=True, default=str)
+        json.dump(
+            add_task_contract(compiled.resolution.manifest(), spec),
+            handle,
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
     print(f"[INFO] Wrote the compilation manifest to {manifest_path}")
 
     # The environment seeds itself from its own config, and both reference training scripts hand it

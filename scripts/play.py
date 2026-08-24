@@ -154,6 +154,9 @@ def main() -> None:
         print(f"[INFO] Using {args.agent} actions (no checkpoint)", flush=True)
     else:
         checkpoint = _resolve_checkpoint(args, compiled.agent_cfg.experiment_name)
+        from instinctlab.checkpoint import validate_checkpoint_contract
+
+        validate_checkpoint_contract(checkpoint, spec)
         print(f"[INFO] Loading {checkpoint}", flush=True)
         from instinct_rl.runners import OnPolicyRunner
 
