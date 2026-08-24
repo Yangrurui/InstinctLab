@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from instinctlab.engines.compile import joint_position_target
 from instinctlab.engines.registry import TermRegistry
 from instinctlab.sim.capabilities import (
     BODY_MASS_PROPERTIES,
@@ -206,14 +207,14 @@ def _joint_position(spec, ctx):
     explicitly with ``preserve_order`` rather than relying on ``.*``, whose expansion follows the
     model file's own order.
     """
-    from mjlab.envs.mdp import JointPositionActionCfg
+    from .actions import PreservingJointPositionActionCfg
 
-    target = spec.target
+    target = joint_position_target(spec, ctx)
     params = ctx.params(spec)
-    return JointPositionActionCfg(
-        entity_name=target.entity if target is not None else "robot",
-        actuator_names=tuple(target.joints) if target is not None and target.joints else (".*",),
-        preserve_order=target.preserve_order if target is not None else False,
+    return PreservingJointPositionActionCfg(
+        entity_name=target.entity,
+        actuator_names=tuple(target.joints),
+        preserve_order=target.preserve_order,
         scale=params.get("scale", 1.0),
         use_default_offset=params.get("use_default_offset", True),
     )

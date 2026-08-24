@@ -28,7 +28,7 @@ from instinctlab.engines.pose_velocity import (
     resolve_named_columns,
     type_share_histogram,
 )
-from instinctlab.sim.robot_spec import JointProperties, RobotSpec
+from instinctlab.sim.robot_spec import BackendAsset, JointProperties, RobotSpec
 from instinctlab.spec import (
     AgentSpec,
     CommandTermSpec,
@@ -67,7 +67,10 @@ def _robot() -> RobotSpec:
             JointProperties("hip", 0.0, 2.0, 0.1, 0.0, 100.0, 10.0, 0.5),
             JointProperties("knee", 0.0, 2.0, 0.1, 0.0, 100.0, 10.0, 0.5),
         ),
-        assets=(),
+        assets=(
+            BackendAsset(backend="isaacsim", path="robot.urdf"),
+            BackendAsset(backend="mjlab", path="robot.xml"),
+        ),
         default_root_pos=(0.0, 0.0, 1.0),
         default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         soft_joint_pos_limit_factor=0.9,

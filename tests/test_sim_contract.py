@@ -187,6 +187,26 @@ def test_robot_spec_rejects_duplicate_backend_assets() -> None:
         duplicate.validate()
 
 
+def test_robot_spec_rejects_non_finite_or_non_physical_joint_properties() -> None:
+    robot = make_g1_29dof_robot_spec()
+    joints = list(robot.joint_properties)
+    joints[0] = replace(joints[0], stiffness=float("nan"))
+    with pytest.raises(ValueError, match="non-finite"):
+        replace(robot, joint_properties=tuple(joints)).validate()
+
+    joints[0] = replace(robot.joint_properties[0], effort_limit=0.0)
+    with pytest.raises(ValueError, match="must be positive"):
+        replace(robot, joint_properties=tuple(joints)).validate()
+
+
+def test_robot_spec_rejects_invalid_root_quaternion_and_soft_limit() -> None:
+    robot = make_g1_29dof_robot_spec()
+    with pytest.raises(ValueError, match="unit length"):
+        replace(robot, default_root_quat_wxyz=(0.0, 0.0, 0.0, 0.0)).validate()
+    with pytest.raises(ValueError, match=r"in \(0, 1\]"):
+        replace(robot, soft_joint_pos_limit_factor=1.1).validate()
+
+
 def test_robot_spec_rejects_frame_as_collision_body() -> None:
     robot = make_g1_29dof_robot_spec()
     bad = replace(robot, collision_body_names=robot.collision_body_names + ("LL_FOOT",))

@@ -346,6 +346,12 @@ class TaskSpec:
         """
         self.robot.validate()
         declared = set(self.engines)
+        asset_backends = {asset.backend for asset in self.robot.assets}
+        missing_assets = declared - asset_backends
+        if missing_assets:
+            raise ValueError(
+                f"Task {self.task_id!r} declares engines {sorted(missing_assets)} without a robot asset for them."
+            )
         for source, keys in (
             ("sim.profiles", set(self.sim.profiles)),
             ("engine_extras", set(self.engine_extras)),

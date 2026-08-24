@@ -33,6 +33,7 @@ __all__ = [
     "compile_mdp",
     "contract_report",
     "flatten_reward_groups",
+    "joint_position_target",
     "observation_group_settings",
     "qualname_of",
     "record_reward_omissions",
@@ -255,6 +256,28 @@ def flatten_reward_groups(groups: Mapping[str, Mapping[str, Any]], *, omit: tupl
                 )
             flattened[native_name] = term
     return flattened
+
+
+def joint_position_target(spec: TermSpec, ctx: CompileCtx) -> EntityRef:
+    """Return an unambiguous joint selector for a position action.
+
+    With no selector, both engines control the whole robot in canonical order. A portable task may
+    not request native order: PhysX and MuJoCo enumerate the same joints differently, so the same
+    policy tensor would command different motors.
+    """
+    target = spec.target
+    if target is None:
+        target = EntityRef(entity="robot", joints=ctx.spec.robot.joint_names, preserve_order=True)
+    if target.bodies is not None or target.other:
+        raise ValueError("joint_position actions may select joints only")
+    if target.joints is None:
+        target = EntityRef(entity=target.entity, joints=ctx.spec.robot.joint_names, preserve_order=True)
+    if len(ctx.spec.engines) > 1 and not target.preserve_order:
+        raise ValueError(
+            "A multi-engine joint_position action must set preserve_order=True; native joint order "
+            "differs between PhysX and MuJoCo."
+        )
+    return target
 
 
 def record_reward_omissions(

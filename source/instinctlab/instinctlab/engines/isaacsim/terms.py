@@ -18,6 +18,7 @@ import inspect
 import math
 from typing import Any
 
+from instinctlab.engines.compile import joint_position_target
 from instinctlab.engines.registry import TermRegistry
 from instinctlab.sim.capabilities import (
     BODY_MASS_PROPERTIES,
@@ -270,12 +271,13 @@ def _joint_position(spec, ctx):
     """
     from instinctlab.envs.mdp import JointPositionActionCfg
 
-    entity = ctx.entity(spec.target)
+    target = joint_position_target(spec, ctx)
+    entity = ctx.entity(target)
     params = ctx.params(spec)
     return JointPositionActionCfg(
         asset_name=entity.name,
         joint_names=list(entity.joint_names),
-        preserve_order=spec.target.preserve_order if spec.target is not None else False,
+        preserve_order=target.preserve_order,
         scale=params.get("scale", 1.0),
         use_default_offset=params.get("use_default_offset", True),
     )

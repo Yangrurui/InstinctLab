@@ -8,9 +8,11 @@ an error anywhere, it simply means the override never applies and the run silent
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from instinctlab.sim.robot_spec import JointProperties, RobotSpec
+from instinctlab.sim.robot_spec import BackendAsset, JointProperties, RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
     AgentSpec,
@@ -51,7 +53,10 @@ def _robot() -> RobotSpec:
             JointProperties("hip", 0.0, 2.0, 0.1, 0.0, 100.0, 10.0, 0.5),
             JointProperties("knee", 0.0, 2.0, 0.1, 0.0, 100.0, 10.0, 0.5),
         ),
-        assets=(),
+        assets=(
+            BackendAsset(backend="isaacsim", path="robot.urdf"),
+            BackendAsset(backend="mjlab", path="robot.xml"),
+        ),
         default_root_pos=(0.0, 0.0, 1.0),
         default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         soft_joint_pos_limit_factor=0.9,
@@ -311,6 +316,12 @@ def test_a_task_must_name_at_least_one_engine_and_may_not_repeat_one():
         _task(engines=())
     with pytest.raises(ValueError, match="repeats engines"):
         _task(engines=("mjlab", "mjlab"))
+
+
+def test_a_task_requires_a_robot_asset_for_every_declared_engine():
+    robot = replace(_robot(), assets=(BackendAsset(backend="mjlab", path="robot.xml"),))
+    with pytest.raises(ValueError, match="without a robot asset"):
+        _task(robot=robot).validate()
 
 
 def test_a_plane_cannot_carry_a_generator():

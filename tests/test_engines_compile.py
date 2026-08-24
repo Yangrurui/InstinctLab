@@ -14,6 +14,8 @@ config is not something a mock can honestly stand in for.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from instinctlab.engines import (
@@ -25,8 +27,15 @@ from instinctlab.engines import (
     compile_mdp,
     observation_group_settings,
 )
-from instinctlab.engines.compile import contract_report, flatten_reward_groups, qualname_of, record_reward_omissions
+from instinctlab.engines.compile import (
+    contract_report,
+    flatten_reward_groups,
+    joint_position_target,
+    qualname_of,
+    record_reward_omissions,
+)
 from instinctlab.sim.capabilities import CONTACT_FORCE_VECTOR, DR_RESTITUTION, DR_SLIDING_FRICTION, EXTERNAL_WRENCH
+from instinctlab.sim.robot_spec import BackendAsset
 from instinctlab.spec import (
     ActionTermSpec,
     CommandTermSpec,
@@ -390,6 +399,27 @@ def test_reward_groups_with_repeated_names_are_qualified_instead_of_overwritten(
     assert flattened["style__alive"] is style_alive
 
 
+def test_joint_position_defaults_to_the_robot_canonical_order():
+    from tests.test_spec_task import _task
+
+    task = _task()
+    ctx = _ctx()
+    ctx.spec = task
+    target = joint_position_target(ActionTermSpec(kind="joint_position"), ctx)
+    assert target.joints == task.robot.joint_names
+    assert target.preserve_order is True
+
+
+def test_multi_engine_joint_position_refuses_native_order():
+    from tests.test_spec_task import _task
+
+    ctx = _ctx()
+    ctx.spec = _task()
+    spec = ActionTermSpec(kind="joint_position", target=EntityRef(joints=("hip", "knee")))
+    with pytest.raises(ValueError, match="must set preserve_order=True"):
+        joint_position_target(spec, ctx)
+
+
 def test_reward_qualification_refuses_a_collision_with_an_existing_name():
     with pytest.raises(ValueError, match="same native term name"):
         flatten_reward_groups({"task": {"alive": object()}, "style": {"alive": object(), "task__alive": object()}})
@@ -415,8 +445,10 @@ def test_contract_report_checks_portable_builders_and_emulation_level():
     )
     from tests.test_spec_task import _task
 
+    task = _task(mdp=mdp, engines=("mock",))
+    task = replace(task, robot=replace(task.robot, assets=(BackendAsset(backend="mock", path="robot.mock"),)))
     report = contract_report(
-        _task(mdp=mdp, engines=("mock",)),
+        task,
         engine="mock",
         registry=registry,
         capabilities=registry.capabilities(),

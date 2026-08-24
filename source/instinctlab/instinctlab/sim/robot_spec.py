@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import torch
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -29,6 +30,8 @@ class BackendAsset:
         return tuple(self.contact_body_aliases.get(name, name) for name in body_names)
 
     def validate_against(self, body_names: tuple[str, ...]) -> None:
+        if not self.backend or not self.path:
+            raise ValueError("BackendAsset backend and path must be non-empty")
         if self.load_mode not in _ALLOWED_LOAD_MODES:
             raise ValueError(f"BackendAsset {self.backend!r} has unsupported load_mode {self.load_mode!r}")
         unknown = set(self.contact_body_aliases).difference(body_names)
@@ -107,6 +110,8 @@ class RobotSpec:
         return self.collision_body_names or self.physical_body_names
 
     def validate(self) -> None:
+        if not self.name or not self.schema_version or not self.asset_id or not self.root_body:
+            raise ValueError("RobotSpec name, schema_version, asset_id, and root_body must be non-empty")
         if not self.joint_names or len(set(self.joint_names)) != len(self.joint_names):
             raise ValueError("RobotSpec joint_names must be non-empty and unique")
         if not self.body_names or len(set(self.body_names)) != len(self.body_names):
@@ -130,11 +135,38 @@ class RobotSpec:
         property_names = tuple(item.name for item in self.joint_properties)
         if property_names != self.joint_names:
             raise ValueError("joint_properties must exactly follow canonical joint_names")
+        for item in self.joint_properties:
+            values = {
+                "default_pos": item.default_pos,
+                "stiffness": item.stiffness,
+                "damping": item.damping,
+                "armature": item.armature,
+                "effort_limit": item.effort_limit,
+                "velocity_limit": item.velocity_limit,
+                "action_scale": item.action_scale,
+            }
+            non_finite = [name for name, value in values.items() if not math.isfinite(value)]
+            if non_finite:
+                raise ValueError(f"Joint {item.name!r} has non-finite properties: {non_finite}")
+            if min(item.stiffness, item.damping, item.armature, item.action_scale) < 0.0:
+                raise ValueError(f"Joint {item.name!r} has a negative PD, armature, or action-scale value")
+            if item.effort_limit <= 0.0 or item.velocity_limit <= 0.0:
+                raise ValueError(f"Joint {item.name!r} effort and velocity limits must be positive")
         asset_backends = tuple(asset.backend for asset in self.assets)
         if len(set(asset_backends)) != len(asset_backends):
             raise ValueError("RobotSpec may declare at most one asset per backend")
         for asset in self.assets:
             asset.validate_against(self.body_names)
+        root_values = (*self.default_root_pos, *self.default_root_quat_wxyz)
+        if not all(math.isfinite(value) for value in root_values):
+            raise ValueError("RobotSpec default root pose must be finite")
+        quaternion_norm = math.sqrt(sum(value * value for value in self.default_root_quat_wxyz))
+        if not math.isclose(quaternion_norm, 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise ValueError(f"RobotSpec default root quaternion must be unit length, got norm={quaternion_norm}")
+        if not 0.0 < self.soft_joint_pos_limit_factor <= 1.0:
+            raise ValueError(
+                f"RobotSpec soft_joint_pos_limit_factor must be in (0, 1], got {self.soft_joint_pos_limit_factor}"
+            )
         lo, hi = self.actuator_delay
         if lo < 0 or hi < lo:
             raise ValueError(
