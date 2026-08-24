@@ -7,8 +7,8 @@ already share, so that a term can do frame arithmetic without importing either o
 left on the submodule rather than re-exported here, since callers read better as
 ``math_utils.quat_apply_inverse``. :mod:`~instinctlab.compat.entity` lowers an ``EntityRef`` onto
 each engine's selector config, which is where the engines diverge far more than their data
-attributes do, and :mod:`~instinctlab.compat.sensors` reads contact sensors, the one place that
-does need a runtime shim because the two engines disagree on tensor layout as well as on names.
+attributes do, and :mod:`~instinctlab.compat.sensors` normalizes contact, ray and volume-point
+outputs where the engines disagree on names, shape or missing-value conventions.
 :mod:`~instinctlab.compat.env` is the smallest of them, because the two environment classes turned
 out to agree on nearly everything a term reads; it covers the command lookup, which fails
 differently on each engine, and names the environment type portably.
@@ -20,7 +20,7 @@ differently on each engine, and names the environment type portably.
 :mod:`~instinctlab.compat.math` 承载两引擎共有的张量数学，term 做坐标运算时无需 import 任一引擎；
 其子模块名不在此 re-export，调用方习惯写成 ``math_utils.quat_apply_inverse``。
 :mod:`~instinctlab.compat.entity` 将 ``EntityRef`` 下降为各引擎的选择器配置（引擎在此处分歧远大于数据属性）。
-:mod:`~instinctlab.compat.sensors` 读取接触传感器——张量布局与命名均不一致，需要运行时 shim 的唯一处。
+:mod:`~instinctlab.compat.sensors` 统一接触、射线与体积点输出中的名称、形状和缺失值约定。
 :mod:`~instinctlab.compat.env` 最小：两引擎 env 类在 term 可读字段上已基本一致；仅覆盖命令查找（失败方式不同）
 与环境类型的可移植命名。
 """

@@ -83,10 +83,10 @@ def test_the_threshold_is_declared_rather_than_inherited() -> None:
 
 def test_mjlab_builds_a_sensor_that_clocks_off_force() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _contact_sensor
+    from instinctlab.engines.mjlab.scene import _build_contact_sensor
 
     ref = ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True, air_time_force_threshold=2.5)
-    cfg = _contact_sensor(ref)
+    cfg = _build_contact_sensor(ref)
 
     assert (
         getattr(cfg, "force_threshold", None) == 2.5
@@ -134,7 +134,7 @@ def test_isaac_carries_the_declared_threshold_onto_its_own_field() -> None:
 
     ensure_isaac_app()
 
-    from instinctlab.engines.isaacsim.scene import _contact_sensor
+    from instinctlab.engines.isaacsim.scene import _build_contact_sensor
 
     ref = ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True, air_time_force_threshold=2.5)
-    assert _contact_sensor(ref).force_threshold == 2.5
+    assert _build_contact_sensor(ref).force_threshold == 2.5

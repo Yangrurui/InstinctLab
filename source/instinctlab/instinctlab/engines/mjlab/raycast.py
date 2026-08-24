@@ -20,13 +20,13 @@ from typing import Any
 
 from instinctlab.spec.sensor import RayCasterRef
 
-__all__ = ["terrain_native_ray_caster", "terrain_sky_ray_caster"]
+__all__ = ["terrain_height_scanner", "terrain_ray_caster"]
 
 _TERRAIN_BODY = "terrain"
 
 
-def terrain_native_ray_caster(sensor: RayCasterRef) -> Any:
-    """InstinctMJ-compatible ankle-origin grid ray caster."""
+def terrain_height_scanner(sensor: RayCasterRef) -> Any:
+    """Build the native terrain-height query used by InstinctMJ."""
     from mjlab.sensor import GridPatternCfg, ObjRef
     from mjlab.sensor.raycast_sensor import RayCastSensorCfg
 
@@ -47,8 +47,8 @@ def terrain_native_ray_caster(sensor: RayCasterRef) -> Any:
     )
 
 
-def terrain_sky_ray_caster(sensor: RayCasterRef) -> Any:
-    """A mjlab sensor cfg that implements :class:`RayCasterRef` under Isaac semantics."""
+def terrain_ray_caster(sensor: RayCasterRef) -> Any:
+    """Build a grid ray caster that preserves the declared origin and range."""
     from mjlab.sensor import ObjRef
     from mjlab.sensor.raycast_sensor import GridPatternCfg, RayCastSensor, RayCastSensorCfg
 

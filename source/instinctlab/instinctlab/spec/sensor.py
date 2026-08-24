@@ -1,22 +1,12 @@
-"""References to contact measurements, stated without naming an engine.
+"""Engine-neutral sensor declarations.
 
-The two engines take opposite approaches to contact sensing, and the difference is structural
-rather than cosmetic:
+These dataclasses describe what a task measures: contact subsets, ray patterns, motion-reference
+clips and body-local point clouds. Engine adapters own native sensor construction; shared MDP terms
+read normalized outputs through :mod:`instinctlab.compat.sensors`.
 
-* Isaac Lab declares **one broad sensor** over a prim-path pattern -- typically every body of the
-  robot -- and each term slices out the bodies it cares about with a ``SceneEntityCfg``.
-* mjlab declares **many narrow sensors**, each one already scoped to its elements by a ``primary``
-  pattern, and terms read the whole sensor.
-
-Neither is more correct, and a portable term cannot be written against either shape directly. So a
-:class:`ContactSensorRef` says only *what is being measured* -- these elements of this entity,
-optionally only against that counterpart -- and each backend decides whether that becomes a slice
-of a broad sensor or a sensor of its own. This is the same move the rest of the design makes: state
-the intent in the IR, let the backend pick the idiom.
-
-What can be read back portably is narrower than it looks. See
-:mod:`~instinctlab.compat.sensors`: the air/contact-time signals line up across engines, raw
-contact force does not.
+The contract intentionally stops where physical meanings diverge. Contact timing is portable, for
+example, while raw solver force is not. Unsupported semantics are rejected during compilation
+instead of being silently approximated.
 """
 
 from __future__ import annotations
@@ -163,6 +153,9 @@ class RayCasterRef:
 
     Args:
         name: Scene key. Terms find the sensor by this.
+        mode: ``"ray"`` preserves the declared ray origin and range. ``"terrain_height"``
+            asks for terrain hit positions beneath the attached sample grid and lets each backend
+            use its native equivalent implementation. The latter is the Parkour foot scanner.
         attach: Body name on ``entity`` the rays are hung from. One body per
             reference: Isaac Lab's ``RayCaster`` is a single prim path.
         entity: Entity the attach body belongs to.
@@ -207,6 +200,7 @@ class RayCasterRef:
 
     name: str
     attach: str
+    mode: Literal["ray", "terrain_height"] = "ray"
     entity: str = "robot"
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     offset_rot: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
@@ -224,6 +218,8 @@ class RayCasterRef:
     def __post_init__(self) -> None:
         if not self.attach:
             raise ValueError(f"Ray caster {self.name!r} has no attach body.")
+        if self.mode not in {"ray", "terrain_height"}:
+            raise ValueError(f"Ray caster {self.name!r} has unsupported mode={self.mode!r}.")
         if isinstance(self.hit, str):
             if self.hit != _TERRAIN_HIT:
                 raise ValueError(
@@ -239,6 +235,10 @@ class RayCasterRef:
             raise ValueError(
                 f"Ray caster {self.name!r} is a grid and has hit={self.hit!r}; "
                 "the scanner increment only implements terrain-only hits."
+            )
+        if self.mode == "terrain_height" and (self.pattern.kind != "grid" or self.hit != _TERRAIN_HIT):
+            raise ValueError(
+                f"Ray caster {self.name!r} uses mode='terrain_height', which requires a terrain-only grid."
             )
         if self.miss != "infinity":
             raise ValueError(

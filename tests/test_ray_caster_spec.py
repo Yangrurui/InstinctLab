@@ -34,6 +34,16 @@ def test_a_ray_caster_states_isaac_semantics_and_refuses_the_zero_miss() -> None
         RayCasterRef(name="x", attach="")
     with pytest.raises(ValueError, match="non-positive max_distance"):
         RayCasterRef(name="x", attach="foot", max_distance=0.0)
+    with pytest.raises(ValueError, match="unsupported mode"):
+        RayCasterRef(name="x", attach="foot", mode="unknown")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="requires a terrain-only grid"):
+        RayCasterRef(
+            name="x",
+            attach="torso",
+            mode="terrain_height",
+            pattern=RayPatternRef(kind="pinhole"),
+            hit=("terrain",),
+        )
 
 
 def test_the_grid_this_increment_uses_is_two_rays() -> None:
@@ -56,26 +66,26 @@ def test_the_grid_this_increment_uses_is_two_rays() -> None:
 
 
 def test_isaac_refuses_against_rather_than_emitting_an_unfiltered_sensor() -> None:
-    from instinctlab.engines.isaacsim.scene import _contact_sensor
+    from instinctlab.engines.isaacsim.scene import _build_contact_sensor
 
     with pytest.raises(ValueError, match="cannot honor ContactSensorRef.against"):
-        _contact_sensor(ContactSensorRef(name="contact_forces", elements=".*", against="terrain"))
+        _build_contact_sensor(ContactSensorRef(name="contact_forces", elements=".*", against="terrain"))
 
 
 def test_mjlab_still_passes_against_as_a_secondary_match() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _contact_sensor
+    from instinctlab.engines.mjlab.scene import _build_contact_sensor
 
-    cfg = _contact_sensor(ContactSensorRef(name="contact_forces", elements=".*", against="terrain"))
+    cfg = _build_contact_sensor(ContactSensorRef(name="contact_forces", elements=".*", against="terrain"))
     assert cfg.secondary is not None
     assert cfg.secondary.pattern == ("terrain",)
 
 
 def test_mjlab_ray_caster_cfg_is_sky_origin_and_not_the_stock_group_mask() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _ray_caster
+    from instinctlab.engines.mjlab.scene import _build_ray_caster
 
-    cfg = _ray_caster(
+    cfg = _build_ray_caster(
         RayCasterRef(
             name="left_height_scanner",
             attach="left_ankle_roll_link",
@@ -89,6 +99,23 @@ def test_mjlab_ray_caster_cfg_is_sky_origin_and_not_the_stock_group_mask() -> No
     assert cfg.pattern.direction == (0.0, 0.0, -1.0)
     assert cfg.pattern.size == (0.12, 0.0)
     assert cfg.pattern.resolution == 0.12
+
+
+def test_mjlab_terrain_height_mode_uses_the_native_ankle_query() -> None:
+    pytest.importorskip("mjlab")
+    from instinctlab.engines.mjlab.scene import _build_ray_caster
+
+    cfg = _build_ray_caster(
+        RayCasterRef(
+            name="left_height_scanner",
+            attach="left_ankle_roll_link",
+            mode="terrain_height",
+            offset=(0.04, 0.0, 20.0),
+        )
+    )
+    assert cfg.frame.name == "left_ankle_roll_link"
+    assert cfg.max_distance == 10.0
+    assert not hasattr(cfg, "origin_offset")
 
 
 def test_pinhole_yaw_is_refused_because_both_engines_ignore_it() -> None:
@@ -114,11 +141,11 @@ def test_pinhole_yaw_is_refused_because_both_engines_ignore_it() -> None:
                 ray_alignment="world",
             )
         )
-    from instinctlab.engines.isaacsim.scene import _ray_caster as isaac_ray_caster
+    from instinctlab.engines.isaacsim.scene import _build_ray_caster as isaac_ray_caster
 
     with pytest.raises(ValueError, match="silently ignored"):
         isaac_ray_caster(yaw_camera, sensor_period=0.02)
-    from instinctlab.engines.mjlab.scene import _ray_caster as mjlab_ray_caster
+    from instinctlab.engines.mjlab.scene import _build_ray_caster as mjlab_ray_caster
 
     with pytest.raises(ValueError, match="silently ignored"):
         mjlab_ray_caster(yaw_camera)
@@ -154,9 +181,9 @@ def test_pinhole_yaw_is_refused_because_both_engines_ignore_it() -> None:
 def test_mjlab_grid_passes_base_alignment_through() -> None:
     """Grid + base is honoured on both engines; do not start refusing it."""
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _ray_caster
+    from instinctlab.engines.mjlab.scene import _build_ray_caster
 
-    cfg = _ray_caster(
+    cfg = _build_ray_caster(
         RayCasterRef(
             name="left_height_scanner",
             attach="left_ankle_roll_link",
@@ -350,10 +377,10 @@ def test_depth_image_turns_a_past_far_plane_hit_into_infinity() -> None:
 def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
     pytest.importorskip("mjlab")
     from instinctlab.engines.mjlab.camera import pinhole_camera_geom_groups
-    from instinctlab.engines.mjlab.scene import _ray_caster
+    from instinctlab.engines.mjlab.scene import _build_ray_caster
 
     expected = pinhole_camera_geom_groups()
-    cfg = _ray_caster(
+    cfg = _build_ray_caster(
         RayCasterRef(
             name="camera",
             attach="torso_link",

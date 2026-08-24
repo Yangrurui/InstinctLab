@@ -26,9 +26,9 @@ pytest.importorskip("mjlab")
 
 def test_the_sensor_requests_the_field_its_timers_are_built_from() -> None:
     """``track_air_time`` without ``found`` is accepted by mjlab and does nothing."""
-    from instinctlab.engines.mjlab.scene import _contact_sensor
+    from instinctlab.engines.mjlab.scene import _build_contact_sensor
 
-    cfg = _contact_sensor(ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True))
+    cfg = _build_contact_sensor(ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True))
 
     assert "found" in cfg.fields, (
         "mjlab derives contact and air time from 'found' and skips the update when it is absent, "

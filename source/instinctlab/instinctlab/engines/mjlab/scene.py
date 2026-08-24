@@ -157,13 +157,13 @@ def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
     return cfg
 
 
-def _volume_points(sensor: VolumePointsRef) -> Any:
+def _build_volume_points(sensor: VolumePointsRef) -> Any:
     from .volume_points import build_sensor
 
     return build_sensor(sensor)
 
 
-def _contact_sensor(sensor: ContactSensorRef) -> Any:
+def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
     """One mjlab contact sensor covering the declared elements.
 
     ``reduce="netforce"`` gives one force per element, which is the layout the portable accessors
@@ -196,20 +196,20 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
     )
 
 
-def _ray_caster(sensor: RayCasterRef, profile: Mapping[str, Any] | None = None) -> Any:
+def _build_ray_caster(sensor: RayCasterRef) -> Any:
     """mjlab does not ship Isaac's sky-origin scanner or world-convention camera."""
     refuse_unhonored_ray_alignment(sensor)
     if sensor.pattern.kind == "pinhole":
         from .camera import pinhole_ray_caster
 
         return pinhole_ray_caster(sensor)
-    if profile and profile.get("height_scanner_semantics") == "instinctmj":
-        from .raycast import terrain_native_ray_caster
+    if sensor.mode == "terrain_height":
+        from .raycast import terrain_height_scanner
 
-        return terrain_native_ray_caster(sensor)
-    from .raycast import terrain_sky_ray_caster
+        return terrain_height_scanner(sensor)
+    from .raycast import terrain_ray_caster
 
-    return terrain_sky_ray_caster(sensor)
+    return terrain_ray_caster(sensor)
 
 
 def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_envs: int) -> Any:
@@ -217,10 +217,10 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
     from mjlab.scene import SceneCfg
 
     sensors = (
-        tuple(_contact_sensor(sensor) for sensor in spec.contact_sensors)
-        + tuple(_ray_caster(sensor, profile) for sensor in spec.ray_casters)
-        + tuple(_motion_reference(sensor, robot) for sensor in spec.motion_references)
-        + tuple(_volume_points(sensor) for sensor in spec.volume_points)
+        tuple(_build_contact_sensor(sensor) for sensor in spec.contact_sensors)
+        + tuple(_build_ray_caster(sensor) for sensor in spec.ray_casters)
+        + tuple(_build_motion_reference(sensor, robot) for sensor in spec.motion_references)
+        + tuple(_build_volume_points(sensor) for sensor in spec.volume_points)
     )
     return SceneCfg(
         num_envs=num_envs,
@@ -231,7 +231,7 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
     )
 
 
-def _motion_reference(sensor: Any, robot: Any) -> Any:
+def _build_motion_reference(sensor: Any, robot: Any) -> Any:
     """Clip-backed reference. Separate from the ray builders another increment owns."""
     from .motion_reference import build_sensor
 

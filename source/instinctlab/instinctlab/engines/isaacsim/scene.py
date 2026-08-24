@@ -184,7 +184,7 @@ def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
     return cfg
 
 
-def _volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
+def _build_volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
     from instinctlab.sensors.volume_points.points_generator_cfg import Grid3dPointsGeneratorCfg
     from instinctlab.sensors.volume_points.volume_points_cfg import VolumePointsCfg
 
@@ -210,7 +210,7 @@ def _volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
     )
 
 
-def _contact_sensor(sensor: ContactSensorRef) -> Any:
+def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
     """One Isaac Lab contact sensor.
 
     Isaac Lab has no counterpart to mjlab's per-sensor element list: one sensor covers a prim
@@ -249,7 +249,7 @@ def _contact_sensor(sensor: ContactSensorRef) -> Any:
     )
 
 
-def _ray_caster(sensor: RayCasterRef, *, sensor_period: float) -> Any:
+def _build_ray_caster(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     """Isaac Lab's native ray caster, or the grouped camera that can see the robot.
 
     A grid is terrain-only (``mesh_prim_paths=['/World/ground']``). A pinhole uses
@@ -263,7 +263,7 @@ def _ray_caster(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     if sensor.miss != "infinity":
         raise ValueError(f"Isaac ray caster {sensor.name!r} has miss={sensor.miss!r}; the portable contract is +inf.")
     if sensor.pattern.kind == "pinhole":
-        return _pinhole_camera(sensor, sensor_period=sensor_period)
+        return _build_pinhole_camera(sensor, sensor_period=sensor_period)
     if sensor.pattern.kind != "grid":
         raise ValueError(f"Isaac ray caster {sensor.name!r} has pattern.kind={sensor.pattern.kind!r}.")
     if sensor.hit != "terrain":
@@ -289,7 +289,7 @@ def _ray_caster(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     )
 
 
-def _pinhole_camera(sensor: RayCasterRef, *, sensor_period: float) -> Any:
+def _build_pinhole_camera(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     """The parkour depth camera: world-convention pinhole, terrain plus listed links.
 
     ``GroupedRayCasterCamera`` always applies the attach body's full rotation
@@ -396,22 +396,22 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
     scene.terrain = _terrain(spec.terrain, profile)
     scene.robot = articulation_cfg.replace(prim_path=_ROBOT_PRIM, spawn=spawn)
     for sensor in spec.contact_sensors:
-        cfg = _contact_sensor(sensor)
+        cfg = _build_contact_sensor(sensor)
         # Every physics step, matching the contact durations the timing terms read. The default of
         # zero means "once per rendering step", which quietly undersamples air time.
         cfg.update_period = sensor_period
         setattr(scene, sensor.name, cfg)
     for sensor in spec.ray_casters:
-        setattr(scene, sensor.name, _ray_caster(sensor, sensor_period=sensor_period))
+        setattr(scene, sensor.name, _build_ray_caster(sensor, sensor_period=sensor_period))
     for sensor in spec.motion_references:
-        setattr(scene, sensor.name, _motion_reference(sensor, robot))
+        setattr(scene, sensor.name, _build_motion_reference(sensor, robot))
     for sensor in spec.volume_points:
-        setattr(scene, sensor.name, _volume_points(sensor, sensor_period=sensor_period))
+        setattr(scene, sensor.name, _build_volume_points(sensor, sensor_period=sensor_period))
     scene.sky_light = _sky_light()
     return scene
 
 
-def _motion_reference(sensor: Any, robot: Any) -> Any:
+def _build_motion_reference(sensor: Any, robot: Any) -> Any:
     """Clip-backed reference. Separate from the ray builders another increment owns."""
     from .motion_reference import build_sensor
 

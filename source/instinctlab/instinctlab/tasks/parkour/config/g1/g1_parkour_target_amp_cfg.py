@@ -144,6 +144,7 @@ _FOOT_SCAN_PATTERN = RayPatternRef(kind="grid", resolution=0.12, size=(0.12, 0.0
 LEFT_HEIGHT_SCANNER = RayCasterRef(
     name="left_height_scanner",
     attach="left_ankle_roll_link",
+    mode="terrain_height",
     offset=(0.04, 0.0, 20.0),
     pattern=_FOOT_SCAN_PATTERN,
     hit="terrain",
@@ -153,6 +154,7 @@ LEFT_HEIGHT_SCANNER = RayCasterRef(
 RIGHT_HEIGHT_SCANNER = RayCasterRef(
     name="right_height_scanner",
     attach="right_ankle_roll_link",
+    mode="terrain_height",
     offset=(0.04, 0.0, 20.0),
     pattern=_FOOT_SCAN_PATTERN,
     hit="terrain",
@@ -682,7 +684,6 @@ def parkour_target_g1() -> TaskSpec:
                     "contact_sensor_maxmatch": 128,
                     "ccd_iterations": 128,
                     "num_cols": 10,
-                    "height_scanner_semantics": "instinctmj",
                     "omit_rewards": ("dof_vel_limits",),
                 }
             },
