@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from instinctlab.sim.capabilities import DR_SLIDING_FRICTION, CapabilitySet
+from instinctlab.sim.capabilities import CapabilitySet
 
 __all__ = ["FAMILIES", "TermBuilder", "TermRegistry"]
 
@@ -59,7 +59,7 @@ class TermRegistry:
         self._builders: dict[tuple[str, str], TermBuilder] = {}
         self._portable: dict[str, TermBuilder] = {}
         self._emulations: dict[tuple[str, str], TermBuilder] = {}
-        self._provides: dict[tuple[str, str], tuple[Capability, ...]] = {}
+        self._provides: dict[tuple[str, str], tuple[str, ...]] = {}
 
     def __repr__(self) -> str:
         return f"TermRegistry({self.engine!r}, {len(self._builders)} kinds, {len(self._portable)} portable families)"
@@ -74,7 +74,7 @@ class TermRegistry:
         kind: str,
         builder: TermBuilder,
         *,
-        provides: Iterable[Capability] = (),
+        provides: Iterable[str] = (),
         emulates: bool = False,
     ) -> TermBuilder:
         """Register one builder. Used by the decorators below; called directly by tests."""
@@ -101,7 +101,7 @@ class TermRegistry:
         return decorate
 
     def _kind_decorator(self, family: str) -> Callable[..., Callable[[TermBuilder], TermBuilder]]:
-        def by_kind(kind: str, *, provides: Iterable[Capability] = ()) -> Callable[[TermBuilder], TermBuilder]:
+        def by_kind(kind: str, *, provides: Iterable[str] = ()) -> Callable[[TermBuilder], TermBuilder]:
             def decorate(builder: TermBuilder) -> TermBuilder:
                 return self.register(family, kind, builder, provides=provides)
 
@@ -164,6 +164,6 @@ class TermRegistry:
         """
         return CapabilitySet.of(cap for caps in self._provides.values() for cap in caps)
 
-    def provides(self) -> Mapping[str, tuple[Capability, ...]]:
+    def provides(self) -> Mapping[str, tuple[str, ...]]:
         """``family/kind`` -> the capabilities it claims, for the contract report."""
         return {f"{family}/{kind}": caps for (family, kind), caps in sorted(self._provides.items())}

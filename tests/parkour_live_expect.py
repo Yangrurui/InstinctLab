@@ -27,30 +27,19 @@ PARKOUR_DECLARED_PROPORTIONS: tuple[tuple[str, float], ...] = (
 ISAAC_NINTH_NAME = "mesh_boxes"
 MJLAB_NINTH_NAME = "dense_boxes"
 
-# Both engines, num_cols=20, Isaac cumulative-proportion formula
-# (j / 20 + 0.001). Was 10 names in declaration order on mjlab (one column per
-# type, ``num_cols`` ignored). Ninth tile is ``dense_boxes`` on mjlab,
-# ``mesh_boxes`` on Isaac — same slot, different reference name.
+# InstinctMJ builds one column per declared type. Isaac uses 20 columns and its
+# cumulative-proportion formula (j / 20 + 0.001). The ninth type is
+# ``dense_boxes`` on MJLab and ``mesh_boxes`` on Isaac.
 MJLAB_CURRICULUM_COLUMNS: tuple[str, ...] = (
     "perlin_rough",
     "perlin_rough_stand",
     "square_gaps",
-    "square_gaps",
-    "pyramid_stairs",
-    "pyramid_stairs",
     "pyramid_stairs",
     "pyramid_stairs_high",
-    "pyramid_stairs_high",
-    "pyramid_stairs_inv",
-    "pyramid_stairs_inv",
     "pyramid_stairs_inv",
     "pyramid_stairs_inv_high",
-    "pyramid_stairs_inv_high",
-    "boxes",
     "boxes",
     "dense_boxes",
-    "dense_boxes",
-    "hf_pyramid_slope_inv",
     "hf_pyramid_slope_inv",
 )
 
@@ -114,7 +103,7 @@ def assert_parkour_live_invariants(env, spec, compiled, *, expected_columns: tup
     names = list(getattr(command, "_column_names", ()))
     built_cols = actual_column_count(env.scene.terrain)
     declared = getattr(env.scene.terrain.cfg.terrain_generator, "num_cols", None)
-    assert declared == 20, declared
+    assert declared == len(expected_columns), declared
     assert built_cols == len(
         expected_columns
     ), f"built {built_cols} columns, expected {len(expected_columns)} (declared num_cols={declared})"

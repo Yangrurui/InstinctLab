@@ -23,7 +23,11 @@ import argparse
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Protocol, runtime_checkable
+
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.task import TaskSpec
@@ -33,7 +37,31 @@ __all__ = [
     "EngineAdapter",
     "Resolution",
     "UnsupportedTerm",
+    "require_supported_version",
 ]
+
+
+def require_supported_version(distribution: str, supported: str, *, engine: str) -> str:
+    """Refuse an uninstalled or unverified engine before its runtime starts."""
+    try:
+        installed = version(distribution)
+    except PackageNotFoundError:
+        raise RuntimeError(
+            f"Engine {engine!r} requires Python distribution {distribution!r}, but it is not installed."
+        ) from None
+    try:
+        accepted = SpecifierSet(supported)
+        parsed = Version(installed)
+    except (InvalidSpecifier, InvalidVersion) as exc:
+        raise RuntimeError(
+            f"Cannot validate engine {engine!r}: installed {distribution}={installed!r}, supported range={supported!r}."
+        ) from exc
+    if parsed not in accepted:
+        raise RuntimeError(
+            f"Engine {engine!r} was verified with {distribution}{supported}, but {installed} is installed. "
+            "Update the adapter and its live parity tests before training on this version."
+        )
+    return installed
 
 
 class UnsupportedTerm(RuntimeError):

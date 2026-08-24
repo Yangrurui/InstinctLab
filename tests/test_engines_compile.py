@@ -250,6 +250,19 @@ def test_an_entity_ref_in_params_is_lowered_the_same_as_one_in_target():
     assert tuple(lowered.joint_names) == (".*_hip_.*",)
 
 
+def test_an_entity_ref_in_nested_params_is_lowered_without_changing_the_shape():
+    pytest.importorskip("mjlab")
+    ctx = _ctx(engine="mjlab")
+    ref = EntityRef(entity="robot", bodies=(".*_ankle_.*",))
+
+    lowered = ctx.params(RewardTermSpec(_term, params={"selectors": {"feet": [ref]}}))
+
+    feet = lowered["selectors"]["feet"]
+    assert isinstance(feet, list)
+    assert feet[0].name == "robot"
+    assert tuple(feet[0].body_names) == (".*_ankle_.*",)
+
+
 def test_a_selector_the_engine_cannot_express_is_refused_rather_than_dropped():
     pytest.importorskip("mjlab")
     from instinctlab.compat.entity import UnsupportedSelector

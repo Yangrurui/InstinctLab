@@ -32,7 +32,7 @@ from typing import Any
 
 from instinctlab.sim.robot_spec import RobotSpec
 
-from .mdp import MdpSpec
+from .mdp import MdpSpec, walk_parameter_values
 from .sensor import ContactSensorRef, MotionReferenceRef, RayCasterRef, VirtualObstacleRef, VolumePointsRef
 
 __all__ = [
@@ -369,7 +369,8 @@ class TaskSpec:
         declared_motion = {sensor.name for sensor in self.scene.motion_references}
         declared_volume = {sensor.name for sensor in self.scene.volume_points}
         for key, term in self.mdp.terms().items():
-            for value in term.params.values():
+            parameter_sets = [term.params, *term.engine_params.values()]
+            for value in walk_parameter_values(value for params in parameter_sets for value in params.values()):
                 if isinstance(value, ContactSensorRef) and value.name not in declared_contacts:
                     raise ValueError(
                         f"Term {key!r} reads contact sensor {value.name!r}, which the scene does "
@@ -394,6 +395,15 @@ class TaskSpec:
     def extras_for(self, engine: str) -> dict[str, Any]:
         """This engine's escape-hatch settings, empty when the task uses none."""
         return dict(self.engine_extras.get(engine, {}))
+
+    def validate_for_engine(self, engine: str) -> None:
+        """Validate the declaration and require it to opt in to ``engine``."""
+        self.validate()
+        if engine not in self.engines:
+            raise ValueError(
+                f"Task {self.task_id!r} does not declare engine {engine!r}; "
+                f"declared engines are {sorted(self.engines)}."
+            )
 
     @property
     def is_portable(self) -> bool:

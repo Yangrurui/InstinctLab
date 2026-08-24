@@ -6,14 +6,13 @@ import torch
 
 import pytest
 
-from instinctlab.mdp.observations import DelayedDepthImage
+from instinctlab.mdp.observations import DelayedDepthImage, delayed_depth_terms
 
 
 def _depth_term(env) -> DelayedDepthImage:
-    for group_cfgs in env.observation_manager._group_obs_term_cfgs.values():
-        for cfg in group_cfgs:
-            if isinstance(cfg.func, DelayedDepthImage):
-                return cfg.func
+    terms = delayed_depth_terms(env)
+    if terms:
+        return terms[0]
     raise AssertionError("DelayedDepthImage not wired in observation manager")
 
 

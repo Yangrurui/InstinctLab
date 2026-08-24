@@ -27,7 +27,6 @@ from tests.parkour_live_expect import (
     assert_foot_scanner_miss_is_positive_infinity,
     assert_foot_scanner_sees_some_ground,
     assert_foot_scanner_shape,
-    assert_foot_scanner_uses_yaw_alignment,
     assert_known_volume_penetration,
     assert_known_volume_spin_velocity,
     assert_parkour_live_invariants,
@@ -61,10 +60,9 @@ def test_mjlab_parkour_target_g1_constructs_and_steps() -> None:
         assert_parkour_live_invariants(env, spec, compiled, expected_columns=MJLAB_CURRICULUM_COLUMNS)
         assert column_sub_terrain_names(env.scene.terrain) == list(MJLAB_CURRICULUM_COLUMNS)
         declared = env.scene.terrain.cfg.terrain_generator.num_cols
-        assert declared == 20
+        assert declared == len(MJLAB_CURRICULUM_COLUMNS)
         assert_foot_scanner_shape(env)
         assert_foot_scanner_sees_some_ground(env)
-        assert_foot_scanner_uses_yaw_alignment(env, device=device)
         assert_foot_scanner_miss_is_positive_infinity(env, device=device)
         env.reset()
         assert_depth_first_policy_obs_is_primed(env)

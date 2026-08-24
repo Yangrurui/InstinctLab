@@ -203,6 +203,21 @@ def test_entity_refs_are_found_in_params_as_well_as_in_target():
     assert target in found and in_params in found and in_override in found
 
 
+def test_entity_refs_are_found_inside_nested_parameters():
+    nested = EntityRef(bodies=("foot",))
+    mdp = MdpSpec(
+        rewards={
+            "rewards": {
+                "nested": RewardTermSpec(
+                    _observed,
+                    engine_params={"mjlab": {"selectors": {"feet": [nested]}}},
+                )
+            }
+        }
+    )
+    assert nested in mdp.entity_refs()
+
+
 """
 Whole-task validation.
 """
@@ -210,6 +225,12 @@ Whole-task validation.
 
 def test_a_valid_task_validates():
     _task().validate()
+
+
+def test_a_task_refuses_an_engine_it_did_not_declare():
+    task = _task(engines=("mjlab",))
+    with pytest.raises(ValueError, match="does not declare engine 'isaacsim'"):
+        task.validate_for_engine("isaacsim")
 
 
 def test_a_misspelled_engine_key_is_rejected_rather_than_ignored():
@@ -237,6 +258,22 @@ def test_a_term_may_not_read_a_sensor_the_scene_does_not_declare():
         mdp=MdpSpec(rewards={"rewards": {"plane": RewardTermSpec(_observed, params={"left_scanner": scanner})}}),
     )
     with pytest.raises(ValueError, match="ray caster"):
+        task.validate()
+
+    task = _task(
+        scene=SceneSpec(),
+        mdp=MdpSpec(
+            rewards={
+                "rewards": {
+                    "nested": RewardTermSpec(
+                        _observed,
+                        engine_params={"mjlab": {"sensors": {"feet": [FEET]}}},
+                    )
+                }
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="scene does not declare"):
         task.validate()
     motion = MotionReferenceRef(
         name="motion_reference",

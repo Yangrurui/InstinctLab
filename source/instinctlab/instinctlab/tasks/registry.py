@@ -53,4 +53,5 @@ def spec(task_id: str) -> TaskSpec:
             f"the registry calls this task {task_id!r} but the spec calls itself {built.task_id!r}; "
             "a task known by two names cannot be compared across engines"
         )
+    built.validate()
     return built

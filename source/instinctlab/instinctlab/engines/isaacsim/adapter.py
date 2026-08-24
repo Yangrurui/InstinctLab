@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
-from instinctlab.engines.base import CompiledTask, Resolution
+from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
 from instinctlab.engines.compile import CompileCtx, compile_mdp, observation_group_settings
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
@@ -115,7 +115,7 @@ class IsaacSimAdapter:
     """Compiles a :class:`TaskSpec` into an Isaac Lab ``ManagerBasedRLEnvCfg``."""
 
     name = "isaacsim"
-    SUPPORTED_VERSIONS = ">=0.40,<0.50"
+    SUPPORTED_VERSIONS = ">=0.54,<0.55"
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser) -> None:
@@ -140,6 +140,8 @@ class IsaacSimAdapter:
         reference run means reproducing the stack it ran on, and TF32 matmul changes both the
         arithmetic of the policy update and its speed.
         """
+        require_supported_version("isaaclab", IsaacSimAdapter.SUPPORTED_VERSIONS, engine=IsaacSimAdapter.name)
+
         from isaaclab.app import AppLauncher
 
         app = AppLauncher(args).app
@@ -175,6 +177,8 @@ class IsaacSimAdapter:
         return merged
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
+        spec.validate_for_engine(self.name)
+
         from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
         from isaaclab.sim import SimulationCfg
 

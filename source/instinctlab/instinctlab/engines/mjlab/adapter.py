@@ -17,7 +17,7 @@ import argparse
 from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.engines.base import CompiledTask, Resolution
+from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
 from instinctlab.engines.compile import CompileCtx, compile_mdp, observation_group_settings
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
@@ -82,7 +82,7 @@ class MjlabAdapter:
     """Compiles a :class:`TaskSpec` into an mjlab ``ManagerBasedRlEnvCfg``."""
 
     name = "mjlab"
-    SUPPORTED_VERSIONS = ">=0.1,<0.3"
+    SUPPORTED_VERSIONS = ">=1.5,<1.6"
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser) -> None:
@@ -111,6 +111,8 @@ class MjlabAdapter:
         Calling the reference's own helper, rather than assigning the flags here, keeps this
         engine on whatever stack mjlab decides that helper means.
         """
+        require_supported_version("mjlab", MjlabAdapter.SUPPORTED_VERSIONS, engine=MjlabAdapter.name)
+
         from mjlab.utils.torch import configure_torch_backends
 
         configure_torch_backends()
@@ -136,6 +138,8 @@ class MjlabAdapter:
         return merged
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
+        spec.validate_for_engine(self.name)
+
         from mjlab.envs import ManagerBasedRlEnvCfg
         from mjlab.sim import MujocoCfg, SimulationCfg
 

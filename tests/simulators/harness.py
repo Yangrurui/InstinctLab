@@ -27,10 +27,12 @@ def require_live_backend(name: str) -> None:
         pytest.skip("live backend tests require a GPU")
 
 
-def make_live_backend(name: str, *, device: str = "cuda:0", bootstrap_context: object | None = None):
+def make_live_backend(name: str, *, device: str | None = None, bootstrap_context: object | None = None):
     require_live_backend(name)
     from instinctlab.sim.backend import BACKENDS
+    from tests.live_device import resolve_live_device
 
+    device = device or resolve_live_device()
     provider = BACKENDS.load(name)
     if name == "isaacsim":
         if bootstrap_context is None:

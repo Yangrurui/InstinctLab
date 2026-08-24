@@ -40,7 +40,7 @@ def test_live_invariants_pass_on_a_faithful_stub() -> None:
     action = SimpleNamespace(target_names=["hip", "knee"])
     terrain = SimpleNamespace(
         flat_patches={"target": torch.zeros(10, n_cols, 1, 3)},
-        cfg=SimpleNamespace(terrain_generator=SimpleNamespace(num_cols=20)),
+        cfg=SimpleNamespace(terrain_generator=SimpleNamespace(num_cols=n_cols)),
     )
     env = SimpleNamespace(
         action_manager=SimpleNamespace(get_term=lambda _name: action),

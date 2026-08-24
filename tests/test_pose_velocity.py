@@ -282,16 +282,16 @@ def test_mjlab_curriculum_columns_follow_proportion() -> None:
     assert column_sub_terrain_names(terrain) == ["a", "a", "b", "b"]
 
 
-def test_mjlab_parkour_curriculum_table_is_twenty_named_columns() -> None:
+def test_mjlab_parkour_curriculum_table_is_one_column_per_type() -> None:
     from instinctlab.engines.mjlab.pose_velocity import column_sub_terrain_names
     from tests.parkour_live_expect import MJLAB_CURRICULUM_COLUMNS, PARKOUR_DECLARED_PROPORTIONS
 
     terrain = SimpleNamespace(
-        flat_patches={"target": torch.zeros(10, 20, 50, 3)},
+        flat_patches={"target": torch.zeros(10, 10, 50, 3)},
         cfg=SimpleNamespace(
             terrain_generator=SimpleNamespace(
                 curriculum=True,
-                num_cols=20,
+                num_cols=10,
                 sub_terrains={name: SimpleNamespace(proportion=value) for name, value in PARKOUR_DECLARED_PROPORTIONS},
             )
         ),
@@ -334,18 +334,20 @@ def test_curriculum_namer_raises_when_built_width_disagrees_with_num_cols() -> N
         column_sub_terrain_names(terrain)
 
 
-def test_even_split_on_proportion_columns_reproduces_declared_shares() -> None:
+def test_isaac_even_split_on_proportion_columns_reproduces_declared_shares() -> None:
     """512 envs, 20 columns: type histogram must match the declaration, not 10% each."""
     from tests.parkour_live_expect import (
-        MJLAB_CURRICULUM_COLUMNS,
-        PARKOUR_DECLARED_PROPORTIONS,
+        ISAAC_NINTH_NAME,
+        ISAAC_PROPORTION_COLUMNS,
         assert_terrain_type_shares,
+        parkour_declared_shares,
     )
 
     num_envs = 512
     types = even_column_assignment(num_envs, 20)
-    assert_terrain_type_shares(types, MJLAB_CURRICULUM_COLUMNS, dict(PARKOUR_DECLARED_PROPORTIONS), num_envs=num_envs)
-    hist = type_share_histogram(types, MJLAB_CURRICULUM_COLUMNS)
+    declared = parkour_declared_shares(ninth_name=ISAAC_NINTH_NAME)
+    assert_terrain_type_shares(types, ISAAC_PROPORTION_COLUMNS, declared, num_envs=num_envs)
+    hist = type_share_histogram(types, ISAAC_PROPORTION_COLUMNS)
     assert hist["perlin_rough"] != pytest.approx(0.10, abs=0.01)
     assert hist["pyramid_stairs"] == pytest.approx(0.15, abs=3 / num_envs)
 

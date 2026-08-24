@@ -22,6 +22,7 @@ INSTALL_REQUIRES = [
     "trimesh[all]",
     "scikit-learn",
     "opencv-python",
+    "packaging",
     "pyvista",
 ]
 

@@ -39,6 +39,7 @@ from instinctlab.spec.sensor import RayCasterRef
 __all__ = [
     "DelayedDepthImage",
     "clear_delayed_depth_history",
+    "delayed_depth_terms",
     "base_ang_vel",
     "base_lin_vel",
     "generated_commands",
@@ -259,20 +260,29 @@ def _coerce_reset_env_ids(env: RlEnv, env_ids: Any | None) -> torch.Tensor | sli
     raise TypeError(f"unsupported env_ids type {type(env_ids)!r}")
 
 
-def clear_delayed_depth_history(env: RlEnv, env_ids: Any | None = None) -> None:
-    """Episode-reset hook: clear ``DelayedDepthImage`` rings the way a camera sensor reset would."""
+def delayed_depth_terms(env: RlEnv) -> tuple[DelayedDepthImage, ...]:
+    """Return live depth terms, unwrapping Isaac's ``ManagerTermBase`` adapter."""
     manager = getattr(env, "observation_manager", None)
     if manager is None:
-        return
-    coerced = _coerce_reset_env_ids(env, env_ids)
-    if isinstance(coerced, torch.Tensor) and coerced.numel() == 0:
-        return
+        return ()
+    found: list[DelayedDepthImage] = []
     cfgs = getattr(manager, "_group_obs_term_cfgs", {})
     for group_cfgs in cfgs.values():
         for cfg in group_cfgs:
             term = getattr(cfg, "func", None)
-            if isinstance(term, DelayedDepthImage):
-                term.clear_history(coerced)
+            implementation = getattr(term, "_impl", term)
+            if isinstance(implementation, DelayedDepthImage):
+                found.append(implementation)
+    return tuple(found)
+
+
+def clear_delayed_depth_history(env: RlEnv, env_ids: Any | None = None) -> None:
+    """Episode-reset hook: clear ``DelayedDepthImage`` rings the way a camera sensor reset would."""
+    coerced = _coerce_reset_env_ids(env, env_ids)
+    if isinstance(coerced, torch.Tensor) and coerced.numel() == 0:
+        return
+    for term in delayed_depth_terms(env):
+        term.clear_history(coerced)
 
 
 def _process_depth_image(image: torch.Tensor, sensor: RayCasterRef, kernel_size: int, sigma: float) -> torch.Tensor:

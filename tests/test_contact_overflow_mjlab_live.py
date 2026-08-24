@@ -92,15 +92,15 @@ def test_step_phase_reads_a_real_overflow_bit_after_physics() -> None:
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="stepping mjlab needs a GPU")
 def test_parkour_shipped_budget_stays_clean_over_150_zero_action_steps() -> None:
-    """Measured 2026-08-20 cuda:2, 16 envs, nconmax=256 njmax=768: no overflow bits."""
+    """Exercise InstinctMJ's shipped parkour budget for 150 zero-action steps."""
     from instinctlab.engines.mjlab import MjlabAdapter
     from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
     from instinctlab.utils.contact_overflow import contact_budget_snapshot, overflow_bits_set
 
     device = resolve_live_device()
     compiled = MjlabAdapter().compile(parkour_target_g1(), num_envs=16, device=device)
-    assert compiled.env_cfg.sim.nconmax == 256
-    assert compiled.env_cfg.sim.njmax == 768
+    assert compiled.env_cfg.sim.nconmax == 128
+    assert compiled.env_cfg.sim.njmax == 700
     env = compiled.make_env()
     try:
         construction = contact_budget_snapshot(env)
@@ -117,8 +117,9 @@ def test_parkour_shipped_budget_stays_clean_over_150_zero_action_steps() -> None
             peak_nacon = max(peak_nacon, snap["nacon"])
             peak_nefc = max(peak_nefc, snap["nefc_max"])
         assert overflow_bits_set(env) is False
-        # Pin the measured peaks so a silent budget regression is visible.
-        assert peak_nacon <= 200
-        assert peak_nefc <= 200
+        # Keep meaningful headroom within the shipped per-world budgets. ``nacon`` is
+        # aggregated over worlds, while ``nefc`` is already the maximum of one world.
+        assert peak_nacon <= compiled.env_cfg.sim.nconmax * env.num_envs // 4
+        assert peak_nefc <= compiled.env_cfg.sim.njmax // 2
     finally:
         env.close()

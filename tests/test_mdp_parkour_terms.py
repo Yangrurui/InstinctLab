@@ -366,6 +366,18 @@ def test_delayed_depth_partial_reset_clears_only_selected_envs() -> None:
     assert term._write == write_before
 
 
+def test_delayed_depth_lookup_unwraps_isaac_manager_term() -> None:
+    term, env, _sensor, _raw = _delayed_depth_term(num_envs=2)
+    term._history.fill_(0.5)
+    wrapper = SimpleNamespace(_impl=term)
+    env.observation_manager = SimpleNamespace(_group_obs_term_cfgs={"policy": [SimpleNamespace(func=wrapper)]})
+
+    assert mdp.delayed_depth_terms(env) == (term,)
+    mdp.clear_delayed_depth_history(env, torch.tensor([1]))
+    assert float(term._history[0].min()) == 0.5
+    assert float(term._history[1].abs().max()) == 0.0
+
+
 def test_delayed_depth_reset_only_resamples_delay() -> None:
     term, env, sensor, raw = _delayed_depth_term(num_envs=2)
     raw.fill_(1.25)

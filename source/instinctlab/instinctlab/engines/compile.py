@@ -96,10 +96,23 @@ class CompileCtx:
         Portable terms take their entity as a parameter the way Isaac Lab tasks always have, so the
         lowering has to reach into ``params`` and not only into ``target``.
         """
-        return {
-            name: self.entity(value) if isinstance(value, EntityRef) else value
-            for name, value in spec.resolved_params(self.engine).items()
-        }
+        return {name: self._lower_parameter(value) for name, value in spec.resolved_params(self.engine).items()}
+
+    def _lower_parameter(self, value: Any) -> Any:
+        """Lower entity references without disturbing a term's nested parameter shape."""
+        if isinstance(value, EntityRef):
+            return self.entity(value)
+        if isinstance(value, Mapping):
+            return {key: self._lower_parameter(item) for key, item in value.items()}
+        if isinstance(value, tuple):
+            return tuple(self._lower_parameter(item) for item in value)
+        if isinstance(value, list):
+            return [self._lower_parameter(item) for item in value]
+        if isinstance(value, set):
+            return {self._lower_parameter(item) for item in value}
+        if isinstance(value, frozenset):
+            return frozenset(self._lower_parameter(item) for item in value)
+        return value
 
 
 def _effective_level(spec: TermSpec, strict: bool) -> Requirement:

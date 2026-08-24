@@ -20,7 +20,6 @@ from typing import Any
 from instinctlab.engines.registry import TermRegistry
 from instinctlab.sim.capabilities import (
     BODY_MASS_PROPERTIES,
-    DR_RESTITUTION,
     DR_SLIDING_FRICTION,
     EXTERNAL_WRENCH,
     JOINT_STATE,

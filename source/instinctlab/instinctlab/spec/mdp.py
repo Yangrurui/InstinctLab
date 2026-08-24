@@ -29,7 +29,7 @@ task files to be supported.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -49,6 +49,16 @@ __all__ = [
     "RewardTermSpec",
     "TermSpec",
 ]
+
+
+def walk_parameter_values(values: Iterable[Any]) -> Iterable[Any]:
+    """Yield parameter values recursively through mappings and sequences."""
+    for value in values:
+        yield value
+        if isinstance(value, Mapping):
+            yield from walk_parameter_values(value.values())
+        elif isinstance(value, (tuple, list, set, frozenset)):
+            yield from walk_parameter_values(value)
 
 
 @dataclass(frozen=True)
@@ -310,7 +320,7 @@ class MdpSpec:
         for term in self.terms().values():
             if term.target is not None:
                 found.append(term.target)
-            found.extend(v for v in term.params.values() if isinstance(v, EntityRef))
+            found.extend(v for v in walk_parameter_values(term.params.values()) if isinstance(v, EntityRef))
             for overrides in term.engine_params.values():
-                found.extend(v for v in overrides.values() if isinstance(v, EntityRef))
+                found.extend(v for v in walk_parameter_values(overrides.values()) if isinstance(v, EntityRef))
         return tuple(found)
