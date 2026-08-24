@@ -255,6 +255,30 @@ def _import_viser():
     return viser
 
 
+def _depth_frame_to_rgb(frame: torch.Tensor, *, scale: int = 5) -> np.ndarray:
+    """Latest policy depth for one env: black=near, white=far."""
+    peak = float(frame.max())
+    if peak <= 0:
+        height, width = frame.shape
+        return np.zeros((height * scale, width * scale, 3), dtype=np.uint8)
+    img = (frame * 255.0 / peak).detach().cpu().numpy().astype("uint8")
+    if scale != 1:
+        import cv2
+
+        img = cv2.resize(img, (img.shape[1] * scale, img.shape[0] * scale), interpolation=cv2.INTER_AREA)
+    return np.repeat(img[..., None], 3, axis=-1)
+
+
+def _update_depth_panel(state: dict[str, Any]) -> None:
+    frames = state.get("frames")
+    handle = state.get("handle")
+    env_idx = state.get("env_idx")
+    if frames is None or handle is None or env_idx is None:
+        return
+    idx = max(0, min(int(env_idx()), frames.shape[0] - 1))
+    handle.image = _depth_frame_to_rgb(frames[idx])
+
+
 def play_with_viser(
     env: Any,
     policy: Callable[[Any], Any],
@@ -264,10 +288,31 @@ def play_with_viser(
     reload_policy: Callable[[str], Callable[[Any], Any]] | None = None,
     checkpoint_dir: Path | None = None,
 ) -> None:
-    """Run ``policy`` in ``env`` through mjlab's ``ViserPlayViewer``."""
+    """Run ``policy`` in ``env`` through mjlab's ``ViserPlayViewer``.
+
+    Depth images come from InstinctMJ's ``delayed_visualizable_image`` ``debug_vis`` path.
+    Viser shows the selected env's latest frame; cv2 keeps InstinctMJ's multi-env mosaic.
+    """
     del robot
     from mjlab.viewer import ViserPlayViewer
     from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
+
+    from instinctlab.mdp.observations import set_debug_image_sink
+
+    class _InstinctViserPlayViewer(ViserPlayViewer):
+        def __init__(self, *args: Any, depth_panel_state: dict[str, Any] | None = None, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._depth_panel_state = depth_panel_state
+
+        def setup(self) -> None:
+            super().setup()
+            if self._depth_panel_state is not None:
+                self._depth_panel_state["env_idx"] = lambda: self._scene.env_idx
+
+        def _update_env_dependent_plots(self) -> None:
+            super()._update_env_dependent_plots()
+            if self._depth_panel_state is not None:
+                _update_depth_panel(self._depth_panel_state)
 
     viser = _import_viser()
     manager = None
@@ -295,8 +340,30 @@ def play_with_viser(
 
     server = viser.ViserServer(label="instinctlab", port=port)
     print(f"[INFO] Viser viewer: http://0.0.0.0:{port}", flush=True)
+    depth_panel_state: dict[str, Any] = {"frames": None, "env_idx": lambda: 0}
+    with server.gui.add_folder("Depth image"):
+        depth_handle = server.gui.add_image(
+            image=np.zeros((90, 160, 3), dtype=np.uint8),
+            label="depth_image",
+            format="jpeg",
+        )
+    depth_panel_state["handle"] = depth_handle
+
+    def _show_depth(_window_name: str, frames: Any) -> None:
+        depth_panel_state["frames"] = frames
+        _update_depth_panel(depth_panel_state)
+
+    set_debug_image_sink(_show_depth)
+    enable_depth_image_debug_vis(env)
     enable_pose_command_debug_vis(env)
     try:
-        ViserPlayViewer(env, policy, viser_server=server, checkpoint_manager=manager).run()
+        _InstinctViserPlayViewer(
+            env,
+            policy,
+            viser_server=server,
+            checkpoint_manager=manager,
+            depth_panel_state=depth_panel_state,
+        ).run()
     finally:
+        set_debug_image_sink(None)
         server.stop()

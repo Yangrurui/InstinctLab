@@ -49,11 +49,30 @@ def test_velocity_command_pins_mjlab_fields() -> None:
     assert torch.equal(term._command[0], torch.tensor([0.4, 0.0, -0.2]))
 
 
+def test_play_depth_panel_follows_selected_env_latest_frame() -> None:
+    frames = torch.tensor(
+        [
+            [[0.0, 1.0], [0.0, 0.0]],
+            [[1.0, 0.0], [0.0, 0.0]],
+        ]
+    )
+    handle = SimpleNamespace(image=None)
+    state = {"frames": frames, "env_idx": lambda: 1, "handle": handle}
+    play_viser._update_depth_panel(state)
+    assert handle.image is not None
+    assert handle.image.shape[2] == 3
+    # env 1 latest frame peaks at top-left -> white after normalization.
+    assert int(handle.image[0, 0, 0]) == 255
+
+
 def test_play_uses_mjlab_viser_play_viewer() -> None:
     """Isaac play used to ship a second mesh-streaming viewer; both engines share this one."""
     source = inspect.getsource(play_viser.play_with_viser)
     assert "ViserPlayViewer" in source
     assert "enable_pose_command_debug_vis" in source
+    assert "enable_depth_image_debug_vis" in source
+    assert "set_debug_image_sink" in source
+    assert "_update_env_dependent_plots" in source
     assert "add_mesh_trimesh" not in source
     assert "_DepthViserPlayViewer" not in source
 
@@ -88,6 +107,17 @@ def test_play_turns_on_pose_command_debug_vis_after_the_env_exists() -> None:
 
     play = (Path(__file__).resolve().parents[1] / "scripts" / "play.py").read_text()
     assert play.index("compiled.make_env()") < play.index("enable_pose_command_debug_vis(")
+
+
+def test_play_depth_debug_vis_routes_through_viser_not_cv2_during_reset() -> None:
+    """Depth debug is enabled in play_with_viser after make_env(), not during env construction."""
+    from pathlib import Path
+
+    play = (Path(__file__).resolve().parents[1] / "scripts" / "play.py").read_text()
+    viser_play = inspect.getsource(play_viser.play_with_viser)
+    assert play.index("compiled.make_env()") < play.index("engine.play(")
+    assert "enable_depth_image_debug_vis" not in play
+    assert "enable_depth_image_debug_vis" in viser_play
 
 
 def test_play_enables_instinctmj_pose_command_debug_vis() -> None:

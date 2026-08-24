@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from instinctlab.compat.env import RlEnv, get_command
@@ -40,6 +40,7 @@ __all__ = [
     "DelayedDepthImage",
     "clear_delayed_depth_history",
     "delayed_depth_terms",
+    "set_debug_image_sink",
     "base_ang_vel",
     "base_lin_vel",
     "generated_commands",
@@ -149,6 +150,7 @@ class DelayedDepthImage:
         self.sensor_history_length = int(params.get("history_length", 37))
         self.blur_kernel_size = int(params.get("blur_kernel_size", 3))
         self.blur_sigma = float(params.get("blur_sigma", 1.0))
+        self.debug_vis = bool(params.get("debug_vis", False))
         crop_h, crop_w = self.sensor_ref.cropped_hw()
         device = env.device
         self._history = torch.zeros(env.num_envs, self.sensor_history_length, crop_h, crop_w, device=device)
@@ -220,9 +222,11 @@ class DelayedDepthImage:
         history_length: int = 37,
         blur_kernel_size: int = 3,
         blur_sigma: float = 1.0,
+        debug_vis: bool = False,
     ) -> torch.Tensor:
         del history_skip_frames, num_output_frames, delayed_frame_ranges, history_length
         del blur_kernel_size, blur_sigma
+        show_debug = debug_vis or self.debug_vis
         raw = depth_image(env.scene.sensors[sensor.name])
         processed = _process_depth_image(raw, sensor, self.blur_kernel_size, self.blur_sigma)
         self._history[:, self._write] = processed
@@ -239,7 +243,38 @@ class DelayedDepthImage:
             torch.long
         )
         batch = torch.arange(linear.shape[0], device=linear.device).unsqueeze(1).expand_as(indices)
-        return linear[batch, indices]
+        delayed = linear[batch, indices]
+        if show_debug:
+            _maybe_debug_visualize_depth(delayed, window_name="depth_image", debug_vis=True)
+        return delayed
+
+
+_debug_image_sink: Callable[[str, Any], None] | None = None
+
+
+def set_debug_image_sink(sink: Callable[[str, Any], None] | None) -> None:
+    """Redirect depth ``debug_vis`` away from cv2 (Viser play sets this)."""
+    global _debug_image_sink
+    _debug_image_sink = sink
+
+
+def _maybe_debug_visualize_depth(delayed: torch.Tensor, *, window_name: str, debug_vis: bool) -> None:
+    if not debug_vis:
+        return
+    if _debug_image_sink is not None:
+        _debug_image_sink(window_name, delayed[:, -1, :, :])
+        return
+    panel = delayed.permute(1, 2, 0, 3).flatten(start_dim=0, end_dim=1).flatten(start_dim=1, end_dim=2)
+    peak = float(panel.max())
+    if peak <= 0:
+        return
+    img = (panel * 255.0 / peak).detach().cpu().numpy().astype("uint8")
+    import cv2
+
+    vis = cv2.resize(img, (img.shape[1] * 5, img.shape[0] * 5), interpolation=cv2.INTER_AREA)
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.imshow(window_name, vis)
+    cv2.waitKey(1)
 
 
 def _coerce_reset_env_ids(env: RlEnv, env_ids: Any | None) -> torch.Tensor | slice:
