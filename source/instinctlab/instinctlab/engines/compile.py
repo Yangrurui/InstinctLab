@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from instinctlab.compat import entity as compat_entity
+from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.capability import Requirement
 from instinctlab.spec.entity import EntityRef
 from instinctlab.spec.mdp import MdpSpec, NoiseSpec, TermSpec
@@ -26,7 +27,16 @@ from instinctlab.spec.task import TaskSpec
 from .base import Resolution, UnsupportedTerm
 from .registry import TermRegistry
 
-__all__ = ["CompileCtx", "compile_family", "compile_mdp", "observation_group_settings", "qualname_of"]
+__all__ = [
+    "CompileCtx",
+    "compile_family",
+    "compile_mdp",
+    "contract_report",
+    "flatten_reward_groups",
+    "observation_group_settings",
+    "qualname_of",
+    "record_reward_omissions",
+]
 
 
 def qualname_of(obj: Any) -> str:
@@ -221,6 +231,84 @@ def observation_group_settings(source: Any) -> dict[str, Any]:
     """
     get = source.__getitem__ if isinstance(source, Mapping) else lambda key: getattr(source, key)
     return {key: get(key) for key in _OBSERVATION_GROUP_FIELDS}
+
+
+def flatten_reward_groups(groups: Mapping[str, Mapping[str, Any]], *, omit: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Flatten reward groups without silently overwriting repeated term names."""
+    omitted = set(omit)
+    counts: dict[str, int] = {}
+    for terms in groups.values():
+        for name in terms:
+            if name not in omitted:
+                counts[name] = counts.get(name, 0) + 1
+
+    flattened: dict[str, Any] = {}
+    for group, terms in groups.items():
+        for name, term in terms.items():
+            if name in omitted:
+                continue
+            native_name = name if counts[name] == 1 else f"{group}__{name}"
+            if native_name in flattened:
+                raise ValueError(
+                    f"Reward groups produce the same native term name {native_name!r}; "
+                    "rename the group or term so every compiled reward remains visible."
+                )
+            flattened[native_name] = term
+    return flattened
+
+
+def record_reward_omissions(
+    resolution: Resolution,
+    groups: Mapping[str, Mapping[str, Any]],
+    omit: tuple[str, ...],
+) -> None:
+    """Move profile-omitted rewards out of ``resolved`` into an explicit manifest section."""
+    omitted = set(omit)
+    for group, terms in groups.items():
+        for name in terms:
+            if name not in omitted:
+                continue
+            key = f"reward/{group}/{name}"
+            resolution.resolved.pop(key, None)
+            resolution.omitted[key] = "omitted by this engine profile to match its reference task"
+
+
+def contract_report(
+    spec: TaskSpec,
+    *,
+    engine: str,
+    registry: TermRegistry,
+    capabilities: CapabilitySet,
+    omitted_rewards: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Describe registry resolution accurately without importing an engine SDK."""
+    spec.validate_for_engine(engine)
+    missing: dict[str, str] = {}
+    for key, term in spec.mdp.terms().items():
+        family = key.split("/", 1)[0]
+        if term.is_portable:
+            if registry.lookup_portable(family) is None:
+                missing[key] = f"no portable builder for family {family!r}"
+            continue
+        if registry.lookup(family, term.kind) is not None:
+            continue
+        if term.level is Requirement.EMULATE and registry.lookup_emulation(family, term.kind) is not None:
+            missing[key] = "emulated"
+        else:
+            missing[key] = f"unsupported kind {term.kind!r}"
+
+    omitted = set(omitted_rewards)
+    omitted_keys = [
+        f"reward/{group}/{name}" for group, terms in spec.mdp.rewards.items() for name in terms if name in omitted
+    ]
+    return {
+        "engine": engine,
+        "task_id": spec.task_id,
+        "capabilities": sorted(capabilities.values),
+        "missing": missing,
+        "omitted": sorted(omitted_keys),
+        "engine_extras_used": sorted(spec.engine_extras.get(engine, {})),
+    }
 
 
 def compile_mdp(mdp: MdpSpec, ctx: CompileCtx, registry: TermRegistry) -> dict[str, Any]:

@@ -98,6 +98,7 @@ class Resolution:
     resolved: dict[str, str] = field(default_factory=dict)
     skipped: dict[str, str] = field(default_factory=dict)
     emulated: dict[str, str] = field(default_factory=dict)
+    omitted: dict[str, str] = field(default_factory=dict)
     profile: dict[str, Any] = field(default_factory=dict)
     engine_extras_used: tuple[str, ...] = ()
     strict: bool = False
@@ -105,7 +106,7 @@ class Resolution:
     @property
     def is_clean(self) -> bool:
         """Whether every term the task declared is running its own implementation."""
-        return not self.skipped and not self.emulated
+        return not self.skipped and not self.emulated and not self.omitted
 
     def summary_table(self) -> str:
         """One table, printed once at startup.
@@ -118,11 +119,11 @@ class Resolution:
         if self.strict:
             head += " (strict: optional terms were required)"
         if self.is_clean and not self.engine_extras_used:
-            return head + ", none skipped or emulated."
+            return head + ", none skipped, emulated, or omitted."
 
-        width = max((len(k) for k in (*self.skipped, *self.emulated)), default=0)
+        width = max((len(k) for k in (*self.skipped, *self.emulated, *self.omitted)), default=0)
         lines = [head]
-        for title, entries in (("skipped", self.skipped), ("emulated", self.emulated)):
+        for title, entries in (("skipped", self.skipped), ("emulated", self.emulated), ("omitted", self.omitted)):
             if entries:
                 lines.append(f"  {title}:")
                 lines += [f"    {key:<{width}}  {reason}" for key, reason in sorted(entries.items())]
@@ -143,6 +144,7 @@ class Resolution:
             "resolved": dict(sorted(self.resolved.items())),
             "skipped": dict(sorted(self.skipped.items())),
             "emulated": dict(sorted(self.emulated.items())),
+            "omitted": dict(sorted(self.omitted.items())),
             "profile": dict(sorted(self.profile.items())),
             "engine_extras_used": list(self.engine_extras_used),
             "strict": self.strict,

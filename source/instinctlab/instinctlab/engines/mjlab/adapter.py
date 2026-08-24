@@ -18,7 +18,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
-from instinctlab.engines.compile import CompileCtx, compile_mdp, observation_group_settings
+from instinctlab.engines.compile import (
+    CompileCtx,
+    compile_mdp,
+    contract_report,
+    flatten_reward_groups,
+    observation_group_settings,
+    record_reward_omissions,
+)
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
 from instinctlab.spec.task import TaskSpec
@@ -61,8 +68,7 @@ def _observation_groups(compiled: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _rewards(compiled: Mapping[str, Mapping[str, Any]], omit: tuple[str, ...] = ()) -> dict[str, Any]:
-    omitted = set(omit)
-    return {name: term for group in compiled.values() for name, term in group.items() if name not in omitted}
+    return flatten_reward_groups(compiled, omit=omit)
 
 
 def _record_pinhole_camera_semantics(profile: dict[str, Any], spec: TaskSpec) -> None:
@@ -162,6 +168,8 @@ class MjlabAdapter:
             strict=strict,
         )
         mdp = compile_mdp(spec.mdp, ctx, TERMS)
+        omitted_rewards = tuple(profile.get("omit_rewards", ()))
+        record_reward_omissions(resolution, mdp["rewards"], omitted_rewards)
 
         mj_overrides = spec.sim.profile_for(self.name)
         sim_kwargs: dict[str, Any] = {
@@ -196,7 +204,7 @@ class MjlabAdapter:
             scene=build_scene(spec.scene, spec.robot, profile, num_envs=num_envs),
             observations=_observation_groups(mdp["observations"]),
             actions=mdp["actions"],
-            rewards=_rewards(mdp["rewards"], tuple(profile.get("omit_rewards", ()))),
+            rewards=_rewards(mdp["rewards"], omitted_rewards),
             terminations=mdp["terminations"],
             events=mdp["events"],
             commands=mdp["commands"],
@@ -204,6 +212,7 @@ class MjlabAdapter:
             decimation=spec.sim.decimation,
             episode_length_s=spec.sim.episode_length_s,
             is_finite_horizon=spec.sim.is_finite_horizon,
+            scale_rewards_by_dt=spec.sim.scale_rewards_by_dt,
             sim=SimulationCfg(**sim_kwargs),
         )
 
@@ -256,17 +265,11 @@ class MjlabAdapter:
         raise ValueError(f"unsupported viewer {viewer!r}")
 
     def contract_report(self, spec: TaskSpec) -> dict[str, Any]:
-        missing: dict[str, str] = {}
-        for key, term in spec.mdp.terms().items():
-            family = key.split("/", 1)[0]
-            if term.is_portable or TERMS.lookup(family, term.kind) is not None:
-                continue
-            emulated = TERMS.lookup_emulation(family, term.kind) is not None
-            missing[key] = "emulated" if emulated else f"unsupported kind {term.kind!r}"
-        return {
-            "engine": self.name,
-            "task_id": spec.task_id,
-            "capabilities": sorted(self.capabilities().values),
-            "missing": missing,
-            "engine_extras_used": sorted(spec.engine_extras.get(self.name, {})),
-        }
+        profile = self.profile(spec)
+        return contract_report(
+            spec,
+            engine=self.name,
+            registry=TERMS,
+            capabilities=self.capabilities(),
+            omitted_rewards=tuple(profile.get("omit_rewards", ())),
+        )

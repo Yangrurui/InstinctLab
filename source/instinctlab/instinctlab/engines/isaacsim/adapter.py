@@ -18,7 +18,13 @@ from types import SimpleNamespace
 from typing import Any
 
 from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
-from instinctlab.engines.compile import CompileCtx, compile_mdp, observation_group_settings
+from instinctlab.engines.compile import (
+    CompileCtx,
+    compile_mdp,
+    contract_report,
+    flatten_reward_groups,
+    observation_group_settings,
+)
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
 from instinctlab.spec.task import TaskSpec
@@ -27,6 +33,21 @@ from .scene import PROFILE_DEFAULTS, build_scene
 from .terms import TERMS
 
 __all__ = ["IsaacSimAdapter", "IsaacSimCompileCtx"]
+
+_OBSERVATION_GROUP_RESERVED_NAMES = frozenset(
+    {"concatenate_terms", "concatenate_dim", "enable_corruption", "history_length", "flatten_history_dim"}
+)
+
+
+def _validate_observation_term_names(spec: TaskSpec) -> None:
+    """Reject term names Isaac Lab interprets as observation-group settings."""
+    for group_name, group in spec.mdp.observations.items():
+        collisions = sorted(set(group.terms) & _OBSERVATION_GROUP_RESERVED_NAMES)
+        if collisions:
+            raise ValueError(
+                f"Isaac Sim observation group {group_name!r} uses reserved term names {collisions}; "
+                "Isaac Lab would interpret them as group settings instead of observations."
+            )
 
 
 def _play_native(env: Any, policy: Any) -> None:
@@ -104,11 +125,10 @@ def _observation_groups(compiled: Mapping[str, Any]) -> Any:
 def _rewards(compiled: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     """Reward groups flattened into the single namespace Isaac Lab's manager has.
 
-    Groups exist in the declaration so that a task can say which rewards belong together, and
-    :class:`~instinctlab.spec.mdp.MdpSpec` already guarantees the names stay unique across them.
-    Flattening therefore loses the grouping and nothing else.
+    Repeated names are qualified by group; otherwise flattening would silently keep only the last
+    term and the policy would optimize a different objective than the declaration.
     """
-    return _container({name: term for group in compiled.values() for name, term in group.items()})
+    return _container(flatten_reward_groups(compiled))
 
 
 class IsaacSimAdapter:
@@ -178,6 +198,7 @@ class IsaacSimAdapter:
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
         spec.validate_for_engine(self.name)
+        _validate_observation_term_names(spec)
 
         from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
         from isaaclab.sim import SimulationCfg
@@ -227,6 +248,7 @@ class IsaacSimAdapter:
             decimation=spec.sim.decimation,
             episode_length_s=spec.sim.episode_length_s,
             is_finite_horizon=spec.sim.is_finite_horizon,
+            scale_rewards_by_dt=spec.sim.scale_rewards_by_dt,
             sim=sim,
         )
         env_cls = InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)
@@ -296,17 +318,5 @@ class IsaacSimAdapter:
         time and only the builder bodies touch ``isaaclab``. That is what makes it possible to check
         every task against every engine in one CI job.
         """
-        missing: dict[str, str] = {}
-        for key, term in spec.mdp.terms().items():
-            family = key.split("/", 1)[0]
-            if term.is_portable or TERMS.lookup(family, term.kind) is not None:
-                continue
-            emulated = TERMS.lookup_emulation(family, term.kind) is not None
-            missing[key] = "emulated" if emulated else f"unsupported kind {term.kind!r}"
-        return {
-            "engine": self.name,
-            "task_id": spec.task_id,
-            "capabilities": sorted(self.capabilities().values),
-            "missing": missing,
-            "engine_extras_used": sorted(spec.engine_extras.get(self.name, {})),
-        }
+        _validate_observation_term_names(spec)
+        return contract_report(spec, engine=self.name, registry=TERMS, capabilities=self.capabilities())

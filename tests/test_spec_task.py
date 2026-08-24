@@ -233,6 +233,16 @@ def test_a_task_refuses_an_engine_it_did_not_declare():
         task.validate_for_engine("isaacsim")
 
 
+def test_isaac_contract_rejects_observation_names_that_are_group_settings():
+    from instinctlab.engines.isaacsim import IsaacSimAdapter
+
+    task = _task(
+        mdp=MdpSpec(observations={"policy": ObsGroupSpec(terms={"enable_corruption": ObsTermSpec(_observed)})})
+    )
+    with pytest.raises(ValueError, match="reserved term names"):
+        IsaacSimAdapter().contract_report(task)
+
+
 def test_a_misspelled_engine_key_is_rejected_rather_than_ignored():
     """The failure this exists for: the override simply never applies, and nothing says so."""
     with pytest.raises(ValueError, match=r"keys sim.profiles by \['isaac'\]"):

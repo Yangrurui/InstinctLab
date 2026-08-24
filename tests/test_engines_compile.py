@@ -25,7 +25,7 @@ from instinctlab.engines import (
     compile_mdp,
     observation_group_settings,
 )
-from instinctlab.engines.compile import qualname_of
+from instinctlab.engines.compile import contract_report, flatten_reward_groups, qualname_of, record_reward_omissions
 from instinctlab.sim.capabilities import CONTACT_FORCE_VECTOR, DR_RESTITUTION, DR_SLIDING_FRICTION, EXTERNAL_WRENCH
 from instinctlab.spec import (
     ActionTermSpec,
@@ -361,7 +361,7 @@ def test_a_clean_compilation_says_so_in_one_line():
     """Absence of a report must never be how a clean compilation is recognised."""
     resolution = Resolution("mock", "Test-Task-v0", resolved={"reward/alive": "x"})
     assert resolution.is_clean
-    assert resolution.summary_table() == "[mock] Test-Task-v0: 1 terms resolved, none skipped or emulated."
+    assert resolution.summary_table() == "[mock] Test-Task-v0: 1 terms resolved, none skipped, emulated, or omitted."
     assert resolution.manifest()["portable"] is True
 
 
@@ -378,3 +378,49 @@ def test_strict_mode_is_recorded_in_the_report():
 def test_qualname_reports_the_function_rather_than_the_container():
     assert qualname_of(_NativeTerm(_term)).endswith("._term")
     assert qualname_of(_NativeTerm()).endswith("._NativeTerm")
+
+
+def test_reward_groups_with_repeated_names_are_qualified_instead_of_overwritten():
+    task_alive, style_alive, energy = object(), object(), object()
+    flattened = flatten_reward_groups(
+        {"task": {"alive": task_alive}, "style": {"alive": style_alive}, "regular": {"energy": energy}}
+    )
+    assert list(flattened) == ["task__alive", "style__alive", "energy"]
+    assert flattened["task__alive"] is task_alive
+    assert flattened["style__alive"] is style_alive
+
+
+def test_reward_qualification_refuses_a_collision_with_an_existing_name():
+    with pytest.raises(ValueError, match="same native term name"):
+        flatten_reward_groups({"task": {"alive": object()}, "style": {"alive": object(), "task__alive": object()}})
+
+
+def test_profile_omissions_are_removed_from_resolved_and_recorded():
+    resolution = Resolution("mjlab", "T", resolved={"reward/task/alive": "a", "reward/task/extra": "b"})
+    record_reward_omissions(resolution, {"task": {"alive": object(), "extra": object()}}, ("extra",))
+    assert resolution.resolved == {"reward/task/alive": "a"}
+    assert set(resolution.omitted) == {"reward/task/extra"}
+    assert resolution.manifest()["portable"] is False
+
+
+def test_contract_report_checks_portable_builders_and_emulation_level():
+    registry = TermRegistry("mock")
+    registry.emulation("event", "gravity")(lambda spec, ctx: object())
+    mdp = MdpSpec(
+        rewards={"rewards": {"alive": RewardTermSpec(_term)}},
+        events={
+            "optional": EventTermSpec(kind="gravity", mode="reset"),
+            "emulated": EventTermSpec(kind="gravity", mode="reset", level=Requirement.EMULATE),
+        },
+    )
+    from tests.test_spec_task import _task
+
+    report = contract_report(
+        _task(mdp=mdp, engines=("mock",)),
+        engine="mock",
+        registry=registry,
+        capabilities=registry.capabilities(),
+    )
+    assert "no portable builder" in report["missing"]["reward/rewards/alive"]
+    assert "unsupported" in report["missing"]["event/optional"]
+    assert report["missing"]["event/emulated"] == "emulated"

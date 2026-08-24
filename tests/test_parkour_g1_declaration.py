@@ -480,6 +480,18 @@ def test_mjlab_compilation_preserves_declared_observation_history(task) -> None:
             )
 
 
+def test_mjlab_compilation_preserves_reward_dt_scaling_switch(task) -> None:
+    """A false declaration must not fall back to the native config's default."""
+    from dataclasses import replace
+
+    pytest.importorskip("mjlab")
+    from instinctlab.engines.mjlab import MjlabAdapter
+
+    unscaled = replace(task, sim=replace(task.sim, scale_rewards_by_dt=False))
+    compiled = MjlabAdapter().compile(unscaled, num_envs=1, device="cpu")
+    assert compiled.env_cfg.scale_rewards_by_dt is False
+
+
 def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     """Enter every ``kind=`` builder body. ``contract_report`` never does.
 

@@ -710,6 +710,10 @@ def test_dof_vel_limits_tracks_each_engine_reference(task, compiled) -> None:
     assert "dof_vel_limits" in task.mdp.rewards["rewards"]
     assert task.mdp.rewards["rewards"]["dof_vel_limits"].weight == -1.0
     assert "dof_vel_limits" not in compiled.env_cfg.rewards
+    key = "reward/rewards/dof_vel_limits"
+    assert key not in compiled.resolution.resolved
+    assert key in compiled.resolution.omitted
+    assert key in compiled.resolution.manifest()["omitted"]
     assert "dof_vel_limits" not in mj_ref.reward_names()
     assert "dof_vel_limits" in main_ref.reward_names()
     assert main_ref.reward_weights()["dof_vel_limits"] == -1.0
