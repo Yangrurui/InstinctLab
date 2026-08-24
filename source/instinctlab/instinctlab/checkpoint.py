@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
@@ -16,10 +17,20 @@ from instinctlab.sim.robot_spec import BackendAsset
 from instinctlab.spec import TaskSpec
 
 _CONTRACT_VERSION = "task_spec_v1"
+_DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
+_PUBLIC_TYPE_MODULES = {
+    "instinctlab.spec.motion_reference": "instinctlab.spec.sensor",
+    "instinctlab.spec.volume": "instinctlab.spec.sensor",
+}
 
 
 def _type_name(value: Any) -> str:
-    return f"{type(value).__module__}.{type(value).__qualname__}"
+    value_type = type(value)
+    # Contract v1 records the public declaration path, not its physical source file. Keeping this
+    # mapping stable lets the implementation be split into cohesive modules without invalidating
+    # checkpoints whose tensor contract did not change.
+    module = _PUBLIC_TYPE_MODULES.get(value_type.__module__, value_type.__module__)
+    return f"{module}.{value_type.__qualname__}"
 
 
 def _canonical(value: Any) -> Any:
@@ -86,6 +97,56 @@ def add_task_contract(manifest: Mapping[str, Any], spec: TaskSpec) -> dict[str, 
     return payload
 
 
+def checkpoint_sort_key(path: Path) -> tuple[int, str]:
+    """Sort ``model_<iteration>.pt`` numerically, then fall back to the filename."""
+    match = re.fullmatch(r"model_(\d+)\.pt", path.name)
+    return (int(match.group(1)) if match else -1, path.name)
+
+
+def latest_checkpoint(run_dir: str | Path, pattern: str = _DEFAULT_CHECKPOINT_PATTERN) -> Path:
+    """Return the newest numeric checkpoint in one run directory.
+
+    ``pattern`` uses the same full-match regular-expression semantics as the runner config.  This
+    keeps checkpoint discovery identical for training resume and playback.
+    """
+    run_path = Path(run_dir).expanduser().resolve()
+    matcher = re.compile(pattern)
+    checkpoints = [path for path in run_path.iterdir() if path.is_file() and matcher.fullmatch(path.name)]
+    if not checkpoints:
+        raise FileNotFoundError(f"no checkpoint matching {pattern!r} under {run_path}")
+    return max(checkpoints, key=checkpoint_sort_key)
+
+
+def latest_run_checkpoint(
+    log_root: str | Path,
+    *,
+    run_pattern: str = ".*",
+    checkpoint_pattern: str = _DEFAULT_CHECKPOINT_PATTERN,
+    skip_empty_runs: bool = False,
+) -> Path:
+    """Select a matching run, then its latest numeric checkpoint.
+
+    Training resume treats the latest run as authoritative and reports a missing checkpoint there.
+    Playback can set ``skip_empty_runs`` to walk backwards past freshly-created or interrupted run
+    directories that contain no model yet.
+    """
+    root = Path(log_root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"checkpoint log root does not exist: {root}")
+    matcher = re.compile(run_pattern)
+    runs = sorted(path for path in root.iterdir() if path.is_dir() and matcher.fullmatch(path.name))
+    if not runs:
+        raise FileNotFoundError(f"no run matching {run_pattern!r} under {root}")
+    if not skip_empty_runs:
+        return latest_checkpoint(runs[-1], checkpoint_pattern)
+    for run in reversed(runs):
+        try:
+            return latest_checkpoint(run, checkpoint_pattern)
+        except FileNotFoundError:
+            continue
+    raise FileNotFoundError(f"no checkpoint matching {checkpoint_pattern!r} in runs under {root}")
+
+
 def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None:
     """Validate the manifest next to a checkpoint before loading its tensors.
 
@@ -121,4 +182,11 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
         )
 
 
-__all__ = ["add_task_contract", "task_contract", "validate_checkpoint_contract"]
+__all__ = [
+    "add_task_contract",
+    "checkpoint_sort_key",
+    "latest_checkpoint",
+    "latest_run_checkpoint",
+    "task_contract",
+    "validate_checkpoint_contract",
+]

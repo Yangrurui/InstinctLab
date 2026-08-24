@@ -90,23 +90,10 @@ def _resolve_checkpoint(args: argparse.Namespace, experiment: str) -> Path:
             raise FileNotFoundError(f"checkpoint not found: {path}")
         return path
     root = Path(args.logroot or os.path.join("logs", args.engine, experiment)).resolve()
-    if not root.is_dir():
-        raise FileNotFoundError(f"no log root at {root}; pass --checkpoint")
-    runs = [path for path in root.iterdir() if path.is_dir()]
-    if args.load_run:
-        runs = [path for path in runs if path.name == args.load_run]
-    runs.sort()
-    for run in reversed(runs):
-        models = sorted(run.glob("model_*.pt"), key=_checkpoint_iteration)
-        if models:
-            return models[-1]
-    raise FileNotFoundError(f"no model_*.pt under {root}")
+    from instinctlab.checkpoint import latest_run_checkpoint
 
-
-def _checkpoint_iteration(path: Path) -> tuple[int, str]:
-    """Sort checkpoints by their numeric iteration, with a stable name fallback."""
-    match = re.fullmatch(r"model_(\d+)\.pt", path.name)
-    return (int(match.group(1)) if match else -1, path.name)
+    run_pattern = re.escape(args.load_run) if args.load_run else ".*"
+    return latest_run_checkpoint(root, run_pattern=run_pattern, skip_empty_runs=True)
 
 
 def main() -> None:

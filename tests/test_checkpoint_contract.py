@@ -5,7 +5,13 @@ from dataclasses import replace
 
 import pytest
 
-from instinctlab.checkpoint import add_task_contract, task_contract, validate_checkpoint_contract
+from instinctlab.checkpoint import (
+    add_task_contract,
+    latest_checkpoint,
+    latest_run_checkpoint,
+    task_contract,
+    validate_checkpoint_contract,
+)
 from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import parkour_target_g1
 
 
@@ -16,6 +22,12 @@ def test_task_contract_is_stable_and_backend_independent() -> None:
     assert first == second
     assert first["task_id"] == spec.task_id
     assert first["joint_names"] == list(spec.robot.joint_names)
+
+
+def test_parkour_contract_v1_remains_stable_across_internal_refactors() -> None:
+    assert (
+        task_contract(parkour_target_g1())["hash"] == "9e831e6d6074068c98f4add330ca5afaf8a27ce9d9046e6c831cd285334262e4"
+    )
 
 
 def test_contract_changes_when_tensor_order_changes() -> None:
@@ -56,3 +68,20 @@ def test_legacy_checkpoint_without_manifest_remains_loadable_with_warning(tmp_pa
     checkpoint.touch()
     with pytest.warns(RuntimeWarning, match="compatibility cannot be verified"):
         validate_checkpoint_contract(checkpoint, parkour_target_g1())
+
+
+def test_latest_checkpoint_sorts_iterations_numerically(tmp_path) -> None:
+    for name in ("model_9.pt", "model_1000.pt", "model_100.pt"):
+        (tmp_path / name).touch()
+    assert latest_checkpoint(tmp_path).name == "model_1000.pt"
+
+
+def test_playback_checkpoint_discovery_can_skip_an_empty_latest_run(tmp_path) -> None:
+    complete = tmp_path / "20260101_000000"
+    complete.mkdir()
+    (complete / "model_100.pt").touch()
+    (tmp_path / "20260102_000000").mkdir()
+
+    checkpoint = latest_run_checkpoint(tmp_path, skip_empty_runs=True)
+
+    assert checkpoint == complete / "model_100.pt"

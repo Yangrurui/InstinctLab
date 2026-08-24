@@ -27,14 +27,13 @@ from __future__ import annotations
 
 import importlib
 import math
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from instinctlab.sim.robot_spec import RobotSpec
 
-from .mdp import MdpSpec, walk_parameter_values
+from .mdp import MdpSpec
 from .sensor import ContactSensorRef, MotionReferenceRef, RayCasterRef, VirtualObstacleRef, VolumePointsRef
 
 __all__ = [
@@ -353,145 +352,9 @@ class TaskSpec:
         Called by every backend before it compiles, and standalone in CI so that a task with a
         misspelled engine key fails in a unit test rather than after a simulator has booted.
         """
-        self.robot.validate()
-        declared = set(self.engines)
-        asset_backends = {asset.backend for asset in self.robot.assets}
-        missing_assets = declared - asset_backends
-        if missing_assets:
-            raise ValueError(
-                f"Task {self.task_id!r} declares engines {sorted(missing_assets)} without a robot asset for them."
-            )
-        for source, keys in (
-            ("sim.profiles", set(self.sim.profiles)),
-            ("engine_extras", set(self.engine_extras)),
-            ("agent.engine_overrides", set(self.agent.engine_overrides)),
-        ):
-            unknown = keys - declared
-            if unknown:
-                raise ValueError(
-                    f"Task {self.task_id!r} keys {source} by {sorted(unknown)}, which is not in "
-                    f"engines={sorted(declared)}. A misspelled engine key is silently ignored "
-                    "otherwise, and the override never applies."
-                )
-        for key, term in self.mdp.terms().items():
-            unknown = term.engines_named() - declared
-            if unknown:
-                raise ValueError(
-                    f"Term {key!r} has engine_params for {sorted(unknown)}, which is not in engines={sorted(declared)}."
-                )
-        declared_contacts = {sensor.name for sensor in self.scene.contact_sensors}
-        declared_rays = {sensor.name for sensor in self.scene.ray_casters}
-        declared_motion = {sensor.name for sensor in self.scene.motion_references}
-        declared_volume = {sensor.name for sensor in self.scene.volume_points}
-        contact_by_name = {sensor.name: sensor for sensor in self.scene.contact_sensors}
-        ray_by_name = {sensor.name: sensor for sensor in self.scene.ray_casters}
-        motion_by_name = {sensor.name: sensor for sensor in self.scene.motion_references}
-        volume_by_name = {sensor.name: sensor for sensor in self.scene.volume_points}
-        reserved_scene_names = {"robot", "terrain"}
-        collisions = sorted(
-            (declared_contacts | declared_rays | declared_motion | declared_volume) & reserved_scene_names
-        )
-        if collisions:
-            raise ValueError(f"Scene sensor names collide with scene entities: {collisions}.")
-        body_names = tuple(self.robot.body_names)
-        joint_names = set(self.robot.joint_names)
-        for sensor in self.scene.contact_sensors:
-            if sensor.entity != "robot":
-                raise ValueError(f"Contact sensor {sensor.name!r} refers to unknown entity {sensor.entity!r}.")
-            unmatched = [
-                pattern for pattern in sensor.elements if not any(re.fullmatch(pattern, name) for name in body_names)
-            ]
-            if unmatched:
-                raise ValueError(f"Contact sensor {sensor.name!r} patterns match no robot body: {unmatched}.")
-        for sensor in self.scene.ray_casters:
-            if sensor.entity != "robot" or sensor.attach not in body_names:
-                raise ValueError(
-                    f"Ray caster {sensor.name!r} attaches to {sensor.entity!r}/{sensor.attach!r}, "
-                    "which is not a declared robot body."
-                )
-            unknown_hits = sorted(set(sensor.hit_bodies()) - set(body_names))
-            if unknown_hits:
-                raise ValueError(f"Ray caster {sensor.name!r} names unknown hit bodies: {unknown_hits}.")
-        for sensor in self.scene.motion_references:
-            unknown_joints = sorted(set(sensor.joints) - joint_names)
-            unknown_links = sorted(set(sensor.links) - set(body_names))
-            if sensor.entity != "robot" or unknown_joints or unknown_links:
-                raise ValueError(
-                    f"Motion reference {sensor.name!r} does not match the robot: "
-                    f"entity={sensor.entity!r}, unknown joints={unknown_joints}, unknown links={unknown_links}."
-                )
-        for sensor in self.scene.volume_points:
-            unknown_bodies = sorted(set(sensor.bodies) - set(body_names))
-            if sensor.entity != "robot" or unknown_bodies:
-                raise ValueError(
-                    f"Volume points {sensor.name!r} does not match the robot: "
-                    f"entity={sensor.entity!r}, unknown bodies={unknown_bodies}."
-                )
-        for key, term in self.mdp.terms().items():
-            parameter_sets = [term.params, *term.engine_params.values()]
-            for params in parameter_sets:
-                command_name = params.get("command_name")
-                if command_name is not None and command_name not in self.mdp.commands:
-                    raise ValueError(
-                        f"Term {key!r} reads command {command_name!r}, which the MDP does not declare. "
-                        f"Declared: {sorted(self.mdp.commands) or 'none'}."
-                    )
-            for value in walk_parameter_values(value for params in parameter_sets for value in params.values()):
-                if isinstance(value, ContactSensorRef) and value.name not in declared_contacts:
-                    raise ValueError(
-                        f"Term {key!r} reads contact sensor {value.name!r}, which the scene does "
-                        f"not declare. Declared: {sorted(declared_contacts) or 'none'}."
-                    )
-                if isinstance(value, ContactSensorRef) and value.name in contact_by_name:
-                    scene_sensor = contact_by_name[value.name]
-                    tracked = {
-                        name
-                        for name in body_names
-                        if any(re.fullmatch(pattern, name) for pattern in scene_sensor.elements)
-                    }
-                    requested = {
-                        name for name in body_names if any(re.fullmatch(pattern, name) for pattern in value.elements)
-                    }
-                    if not requested or not requested <= tracked:
-                        raise ValueError(
-                            f"Term {key!r} requests contact bodies {sorted(requested)} outside sensor "
-                            f"{value.name!r}'s tracked bodies {sorted(tracked)}."
-                        )
-                if isinstance(value, RayCasterRef) and value.name not in declared_rays:
-                    raise ValueError(
-                        f"Term {key!r} reads ray caster {value.name!r}, which the scene does "
-                        f"not declare. Declared: {sorted(declared_rays) or 'none'}."
-                    )
-                if isinstance(value, RayCasterRef) and value.name in ray_by_name and value != ray_by_name[value.name]:
-                    raise ValueError(
-                        f"Term {key!r} uses a ray caster declaration different from scene sensor {value.name!r}."
-                    )
-                if isinstance(value, MotionReferenceRef) and value.name not in declared_motion:
-                    raise ValueError(
-                        f"Term {key!r} reads motion reference {value.name!r}, which the scene does "
-                        f"not declare. Declared: {sorted(declared_motion) or 'none'}."
-                    )
-                if (
-                    isinstance(value, MotionReferenceRef)
-                    and value.name in motion_by_name
-                    and value != motion_by_name[value.name]
-                ):
-                    raise ValueError(
-                        f"Term {key!r} uses a motion reference declaration different from scene sensor {value.name!r}."
-                    )
-                if isinstance(value, VolumePointsRef) and value.name not in declared_volume:
-                    raise ValueError(
-                        f"Term {key!r} reads volume-points sensor {value.name!r}, which the scene "
-                        f"does not declare. Declared: {sorted(declared_volume) or 'none'}."
-                    )
-                if (
-                    isinstance(value, VolumePointsRef)
-                    and value.name in volume_by_name
-                    and value != volume_by_name[value.name]
-                ):
-                    raise ValueError(
-                        f"Term {key!r} uses a volume-points declaration different from scene sensor {value.name!r}."
-                    )
+        from .validation import validate_task
+
+        validate_task(self)
 
     def extras_for(self, engine: str) -> dict[str, Any]:
         """This engine's escape-hatch settings, empty when the task uses none."""

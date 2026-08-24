@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -109,11 +108,6 @@ def _log_dir(args: argparse.Namespace, experiment: str) -> str:
     return os.path.join(root, stamp)
 
 
-def _checkpoint_iteration(path: Path) -> tuple[int, str]:
-    match = re.fullmatch(r"model_(\d+)\.pt", path.name)
-    return (int(match.group(1)) if match else -1, path.name)
-
-
 def _resolve_resume_checkpoint(args: argparse.Namespace, agent_cfg: object) -> Path | None:
     """Resolve the legacy runner's run/checkpoint expressions without engine imports."""
     requested = bool(args.resume or args.load_run or args.checkpoint or getattr(agent_cfg, "resume", False))
@@ -129,21 +123,22 @@ def _resolve_resume_checkpoint(args: argparse.Namespace, agent_cfg: object) -> P
     run_selector = args.load_run if args.load_run is not None else getattr(agent_cfg, "load_run", ".*")
     run_path = Path(str(run_selector)).expanduser() if run_selector else None
     if run_path is not None and run_path.is_absolute() and run_path.is_dir():
-        runs = [run_path.resolve()]
+        run_root = run_path.resolve()
+        run_pattern = ".*"
     else:
-        if not root.is_dir():
-            raise FileNotFoundError(f"resume log root does not exist: {root}")
-        pattern = re.compile(str(run_selector or ".*"))
-        runs = sorted(path for path in root.iterdir() if path.is_dir() and pattern.fullmatch(path.name))
-    if not runs:
-        raise FileNotFoundError(f"no run matching {run_selector!r} under {root}")
+        run_root = root
+        run_pattern = str(run_selector or ".*")
 
     checkpoint_selector = args.checkpoint or getattr(agent_cfg, "load_checkpoint", r"model_.*.pt")
-    pattern = re.compile(str(checkpoint_selector))
-    models = [path for path in runs[-1].iterdir() if path.is_file() and pattern.fullmatch(path.name)]
-    if not models:
-        raise FileNotFoundError(f"no checkpoint matching {checkpoint_selector!r} under {runs[-1]}")
-    return max(models, key=_checkpoint_iteration)
+    from instinctlab.checkpoint import latest_checkpoint, latest_run_checkpoint
+
+    if run_path is not None and run_path.is_absolute() and run_path.is_dir():
+        return latest_checkpoint(run_root, str(checkpoint_selector))
+    return latest_run_checkpoint(
+        run_root,
+        run_pattern=run_pattern,
+        checkpoint_pattern=str(checkpoint_selector),
+    )
 
 
 def main() -> None:
