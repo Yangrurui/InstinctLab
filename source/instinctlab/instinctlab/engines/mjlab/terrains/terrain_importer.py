@@ -112,6 +112,9 @@ class TerrainImporter(TerrainImporterBase):
         else:
             raise ValueError(f"Unknown terrain type: {self.cfg.terrain_type}")
 
+        for geom in self._spec.geoms:
+            geom.friction[0] = cfg.sliding_friction
+
         self._add_env_origin_sites()
         self._add_terrain_origin_sites()
         self._add_flat_patch_sites()

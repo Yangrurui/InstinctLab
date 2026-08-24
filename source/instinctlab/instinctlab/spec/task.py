@@ -26,6 +26,7 @@ Note:
 from __future__ import annotations
 
 import importlib
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -174,6 +175,13 @@ class TerrainSpec:
     def __post_init__(self) -> None:
         object.__setattr__(self, "params", dict(self.params))
         object.__setattr__(self, "virtual_obstacles", tuple(self.virtual_obstacles))
+        material = (self.static_friction, self.dynamic_friction, self.restitution)
+        if not all(math.isfinite(value) for value in material):
+            raise ValueError("Terrain material coefficients must be finite")
+        if self.static_friction < 0.0 or self.dynamic_friction < 0.0:
+            raise ValueError("Terrain friction coefficients must be non-negative")
+        if not 0.0 <= self.restitution <= 1.0:
+            raise ValueError("Terrain restitution must be in [0, 1]")
         if self.kind in {"plane", "rough"} and self.generator is not None:
             raise ValueError(f"kind={self.kind!r} cannot carry a generator.")
         if self.kind == "generator" and self.generator is None:

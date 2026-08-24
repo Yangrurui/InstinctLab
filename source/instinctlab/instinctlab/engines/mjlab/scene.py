@@ -87,9 +87,9 @@ def _sub_terrain(kind: str, proportion: float, params: Mapping[str, Any], genera
 
 
 def _generator(spec: TerrainGeneratorSpec) -> Any:
-    from mjlab.terrains import TerrainGeneratorCfg
+    from .terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
 
-    return TerrainGeneratorCfg(
+    return FiledTerrainGeneratorCfg(
         seed=spec.seed,
         curriculum=spec.curriculum,
         size=spec.size,
@@ -105,17 +105,26 @@ def _generator(spec: TerrainGeneratorSpec) -> Any:
 
 
 def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
-    from mjlab.terrains import TerrainEntityCfg
+    if spec.restitution != 0.0:
+        raise ValueError("mjlab terrain cannot honor restitution; MuJoCo terrain geoms have no restitution field")
+    if spec.static_friction != spec.dynamic_friction:
+        raise ValueError(
+            "mjlab terrain has one sliding-friction coefficient and cannot honor different "
+            "static_friction and dynamic_friction values"
+        )
+
+    from .terrains.terrain_importer_cfg import TerrainImporterCfg
 
     if spec.kind == "plane":
-        return TerrainEntityCfg(terrain_type="plane")
+        return TerrainImporterCfg(terrain_type="plane", sliding_friction=spec.dynamic_friction)
     if spec.kind == "generator":
         if spec.generator is None:
             raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
-        return TerrainEntityCfg(
+        return TerrainImporterCfg(
             terrain_type="generator",
             terrain_generator=_generator(spec.generator),
             max_init_terrain_level=spec.generator.max_init_level,
+            sliding_friction=spec.dynamic_friction,
         )
     if spec.kind == "rough":
         from .rough import rough_importer_cfg

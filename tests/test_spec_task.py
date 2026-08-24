@@ -146,6 +146,10 @@ def test_an_interval_event_must_say_how_often():
     with pytest.raises(ValueError, match="meaningless otherwise"):
         EventTermSpec(kind="push_robot", mode="reset", interval_range_s=(1.0, 2.0))
     assert EventTermSpec(kind="push_robot", mode="interval", interval_range_s=(10.0, 15.0))
+    with pytest.raises(ValueError, match="0 < min <= max"):
+        EventTermSpec(kind="push_robot", mode="interval", interval_range_s=(2.0, 1.0))
+    with pytest.raises(ValueError, match="Unknown event mode"):
+        EventTermSpec(kind="push_robot", mode="sometimes")  # type: ignore[arg-type]
 
 
 def test_noise_bounds_are_checked_in_the_direction_each_distribution_needs():
@@ -328,6 +332,13 @@ def test_a_plane_cannot_carry_a_generator():
     generator = TerrainGeneratorSpec(sub_terrains={"flat": SubTerrainSpec(kind="random_rough")})
     with pytest.raises(ValueError, match="cannot carry a generator"):
         TerrainSpec(kind="plane", generator=generator)
+
+
+def test_terrain_material_coefficients_are_validated():
+    with pytest.raises(ValueError, match="non-negative"):
+        TerrainSpec(dynamic_friction=-0.1)
+    with pytest.raises(ValueError, match=r"in \[0, 1\]"):
+        TerrainSpec(restitution=1.1)
 
 
 def test_a_generator_must_carry_a_recipe():

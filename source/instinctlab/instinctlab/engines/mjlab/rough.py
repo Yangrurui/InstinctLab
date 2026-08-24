@@ -313,11 +313,11 @@ def rough_importer_cfg(spec: TerrainSpec, *, num_cols: int = 20) -> Any:
 
     Virtual obstacles stay off. They are a parkour sensor, not the ground.
     """
-    del spec
     from .terrains.terrain_importer_cfg import TerrainImporterCfg
 
     return TerrainImporterCfg(
         terrain_type="hacked_generator",
         terrain_generator=rough_generator_cfg(num_cols=num_cols),
         max_init_terrain_level=5,
+        sliding_friction=spec.dynamic_friction,
     )

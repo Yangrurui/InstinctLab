@@ -29,6 +29,7 @@ task files to be supported.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -202,11 +203,19 @@ class EventTermSpec(TermSpec):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        if self.mode not in {"startup", "reset", "interval"}:
+            raise ValueError(f"Unknown event mode {self.mode!r}; expected startup, reset, or interval.")
         if (self.mode == "interval") != (self.interval_range_s is not None):
             raise ValueError(
                 f"Event in {self.mode!r} mode with interval_range_s={self.interval_range_s}: an "
                 "interval range is required in interval mode and meaningless otherwise."
             )
+        if self.interval_range_s is not None:
+            lo, hi = self.interval_range_s
+            if not math.isfinite(lo) or not math.isfinite(hi) or lo <= 0.0 or hi < lo:
+                raise ValueError(
+                    f"Event interval_range_s must be finite with 0 < min <= max, got {self.interval_range_s}."
+                )
 
 
 @dataclass(frozen=True)

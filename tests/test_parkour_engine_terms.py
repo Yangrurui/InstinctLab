@@ -18,6 +18,7 @@ import pytest
 from instinctlab.engines.isaacsim.terms import ISAAC_CONTACT_FORCE_THRESHOLD_N
 from instinctlab.engines.isaacsim.terms import TERMS as ISAAC_TERMS
 from instinctlab.engines.isaacsim.terms import merge_friction_params as isaac_merge_friction
+from instinctlab.engines.mjlab.events import reset_joints_by_offset, reset_joints_by_scale
 from instinctlab.engines.mjlab.rewards import (
     CONTACT_FORCE_THRESHOLD_N,
     applied_torque_limits_by_ratio,
@@ -189,3 +190,47 @@ def test_mjlab_offset_reset_adds_and_scale_reset_multiplies() -> None:
     assert ast.Mult not in offset
     assert ast.Mult in scale
     assert ast.Add not in scale
+
+
+@pytest.mark.parametrize(
+    ("reset", "position_range", "expected_pos", "velocity_range", "expected_vel"),
+    [
+        (reset_joints_by_offset, (0.2, 0.2), (1.2, 2.2), (0.3, 0.3), (0.4, 0.5)),
+        (reset_joints_by_scale, (2.0, 2.0), (2.0, 4.0), (3.0, 3.0), (0.3, 0.6)),
+    ],
+)
+def test_mjlab_joint_resets_broadcast_model_defaults_to_arbitrary_env_ids(
+    reset, position_range, expected_pos, velocity_range, expected_vel, monkeypatch
+) -> None:
+    """MJLab stores defaults and limits in one row; resetting env 2 must not index row 2."""
+
+    class Asset:
+        data = SimpleNamespace(
+            default_joint_pos=torch.tensor([[1.0, 2.0]]),
+            default_joint_vel=torch.tensor([[0.1, 0.2]]),
+            soft_joint_pos_limits=torch.tensor([[[-10.0, 10.0], [-10.0, 10.0]]]),
+        )
+
+        def write_joint_state_to_sim(self, pos, vel, **kwargs):
+            self.written = pos, vel, kwargs
+
+    asset = Asset()
+    env = SimpleNamespace(num_envs=3, device="cpu", scene={"robot": asset})
+    cfg = SimpleNamespace(name="robot", joint_ids=slice(None))
+    monkeypatch.setattr(
+        "instinctlab.compat.math.sample_uniform",
+        lambda lo, hi, shape, device: torch.full(shape, (lo + hi) / 2, device=device),
+    )
+
+    reset(
+        env,
+        torch.tensor([2, 0]),
+        position_range=position_range,
+        velocity_range=velocity_range,
+        asset_cfg=cfg,
+    )
+
+    pos, vel, kwargs = asset.written
+    torch.testing.assert_close(pos, torch.tensor([expected_pos, expected_pos]))
+    torch.testing.assert_close(vel, torch.tensor([expected_vel, expected_vel]))
+    assert kwargs["env_ids"].tolist() == [2, 0]

@@ -13,6 +13,9 @@ class TerrainImporterCfg(TerrainImporterCfgBase):
     class_type: type = TerrainImporter
     """The inherited class to use for the terrain importer."""
 
+    sliding_friction: float = 1.0
+    """MuJoCo's single sliding-friction coefficient applied to every terrain geom."""
+
     virtual_obstacles: dict[str, object] = field(default_factory=dict)
     """The virtual obstacles to use for the terrain importer."""
 

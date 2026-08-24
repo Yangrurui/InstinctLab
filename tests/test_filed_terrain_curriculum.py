@@ -19,6 +19,7 @@ from mjlab.terrains.primitive_terrains import BoxFlatTerrainCfg
 from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
 from instinctlab.engines.mjlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
 from instinctlab.engines.pose_velocity import even_column_assignment
+from instinctlab.spec import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
 
 
 def _cfg(*, num_rows=3, num_cols=6, curriculum=True):
@@ -89,3 +90,38 @@ def test_importer_rejects_type_level_spawn_weights() -> None:
         importer._compute_env_origins_curriculum(8, origins, proportions=np.ones(4) / 4)
     importer._compute_env_origins_curriculum(8, origins)
     assert torch.equal(importer.terrain_types, even_column_assignment(8, 4, device=importer._device))
+
+
+def test_portable_generator_uses_filed_width_and_applies_terrain_friction() -> None:
+    from instinctlab.engines.mjlab.scene import _terrain
+    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
+
+    generator = TerrainGeneratorSpec(
+        num_rows=2,
+        num_cols=4,
+        curriculum=True,
+        sub_terrains={
+            "rough": SubTerrainSpec(
+                kind="random_rough",
+                params={"noise_range": (0.0, 0.01), "noise_step": 0.01},
+            )
+        },
+    )
+    cfg = _terrain(
+        TerrainSpec(kind="generator", generator=generator, static_friction=0.7, dynamic_friction=0.7),
+        {},
+    )
+    importer = cfg.class_type(cfg, device="cpu")
+
+    assert isinstance(importer.terrain_generator, FiledTerrainGenerator)
+    assert tuple(importer.terrain_origins.shape) == (2, 4, 3)
+    assert all(float(geom.friction[0]) == pytest.approx(0.7) for geom in importer.spec.geoms)
+
+
+def test_mjlab_refuses_terrain_material_semantics_it_cannot_represent() -> None:
+    from instinctlab.engines.mjlab.scene import _terrain
+
+    with pytest.raises(ValueError, match="one sliding-friction"):
+        _terrain(TerrainSpec(static_friction=0.9, dynamic_friction=0.7), {})
+    with pytest.raises(ValueError, match="cannot honor restitution"):
+        _terrain(TerrainSpec(restitution=0.1), {})

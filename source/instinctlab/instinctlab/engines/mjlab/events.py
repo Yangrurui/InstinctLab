@@ -40,7 +40,9 @@ def _rows(data: torch.Tensor, env_ids: torch.Tensor) -> torch.Tensor:
     environment. Terms that only ever broadcast against these tensors never notice, which is why
     this surfaces in a reset event rather than in a reward.
     """
-    return data if data.shape[0] == 1 else data[env_ids]
+    if data.shape[0] == 1:
+        return data.expand(len(env_ids), *data.shape[1:])
+    return data[env_ids]
 
 
 def reset_joints_by_offset(
