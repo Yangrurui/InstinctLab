@@ -589,7 +589,7 @@ def test_runner_has_no_empirical_normalizer_on_either_side(our_agent, main_agent
 
 
 def test_train_scripts_agree_on_seed_num_envs_and_tf32() -> None:
-    """CLI defaults and the seed hand-off. Resume load is main-only and unused when resume=False."""
+    """CLI defaults, seed hand-off, and the optional resume path."""
     theirs = main_ref.train_script_facts()
     ours = Path("/root/InstinctLab/scripts/train.py").read_text()
     adapter = Path("/root/InstinctLab/source/instinctlab/instinctlab/engines/isaacsim/adapter.py").read_text()
@@ -601,7 +601,7 @@ def test_train_scripts_agree_on_seed_num_envs_and_tf32() -> None:
     assert theirs["sets_tf32"] is True
     assert "allow_tf32 = True" in adapter
     assert theirs["calls_runner_load"] is True
-    assert "runner.load(" not in ours
+    assert "runner.load(" in ours
     assert theirs["init_at_random_ep_len"] is True
     assert "init_at_random_ep_len" in ours
     assert theirs["wrapper"] is True

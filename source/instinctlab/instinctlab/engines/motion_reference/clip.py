@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from instinctlab.compat.math import combine_frame_transforms, quat_from_matrix
-from instinctlab.utils.math import quat_angular_velocity
+from instinctlab.utils.math import quat_angular_velocity, quat_slerp_batch
 from instinctlab.utils.name_order import NameOrderError, resolve_name_indices
 
 
@@ -261,6 +261,11 @@ class MotionClip:
     def duration_s(self) -> float:
         return (self.nframes - 1) * self.dt
 
+    @property
+    def sampling_length_s(self) -> float:
+        """Length used by the upstream managers when sampling episode starts."""
+        return self.nframes * self.dt
+
 
 def load_retargetted_clip(path: str, device: torch.device | str = "cpu") -> dict[str, Any]:
     """Read a ``*_retargetted.npz``. Does not remap; that happens in :func:`pack_motion_clip`."""
@@ -299,12 +304,15 @@ def pack_motion_clip(
     root_pos = raw["base_pos_w"]
     root_quat = raw["base_quat_w"]
     framerate = float(raw["framerate"])
-    if target_fps is not None and abs(target_fps - framerate) > 1e-9:
-        raise ValueError(
-            f"Clip fps is {framerate}, target is {target_fps}. Interpolation is the parkour "
-            "source's bilinear path; this increment only packs a clip already at the target rate "
-            "so a fps mismatch cannot silently change the time base."
+    if target_fps is not None:
+        root_pos, root_quat, joint_pos = interpolate_motion(
+            root_pos,
+            root_quat,
+            joint_pos,
+            source_fps=framerate,
+            target_fps=float(target_fps),
         )
+        framerate = float(target_fps)
     chain = build_kinematics_chain(model_path, device=device)
     inventory = chain_inventory(chain, model_path)
     missing_links = [name for name in links if name not in inventory.link_names]
@@ -354,6 +362,40 @@ def pack_motion_clip(
         framerate=framerate,
         inventory=inventory,
     )
+
+
+def interpolate_motion(
+    root_pos: torch.Tensor,
+    root_quat: torch.Tensor,
+    joint_pos: torch.Tensor,
+    *,
+    source_fps: float,
+    target_fps: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Resample exactly as InstinctMJ/main's ``motion_interpolate_bilinear``.
+
+    Their half-open timeline deliberately omits the raw endpoint. This also
+    happens when source and target rates are equal, so bypassing the operation
+    would leave one extra valid frame in the unified runtime.
+    """
+    if source_fps <= 0.0 or target_fps <= 0.0:
+        raise ValueError(f"motion frame rates must be positive, got {source_fps=} and {target_fps=}.")
+    if root_pos.shape[0] < 2:
+        raise ValueError("motion interpolation needs at least two source frames.")
+    if root_pos.shape[0] != root_quat.shape[0] or root_pos.shape[0] != joint_pos.shape[0]:
+        raise ValueError("motion position, orientation and joint arrays must have the same frame count.")
+
+    duration = (root_pos.shape[0] - 1) / source_fps
+    count = int(np.ceil(duration * target_fps))
+    frame = torch.arange(count, device=root_pos.device, dtype=root_pos.dtype) * (source_fps / target_fps)
+    frame = frame[frame <= root_pos.shape[0] - 1]
+    before = torch.floor(frame).to(torch.long)
+    after = torch.ceil(frame).to(torch.long)
+    ratio = frame - before.to(frame.dtype)
+    root_pos_out = torch.lerp(root_pos[before], root_pos[after], ratio.unsqueeze(-1))
+    root_quat_out = quat_slerp_batch(root_quat[before], root_quat[after], ratio)
+    joint_pos_out = torch.lerp(joint_pos[before], joint_pos[after], ratio.unsqueeze(-1))
+    return root_pos_out, root_quat_out, joint_pos_out
 
 
 @dataclass

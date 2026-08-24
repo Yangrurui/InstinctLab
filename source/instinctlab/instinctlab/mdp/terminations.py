@@ -159,7 +159,8 @@ def bad_orientation(env: RlEnv, limit_angle: float, asset_cfg: Any = None) -> to
     ``gravity_vec_w`` and hard-codes ``[0, 0, -1]``.
     """
     asset = env.scene[_name(asset_cfg)]
-    return torch.acos(-asset.data.projected_gravity_b[:, 2]).abs() > limit_angle
+    upright_cosine = torch.clamp(-asset.data.projected_gravity_b[:, 2], -1.0, 1.0)
+    return torch.acos(upright_cosine).abs() > limit_angle
 
 
 def root_height_below_env_origin_minimum(env: RlEnv, minimum_height: float, asset_cfg: Any = None) -> torch.Tensor:

@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
 import pathlib
+import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -86,6 +89,53 @@ def test_play_dummy_agents_skip_the_checkpoint() -> None:
     dummy_if = dummy_ifs[0]
     assert not _called(dummy_if.body, "_resolve_checkpoint")
     assert _called(dummy_if.orelse, "_resolve_checkpoint")
+
+
+@pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
+def test_launchers_reject_unknown_arguments(launcher: pathlib.Path) -> None:
+    result = subprocess.run(
+        [sys.executable, str(launcher), "--engine", "mjlab", "--definitely_misspelled"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "unrecognized arguments: --definitely_misspelled" in result.stderr
+
+
+def test_play_selects_the_highest_numeric_checkpoint(tmp_path: pathlib.Path) -> None:
+    module_spec = importlib.util.spec_from_file_location("_instinctlab_play_entry", _PLAY)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+
+    run = tmp_path / "run"
+    run.mkdir()
+    for name in ("model_9.pt", "model_100.pt", "model_1000.pt"):
+        (run / name).touch()
+    args = SimpleNamespace(checkpoint=None, logroot=str(tmp_path), engine="mjlab", load_run="run")
+    assert module._resolve_checkpoint(args, "unused").name == "model_1000.pt"
+
+
+def test_train_resume_selects_the_highest_numeric_checkpoint(tmp_path: pathlib.Path) -> None:
+    module_spec = importlib.util.spec_from_file_location("_instinctlab_train_entry", _ENTRY)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+
+    run = tmp_path / "20260101_000000"
+    run.mkdir()
+    for name in ("model_9.pt", "model_100.pt", "model_1000.pt"):
+        (run / name).touch()
+    args = SimpleNamespace(
+        resume=True,
+        load_run=None,
+        checkpoint=None,
+        logroot=str(tmp_path),
+        engine="mjlab",
+    )
+    agent = SimpleNamespace(experiment_name="unused", resume=False, load_run=".*", load_checkpoint=r"model_.*.pt")
+    assert module._resolve_resume_checkpoint(args, agent).name == "model_1000.pt"
 
 
 @pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)

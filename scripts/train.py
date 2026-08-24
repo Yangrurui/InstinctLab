@@ -23,8 +23,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
+from pathlib import Path
 
 # Python puts this script's directory first on the path, and this directory contains a folder named
 # ``instinct_rl`` holding the legacy per-engine entry points. That folder has no ``__init__.py``, so
@@ -35,7 +37,7 @@ if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
     sys.path.pop(0)
 
 
-def _parse() -> tuple[argparse.Namespace, list[str]]:
+def _parse() -> argparse.Namespace:
     """Choose the engine first, then let it add its own flags.
 
     Two passes because the flags an engine wants are not knowable before the engine is. The first
@@ -56,6 +58,13 @@ def _parse() -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--max_iterations", type=int, default=None, help="Override the agent's iteration count.")
     parser.add_argument("--logroot", type=str, default=None, help="Override the log root, default logs/<engine>/.")
     parser.add_argument("--run_name", type=str, default="", help="Suffix appended to the run directory.")
+    parser.add_argument("--resume", action="store_true", help="Resume training from a checkpoint.")
+    parser.add_argument(
+        "--load_run", type=str, default=None, help="Run directory name or regular expression to resume."
+    )
+    parser.add_argument(
+        "--checkpoint", type=str, default=None, help="Checkpoint path or filename expression to resume."
+    )
     parser.add_argument(
         "--strict",
         action="store_true",
@@ -89,7 +98,7 @@ def _parse() -> tuple[argparse.Namespace, list[str]]:
     from instinctlab.engines import adapter as _adapter
 
     _adapter(chosen.engine).add_cli_args(parser)
-    return parser.parse_known_args()
+    return parser.parse_args()
 
 
 def _log_dir(args: argparse.Namespace, experiment: str) -> str:
@@ -100,8 +109,45 @@ def _log_dir(args: argparse.Namespace, experiment: str) -> str:
     return os.path.join(root, stamp)
 
 
+def _checkpoint_iteration(path: Path) -> tuple[int, str]:
+    match = re.fullmatch(r"model_(\d+)\.pt", path.name)
+    return (int(match.group(1)) if match else -1, path.name)
+
+
+def _resolve_resume_checkpoint(args: argparse.Namespace, agent_cfg: object) -> Path | None:
+    """Resolve the legacy runner's run/checkpoint expressions without engine imports."""
+    requested = bool(args.resume or args.load_run or args.checkpoint or getattr(agent_cfg, "resume", False))
+    if not requested:
+        return None
+
+    if args.checkpoint:
+        explicit = Path(args.checkpoint).expanduser()
+        if explicit.is_file():
+            return explicit.resolve()
+
+    root = Path(args.logroot or os.path.join("logs", args.engine, agent_cfg.experiment_name)).resolve()
+    run_selector = args.load_run if args.load_run is not None else getattr(agent_cfg, "load_run", ".*")
+    run_path = Path(str(run_selector)).expanduser() if run_selector else None
+    if run_path is not None and run_path.is_absolute() and run_path.is_dir():
+        runs = [run_path.resolve()]
+    else:
+        if not root.is_dir():
+            raise FileNotFoundError(f"resume log root does not exist: {root}")
+        pattern = re.compile(str(run_selector or ".*"))
+        runs = sorted(path for path in root.iterdir() if path.is_dir() and pattern.fullmatch(path.name))
+    if not runs:
+        raise FileNotFoundError(f"no run matching {run_selector!r} under {root}")
+
+    checkpoint_selector = args.checkpoint or getattr(agent_cfg, "load_checkpoint", r"model_.*.pt")
+    pattern = re.compile(str(checkpoint_selector))
+    models = [path for path in runs[-1].iterdir() if path.is_file() and pattern.fullmatch(path.name)]
+    if not models:
+        raise FileNotFoundError(f"no checkpoint matching {checkpoint_selector!r} under {runs[-1]}")
+    return max(models, key=_checkpoint_iteration)
+
+
 def main() -> None:
-    args, _unknown = _parse()
+    args = _parse()
 
     from instinctlab.engines import adapter as engine_adapter
 
@@ -122,6 +168,13 @@ def main() -> None:
     if args.max_iterations is not None:
         agent_cfg.max_iterations = args.max_iterations
     agent_cfg.device = args.device
+    if args.load_run is not None:
+        agent_cfg.load_run = args.load_run
+    if args.checkpoint is not None:
+        agent_cfg.load_checkpoint = args.checkpoint
+    agent_cfg.resume = bool(args.resume or args.load_run or args.checkpoint or agent_cfg.resume)
+
+    resume_path = _resolve_resume_checkpoint(args, agent_cfg)
 
     log_dir = _log_dir(args, agent_cfg.experiment_name)
     os.makedirs(log_dir, exist_ok=True)
@@ -152,6 +205,9 @@ def main() -> None:
 
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     runner.add_git_repo_to_log(__file__)
+    if resume_path is not None:
+        print(f"[INFO] Loading training checkpoint from {resume_path}")
+        runner.load(str(resume_path))
 
     with open(os.path.join(log_dir, "agent.json"), "w") as handle:
         json.dump(agent_cfg.to_dict(), handle, indent=2, sort_keys=True, default=str)

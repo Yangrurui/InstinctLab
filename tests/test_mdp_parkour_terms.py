@@ -523,6 +523,13 @@ def test_bad_orientation_uses_projected_gravity():
     assert mdp.bad_orientation(_Env(entities={"robot": tilted}), limit_angle=1.5).tolist() == [False]
 
 
+def test_bad_orientation_clamps_roundoff_before_acos():
+    almost_upright = _Entity(projected_gravity_b=torch.tensor([[0.0, 0.0, -1.0000001]]))
+    almost_inverted = _Entity(projected_gravity_b=torch.tensor([[0.0, 0.0, 1.0000001]]))
+    assert mdp.bad_orientation(_Env(entities={"robot": almost_upright}), limit_angle=1.0).tolist() == [False]
+    assert mdp.bad_orientation(_Env(entities={"robot": almost_inverted}), limit_angle=1.0).tolist() == [True]
+
+
 def test_root_height_below_env_origin_minimum_clamps_the_origin():
     robot = _Entity(root_link_pos_w=torch.tensor([[0.0, 0.0, 0.3], [0.0, 0.0, -0.6], [0.0, 0.0, 0.3]]))
     env = _Env(entities={"robot": robot})

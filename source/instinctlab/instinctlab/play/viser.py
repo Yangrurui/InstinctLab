@@ -17,6 +17,15 @@ from typing import Any, Callable
 from instinctlab.sim.robot_spec import RobotSpec
 
 
+def _checkpoint_step(name: str) -> int:
+    """Return the numeric suffix used by ``model_<step>.pt`` checkpoints."""
+    stem = Path(name).stem
+    try:
+        return int(stem.removeprefix("model_"))
+    except ValueError:
+        return -1
+
+
 @dataclass(frozen=True)
 class VisualMesh:
     """One visual mesh, in its parent body's frame."""
@@ -269,15 +278,13 @@ def play_with_viser(
             now = time.time()
             entries: list[tuple[str, str, int]] = []
             for file in sorted(directory.glob("model_*.pt")):
-                try:
-                    step = int(file.stem.split("_")[1])
-                except (IndexError, ValueError):
-                    step = 0
+                step = _checkpoint_step(file.name)
                 entries.append((file.name, format_time_ago(int(now - file.stat().st_mtime)), step))
             entries.sort(key=lambda item: item[2])
             return [(name, ago) for name, ago, _ in entries]
 
-        current = next(iter(reversed(sorted(directory.glob("model_*.pt")))), None)
+        available = list(directory.glob("model_*.pt"))
+        current = max(available, key=lambda path: _checkpoint_step(path.name), default=None)
         if current is not None:
             manager = CheckpointManager(
                 current_name=current.name,

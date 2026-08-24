@@ -18,6 +18,7 @@ from instinctlab.engines.motion_reference import (
     envs_due_for_update,
     fill_buffers,
     index_at_time,
+    interpolate_motion,
     load_retargetted_clip,
     lookahead_times,
     make_buffers,
@@ -145,6 +146,8 @@ def _tiny_clip(nframes: int = 5, fps: float = 50.0):
 def test_exhaustion_freezes_the_last_frame_and_is_counted() -> None:
     clip = _tiny_clip()
     last = clip.nframes - 1
+    assert clip.duration_s == pytest.approx(last / clip.framerate)
+    assert clip.sampling_length_s == pytest.approx(clip.nframes / clip.framerate)
     inside = sample_clip(clip, torch.tensor([0.0]))
     assert bool(inside.validity[0])
     assert int(inside.frame_index[0]) == 0
@@ -178,17 +181,18 @@ def test_exhaustion_freezes_the_last_frame_and_is_counted() -> None:
     assert int(buffers.exhausted_count[0]) == 2
 
 
-def test_a_mismatched_clip_fps_is_refused_not_interpolated(raw_clip) -> None:
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
-
-    with pytest.raises(ValueError, match="Interpolation"):
-        pack_motion_clip(
-            raw_clip,
-            joint_names=G1_29DOF_DFS_JOINT_NAMES,
-            link_names=("pelvis",),
-            model_path="unused.urdf",
-            target_fps=30.0,
-        )
+def test_clip_interpolation_matches_the_sources_half_open_timeline() -> None:
+    root_pos = torch.arange(5, dtype=torch.float32).unsqueeze(-1).expand(5, 3)
+    root_quat = torch.zeros(5, 4)
+    root_quat[:, 0] = 1.0
+    joint_pos = torch.arange(5, dtype=torch.float32).unsqueeze(-1)
+    root_pos_out, root_quat_out, joint_pos_out = interpolate_motion(
+        root_pos, root_quat, joint_pos, source_fps=50.0, target_fps=50.0
+    )
+    assert root_pos_out.shape[0] == root_quat_out.shape[0] == joint_pos_out.shape[0] == 4
+    torch.testing.assert_close(root_pos_out, root_pos[:-1])
+    torch.testing.assert_close(root_quat_out, root_quat[:-1])
+    torch.testing.assert_close(joint_pos_out, joint_pos[:-1])
 
 
 def test_the_clip_clock_is_due_once_per_update_period_not_per_physics_dt() -> None:

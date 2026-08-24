@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -25,7 +26,7 @@ if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
     sys.path.pop(0)
 
 
-def _parse() -> tuple[argparse.Namespace, list[str]]:
+def _parse() -> argparse.Namespace:
     from instinctlab.engines import names
 
     chooser = argparse.ArgumentParser(add_help=False)
@@ -65,7 +66,7 @@ def _parse() -> tuple[argparse.Namespace, list[str]]:
     from instinctlab.engines import adapter as _adapter
 
     _adapter(chosen.engine).add_cli_args(parser)
-    return parser.parse_known_args()
+    return parser.parse_args()
 
 
 def _resolve_viewer(name: str) -> str:
@@ -96,14 +97,20 @@ def _resolve_checkpoint(args: argparse.Namespace, experiment: str) -> Path:
         runs = [path for path in runs if path.name == args.load_run]
     runs.sort()
     for run in reversed(runs):
-        models = sorted(run.glob("model_*.pt"))
+        models = sorted(run.glob("model_*.pt"), key=_checkpoint_iteration)
         if models:
             return models[-1]
     raise FileNotFoundError(f"no model_*.pt under {root}")
 
 
+def _checkpoint_iteration(path: Path) -> tuple[int, str]:
+    """Sort checkpoints by their numeric iteration, with a stable name fallback."""
+    match = re.fullmatch(r"model_(\d+)\.pt", path.name)
+    return (int(match.group(1)) if match else -1, path.name)
+
+
 def main() -> None:
-    args, _unknown = _parse()
+    args = _parse()
 
     from instinctlab.engines import adapter as engine_adapter
 

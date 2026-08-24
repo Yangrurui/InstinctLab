@@ -133,7 +133,7 @@ class MotionReferenceRuntime:
             * (hi - lo)
             + lo
         )
-        self.buffers.start_s[env_ids] = span * self.clip.duration_s
+        self.buffers.start_s[env_ids] = span * self.clip.sampling_length_s
         self.buffers.timestamp[env_ids] = 0.0
         self.last_update[env_ids] = 0.0
         draw_symmetric_mask(self.mask, env_ids, enabled=self.enabled, generator=generator)

@@ -58,6 +58,11 @@ def test_play_uses_mjlab_viser_play_viewer() -> None:
     assert "_DepthViserPlayViewer" not in source
 
 
+def test_checkpoint_steps_are_numeric_not_lexicographic() -> None:
+    assert play_viser._checkpoint_step("model_1000.pt") > play_viser._checkpoint_step("model_900.pt")
+    assert play_viser._checkpoint_step("model_latest.pt") == -1
+
+
 def test_play_enables_instinctmj_depth_debug_vis() -> None:
     term = SimpleNamespace(params={"sensor": "camera", "debug_vis": False})
     env_cfg = SimpleNamespace(observations={"policy": SimpleNamespace(terms={"depth_image": term})})
