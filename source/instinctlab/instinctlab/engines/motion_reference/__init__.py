@@ -28,6 +28,7 @@ from .clip import (
     resolve_clip_path,
     sample_clip,
 )
+from .inventory import MotionFrameInventory, MotionInventoryEntry, discover_motion_inventory
 from .runtime import MotionReferenceRuntime, bind_motion_reference_origins
 from .symmetry import (
     ResolvedSymmetricAugmentation,
@@ -46,6 +47,8 @@ __all__ = [
     "ChainInventory",
     "JointNameMappingError",
     "MotionClip",
+    "MotionFrameInventory",
+    "MotionInventoryEntry",
     "MotionReferenceBuffers",
     "MotionReferenceRuntime",
     "MotionSample",
@@ -57,10 +60,11 @@ __all__ = [
     "augment_link_pos_buffer",
     "augment_link_quat_buffer",
     "augment_quat_buffer",
-    "build_kinematics_chain",
     "bind_motion_reference_origins",
+    "build_kinematics_chain",
     "chain_inventory",
     "clip_frame",
+    "discover_motion_inventory",
     "draw_symmetric_mask",
     "envs_due_for_update",
     "estimate_angular_velocity",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from ._names import as_name_tuple
@@ -112,25 +112,44 @@ class MotionReferenceRef:
     clip: str
     joints: str | Sequence[str]
     links: str | Sequence[str]
+    engine_clips: Mapping[str, str] = field(default_factory=dict, metadata={"contract_omit_if_default": True})
     entity: str = "robot"
     num_frames: int = 1
     frame_interval_s: float = 0.02
     update_period: float = 0.02
     data_start_from: Literal["one_frame_interval", "current_time"] = "one_frame_interval"
     clip_target_fps: float = 50.0
-    velocity_method: Literal["frontward"] = "frontward"
+    velocity_method: Literal["frontward", "backward", "frontbackward"] = "frontward"
     start_range: tuple[float, float] = (0.0, 0.0)
+    dataset_kind: Literal["retargetted", "terrain", "omomo"] = field(
+        default="retargetted", metadata={"contract_omit_if_default": True}
+    )
+    metadata_yaml: str | None = field(default=None, metadata={"contract_omit_if_default": True})
+    selected_files: tuple[str, ...] = field(default=(), metadata={"contract_omit_if_default": True})
+    first_motion_only: bool = field(default=False, metadata={"contract_omit_if_default": True})
+    supported_file_endings: tuple[str, ...] = field(
+        default=("retargetted.npz", "retargeted.npz"), metadata={"contract_omit_if_default": True}
+    )
+    sampling_strategy: Literal["independent", "concat_motion_bins"] = field(
+        default="independent", metadata={"contract_omit_if_default": True}
+    )
+    motion_bin_length_s: float | None = field(default=None, metadata={"contract_omit_if_default": True})
+    ensure_link_below_zero_ground: bool = field(default=False, metadata={"contract_omit_if_default": True})
+    motion_start_height_offset: float = field(default=0.0, metadata={"contract_omit_if_default": True})
     exhaustion: Literal["freeze_last_and_flag"] = "freeze_last_and_flag"
     quaternion: Literal["wxyz"] = "wxyz"
     symmetric_augmentation: SymmetricAugmentationSpec | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "engine_clips", dict(self.engine_clips or {}))
         object.__setattr__(self, "joints", as_name_tuple(self.joints))
         object.__setattr__(self, "links", as_name_tuple(self.links))
         if not self.name:
             raise ValueError("Motion reference has no name.")
         if not self.clip:
             raise ValueError(f"Motion reference {self.name!r} has no clip path.")
+        if any(not engine or not path for engine, path in self.engine_clips.items()):
+            raise ValueError(f"Motion reference {self.name!r} has an empty engine clip binding.")
         if not self.joints:
             raise ValueError(f"Motion reference {self.name!r} was given no joint names.")
         if not self.links:
@@ -160,11 +179,24 @@ class MotionReferenceRef:
             )
         if self.data_start_from not in {"one_frame_interval", "current_time"}:
             raise ValueError(f"Motion reference {self.name!r} has data_start_from={self.data_start_from!r}.")
-        if self.velocity_method != "frontward":
-            raise ValueError(
-                f"Motion reference {self.name!r} has velocity_method={self.velocity_method!r}; "
-                "parkour's sources finite-difference frontward."
-            )
+        if self.velocity_method not in {"frontward", "backward", "frontbackward"}:
+            raise ValueError(f"Motion reference {self.name!r} has velocity_method={self.velocity_method!r}.")
+        if self.dataset_kind not in {"retargetted", "terrain", "omomo"}:
+            raise ValueError(f"Motion reference {self.name!r} has dataset_kind={self.dataset_kind!r}.")
+        if self.dataset_kind == "terrain" and not self.metadata_yaml:
+            raise ValueError(f"Terrain motion reference {self.name!r} requires metadata_yaml.")
+        if any(not path for path in self.selected_files):
+            raise ValueError(f"Motion reference {self.name!r} has an empty selected file name.")
+        if not self.supported_file_endings or any(not suffix for suffix in self.supported_file_endings):
+            raise ValueError(f"Motion reference {self.name!r} must declare non-empty file endings.")
+        if self.sampling_strategy not in {"independent", "concat_motion_bins"}:
+            raise ValueError(f"Motion reference {self.name!r} has sampling_strategy={self.sampling_strategy!r}.")
+        if self.motion_bin_length_s is not None and (
+            not math.isfinite(self.motion_bin_length_s) or self.motion_bin_length_s <= 0.0
+        ):
+            raise ValueError(f"Motion reference {self.name!r} has invalid motion_bin_length_s.")
+        if not math.isfinite(self.motion_start_height_offset):
+            raise ValueError(f"Motion reference {self.name!r} has non-finite motion_start_height_offset.")
         if self.exhaustion != "freeze_last_and_flag":
             raise ValueError(
                 f"Motion reference {self.name!r} has exhaustion={self.exhaustion!r}; "
@@ -190,6 +222,10 @@ class MotionReferenceRef:
                     f"Motion reference {self.name!r} symmetric_augmentation links "
                     f"{sorted(spec_links)} do not match sensor links {sorted(have_links)}."
                 )
+
+    def for_engine(self, engine: str) -> MotionReferenceRef:
+        """Resolve the reference project's engine-specific dataset root."""
+        return replace(self, clip=self.engine_clips.get(engine, self.clip), engine_clips={})
 
 
 __all__ = ["MotionReferenceRef", "SymmetricAugmentationSpec"]

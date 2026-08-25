@@ -23,6 +23,7 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
     from isaaclab.sensors import SensorBase, SensorBaseCfg
     from isaaclab.utils import configclass
 
+    ref = ref.for_engine("isaacsim")
     model_path = robot.asset_for("isaacsim").path
 
     class MotionReferenceSensor(SensorBase):
@@ -58,6 +59,10 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         @property
         def aiming_frame_idx(self):
             return self._runtime.aiming_frame_idx
+
+        @property
+        def init_reference_state(self):
+            return self._runtime.init_buffers
 
         def _update_buffers_impl(self, env_ids):
             env_ids = torch.as_tensor(env_ids, device=self.device)

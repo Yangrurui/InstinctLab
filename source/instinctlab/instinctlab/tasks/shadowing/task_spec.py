@@ -62,12 +62,26 @@ MOTION_LINKS = (
 )
 
 MOTION_PATHS = {
-    "whole_body": "~/Xyk/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
-    "perceptive": "~/Xyk/Datasets/her_leveled",
-    "perceptive_vae": "~/Xyk/Datasets/20260317_50cm_kneeClimbStep1_projectInstinct",
-    "perceptive_hoi": "~/Datasets/OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
-    "beyondmimic": "~/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+    "whole_body": {
+        "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+        "mjlab": "~/Xyk/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+    },
+    "perceptive": {"isaacsim": "{AbsolutePathOfYourDataDirectory}", "mjlab": "~/Xyk/Datasets/her_leveled"},
+    "perceptive_vae": {
+        "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1",
+        "mjlab": "~/Xyk/Datasets/20260317_50cm_kneeClimbStep1_projectInstinct",
+    },
+    "perceptive_hoi": {
+        "isaacsim": "/localhdd/Datasets/OMOMO/retargeted",
+        "mjlab": "~/Datasets/OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
+    },
+    "beyondmimic": {
+        "isaacsim": "~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+        "mjlab": "~/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+    },
 }
+
+BEYONDMIMIC_SELECTED_MOTION = "sprint1_subject2_retargetted.npz"
 
 RUNNERS = {
     "whole_body": "instinctlab.tasks.shadowing.whole_body.config.g1.agents.instinct_rl_ppo_cfg:G1ShadowingPPORunnerCfg",
@@ -98,10 +112,15 @@ class ShadowingVariant:
 def _motion_reference(variant: ShadowingVariant, joints: tuple[str, ...]) -> MotionReferenceRef:
     current_only = variant.family == "beyondmimic"
     frame_interval = 0.0 if current_only else (0.02 if variant.family == "whole_body" else 0.1)
-    start_range = (0.0, 0.0) if variant.play or variant.one_motion else (0.0, 0.8)
+    start_range = (0.0, 0.8) if variant.family in {"whole_body", "beyondmimic"} else (0.0, 0.0)
+    if variant.play and variant.family != "whole_body":
+        start_range = (0.0, 0.0)
+    terrain = variant.family in {"perceptive", "perceptive_vae"}
+    binned = not variant.one_motion and not (variant.play and variant.family != "whole_body")
     return MotionReferenceRef(
         name="motion_reference",
-        clip=MOTION_PATHS[variant.family],
+        clip=MOTION_PATHS[variant.family]["isaacsim"],
+        engine_clips=MOTION_PATHS[variant.family],
         joints=joints,
         links=MOTION_LINKS,
         num_frames=1 if current_only else 10,
@@ -109,8 +128,22 @@ def _motion_reference(variant: ShadowingVariant, joints: tuple[str, ...]) -> Mot
         update_period=0.02,
         data_start_from="current_time",
         clip_target_fps=50.0,
-        velocity_method="frontward",
+        velocity_method="frontbackward",
         start_range=start_range,
+        dataset_kind=("terrain" if terrain else ("omomo" if variant.family == "perceptive_hoi" else "retargetted")),
+        metadata_yaml="metadata.yaml" if terrain else None,
+        selected_files=(BEYONDMIMIC_SELECTED_MOTION,) if variant.family == "beyondmimic" else (),
+        first_motion_only=variant.one_motion,
+        sampling_strategy=(
+            "concat_motion_bins"
+            if variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
+            and not variant.one_motion
+            and not variant.play
+            else "independent"
+        ),
+        motion_bin_length_s=1.0 if binned else None,
+        ensure_link_below_zero_ground=variant.family == "perceptive",
+        motion_start_height_offset=0.1 if variant.family == "perceptive" else 0.0,
         exhaustion="freeze_last_and_flag",
         quaternion="wxyz",
         symmetric_augmentation=None,
@@ -348,7 +381,7 @@ def _terminations(variant: ShadowingVariant, motion: MotionReferenceRef) -> dict
         "link_pos_too_far": DoneTermSpec(kind="shadow_link_position_too_far"),
         "dataset_exhausted": DoneTermSpec(
             func=mdp.dataset_exhausted,
-            params={"reference_cfg": motion, "reset_without_notice": variant.family == "perceptive_vae"},
+            params={"sensor": motion, "reset_without_notice": variant.family == "perceptive_vae"},
             time_out=True,
         ),
         "out_of_border": DoneTermSpec(func=mdp.terrain_out_of_bounds, time_out=True),

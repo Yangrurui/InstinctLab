@@ -23,6 +23,7 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
 
     from mjlab.sensor import Sensor, SensorCfg
 
+    ref = ref.for_engine("mjlab")
     model_path = robot.asset_for("mjlab").path
 
     class MotionReferenceSensor(Sensor):
@@ -68,6 +69,10 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         @property
         def aiming_frame_idx(self):
             return self._runtime.aiming_frame_idx
+
+        @property
+        def init_reference_state(self):
+            return self._runtime.init_buffers
 
         def _compute_data(self):
             return self._data

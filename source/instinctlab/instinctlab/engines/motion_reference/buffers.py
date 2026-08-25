@@ -33,6 +33,7 @@ class MotionReferenceBuffers:
     ever_exhausted: torch.Tensor
     timestamp: torch.Tensor
     start_s: torch.Tensor
+    motion_id: torch.Tensor
     frame_index: torch.Tensor
 
 
@@ -67,6 +68,7 @@ def make_buffers(
         ever_exhausted=torch.zeros(num_envs, dtype=torch.bool, device=device),
         timestamp=torch.zeros(num_envs, device=device),
         start_s=torch.zeros(num_envs, device=device),
+        motion_id=torch.zeros(num_envs, dtype=torch.long, device=device),
         frame_index=torch.zeros(num_envs, num_frames, dtype=torch.long, device=device),
     )
 

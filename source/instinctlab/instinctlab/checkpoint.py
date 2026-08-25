@@ -8,7 +8,7 @@ import math
 import re
 import warnings
 from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
+from dataclasses import MISSING, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -55,9 +55,20 @@ def _canonical(value: Any) -> Any:
             ],
         }
     if is_dataclass(value) and not isinstance(value, type):
+
+        def include(field) -> bool:
+            if not field.metadata.get("contract_omit_if_default", False):
+                return True
+            default = field.default
+            if default is MISSING:
+                default = field.default_factory()
+            return getattr(value, field.name) != default
+
         return {
             "type": _type_name(value),
-            "fields": [[field.name, _canonical(getattr(value, field.name))] for field in fields(value)],
+            "fields": [
+                [field.name, _canonical(getattr(value, field.name))] for field in fields(value) if include(field)
+            ],
         }
     if isinstance(value, Mapping):
         # Mapping order is part of the tensor contract for observations, actions and rewards.
