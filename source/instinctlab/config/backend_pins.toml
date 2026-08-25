@@ -16,3 +16,8 @@ packages = [
 git = "https://github.com/mujocolab/mjlab.git"
 tag = "v1.5.0"
 pypi = "mjlab==1.5.0"
+runtime = [
+    "mujoco==3.10.0",
+    "mujoco-warp==3.10.0.1",
+    "warp-lang==1.14.0",
+]

@@ -88,7 +88,12 @@ class MjlabAdapter:
     """Compiles a :class:`TaskSpec` into an mjlab ``ManagerBasedRlEnvCfg``."""
 
     name = "mjlab"
-    SUPPORTED_VERSIONS = ">=1.5,<1.6"
+    SUPPORTED_VERSIONS = "==1.5.0"
+    RUNTIME_VERSIONS = {
+        "mujoco": "==3.10.0",
+        "mujoco-warp": "==3.10.0.1",
+        "warp-lang": "==1.14.0",
+    }
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser) -> None:
@@ -118,6 +123,8 @@ class MjlabAdapter:
         engine on whatever stack mjlab decides that helper means.
         """
         require_supported_version("mjlab", MjlabAdapter.SUPPORTED_VERSIONS, engine=MjlabAdapter.name)
+        for distribution, supported in MjlabAdapter.RUNTIME_VERSIONS.items():
+            require_supported_version(distribution, supported, engine=MjlabAdapter.name)
 
         from mjlab.utils.torch import configure_torch_backends
 

@@ -17,7 +17,35 @@ from typing import TYPE_CHECKING
 from .virtual_obstacle_base import VirtualObstacleBase
 
 if TYPE_CHECKING:
+    from mjlab.viewer.debug_visualizer import DebugVisualizer
+
     from .edge_cylinder_cfg import EdgeCylinderCfg, GreedyconcatEdgeCylinderCfg
+
+_DEFAULT_DEBUG_CYLINDER_RGBA = (0.0, 0.0, 0.9, 0.2)
+
+
+def _remaining_debug_geom_capacity(visualizer) -> int | None:
+    scn = getattr(visualizer, "scn", None)
+    if scn is None:
+        return None
+    geoms = getattr(scn, "geoms", None)
+    ngeom = getattr(scn, "ngeom", None)
+    if geoms is None or ngeom is None:
+        return None
+    return max(len(geoms) - int(ngeom), 0)
+
+
+def _sample_debug_rows(rows: torch.Tensor, capacity: int | None) -> torch.Tensor:
+    if rows.numel() == 0 or capacity is None:
+        return rows
+    if capacity <= 0:
+        return rows[:0]
+    count = int(rows.shape[0])
+    if count <= capacity:
+        return rows
+    sample_ids = torch.linspace(0, count - 1, steps=capacity, device=rows.device)
+    sample_ids = torch.round(sample_ids).to(torch.long)
+    return rows.index_select(0, sample_ids)
 
 
 def _greedyconcat_component_labels(num_vertices: int, edge_pairs: np.ndarray) -> np.ndarray:
@@ -234,6 +262,20 @@ class EdgeCylinder(VirtualObstacleBase):
             if self.cylinders is not None
             else torch.zeros_like(points, device=self.device)
         )
+
+    def debug_vis(self, visualizer: DebugVisualizer) -> None:
+        if self.edges_pyt.numel() == 0:
+            return
+        radius = float(self.cfg.cylinder_radius)
+        edge_rows = _sample_debug_rows(self.edges_pyt, _remaining_debug_geom_capacity(visualizer))
+        edge_rows_np = edge_rows.cpu().numpy()
+        for edge in edge_rows_np:
+            visualizer.add_cylinder(
+                start=edge[:3],
+                end=edge[3:6],
+                radius=radius,
+                color=_DEFAULT_DEBUG_CYLINDER_RGBA,
+            )
 
     def process_edges(self, edge_coords: np.ndarray) -> np.ndarray:
         return edge_coords

@@ -541,6 +541,27 @@ def test_body_frame_command_and_tracking_metrics() -> None:
     assert cmd.metrics["tracking_exp_vel_yaw"].item() == pytest.approx(1.0 / 500.0)
 
 
+def test_command_mix_ratios_separate_zero_commands_from_tracking_quality() -> None:
+    """InstinctMJ's four debug ratios. Without them a command-distribution shift reads as a
+    tracking regression: env 1 below scores a perfect tracking_exp on a command of zero."""
+    cmd = _StubCommand(n_env=2, columns=("flat",), types=(0, 0))
+    cmd.pos_command_w[:] = torch.tensor([[1.0, 0.0, 0.8], [0.1, 0.0, 0.8]])
+    cmd.max_command_b[:] = torch.tensor([[0.8, 0.0, 1.0], [0.8, 0.0, 1.0]])
+    cmd.is_standing_env[:] = torch.tensor([False, True])
+    cmd.random_velocity_indices[:] = torch.tensor([False, True])
+    cmd._update_command()
+    assert torch.allclose(cmd.command, torch.tensor([[0.8, 0.0, 0.0], [0.0, 0.0, 0.0]]))
+
+    cmd._update_metrics()
+    step = 1.0 / 500.0
+    assert cmd.metrics["command_nonzero_ratio"].tolist() == pytest.approx([step, 0.0])
+    assert cmd.metrics["target_near_ratio"].tolist() == pytest.approx([0.0, step])
+    assert cmd.metrics["standing_env_ratio"].tolist() == pytest.approx([0.0, step])
+    assert cmd.metrics["random_velocity_env_ratio"].tolist() == pytest.approx([0.0, step])
+    # env 1 stood still against a zero command and still scores a perfect tracking_exp.
+    assert cmd.metrics["tracking_exp_vel_xy"][1].item() == pytest.approx(step)
+
+
 def test_yaw_command_and_mismatched_tracking_score() -> None:
     cmd = _StubCommand()
     cmd.pos_command_w[:] = torch.tensor([[1.0, 0.0, 0.8]])

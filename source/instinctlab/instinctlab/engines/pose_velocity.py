@@ -356,6 +356,13 @@ class PoseVelocityMixin:
         self.metrics["error_vel_yaw"] = torch.zeros(n_env, device=device)
         self.metrics["tracking_exp_vel_xy"] = torch.zeros(n_env, device=device)
         self.metrics["tracking_exp_vel_yaw"] = torch.zeros(n_env, device=device)
+        # Command-mix ratios. The tracking metrics above cannot separate "tracked a zero command
+        # well" from "tracked a real command well", so a distribution shift against InstinctMJ
+        # looks like a tracking regression. These four split the two apart.
+        self.metrics["command_nonzero_ratio"] = torch.zeros(n_env, device=device)
+        self.metrics["target_near_ratio"] = torch.zeros(n_env, device=device)
+        self.metrics["standing_env_ratio"] = torch.zeros(n_env, device=device)
+        self.metrics["random_velocity_env_ratio"] = torch.zeros(n_env, device=device)
 
         self.lin_vel_x_range = torch.zeros(n_env, 2, device=device)
         self.lin_vel_y_range = torch.zeros(n_env, 2, device=device)
@@ -432,6 +439,17 @@ class PoseVelocityMixin:
         self.metrics["tracking_exp_vel_yaw"] += (
             torch.exp(-angular_vel_error / self.cfg.ang_vel_metrics_std**2) / self._env.max_episode_length
         )
+
+        max_episode_length = self._env.max_episode_length
+        target_dist = torch.norm((self.pos_command_w - self.robot.data.root_link_pos_w[:, :3])[:, :2], dim=1)
+        command_nonzero = torch.logical_or(
+            torch.norm(self.vel_command_b[:, :2], dim=1) > 1e-6,
+            torch.abs(self.vel_command_b[:, 2]) > 1e-6,
+        )
+        self.metrics["command_nonzero_ratio"] += command_nonzero.float() / max_episode_length
+        self.metrics["target_near_ratio"] += (target_dist <= self.cfg.target_dis_threshold).float() / max_episode_length
+        self.metrics["standing_env_ratio"] += self.is_standing_env.float() / max_episode_length
+        self.metrics["random_velocity_env_ratio"] += self.random_velocity_indices.float() / max_episode_length
 
     def _resample_command(self, env_ids: Sequence[int] | torch.Tensor) -> None:
         if len(env_ids) == 0:

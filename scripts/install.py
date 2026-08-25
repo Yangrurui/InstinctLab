@@ -110,6 +110,13 @@ def _install_mjlab(workspace: Path, pins: dict, *, force: bool) -> None:
     cfg = pins["mjlab"]
     root = workspace / "mjlab"
     _ensure_checkout(cfg["git"], root, cfg["tag"])
+    # MJLab's declared lower bounds allow newer MJWarp/Warp releases. Those
+    # releases change the contact and constraint kernels, so satisfying the
+    # version range does not reproduce InstinctMJ's training plant. Install
+    # the verified runtime first; the editable install then sees its broad
+    # requirements as already satisfied and leaves these exact versions in
+    # place.
+    _pip(*cfg["runtime"])
     _pip_editable("mjlab", root, force=force)
 
 

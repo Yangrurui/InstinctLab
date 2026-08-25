@@ -66,7 +66,14 @@ ISAAC_PROPORTION_COLUMNS: tuple[str, ...] = (
     "hf_pyramid_slope_inv",
 )
 
-REQUIRED_COMMAND_METRICS: tuple[str, ...] = ("tracking_exp_vel_xy", "tracking_exp_vel_yaw")
+REQUIRED_COMMAND_METRICS: tuple[str, ...] = (
+    "tracking_exp_vel_xy",
+    "tracking_exp_vel_yaw",
+    "command_nonzero_ratio",
+    "target_near_ratio",
+    "standing_env_ratio",
+    "random_velocity_env_ratio",
+)
 PARKOUR_KIND_NAMES: frozenset[str] = frozenset(
     {
         "pose_velocity",

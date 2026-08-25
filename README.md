@@ -57,6 +57,12 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     python scripts/install.py
     ```
 
+    The MJLab backend is installed with the InstinctMJ-compatible physics stack
+    (`mujoco==3.10.0`, `mujoco-warp==3.10.0.1`, `warp-lang==1.14.0`). These are exact pins: newer
+    patch releases change contact and constraint kernels and are not treated as
+    the same training plant. The shared Isaac/MJLab environment keeps its existing
+    compatible Torch build; Torch is not upgraded by these pins.
+
     Equivalent pip-only extra (no sibling checkouts; Isaac Lab comes from git):
 
     ```bash

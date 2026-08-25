@@ -228,6 +228,24 @@ def enable_pose_command_debug_vis(target: object) -> None:
         term.patch_vis = False
 
 
+def enable_virtual_terrain_debug_vis(target: object) -> None:
+    """Turn on InstinctMJ virtual edge cylinders for Viser play.
+
+    Training keeps ``TerrainImporter.set_debug_vis(False)``. Play must patch the
+    live terrain entity after ``make_env()`` — cfg flags are already consumed.
+    """
+    env = getattr(target, "unwrapped", target)
+    scene = getattr(env, "scene", None)
+    if scene is None:
+        return
+    terrain = getattr(scene, "terrain", None)
+    if terrain is None:
+        return
+    setter = getattr(terrain, "set_debug_vis", None)
+    if callable(setter):
+        setter(True)
+
+
 def _import_viser():
     """Import Viser, preferring the env install over Isaac Sim's bundled websockets.
 
@@ -356,6 +374,8 @@ def play_with_viser(
     set_debug_image_sink(_show_depth)
     enable_depth_image_debug_vis(env)
     enable_pose_command_debug_vis(env)
+    # Virtual terrain cylinders are temporarily off during play (re-enable via
+    # enable_virtual_terrain_debug_vis(env) when needed).
     try:
         _InstinctViserPlayViewer(
             env,

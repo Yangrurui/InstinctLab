@@ -71,6 +71,7 @@ def test_play_uses_mjlab_viser_play_viewer() -> None:
     assert "ViserPlayViewer" in source
     assert "enable_pose_command_debug_vis" in source
     assert "enable_depth_image_debug_vis" in source
+    assert "enable_virtual_terrain_debug_vis" in inspect.getsource(play_viser)
     assert "set_debug_image_sink" in source
     assert "_update_env_dependent_plots" in source
     assert "add_mesh_trimesh" not in source
@@ -120,6 +121,19 @@ def test_play_depth_debug_vis_routes_through_viser_not_cv2_during_reset() -> Non
     assert "enable_depth_image_debug_vis" in viser_play
 
 
+def test_play_enables_virtual_terrain_debug_vis_on_live_terrain() -> None:
+    terrain = SimpleNamespace(_debug_vis_enabled=False)
+    env = SimpleNamespace(unwrapped=SimpleNamespace(scene=SimpleNamespace(terrain=terrain)))
+
+    def _set_debug_vis(enabled: bool) -> bool:
+        terrain._debug_vis_enabled = enabled
+        return True
+
+    terrain.set_debug_vis = _set_debug_vis
+    play_viser.enable_virtual_terrain_debug_vis(env)
+    assert terrain._debug_vis_enabled is True
+
+
 def test_play_enables_instinctmj_pose_command_debug_vis() -> None:
     term = SimpleNamespace(debug_vis=False, patch_vis=True)
     env_cfg = SimpleNamespace(commands={"base_velocity": term})
@@ -135,3 +149,26 @@ def test_play_patches_pose_command_debug_vis_on_the_live_term() -> None:
     play_viser.enable_pose_command_debug_vis(env)
     assert cfg.debug_vis is True
     assert cfg.patch_vis is False
+
+
+def test_edge_cylinder_debug_vis_draws_cylinders() -> None:
+    import torch
+
+    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder import EdgeCylinder
+    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder_cfg import EdgeCylinderCfg
+
+    class _Vis:
+        def __init__(self) -> None:
+            self.cylinders: list[tuple] = []
+
+        def add_cylinder(self, *, start, end, radius, color, label=None) -> None:
+            del label
+            self.cylinders.append((start, end, radius, color))
+
+    cfg = EdgeCylinderCfg(class_type=EdgeCylinder)
+    edge = EdgeCylinder(cfg)
+    edge.edges_pyt = torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]], dtype=torch.float32)
+    vis = _Vis()
+    edge.debug_vis(vis)
+    assert len(vis.cylinders) == 1
+    assert vis.cylinders[0][2] == cfg.cylinder_radius

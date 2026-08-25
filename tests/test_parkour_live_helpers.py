@@ -16,6 +16,7 @@ from tests.parkour_live_expect import (
     CAMERA_TILT_ROLL,
     CAMERA_TILT_YAW,
     MJLAB_CURRICULUM_COLUMNS,
+    REQUIRED_COMMAND_METRICS,
     SCANNER_OFFSET,
     assert_depth_camera_miss_is_positive_infinity,
     assert_depth_camera_shape,
@@ -34,7 +35,7 @@ def test_live_invariants_pass_on_a_faithful_stub() -> None:
     spec = SimpleNamespace(robot=SimpleNamespace(joint_names=("hip", "knee")))
     compiled = SimpleNamespace(resolution=SimpleNamespace(skipped={}))
     command = SimpleNamespace(
-        metrics={"tracking_exp_vel_xy": torch.zeros(2), "tracking_exp_vel_yaw": torch.zeros(2)},
+        metrics={key: torch.zeros(2) for key in REQUIRED_COMMAND_METRICS},
         _column_names=list(MJLAB_CURRICULUM_COLUMNS),
     )
     action = SimpleNamespace(target_names=["hip", "knee"])

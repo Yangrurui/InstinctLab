@@ -75,6 +75,13 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
         check_contact_overflow(self, phase="step")
         return result
 
+    def update_visualizers(self, visualizer) -> None:
+        """InstinctMJ draws virtual edge cylinders through the terrain importer."""
+        super().update_visualizers(visualizer)
+        terrain = self.scene.terrain
+        if terrain is not None and hasattr(terrain, "debug_vis"):
+            terrain.debug_vis(visualizer)
+
     def _reset_idx(self, env_ids=None) -> None:
         from instinctlab.mdp.observations import clear_delayed_depth_history
 

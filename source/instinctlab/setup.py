@@ -30,7 +30,7 @@ _ISAACLAB_GIT = "git+{git}@{commit}".format(**BACKEND_PINS["isaaclab"])
 ISAACLAB_REQUIRES = [
     f"{name} @ {_ISAACLAB_GIT}#subdirectory=source/{name}" for name in BACKEND_PINS["isaaclab"]["packages"]
 ]
-MJLAB_REQUIRES = [BACKEND_PINS["mjlab"]["pypi"]]
+MJLAB_REQUIRES = [BACKEND_PINS["mjlab"]["pypi"], *BACKEND_PINS["mjlab"]["runtime"]]
 EXTRAS_REQUIRE = {
     "isaaclab": ISAACLAB_REQUIRES,
     "mjlab": MJLAB_REQUIRES,
