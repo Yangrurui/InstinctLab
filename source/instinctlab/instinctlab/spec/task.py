@@ -34,6 +34,7 @@ from typing import Any
 from instinctlab.sim.robot_spec import RobotSpec
 
 from .mdp import MdpSpec
+from .rigid_object import RigidObjectRef
 from .sensor import ContactSensorRef, MotionReferenceRef, RayCasterRef, VirtualObstacleRef, VolumePointsRef
 
 __all__ = [
@@ -208,6 +209,7 @@ class SceneSpec:
     motion_references: tuple[MotionReferenceRef, ...] = ()
     """Clip-backed motion references. A new sensor family, not a ray or a contact."""
     volume_points: tuple[VolumePointsRef, ...] = ()
+    rigid_objects: tuple[RigidObjectRef, ...] = ()
     """Ankle (or other) volume-point clouds. Penetration is not a raycast."""
     env_spacing: float = 2.5
 
@@ -216,6 +218,7 @@ class SceneSpec:
         object.__setattr__(self, "ray_casters", tuple(self.ray_casters))
         object.__setattr__(self, "motion_references", tuple(self.motion_references))
         object.__setattr__(self, "volume_points", tuple(self.volume_points))
+        object.__setattr__(self, "rigid_objects", tuple(self.rigid_objects))
         names = (
             [sensor.name for sensor in self.contact_sensors]
             + [sensor.name for sensor in self.ray_casters]
@@ -225,6 +228,9 @@ class SceneSpec:
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
             raise ValueError(f"Sensor names must be unique; repeated: {duplicates}.")
+        object_names = [obj.name for obj in self.rigid_objects]
+        if len(object_names) != len(set(object_names)):
+            raise ValueError("Rigid object names must be unique.")
         if self.env_spacing <= 0.0:
             raise ValueError(f"env_spacing must be positive, got {self.env_spacing}.")
 

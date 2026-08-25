@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from instinctlab.compat.math import quat_apply, quat_inv, quat_mul
+from instinctlab.compat.math import quat_apply, quat_from_euler_xyz, quat_inv, quat_mul
 from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
 from instinctlab.spec.sensor import RayCasterRef
 
@@ -139,7 +139,11 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             )
             self._output = {
                 "distance_to_image_plane": torch.zeros(
-                    data.nworld, sensor.pattern.height, sensor.pattern.width, 1, device=device
+                    data.nworld,
+                    sensor.pattern.height,
+                    sensor.pattern.width,
+                    1,
+                    device=device,
                 )
             }
             self._cam_pos = torch.zeros(data.nworld, 3, device=device)
@@ -148,6 +152,16 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             self._image_plane_max = float(self.cfg.image_plane_max)
             self._hop_epsilon = float(hop["hop_epsilon_m"])
             self._hop_max = int(hop["hop_max"])
+            self._calibration_noise = torch.zeros(data.nworld, 6, device=device)
+            self.frame_sequence = 0
+
+        def update(self, dt: float) -> None:
+            super().update(dt)
+            self.frame_sequence += 1
+
+        def set_offset_noise(self, env_ids, pose_delta: torch.Tensor) -> None:
+            """Set persistent per-environment xyz/rpy calibration error."""
+            self._calibration_noise[env_ids] = pose_delta
 
         def prepare_rays(self) -> None:
             """Full attach-body rotation plus the world-convention offset."""
@@ -159,9 +173,19 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             frame_pos = self._data.xpos[:, body_id]
             frame_quat = self._data.xquat[:, body_id]
             offset_pos = torch.as_tensor(self.cfg.origin_offset, device=frame_pos.device, dtype=frame_pos.dtype)
-            offset_quat = torch.as_tensor(self.cfg.origin_offset_rot, device=frame_pos.device, dtype=frame_pos.dtype)
-            cam_pos = frame_pos + quat_apply(frame_quat, offset_pos.expand_as(frame_pos))
-            cam_quat = quat_mul(frame_quat, offset_quat.expand_as(frame_quat))
+            offset_quat = torch.as_tensor(
+                self.cfg.origin_offset_rot,
+                device=frame_pos.device,
+                dtype=frame_pos.dtype,
+            )
+            noisy_pos = offset_pos.expand_as(frame_pos) + self._calibration_noise[:, :3]
+            delta_quat = quat_from_euler_xyz(
+                self._calibration_noise[:, 3],
+                self._calibration_noise[:, 4],
+                self._calibration_noise[:, 5],
+            )
+            cam_pos = frame_pos + quat_apply(frame_quat, noisy_pos)
+            cam_quat = quat_mul(frame_quat, quat_mul(delta_quat, offset_quat.expand_as(frame_quat)))
             self._cam_pos = cam_pos
             self._cam_quat = cam_quat
 
@@ -169,10 +193,12 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             num_rays = self._num_rays
             quat_exp = cam_quat.unsqueeze(1).expand(batch, num_rays, 4).reshape(batch * num_rays, 4)
             starts = quat_apply(
-                quat_exp, self._local_offsets.unsqueeze(0).expand(batch, -1, -1).reshape(batch * num_rays, 3)
+                quat_exp,
+                self._local_offsets.unsqueeze(0).expand(batch, -1, -1).reshape(batch * num_rays, 3),
             ).view(batch, num_rays, 3)
             dirs = quat_apply(
-                quat_exp, self._local_directions.unsqueeze(0).expand(batch, -1, -1).reshape(batch * num_rays, 3)
+                quat_exp,
+                self._local_directions.unsqueeze(0).expand(batch, -1, -1).reshape(batch * num_rays, 3),
             ).view(batch, num_rays, 3)
             starts = starts + cam_pos.unsqueeze(1)
 
@@ -266,7 +292,11 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             quat = quat_inv(self._cam_quat).unsqueeze(1).expand(-1, self._num_rays, -1).reshape(-1, 4)
             cam_delta = quat_apply(quat, delta.reshape(-1, 3)).view(-1, self._num_rays, 3)
             in_range = finite & (cam_delta[..., 0] <= self._image_plane_max)
-            depth = torch.where(in_range, cam_delta[..., 0], torch.full_like(cam_delta[..., 0], float("inf")))
+            depth = torch.where(
+                in_range,
+                cam_delta[..., 0],
+                torch.full_like(cam_delta[..., 0], float("inf")),
+            )
             self._output["distance_to_image_plane"] = depth.view(-1, self.cfg.image_height, self.cfg.image_width, 1)
 
         def _compute_data(self):

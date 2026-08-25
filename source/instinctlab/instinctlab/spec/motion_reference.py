@@ -112,6 +112,7 @@ class MotionReferenceRef:
     clip: str
     joints: str | Sequence[str]
     links: str | Sequence[str]
+    scene_objects: tuple[str, ...] = field(default=(), metadata={"contract_omit_if_default": True})
     engine_clips: Mapping[str, str] = field(default_factory=dict, metadata={"contract_omit_if_default": True})
     entity: str = "robot"
     num_frames: int = 1
@@ -144,6 +145,7 @@ class MotionReferenceRef:
         object.__setattr__(self, "engine_clips", dict(self.engine_clips or {}))
         object.__setattr__(self, "joints", as_name_tuple(self.joints))
         object.__setattr__(self, "links", as_name_tuple(self.links))
+        object.__setattr__(self, "scene_objects", as_name_tuple(self.scene_objects))
         if not self.name:
             raise ValueError("Motion reference has no name.")
         if not self.clip:
@@ -158,6 +160,8 @@ class MotionReferenceRef:
             raise ValueError(f"Motion reference {self.name!r} repeats a joint name.")
         if len(set(self.links)) != len(self.links):
             raise ValueError(f"Motion reference {self.name!r} repeats a link name.")
+        if len(set(self.scene_objects)) != len(self.scene_objects):
+            raise ValueError(f"Motion reference {self.name!r} repeats a scene object name.")
         if self.num_frames < 1:
             raise ValueError(f"Motion reference {self.name!r} has num_frames={self.num_frames}.")
         if not math.isfinite(self.frame_interval_s) or self.frame_interval_s < 0.0:

@@ -58,6 +58,29 @@ class MotionReferenceRuntime:
         self.last_update = last_update
         self.mask = mask
         self.resolved = resolved
+        self._bin_counts = torch.tensor(
+            [self._num_bins(clip) for clip in clips],
+            dtype=torch.long,
+            device=buffers.timestamp.device,
+        )
+        self._bin_offsets = torch.cat(
+            (
+                torch.zeros(1, dtype=torch.long, device=buffers.timestamp.device),
+                self._bin_counts.cumsum(0),
+            )
+        )
+        total_bins = int(self._bin_counts.sum())
+        self.motion_bin_weights = torch.ones(total_bins, device=buffers.timestamp.device)
+        self.motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
+        self.current_motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
+
+    def _num_bins(self, clip: MotionClip) -> int:
+        if self.ref.motion_bin_length_s is None:
+            return 1
+        bins = int(clip.sampling_length_s // self.ref.motion_bin_length_s)
+        if bins < 1:
+            raise ValueError(f"Motion {clip.path!r} is shorter than one {self.ref.motion_bin_length_s}s sampling bin.")
+        return bins
 
     @classmethod
     def from_clip(
@@ -80,8 +103,22 @@ class MotionReferenceRuntime:
     ) -> MotionReferenceRuntime:
         joints = tuple(ref.joints)
         links = tuple(ref.links)
-        buffers = make_buffers(num_envs, ref.num_frames, len(joints), len(links), device=device)
-        init_buffers = make_buffers(num_envs, 1, len(joints), len(links), device=device)
+        buffers = make_buffers(
+            num_envs,
+            ref.num_frames,
+            len(joints),
+            len(links),
+            tuple(ref.scene_objects),
+            device=device,
+        )
+        init_buffers = make_buffers(
+            num_envs,
+            1,
+            len(joints),
+            len(links),
+            tuple(ref.scene_objects),
+            device=device,
+        )
         resolved = None
         if ref.symmetric_augmentation is not None:
             resolved = resolve_symmetric_augmentation(ref.symmetric_augmentation, joints, links)
@@ -157,21 +194,53 @@ class MotionReferenceRuntime:
         self.env_origins = origins
 
     def reset(self, env_ids: torch.Tensor, generator: torch.Generator | None = None) -> None:
-        weights = torch.tensor(
+        if env_ids.numel() == 0:
+            return
+        device = self.buffers.timestamp.device
+        clip_weights = torch.tensor(
             [entry.weight for entry in self.inventory],
             dtype=torch.float32,
-            device=self.buffers.timestamp.device,
+            device=device,
         )
-        if self.ref.sampling_strategy == "concat_motion_bins":
-            weights.fill_(1.0)
-        self.buffers.motion_id[env_ids] = torch.multinomial(
-            weights,
+        sampled_bins = torch.empty(env_ids.numel(), dtype=torch.long, device=device)
+        if self.ref.sampling_strategy == "concat_motion_bins" and self.ref.motion_bin_length_s is not None:
+            global_bin = torch.multinomial(
+                self.motion_bin_weights,
+                int(env_ids.numel()),
+                replacement=True,
+                generator=generator,
+            )
+            motion_ids = torch.bucketize(global_bin, self._bin_offsets[1:], right=True)
+            sampled_bins.copy_(global_bin - self._bin_offsets[motion_ids])
+        else:
+            motion_ids = torch.multinomial(
+                clip_weights,
+                int(env_ids.numel()),
+                replacement=True,
+                generator=generator,
+            )
+            for motion_id in range(len(self.clips)):
+                selected = motion_ids == motion_id
+                count = int(selected.sum())
+                if not count:
+                    continue
+                lo_bin, hi_bin = (
+                    int(self._bin_offsets[motion_id]),
+                    int(self._bin_offsets[motion_id + 1]),
+                )
+                sampled_bins[selected] = torch.multinomial(
+                    self.motion_bin_weights[lo_bin:hi_bin],
+                    count,
+                    replacement=True,
+                    generator=generator,
+                )
+        self.buffers.motion_id[env_ids] = motion_ids
+        lo, hi = self.ref.start_range
+        random = torch.rand(
             int(env_ids.numel()),
-            replacement=True,
+            device=self.buffers.timestamp.device,
             generator=generator,
         )
-        lo, hi = self.ref.start_range
-        random = torch.rand(int(env_ids.numel()), device=self.buffers.timestamp.device, generator=generator)
         for motion_id, clip in enumerate(self.clips):
             selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
             if selected.numel() == 0:
@@ -180,12 +249,7 @@ class MotionReferenceRuntime:
             if self.ref.motion_bin_length_s is None:
                 self.buffers.start_s[selected] = (selected_random * (hi - lo) + lo) * clip.sampling_length_s
             else:
-                bins = int(clip.sampling_length_s // self.ref.motion_bin_length_s)
-                if bins < 1:
-                    raise ValueError(
-                        f"Motion {clip.path!r} is shorter than one {self.ref.motion_bin_length_s}s sampling bin."
-                    )
-                bin_id = torch.floor(selected_random * bins)
+                bin_id = sampled_bins[self.buffers.motion_id[env_ids] == motion_id]
                 within = torch.rand(int(selected.numel()), device=selected.device, generator=generator)
                 self.buffers.start_s[selected] = (bin_id + within) * self.ref.motion_bin_length_s
         self.buffers.timestamp[env_ids] = 0.0
@@ -193,6 +257,74 @@ class MotionReferenceRuntime:
         draw_symmetric_mask(self.mask, env_ids, enabled=self.enabled, generator=generator)
         self.refresh_initial(env_ids)
         self.refresh_at_current_time(env_ids)
+
+    def record_failures(self, env_ids: torch.Tensor, failed: torch.Tensor, elapsed_s: torch.Tensor) -> None:
+        """Accumulate the failed endpoint bin, matching BeyondMimic's reset-time update."""
+        if self.ref.motion_bin_length_s is None or env_ids.numel() == 0 or not failed.any():
+            return
+        failed_envs = env_ids[failed]
+        motion_ids = self.buffers.motion_id[failed_envs]
+        local_bins = torch.floor(
+            (self.buffers.start_s[failed_envs] + elapsed_s[failed]) / self.ref.motion_bin_length_s
+        ).long()
+        local_bins = torch.minimum(local_bins, self._bin_counts[motion_ids] - 1)
+        global_bins = self._bin_offsets[motion_ids] + local_bins
+        self.current_motion_bin_fail_counter.scatter_add_(
+            0,
+            global_bins,
+            torch.ones_like(global_bins, dtype=self.current_motion_bin_fail_counter.dtype),
+        )
+
+    def smooth_failures(self, alpha: float = 0.001) -> None:
+        self.motion_bin_fail_counter.lerp_(self.current_motion_bin_fail_counter, alpha)
+        self.current_motion_bin_fail_counter.zero_()
+
+    def update_adaptive_weights(
+        self, uniform_ratio: float = 0.1, kernel_size: int = 3, decay: float = 0.8
+    ) -> dict[str, float] | None:
+        if self.ref.motion_bin_length_s is None:
+            return None
+        kernel = torch.tensor(
+            [decay**i for i in range(kernel_size)],
+            device=self.motion_bin_weights.device,
+        )
+        kernel /= kernel.sum()
+        probabilities = torch.empty_like(self.motion_bin_weights)
+        for motion_id, count_tensor in enumerate(self._bin_counts):
+            count = int(count_tensor)
+            lo, hi = (
+                int(self._bin_offsets[motion_id]),
+                int(self._bin_offsets[motion_id + 1]),
+            )
+            source = self.motion_bin_fail_counter[lo:hi] + uniform_ratio / count
+            indexes = torch.arange(count, device=source.device).unsqueeze(1) + torch.arange(
+                kernel_size, device=source.device
+            )
+            probabilities[lo:hi] = (source[indexes.clamp(max=count - 1)] * kernel).sum(1)
+        if self.ref.sampling_strategy == "concat_motion_bins":
+            probabilities /= probabilities.sum().clamp_min(1e-10)
+        else:
+            for motion_id in range(len(self.clips)):
+                lo, hi = (
+                    int(self._bin_offsets[motion_id]),
+                    int(self._bin_offsets[motion_id + 1]),
+                )
+                probabilities[lo:hi] /= probabilities[lo:hi].sum().clamp_min(1e-10)
+        self.motion_bin_weights.copy_(probabilities)
+        weights = (
+            probabilities
+            if self.ref.sampling_strategy == "concat_motion_bins"
+            else probabilities[: self._bin_counts[0]]
+        )
+        entropy_denominator = torch.log(torch.tensor(float(weights.numel()), device=weights.device))
+        entropy = (
+            0.0 if weights.numel() == 1 else float(-(weights * torch.log(weights + 1e-12)).sum() / entropy_denominator)
+        )
+        return {
+            "sampling_entropy": entropy,
+            "sampling_top1_prob": float(weights.max()),
+            "sampling_top1_bin": float(weights.argmax() / max(weights.numel(), 1)),
+        }
 
     def refresh_initial(self, env_ids: torch.Tensor) -> None:
         """Build the floor-indexed reset state separately from rounded look-ahead data."""

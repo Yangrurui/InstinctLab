@@ -12,8 +12,8 @@ instead of being silently approximated.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from ._names import as_name_tuple
@@ -219,11 +219,13 @@ class RayCasterRef:
     ray_alignment: Literal["base", "yaw", "world"] = "yaw"
     miss: Literal["infinity"] = "infinity"
     max_distance: float = 1e6
+    engine_max_distances: Mapping[str, float] = field(default_factory=dict, metadata={"contract_omit_if_default": True})
     min_distance: float = 0.0
     crop: tuple[int, int, int, int] | None = None
     update_period: float | None = 0.02
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "engine_max_distances", dict(self.engine_max_distances))
         if not self.name or not self.entity:
             raise ValueError("Ray caster name and entity must be non-empty.")
         if not self.attach:
@@ -312,3 +314,11 @@ class RayCasterRef:
             return height, width
         top, bottom, left, right = self.crop
         return height - top - bottom, width - left - right
+
+    def for_engine(self, engine: str) -> RayCasterRef:
+        """Resolve a real sensor-range difference without branching in the task."""
+        return replace(
+            self,
+            max_distance=self.engine_max_distances.get(engine, self.max_distance),
+            engine_max_distances={},
+        )

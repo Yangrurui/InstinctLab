@@ -58,7 +58,12 @@ def _matching_names(patterns: Iterable[str], names: Iterable[str]) -> set[str]:
 
 def _validate_scene_bindings(spec: TaskSpec) -> None:
     scene = spec.scene
-    all_sensors = (*scene.contact_sensors, *scene.ray_casters, *scene.motion_references, *scene.volume_points)
+    all_sensors = (
+        *scene.contact_sensors,
+        *scene.ray_casters,
+        *scene.motion_references,
+        *scene.volume_points,
+    )
     collisions = sorted({sensor.name for sensor in all_sensors} & _RESERVED_SCENE_NAMES)
     if collisions:
         raise ValueError(f"Scene sensor names collide with scene entities: {collisions}.")
@@ -80,7 +85,8 @@ def _validate_scene_bindings(spec: TaskSpec) -> None:
                 f"Ray caster {sensor.name!r} attaches to {sensor.entity!r}/{sensor.attach!r}, "
                 "which is not a declared robot body."
             )
-        unknown_hits = sorted(set(sensor.hit_bodies()) - body_name_set)
+        scene_object_names = {obj.name for obj in scene.rigid_objects}
+        unknown_hits = sorted(set(sensor.hit_bodies()) - body_name_set - scene_object_names)
         if unknown_hits:
             raise ValueError(f"Ray caster {sensor.name!r} names unknown hit bodies: {unknown_hits}.")
 
@@ -113,7 +119,11 @@ def _sensor_maps(spec: TaskSpec) -> dict[type, Mapping[str, Any]]:
 
 
 def _validate_contact_request(
-    *, term_key: str, requested: ContactSensorRef, declared: ContactSensorRef, body_names: tuple[str, ...]
+    *,
+    term_key: str,
+    requested: ContactSensorRef,
+    declared: ContactSensorRef,
+    body_names: tuple[str, ...],
 ) -> None:
     tracked_bodies = _matching_names(declared.elements, body_names)
     requested_bodies = _matching_names(requested.elements, body_names)
@@ -125,7 +135,11 @@ def _validate_contact_request(
 
 
 def _validate_sensor_reference(
-    *, term_key: str, value: Any, sensors: Mapping[type, Mapping[str, Any]], body_names: tuple[str, ...]
+    *,
+    term_key: str,
+    value: Any,
+    sensors: Mapping[type, Mapping[str, Any]],
+    body_names: tuple[str, ...],
 ) -> None:
     labels = {
         ContactSensorRef: "contact sensor",

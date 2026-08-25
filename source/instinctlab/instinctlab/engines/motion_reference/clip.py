@@ -9,6 +9,7 @@ import torch
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from instinctlab.compat.math import combine_frame_transforms, quat_from_matrix
@@ -249,6 +250,11 @@ class MotionClip:
     link_ang_vel_w: torch.Tensor
     framerate: float
     inventory: ChainInventory
+    object_name: str | None = None
+    object_pos_w: torch.Tensor | None = None
+    object_quat_w: torch.Tensor | None = None
+    object_lin_vel_w: torch.Tensor | None = None
+    object_ang_vel_w: torch.Tensor | None = None
 
     @property
     def dt(self) -> float:
@@ -289,6 +295,14 @@ def load_retargetted_clip(path: str, device: torch.device | str = "cpu") -> dict
     joint_pos = torch.as_tensor(np.asarray(raw["joint_pos"]), device=device, dtype=torch.float32)
     base_pos_w = torch.as_tensor(np.asarray(raw["base_pos_w"]), device=device, dtype=torch.float32)
     base_quat_w = torch.as_tensor(np.asarray(raw["base_quat_w"]), device=device, dtype=torch.float32)
+    object_pos_w = object_quat_w = None
+    object_name = None
+    if "object_pos_w" in raw or "object_quat_w" in raw:
+        if "object_pos_w" not in raw or "object_quat_w" not in raw:
+            raise KeyError(f"Clip {real} must carry object_pos_w and object_quat_w together.")
+        object_pos_w = torch.as_tensor(np.asarray(raw["object_pos_w"]), device=device, dtype=torch.float32)
+        object_quat_w = torch.as_tensor(np.asarray(raw["object_quat_w"]), device=device, dtype=torch.float32)
+        object_name = Path(real).name.split("_")[1]
     if joint_pos.ndim != 2 or joint_pos.shape[1] != len(joint_names):
         raise ValueError(
             f"Clip {real} joint_pos must have shape (frames, {len(joint_names)}), got {tuple(joint_pos.shape)}."
@@ -308,6 +322,12 @@ def load_retargetted_clip(path: str, device: torch.device | str = "cpu") -> dict
     quaternion_norm = torch.linalg.vector_norm(base_quat_w, dim=-1)
     if not torch.allclose(quaternion_norm, torch.ones_like(quaternion_norm), atol=1e-3, rtol=1e-3):
         raise ValueError(f"Clip {real} contains non-unit base quaternions.")
+    if object_pos_w is not None:
+        if object_pos_w.shape != (frame_count, 3) or object_quat_w.shape != (frame_count, 4):
+            raise ValueError(f"Clip {real} object arrays are not aligned with its {frame_count} frames.")
+        object_norm = torch.linalg.vector_norm(object_quat_w, dim=-1)
+        if not torch.allclose(object_norm, torch.ones_like(object_norm), atol=1e-3, rtol=1e-3):
+            raise ValueError(f"Clip {real} contains non-unit object quaternions.")
     return {
         "path": real,
         "framerate": framerate,
@@ -315,6 +335,9 @@ def load_retargetted_clip(path: str, device: torch.device | str = "cpu") -> dict
         "joint_pos": joint_pos,
         "base_pos_w": base_pos_w,
         "base_quat_w": base_quat_w,
+        "object_name": object_name,
+        "object_pos_w": object_pos_w,
+        "object_quat_w": object_quat_w,
     }
 
 
@@ -335,6 +358,8 @@ def pack_motion_clip(
     root_pos = raw["base_pos_w"]
     root_quat = raw["base_quat_w"]
     framerate = float(raw["framerate"])
+    object_pos = raw.get("object_pos_w")
+    object_quat = raw.get("object_quat_w")
     if target_fps is not None:
         root_pos, root_quat, joint_pos = interpolate_motion(
             root_pos,
@@ -343,6 +368,14 @@ def pack_motion_clip(
             source_fps=framerate,
             target_fps=float(target_fps),
         )
+        if object_pos is not None:
+            object_pos, object_quat, _ = interpolate_motion(
+                object_pos,
+                object_quat,
+                raw["joint_pos"][:, :1],
+                source_fps=framerate,
+                target_fps=float(target_fps),
+            )
         framerate = float(target_fps)
     chain = build_kinematics_chain(model_path, device=device)
     inventory = chain_inventory(chain, model_path)
@@ -370,6 +403,14 @@ def pack_motion_clip(
     link_ang_vel_b = estimate_angular_velocity(link_quat_b.permute(1, 0, 2), dt, velocity_method).permute(1, 0, 2)
     link_lin_vel_w = estimate_velocity(link_pos_w.permute(1, 0, 2), dt, velocity_method).permute(1, 0, 2)
     link_ang_vel_w = estimate_angular_velocity(link_quat_w.permute(1, 0, 2), dt, velocity_method).permute(1, 0, 2)
+    object_lin_vel_w = (
+        estimate_velocity(object_pos.unsqueeze(0), dt, velocity_method).squeeze(0) if object_pos is not None else None
+    )
+    object_ang_vel_w = (
+        estimate_angular_velocity(object_quat.unsqueeze(0), dt, velocity_method).squeeze(0)
+        if object_quat is not None
+        else None
+    )
     return MotionClip(
         path=raw["path"],
         source_joint_names=tuple(raw["joint_names"]),
@@ -392,6 +433,11 @@ def pack_motion_clip(
         link_ang_vel_w=link_ang_vel_w,
         framerate=framerate,
         inventory=inventory,
+        object_name=raw.get("object_name"),
+        object_pos_w=object_pos,
+        object_quat_w=object_quat,
+        object_lin_vel_w=object_lin_vel_w,
+        object_ang_vel_w=object_ang_vel_w,
     )
 
 
@@ -449,6 +495,11 @@ class MotionSample:
     link_ang_vel_b: torch.Tensor
     link_lin_vel_w: torch.Tensor
     link_ang_vel_w: torch.Tensor
+    object_name: str | None = None
+    object_pos_w: torch.Tensor | None = None
+    object_quat_w: torch.Tensor | None = None
+    object_lin_vel_w: torch.Tensor | None = None
+    object_ang_vel_w: torch.Tensor | None = None
 
 
 def index_at_time(
@@ -492,4 +543,9 @@ def sample_clip(clip: MotionClip, time_s: torch.Tensor) -> MotionSample:
         link_ang_vel_b=_take(clip.link_ang_vel_b),
         link_lin_vel_w=_take(clip.link_lin_vel_w),
         link_ang_vel_w=_take(clip.link_ang_vel_w),
+        object_name=clip.object_name,
+        object_pos_w=_take(clip.object_pos_w) if clip.object_pos_w is not None else None,
+        object_quat_w=_take(clip.object_quat_w) if clip.object_quat_w is not None else None,
+        object_lin_vel_w=_take(clip.object_lin_vel_w) if clip.object_lin_vel_w is not None else None,
+        object_ang_vel_w=_take(clip.object_ang_vel_w) if clip.object_ang_vel_w is not None else None,
     )

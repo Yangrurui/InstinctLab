@@ -38,17 +38,17 @@ from instinctlab.spec.sensor import RayCasterRef
 
 __all__ = [
     "DelayedDepthImage",
-    "clear_delayed_depth_history",
-    "delayed_depth_terms",
-    "set_debug_image_sink",
     "base_ang_vel",
     "base_lin_vel",
+    "clear_delayed_depth_history",
+    "delayed_depth_terms",
     "generated_commands",
     "joint_pos_rel",
     "joint_vel",
     "joint_vel_rel",
     "last_action",
     "projected_gravity",
+    "set_debug_image_sink",
 ]
 
 
@@ -150,6 +150,8 @@ class DelayedDepthImage:
         self.sensor_history_length = int(params.get("history_length", 37))
         self.blur_kernel_size = int(params.get("blur_kernel_size", 3))
         self.blur_sigma = float(params.get("blur_sigma", 1.0))
+        self.resize_shape = params.get("resize_shape")
+        self.normalization_range = params.get("normalization_range")
         self.debug_vis = bool(params.get("debug_vis", False))
         crop_h, crop_w = self.sensor_ref.cropped_hw()
         device = env.device
@@ -157,6 +159,7 @@ class DelayedDepthImage:
         self._write = 0
         self._delay = torch.zeros(env.num_envs, device=device, dtype=torch.long)
         self._primed = torch.zeros(env.num_envs, device=device, dtype=torch.bool)
+        self._last_sensor_epoch = None
         self.frame_offset = torch.flip(
             torch.arange(
                 0,
@@ -228,13 +231,28 @@ class DelayedDepthImage:
         del blur_kernel_size, blur_sigma
         show_debug = debug_vis or self.debug_vis
         raw = depth_image(env.scene.sensors[sensor.name])
-        processed = _process_depth_image(raw, sensor, self.blur_kernel_size, self.blur_sigma)
-        self._history[:, self._write] = processed
-        unprimed = ~self._primed
-        if bool(unprimed.any()):
-            self._history[unprimed] = processed[unprimed].unsqueeze(1)
-            self._primed[unprimed] = True
-        self._write = (self._write + 1) % self.sensor_history_length
+        processed = _process_depth_image(
+            raw,
+            sensor,
+            self.blur_kernel_size,
+            self.blur_sigma,
+            resize_shape=self.resize_shape,
+            normalization_range=self.normalization_range,
+        )
+        native_sensor = env.scene.sensors[sensor.name]
+        epoch = getattr(native_sensor, "frame_sequence", None)
+        if epoch is None:
+            timestamp = getattr(native_sensor, "_timestamp_last_update", None)
+            epoch = None if timestamp is None else tuple(timestamp.detach().cpu().tolist())
+        new_frame = epoch is None or epoch != self._last_sensor_epoch
+        if new_frame:
+            self._history[:, self._write] = processed
+            unprimed = ~self._primed
+            if bool(unprimed.any()):
+                self._history[unprimed] = processed[unprimed].unsqueeze(1)
+                self._primed[unprimed] = True
+            self._write = (self._write + 1) % self.sensor_history_length
+            self._last_sensor_epoch = epoch
         order = (torch.arange(self.sensor_history_length, device=self._history.device) + self._write) % (
             self.sensor_history_length
         )
@@ -320,7 +338,15 @@ def clear_delayed_depth_history(env: RlEnv, env_ids: Any | None = None) -> None:
         term.clear_history(coerced)
 
 
-def _process_depth_image(image: torch.Tensor, sensor: RayCasterRef, kernel_size: int, sigma: float) -> torch.Tensor:
+def _process_depth_image(
+    image: torch.Tensor,
+    sensor: RayCasterRef,
+    kernel_size: int,
+    sigma: float,
+    *,
+    resize_shape: tuple[int, int] | None = None,
+    normalization_range: tuple[float, float] | None = None,
+) -> torch.Tensor:
     """Crop → blur → clip-and-normalise. Misses become the ceiling (1.0)."""
     finite = torch.where(torch.isfinite(image), image, torch.full_like(image, sensor.max_distance))
     if sensor.crop is not None:
@@ -328,10 +354,13 @@ def _process_depth_image(image: torch.Tensor, sensor: RayCasterRef, kernel_size:
         height, width = finite.shape[1], finite.shape[2]
         finite = finite[:, top : height - bottom, left : width - right]
     plane = finite.squeeze(-1)
+    if resize_shape is not None:
+        plane = F.interpolate(plane.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False).squeeze(1)
     if kernel_size > 1 and sigma > 0.0:
         plane = _gaussian_blur(plane, kernel_size, sigma)
-    clipped = plane.clamp(0.0, sensor.max_distance)
-    return clipped / sensor.max_distance
+    lo, hi = normalization_range or (0.0, sensor.max_distance)
+    clipped = plane.clamp(lo, hi)
+    return (clipped - lo) / (hi - lo)
 
 
 def _gaussian_blur(image: torch.Tensor, kernel_size: int, sigma: float) -> torch.Tensor:

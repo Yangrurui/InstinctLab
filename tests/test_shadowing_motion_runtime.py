@@ -21,7 +21,12 @@ from instinctlab.tasks import registry
 
 
 def _ref(root: str, **changes) -> MotionReferenceRef:
-    values = {"name": "motion_reference", "clip": root, "joints": ("a",), "links": ("root",)}
+    values = {
+        "name": "motion_reference",
+        "clip": root,
+        "joints": ("a",),
+        "links": ("root",),
+    }
     values.update(changes)
     return MotionReferenceRef(**values)
 
@@ -59,7 +64,9 @@ def _clip(name: str, offset: float, nframes: int = 151) -> MotionClip:
     )
 
 
-def test_metadata_inventory_preserves_declared_order_weights_and_one_motion(tmp_path) -> None:
+def test_metadata_inventory_preserves_declared_order_weights_and_one_motion(
+    tmp_path,
+) -> None:
     for name in ("z_retargeted.npz", "a_retargetted.npz"):
         (tmp_path / name).touch()
     metadata = tmp_path / "metadata.yaml"
@@ -68,7 +75,11 @@ def test_metadata_inventory_preserves_declared_order_weights_and_one_motion(tmp_
             {
                 "motion_files": [
                     {"motion_file": "z_retargeted.npz", "weight": 3.0, "terrain_id": 7},
-                    {"motion_file": "a_retargetted.npz", "weight": 1.0, "terrain_id": 2},
+                    {
+                        "motion_file": "a_retargetted.npz",
+                        "weight": 1.0,
+                        "terrain_id": 2,
+                    },
                 ]
             },
             sort_keys=False,
@@ -100,7 +111,10 @@ def test_recursive_inventory_is_deterministic_and_filters_endings(tmp_path) -> N
 def test_multiclip_reset_is_seed_stable_and_refreshes_the_selected_clip() -> None:
     ref = _ref("unused", start_range=(0.0, 0.8), motion_bin_length_s=1.0)
     clips = (_clip("first", 0.0), _clip("second", 1000.0))
-    inventory = (MotionInventoryEntry("first", 1.0), MotionInventoryEntry("second", 4.0))
+    inventory = (
+        MotionInventoryEntry("first", 1.0),
+        MotionInventoryEntry("second", 4.0),
+    )
     left = MotionReferenceRuntime.from_clips(ref, clips, inventory, 64)
     right = MotionReferenceRuntime.from_clips(ref, clips, inventory, 64)
     env_ids = torch.arange(64)
@@ -117,6 +131,31 @@ def test_multiclip_reset_is_seed_stable_and_refreshes_the_selected_clip() -> Non
         ("first", 151, 50.0),
         ("second", 151, 50.0),
     ]
+
+
+def test_adaptive_sampling_records_smooths_and_reweights_failed_bins() -> None:
+    ref = _ref("unused", motion_bin_length_s=1.0, sampling_strategy="concat_motion_bins")
+    runtime = MotionReferenceRuntime.from_clips(
+        ref,
+        (_clip("first", 0.0), _clip("second", 1000.0)),
+        (MotionInventoryEntry("first"), MotionInventoryEntry("second")),
+        4,
+    )
+    runtime.buffers.motion_id[:] = torch.tensor([0, 0, 1, 1])
+    runtime.buffers.start_s[:] = torch.tensor([0.1, 1.1, 0.1, 1.1])
+    runtime.record_failures(
+        torch.arange(4),
+        torch.tensor([False, True, False, True]),
+        torch.zeros(4),
+    )
+    assert runtime.current_motion_bin_fail_counter.sum() == 2
+    runtime.smooth_failures(alpha=1.0)
+    metrics = runtime.update_adaptive_weights()
+    assert metrics is not None
+    assert runtime.motion_bin_weights.sum() == pytest.approx(1.0)
+    assert runtime.motion_bin_weights[1] > runtime.motion_bin_weights[0]
+    second_offset = int(runtime._bin_offsets[1])
+    assert runtime.motion_bin_weights[second_offset + 1] > runtime.motion_bin_weights[second_offset]
 
 
 def test_reset_rebuilds_history_and_last_update_without_carrying_old_frames() -> None:
@@ -136,7 +175,12 @@ def test_reset_rebuilds_history_and_last_update_without_carrying_old_frames() ->
 
 
 def test_reset_state_uses_floor_index_and_height_adjustment_separate_from_history() -> None:
-    ref = _ref("unused", start_range=(0.51, 0.51), ensure_link_below_zero_ground=True, motion_start_height_offset=0.1)
+    ref = _ref(
+        "unused",
+        start_range=(0.51, 0.51),
+        ensure_link_below_zero_ground=True,
+        motion_start_height_offset=0.1,
+    )
     clip = _clip("only", 0.0)
     clip.link_pos_w[:, 0, 2] = -0.2
     runtime = MotionReferenceRuntime.from_clip(ref, clip, 1)
@@ -151,8 +195,22 @@ def test_reset_state_uses_floor_index_and_height_adjustment_separate_from_histor
 def test_shadowing_motion_effective_contract_matches_both_references() -> None:
     expected = {
         "WholeBody": (0.02, 10, "frontbackward", (0.0, 0.8), "independent", 1.0),
-        "Perceptive-Shadowing": (0.1, 10, "frontbackward", (0.0, 0.0), "concat_motion_bins", 1.0),
-        "Perceptive-Vae": (0.1, 10, "frontbackward", (0.0, 0.0), "concat_motion_bins", 1.0),
+        "Perceptive-Shadowing": (
+            0.1,
+            10,
+            "frontbackward",
+            (0.0, 0.0),
+            "concat_motion_bins",
+            1.0,
+        ),
+        "Perceptive-Vae": (
+            0.1,
+            10,
+            "frontbackward",
+            (0.0, 0.0),
+            "concat_motion_bins",
+            1.0,
+        ),
         "HOI": (0.1, 10, "frontbackward", (0.0, 0.0), "concat_motion_bins", 1.0),
         "BeyondMimic": (0.0, 1, "frontbackward", (0.0, 0.8), "independent", 1.0),
     }
@@ -213,12 +271,20 @@ def test_play_and_one_motion_apply_the_reference_sampling_overrides() -> None:
     perceptive_play = registry.spec("Instinct-Perceptive-Shadowing-G1-Play-v0").scene.motion_references[0]
     one_motion = registry.spec("Instinct-Perceptive-Shadowing-G1-OneMotion-v0").scene.motion_references[0]
 
-    assert (whole_play.start_range, whole_play.motion_bin_length_s, whole_play.sampling_strategy) == (
+    assert (
+        whole_play.start_range,
+        whole_play.motion_bin_length_s,
+        whole_play.sampling_strategy,
+    ) == (
         (0.0, 0.8),
         1.0,
         "independent",
     )
-    assert (perceptive_play.start_range, perceptive_play.motion_bin_length_s, perceptive_play.sampling_strategy) == (
+    assert (
+        perceptive_play.start_range,
+        perceptive_play.motion_bin_length_s,
+        perceptive_play.sampling_strategy,
+    ) == (
         (0.0, 0.0),
         None,
         "independent",
@@ -251,6 +317,9 @@ def test_both_reference_sources_declare_the_audited_motion_timing(relative: str,
     )
     for root in roots:
         source = (root / relative).read_text()
-        assert re.search(r'velocity_estimation_method(?:\s*:\s*str)?\s*=\s*["\']frontbackward["\']', source)
+        assert re.search(
+            r'velocity_estimation_method(?:\s*:\s*str)?\s*=\s*["\']frontbackward["\']',
+            source,
+        )
         assert f"frame_interval_s={interval}" in source
         assert f"num_frames={frames}" in source

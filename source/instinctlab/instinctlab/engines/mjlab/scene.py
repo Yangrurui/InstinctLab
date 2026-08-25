@@ -59,7 +59,12 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
 """Solver settings a task does not state, matching InstinctMJ's values for flat locomotion."""
 
 
-def _sub_terrain(kind: str, proportion: float, params: Mapping[str, Any], generator: TerrainGeneratorSpec) -> Any:
+def _sub_terrain(
+    kind: str,
+    proportion: float,
+    params: Mapping[str, Any],
+    generator: TerrainGeneratorSpec,
+) -> Any:
     """One mjlab tile config. Imports stay in the function so the module stays engine-free."""
     import mjlab.terrains as terrain_gen
 
@@ -131,6 +136,57 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
 
         num_cols = int(profile.get("num_cols", 20))
         return _attach_virtual_obstacles(rough_importer_cfg(spec, num_cols=num_cols), spec)
+    if spec.kind == "shadow_motion_matched":
+        import os
+        from dataclasses import dataclass
+
+        from mjlab.terrains import SubTerrainCfg
+
+        from .motion_matched_terrain import motion_matched_terrain
+        from .terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
+
+        @dataclass(kw_only=True)
+        class MotionMatchedTerrainCfg(SubTerrainCfg):
+            function = motion_matched_terrain
+            path: str
+            metadata_yaml: str
+            crop_to_size: bool = True
+            use_input_origin_frame: bool = True
+            collision_coacd_threshold: float = 0.04
+            collision_coacd_resolution: int = 3000
+            collision_coacd_decimate: bool = False
+            collision_coacd_max_ch_vertex: int = 256
+            collision_coacd_log_level: str = "off"
+            collision_coacd_use_disk_cache: bool = True
+            collision_coacd_cache_dirname: str = ".coacd_cache"
+            collision_coacd_prewarm_all: bool = True
+            collision_coacd_prewarm_workers: int = 0
+            collision_coacd_geom_margin: float = 0.0
+            collision_coacd_z_offset: float = 0.0
+            collision_coacd_auto_align_top_surface: bool = True
+            collision_coacd_auto_align_resolution: float = 0.04
+            collision_coacd_visualize_collision_hulls: bool = True
+
+        path = os.path.expanduser(spec.params["engine_paths"]["mjlab"])
+        generator = FiledTerrainGeneratorCfg(
+            size=(30.0, 16.0),
+            border_width=0.0,
+            num_rows=3,
+            num_cols=3,
+            add_lights=True,
+            sub_terrains={
+                "motion_matched": MotionMatchedTerrainCfg(
+                    proportion=1.0,
+                    path=path,
+                    metadata_yaml=os.path.join(path, spec.params["metadata_yaml"]),
+                )
+            },
+        )
+        return TerrainImporterCfg(
+            terrain_type="hacked_generator",
+            terrain_generator=generator,
+            sliding_friction=spec.dynamic_friction,
+        )
     raise NotImplementedError(
         f"The mjlab adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
     )
@@ -207,6 +263,7 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
 
 def _build_ray_caster(sensor: RayCasterRef) -> Any:
     """mjlab does not ship Isaac's sky-origin scanner or world-convention camera."""
+    sensor = sensor.for_engine("mjlab")
     refuse_unhonored_ray_alignment(sensor)
     if sensor.pattern.kind == "pinhole":
         from .camera import pinhole_ray_caster
@@ -231,11 +288,39 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
         + tuple(_build_motion_reference(sensor, robot) for sensor in spec.motion_references)
         + tuple(_build_volume_points(sensor) for sensor in spec.volume_points)
     )
+    entities = {"robot": build_entity(robot)}
+    for obj in spec.rigid_objects:
+        import os
+
+        import mujoco
+        from mjlab.entity import EntityCfg
+
+        resolved = obj.for_engine("mjlab")
+
+        def object_spec(resolved=resolved):
+            native = mujoco.MjSpec()
+            mesh = native.add_mesh(
+                name="object_mesh",
+                file=os.path.expanduser(resolved.mesh),
+                scale=resolved.scale,
+            )
+            body = native.worldbody.add_body(name="object", mocap=resolved.kinematic)
+            body.add_geom(
+                name="object_geom",
+                type=mujoco.mjtGeom.mjGEOM_MESH,
+                meshname=mesh.name,
+                mass=resolved.mass,
+                group=2,
+                friction=(1.0, 0.005, 0.0001),
+            )
+            return native
+
+        entities[resolved.name] = EntityCfg(spec_fn=object_spec)
     return SceneCfg(
         num_envs=num_envs,
         env_spacing=spec.env_spacing,
         terrain=_terrain(spec.terrain, profile),
-        entities={"robot": build_entity(robot)},
+        entities=entities,
         sensors=sensors,
     )
 

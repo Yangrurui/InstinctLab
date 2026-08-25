@@ -71,6 +71,27 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
             return self._runtime.aiming_frame_idx
 
         @property
+        def ALL_INDICES(self):
+            return torch.arange(self._data.timestamp.shape[0], device=self.device)
+
+        @property
+        def reference_frame(self):
+            return self.data
+
+        @property
+        def num_frames(self):
+            return ref.num_frames
+
+        @property
+        def time_passed_from_update(self):
+            return self._data.timestamp - self._runtime.last_update
+
+        @property
+        def time_to_aiming_frame(self):
+            idx = self.aiming_frame_idx.clamp(min=0)
+            return self._data.time_to_target_frame[self.ALL_INDICES, idx] - self.time_passed_from_update
+
+        @property
         def init_reference_state(self):
             return self._runtime.init_buffers
 

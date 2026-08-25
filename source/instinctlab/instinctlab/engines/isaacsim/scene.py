@@ -156,6 +156,35 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
         from .rough import rough_importer_cfg
 
         return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
+    if spec.kind == "shadow_motion_matched":
+        import os
+
+        from instinctlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
+        from instinctlab.terrains.trimesh.mesh_terrains_cfg import MotionMatchedTerrainCfg
+
+        path = os.path.expanduser(spec.params["engine_paths"]["isaacsim"])
+        generator = FiledTerrainGeneratorCfg(
+            size=(9.0, 12.0),
+            border_width=0.0,
+            num_rows=7,
+            num_cols=7,
+            sub_terrains={
+                "motion_matched": MotionMatchedTerrainCfg(
+                    proportion=1.0,
+                    path=path,
+                    metadata_yaml=os.path.join(path, spec.params["metadata_yaml"]),
+                )
+            },
+        )
+        return TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="generator",
+            terrain_generator=generator,
+            collision_group=-1,
+            physics_material=_physics_material(spec),
+            visual_material=_visual_material(),
+            debug_vis=False,
+        )
     raise NotImplementedError(
         f"The Isaac Sim adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
     )
@@ -395,6 +424,19 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
     scene.filter_collisions = True
     scene.terrain = _terrain(spec.terrain, profile)
     scene.robot = articulation_cfg.replace(prim_path=_ROBOT_PRIM, spawn=spawn)
+    for obj in spec.rigid_objects:
+        import isaaclab.sim as sim_utils
+        from isaaclab.assets import RigidObjectCfg
+
+        resolved = obj.for_engine("isaacsim")
+        mesh = sim_utils.MeshFileCfg(
+            asset_path=resolved.mesh,
+            scale=resolved.scale,
+            mass_props=sim_utils.MassPropertiesCfg(mass=resolved.mass),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=resolved.kinematic),
+        )
+        setattr(scene, resolved.name, RigidObjectCfg(prim_path=f"{{ENV_REGEX_NS}}/{resolved.name}", spawn=mesh))
     for sensor in spec.contact_sensors:
         cfg = _build_contact_sensor(sensor)
         # Every physics step, matching the contact durations the timing terms read. The default of
@@ -402,6 +444,7 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
         cfg.update_period = sensor_period
         setattr(scene, sensor.name, cfg)
     for sensor in spec.ray_casters:
+        sensor = sensor.for_engine("isaacsim")
         setattr(scene, sensor.name, _build_ray_caster(sensor, sensor_period=sensor_period))
     for sensor in spec.motion_references:
         setattr(scene, sensor.name, _build_motion_reference(sensor, robot))

@@ -35,6 +35,12 @@ class MotionReferenceBuffers:
     start_s: torch.Tensor
     motion_id: torch.Tensor
     frame_index: torch.Tensor
+    scene_object_names: tuple[str, ...]
+    object_pos_w: torch.Tensor
+    object_quat_w: torch.Tensor
+    object_lin_vel_w: torch.Tensor
+    object_ang_vel_w: torch.Tensor
+    object_validity: torch.Tensor
 
 
 def make_buffers(
@@ -42,11 +48,15 @@ def make_buffers(
     num_frames: int,
     num_joints: int,
     num_links: int,
+    scene_object_names: tuple[str, ...] = (),
     device: torch.device | str = "cpu",
 ) -> MotionReferenceBuffers:
     zeros_pose = torch.zeros(num_envs, num_frames, 3, device=device)
     zeros_quat = torch.zeros(num_envs, num_frames, 4, device=device)
     zeros_quat[..., 0] = 1.0
+    num_objects = len(scene_object_names)
+    object_quat = torch.zeros(num_envs, num_frames, num_objects, 4, device=device)
+    object_quat[..., 0] = 1.0
     return MotionReferenceBuffers(
         joint_pos=torch.zeros(num_envs, num_frames, num_joints, device=device),
         joint_vel=torch.zeros(num_envs, num_frames, num_joints, device=device),
@@ -70,6 +80,12 @@ def make_buffers(
         start_s=torch.zeros(num_envs, device=device),
         motion_id=torch.zeros(num_envs, dtype=torch.long, device=device),
         frame_index=torch.zeros(num_envs, num_frames, dtype=torch.long, device=device),
+        scene_object_names=scene_object_names,
+        object_pos_w=torch.zeros(num_envs, num_frames, num_objects, 3, device=device),
+        object_quat_w=object_quat,
+        object_lin_vel_w=torch.zeros(num_envs, num_frames, num_objects, 3, device=device),
+        object_ang_vel_w=torch.zeros(num_envs, num_frames, num_objects, 3, device=device),
+        object_validity=torch.zeros(num_envs, num_frames, num_objects, dtype=torch.bool, device=device),
     )
 
 
@@ -136,6 +152,25 @@ def fill_buffers(
     ):
         getattr(buffers, name)[env_ids] = getattr(sample, name)
     buffers.time_to_target_frame[env_ids] = time_to_target
+    if buffers.scene_object_names:
+        buffers.object_pos_w[env_ids] = 0.0
+        buffers.object_quat_w[env_ids] = 0.0
+        buffers.object_quat_w[env_ids, :, :, 0] = 1.0
+        buffers.object_lin_vel_w[env_ids] = 0.0
+        buffers.object_ang_vel_w[env_ids] = 0.0
+        buffers.object_validity[env_ids] = False
+        if sample.object_name is not None:
+            try:
+                object_id = buffers.scene_object_names.index(sample.object_name)
+            except ValueError as exc:
+                raise KeyError(
+                    f"motion object {sample.object_name!r} is absent from scene objects {buffers.scene_object_names}"
+                ) from exc
+            buffers.object_pos_w[env_ids, :, object_id] = sample.object_pos_w
+            buffers.object_quat_w[env_ids, :, object_id] = sample.object_quat_w
+            buffers.object_lin_vel_w[env_ids, :, object_id] = sample.object_lin_vel_w
+            buffers.object_ang_vel_w[env_ids, :, object_id] = sample.object_ang_vel_w
+            buffers.object_validity[env_ids, :, object_id] = sample.validity
     buffers.time_to_target_frame[env_ids] = torch.where(
         buffers.validity[env_ids],
         buffers.time_to_target_frame[env_ids],
@@ -155,6 +190,7 @@ def translate_world_positions(
     origin = env_origins[env_ids]
     buffers.base_pos_w[env_ids] += origin.unsqueeze(1)
     buffers.link_pos_w[env_ids] += origin.unsqueeze(1).unsqueeze(1)
+    buffers.object_pos_w[env_ids] += origin.unsqueeze(1).unsqueeze(1) * buffers.object_validity[env_ids].unsqueeze(-1)
 
 
 def clip_frame(

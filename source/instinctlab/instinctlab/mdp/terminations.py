@@ -48,7 +48,9 @@ def dataset_exhausted(
     if print_reason and exhausted.any():
         print("dataset_exhausted: ", exhausted.sum())
     if reset_without_notice:
-        motion_reference.reset(env_ids=exhausted.nonzero(as_tuple=True)[0])
+        exhausted_ids = exhausted.nonzero(as_tuple=True)[0]
+        if exhausted_ids.numel() > 0:
+            motion_reference.reset(env_ids=exhausted_ids)
         exhausted[:] = False
     return exhausted
 

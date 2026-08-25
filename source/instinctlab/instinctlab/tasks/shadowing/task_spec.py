@@ -35,6 +35,7 @@ from instinctlab.spec import (
     RayCasterRef,
     RayPatternRef,
     RewardTermSpec,
+    RigidObjectRef,
     SceneSpec,
     SimSpec,
     TaskSpec,
@@ -66,7 +67,10 @@ MOTION_PATHS = {
         "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
         "mjlab": "~/Xyk/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
     },
-    "perceptive": {"isaacsim": "{AbsolutePathOfYourDataDirectory}", "mjlab": "~/Xyk/Datasets/her_leveled"},
+    "perceptive": {
+        "isaacsim": "{AbsolutePathOfYourDataDirectory}",
+        "mjlab": "~/Xyk/Datasets/her_leveled",
+    },
     "perceptive_vae": {
         "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1",
         "mjlab": "~/Xyk/Datasets/20260317_50cm_kneeClimbStep1_projectInstinct",
@@ -82,6 +86,31 @@ MOTION_PATHS = {
 }
 
 BEYONDMIMIC_SELECTED_MOTION = "sprint1_subject2_retargetted.npz"
+
+HOI_OBJECT_SCALES = {
+    "floorlamp": 1.55 * 0.3793,
+    "largebox": 1.55 * 0.3486,
+    "whitechair": 1.55 * 0.3129,
+    "trashcan": 1.55 * 0.2326,
+    "smalltable": 1.55 * 0.0162,
+    "suitcase": 1.55 * 0.3672,
+}
+
+
+def _hoi_objects() -> tuple[RigidObjectRef, ...]:
+    return tuple(
+        RigidObjectRef(
+            name=name,
+            mesh=f"/localhdd/Datasets/OMOMO/data/captured_objects/{name}_cleaned_simplified.obj",
+            engine_meshes={
+                "isaacsim": f"/localhdd/Datasets/OMOMO/data/captured_objects/{name}_cleaned_simplified.obj",
+                "mjlab": f"~/Datasets/OMOMO/data/captured_objects/{name}_cleaned_simplified.obj",
+            },
+            scale=(scale, scale, scale),
+        )
+        for name, scale in HOI_OBJECT_SCALES.items()
+    )
+
 
 RUNNERS = {
     "whole_body": "instinctlab.tasks.shadowing.whole_body.config.g1.agents.instinct_rl_ppo_cfg:G1ShadowingPPORunnerCfg",
@@ -123,6 +152,18 @@ def _motion_reference(variant: ShadowingVariant, joints: tuple[str, ...]) -> Mot
         engine_clips=MOTION_PATHS[variant.family],
         joints=joints,
         links=MOTION_LINKS,
+        scene_objects=(
+            (
+                "floorlamp",
+                "largebox",
+                "whitechair",
+                "trashcan",
+                "smalltable",
+                "suitcase",
+            )
+            if variant.family == "perceptive_hoi"
+            else ()
+        ),
         num_frames=1 if current_only else 10,
         frame_interval_s=frame_interval,
         update_period=0.02,
@@ -150,27 +191,34 @@ def _motion_reference(variant: ShadowingVariant, joints: tuple[str, ...]) -> Mot
     )
 
 
-def _camera() -> RayCasterRef:
+def _camera(*, include_objects: bool = False) -> RayCasterRef:
     return RayCasterRef(
         name="camera",
         attach="torso_link",
-        offset=(0.047, 0.0, 0.42),
-        offset_rot=(0.9238795, 0.0, 0.3826834, 0.0),
+        offset=(0.0487988662332928, 0.015, 0.4378029937970051),
+        offset_rot=(0.9135367613482678, 0.004363309284746571, 0.4067366430758002, 0.0),
         offset_convention="world",
         pattern=RayPatternRef(
             kind="pinhole",
-            width=64,
-            height=36,
-            horizontal_fov_deg=89.51,
-            vertical_fov_deg=58.29,
+            # Both references render 27x48, crop two pixels on every edge, then
+            # resize the policy image to 18x32.
+            width=48,
+            height=27,
+            horizontal_fov_deg=87.0,
+            vertical_fov_deg=58.0,
             focal_length=1.0,
         ),
-        hit=("terrain", *G1_29DOF_LINKS),
+        hit=(
+            "terrain",
+            *G1_29DOF_LINKS,
+            *(HOI_OBJECT_SCALES if include_objects else ()),
+        ),
         ray_alignment="base",
         miss="infinity",
-        max_distance=2.5,
-        min_distance=0.1,
-        update_period=0.02,
+        max_distance=1.0e6,
+        min_distance=0.05,
+        crop=(2, 2, 2, 2),
+        update_period=1.0 / 60.0,
     )
 
 
@@ -183,7 +231,25 @@ def _height_scanner() -> RayCasterRef:
         hit="terrain",
         ray_alignment="yaw",
         miss="infinity",
+        max_distance=1.0e6,
+        engine_max_distances={"isaacsim": 1.0e6, "mjlab": 5.0},
         update_period=0.02,
+    )
+
+
+_NON_SUPPORT_CONTACTS = (
+    r"^(?!left_ankle_roll_link$)(?!right_ankle_roll_link$)(?!left_wrist_yaw_link$)(?!right_wrist_yaw_link$).+$"
+)
+
+
+def _contact_sensor(variant: ShadowingVariant, *, undesired_subset: bool = False) -> ContactSensorRef:
+    perceptive = variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
+    return ContactSensorRef(
+        name="contact_forces" if perceptive else "undesired_contact_forces",
+        elements=_NON_SUPPORT_CONTACTS if perceptive and undesired_subset else ".*",
+        track_air_time=perceptive,
+        air_time_force_threshold=1.0,
+        history_length=3,
     )
 
 
@@ -191,23 +257,25 @@ def _scene(variant: ShadowingVariant, motion: MotionReferenceRef) -> SceneSpec:
     perceptive = variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
     rays: list[RayCasterRef] = []
     if perceptive:
-        rays.append(_camera())
+        rays.append(_camera(include_objects=variant.family == "perceptive_hoi"))
     if variant.family in {"perceptive", "perceptive_hoi"}:
         rays.append(_height_scanner())
-    contacts = (
-        ContactSensorRef(
-            name="contact_forces" if perceptive else "undesired_contact_forces",
-            elements=".*",
-            track_air_time=perceptive,
-            air_time_force_threshold=1.0,
-            history_length=3,
-        ),
-    )
+    contacts = (_contact_sensor(variant),)
+    terrain = TerrainSpec(kind="plane")
+    if variant.family in {"perceptive", "perceptive_vae"}:
+        terrain = TerrainSpec(
+            kind="shadow_motion_matched",
+            params={
+                "engine_paths": MOTION_PATHS[variant.family],
+                "metadata_yaml": "metadata.yaml",
+            },
+        )
     return SceneSpec(
-        terrain=TerrainSpec(kind="plane"),
+        terrain=terrain,
         contact_sensors=contacts,
         ray_casters=tuple(rays),
         motion_references=(motion,),
+        rigid_objects=_hoi_objects() if variant.family == "perceptive_hoi" else (),
         env_spacing=2.5 if variant.play else 4.0,
     )
 
@@ -226,7 +294,10 @@ def _commands(variant: ShadowingVariant) -> dict[str, CommandTermSpec]:
     }
     commands: dict[str, CommandTermSpec] = {}
     for name in names:
-        params = {"motion_reference": "motion_reference", "current_state_command": False}
+        params = {
+            "motion_reference": "motion_reference",
+            "current_state_command": False,
+        }
         if name == "position_ref_command":
             params.update(realtime_mode=True, anchor_frame="robot")
         elif name == "position_b_ref_command":
@@ -237,42 +308,97 @@ def _commands(variant: ShadowingVariant) -> dict[str, CommandTermSpec]:
     return commands
 
 
-def _reference_observations() -> dict[str, ObsTermSpec]:
+def _reference_observations(*, policy: bool, has_anchor_command: bool = True) -> dict[str, ObsTermSpec]:
     return {
-        "joint_pos_ref": ObsTermSpec(func=mdp.generated_commands, params={"command_name": "joint_pos_ref_command"}),
-        "joint_vel_ref": ObsTermSpec(func=mdp.generated_commands, params={"command_name": "joint_vel_ref_command"}),
-        "position_ref": ObsTermSpec(func=mdp.generated_commands, params={"command_name": "position_ref_command"}),
-        "rotation_ref": ObsTermSpec(func=mdp.generated_commands, params={"command_name": "rotation_ref_command"}),
+        "joint_pos_ref": ObsTermSpec(
+            func=mdp.generated_commands,
+            params={"command_name": "joint_pos_ref_command"},
+        ),
+        "joint_vel_ref": ObsTermSpec(
+            func=mdp.generated_commands,
+            params={"command_name": "joint_vel_ref_command"},
+        ),
+        "position_ref": ObsTermSpec(
+            func=mdp.generated_commands,
+            params={
+                "command_name": "position_b_ref_command" if policy and has_anchor_command else "position_ref_command"
+            },
+            noise=NoiseSpec("uniform", -0.25, 0.25) if policy else None,
+        ),
+        "rotation_ref": ObsTermSpec(
+            func=mdp.generated_commands,
+            params={"command_name": "rotation_ref_command"},
+            noise=NoiseSpec("uniform", -0.05, 0.05) if policy else None,
+        ),
     }
 
 
-def _proprioception(joints: EntityRef, *, corrupt: bool) -> dict[str, ObsTermSpec]:
+def _proprioception(joints: EntityRef, *, corrupt: bool, history_length: int) -> dict[str, ObsTermSpec]:
     noise = (lambda lo, hi: NoiseSpec("uniform", lo, hi)) if corrupt else (lambda lo, hi: None)
     return {
-        "projected_gravity": ObsTermSpec(func=mdp.projected_gravity, noise=noise(-0.05, 0.05)),
-        "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, noise=noise(-0.2, 0.2)),
-        "joint_pos": ObsTermSpec(func=mdp.joint_pos_rel, params={"asset_cfg": joints}, noise=noise(-0.01, 0.01)),
-        "joint_vel": ObsTermSpec(func=mdp.joint_vel_rel, params={"asset_cfg": joints}, noise=noise(-0.5, 0.5)),
-        "last_action": ObsTermSpec(func=mdp.last_action),
+        "projected_gravity": ObsTermSpec(
+            func=mdp.projected_gravity,
+            noise=noise(-0.05, 0.05),
+            history_length=history_length,
+        ),
+        "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, noise=noise(-0.2, 0.2), history_length=history_length),
+        "joint_pos": ObsTermSpec(
+            func=mdp.joint_pos_rel,
+            params={"asset_cfg": joints},
+            noise=noise(-0.01, 0.01),
+            history_length=history_length,
+        ),
+        "joint_vel": ObsTermSpec(
+            func=mdp.joint_vel_rel,
+            params={"asset_cfg": joints},
+            noise=noise(-0.5, 0.5),
+            history_length=history_length,
+        ),
+        "last_action": ObsTermSpec(func=mdp.last_action, history_length=history_length),
     }
 
 
 def _observations(variant: ShadowingVariant, joints: EntityRef, motion: MotionReferenceRef) -> dict[str, ObsGroupSpec]:
-    refs = _reference_observations()
+    policy_refs = _reference_observations(policy=True, has_anchor_command=variant.family != "beyondmimic")
+    critic_refs = _reference_observations(policy=False)
+    history_length = 8 if variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"} else 0
     policy: dict[str, ObsTermSpec]
     if variant.family == "perceptive_vae":
-        policy = {"depth_image": ObsTermSpec(kind="shadow_depth_image", params={"sensor": _camera()})}
+        policy = {
+            "depth_image": ObsTermSpec(
+                kind="shadow_depth_image",
+                params={
+                    "sensor": _camera(include_objects=variant.family == "perceptive_hoi"),
+                    "history_length": 10,
+                    "history_skip_frames": 3,
+                    "num_output_frames": 4,
+                    "resize_shape": (18, 32),
+                    "normalization_range": (0.0, 2.0),
+                },
+            )
+        }
     else:
-        policy = dict(refs)
+        policy = dict(policy_refs)
         if variant.family in {"perceptive", "perceptive_hoi"}:
-            policy["depth_image"] = ObsTermSpec(kind="shadow_depth_image", params={"sensor": _camera()})
+            policy["depth_image"] = ObsTermSpec(
+                kind="shadow_depth_image",
+                params={"sensor": _camera(include_objects=variant.family == "perceptive_hoi")},
+            )
         if variant.family == "beyondmimic":
-            policy["base_lin_vel"] = ObsTermSpec(func=mdp.base_lin_vel)
-    policy.update(_proprioception(joints, corrupt=True))
+            policy["base_lin_vel"] = ObsTermSpec(kind="shadow_base_linear_velocity")
+    policy.update(_proprioception(joints, corrupt=True, history_length=history_length))
 
-    critic = dict(refs)
+    critic = dict(critic_refs)
     if variant.family != "perceptive_vae":
-        critic.pop("rotation_ref", None) if variant.family in {"perceptive", "perceptive_hoi"} else None
+        (
+            critic.pop("rotation_ref", None)
+            if variant.family
+            in {
+                "perceptive",
+                "perceptive_hoi",
+            }
+            else None
+        )
         critic["link_pos"] = ObsTermSpec(
             kind="shadow_link_position",
             params={
@@ -289,11 +415,13 @@ def _observations(variant: ShadowingVariant, joints: EntityRef, motion: MotionRe
         )
         if variant.family in {"perceptive", "perceptive_hoi"}:
             critic["height_scan"] = ObsTermSpec(kind="shadow_height_scan", params={"sensor": _height_scanner()})
-        critic["base_lin_vel"] = ObsTermSpec(func=mdp.base_lin_vel)
-        critic.update(_proprioception(joints, corrupt=False))
+        critic["base_lin_vel"] = ObsTermSpec(kind="shadow_base_linear_velocity", history_length=history_length)
+        critic.update(_proprioception(joints, corrupt=False, history_length=history_length))
     else:
-        critic["depth_image"] = ObsTermSpec(kind="shadow_depth_image", params={"sensor": _camera()})
-        critic.update(_proprioception(joints, corrupt=False))
+        critic["depth_image"] = ObsTermSpec(
+            kind="shadow_depth_image", params={"sensor": _camera(include_objects=False)}
+        )
+        critic.update(_proprioception(joints, corrupt=False, history_length=history_length))
     return {
         "policy": ObsGroupSpec(terms=policy, enable_corruption=True, concatenate_terms=False),
         "critic": ObsGroupSpec(terms=critic, enable_corruption=False, concatenate_terms=False),
@@ -303,69 +431,225 @@ def _observations(variant: ShadowingVariant, joints: EntityRef, motion: MotionRe
 def _rewards(variant: ShadowingVariant) -> dict[str, dict[str, RewardTermSpec]]:
     terms = {
         "base_position_imitation_gauss": RewardTermSpec(
-            kind="shadow_base_position_gauss", weight=1.0, level=Requirement.REQUIRED
+            kind="shadow_base_position_gauss",
+            weight=0.5,
+            params={"std": 0.3},
+            level=Requirement.REQUIRED,
         ),
         "base_rot_imitation_gauss": RewardTermSpec(
-            kind="shadow_base_rotation_gauss", weight=1.0, level=Requirement.REQUIRED
+            kind="shadow_base_rotation_gauss",
+            weight=0.5,
+            params={"std": 0.4, "difference_type": "axis_angle"},
+            level=Requirement.REQUIRED,
         ),
         "link_pos_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_position_gauss", weight=1.0, level=Requirement.REQUIRED
+            kind="shadow_link_position_gauss",
+            weight=1.0,
+            params={
+                "combine_method": "mean_prod",
+                "in_base_frame": False,
+                "in_relative_world_frame": True,
+                "std": 0.3,
+            },
+            level=Requirement.REQUIRED,
         ),
         "link_rot_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_rotation_gauss", weight=1.0, level=Requirement.REQUIRED
+            kind="shadow_link_rotation_gauss",
+            weight=1.0,
+            params={
+                "combine_method": "mean_prod",
+                "in_base_frame": False,
+                "in_relative_world_frame": True,
+                "std": 0.4,
+            },
+            level=Requirement.REQUIRED,
         ),
         "link_lin_vel_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_linear_velocity_gauss", weight=1.0, level=Requirement.REQUIRED
+            kind="shadow_link_linear_velocity_gauss",
+            weight=1.0,
+            params={"combine_method": "mean_prod", "std": 1.0},
+            level=Requirement.REQUIRED,
         ),
         "link_ang_vel_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_angular_velocity_gauss", weight=1.0, level=Requirement.REQUIRED
+            kind="shadow_link_angular_velocity_gauss",
+            weight=1.0,
+            params={"combine_method": "mean_prod", "std": 3.14},
+            level=Requirement.REQUIRED,
         ),
         "action_rate_l2": RewardTermSpec(func=mdp.action_rate_l2, weight=-0.1, level=Requirement.REQUIRED),
         "joint_limit": RewardTermSpec(func=mdp.joint_pos_limits, weight=-10.0, level=Requirement.REQUIRED),
-        "undesired_contacts": RewardTermSpec(kind="shadow_undesired_contacts", weight=-1.0, level=Requirement.REQUIRED),
+        "undesired_contacts": RewardTermSpec(
+            kind="shadow_undesired_contacts",
+            weight=-0.1,
+            params={
+                "threshold": 1.0,
+                "sensor": _contact_sensor(variant, undesired_subset=True),
+            },
+            level=Requirement.REQUIRED,
+        ),
     }
     if variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}:
         terms["applied_torque_limits_by_ratio"] = RewardTermSpec(
-            kind="shadow_torque_limit_ratio", weight=-0.1, level=Requirement.REQUIRED
+            kind="shadow_torque_limit_ratio", weight=-0.05, level=Requirement.REQUIRED
         )
     return {"rewards": terms}
 
 
 def _events(variant: ShadowingVariant) -> dict[str, EventTermSpec]:
-    events = {
-        "physics_material": EventTermSpec(kind="randomize_friction", mode="startup", params={"ranges": (0.3, 1.6)}),
-        "add_joint_default_pos": EventTermSpec(
-            kind="randomize_joint_default", mode="startup", params={"range": (-0.01, 0.01)}
-        ),
-        "base_com": EventTermSpec(kind="randomize_base_com", mode="startup", params={"range": (-0.02, 0.02)}),
-    }
     perceptive = variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
+    isaac_material = {
+        "static_friction_range": (1.25, 2.0) if perceptive else (0.3, 1.6),
+        "dynamic_friction_range": (1.2, 1.8) if perceptive else (0.3, 1.2),
+        "restitution_range": (0.0, 0.5),
+        "num_buckets": 64,
+    }
+    if perceptive:
+        isaac_material["make_consistent"] = True
+    mj_material = (
+        {
+            "ranges": {0: (1.25, 2.0), 1: (1.2, 1.8), 2: (0.0, 0.5)},
+            "operation": "abs",
+            "distribution": "uniform",
+        }
+        if perceptive
+        else {"ranges": (0.3, 1.6), "operation": "abs", "shared_random": True}
+    )
+    events = {
+        "physics_material": EventTermSpec(
+            kind="randomize_friction",
+            mode="startup",
+            target=EntityRef("robot", bodies=".*"),
+            engine_params={
+                "isaacsim": isaac_material,
+                "mjlab": mj_material,
+            },
+        ),
+        "add_joint_default_pos": EventTermSpec(
+            kind="randomize_joint_default",
+            mode="startup",
+            params={"range": (-0.01, 0.01)},
+        ),
+        "base_com": EventTermSpec(
+            kind="randomize_base_com",
+            mode="startup",
+            target=EntityRef("robot", bodies=("torso_link",)),
+            params={
+                "com_range": {
+                    "x": (-0.025, 0.025),
+                    "y": (-0.05, 0.05),
+                    "z": (-0.05, 0.05),
+                }
+            },
+        ),
+    }
     if perceptive:
         events.update(
-            randomize_ray_offsets=EventTermSpec(kind="shadow_randomize_ray_offsets", mode="startup"),
-            randomize_actuator_gains=EventTermSpec(kind="randomize_actuator_gains", mode="startup"),
-            randomize_rigid_body_mass=EventTermSpec(kind="randomize_body_mass", mode="startup"),
+            randomize_ray_offsets=EventTermSpec(
+                kind="shadow_randomize_ray_offsets",
+                mode="startup",
+                params={
+                    "offset_pose_ranges": {
+                        "x": (-0.01, 0.01),
+                        "y": (-0.01, 0.01),
+                        "z": (-0.01, 0.01),
+                        "roll": (-0.034906585, 0.034906585),
+                        "pitch": (-0.174532925, 0.174532925),
+                        "yaw": (-0.034906585, 0.034906585),
+                    }
+                },
+            ),
+            randomize_actuator_gains=EventTermSpec(
+                kind="randomize_actuator_gains",
+                mode="startup",
+                params={
+                    "stiffness_range": (0.8, 1.2),
+                    "damping_range": (0.9, 1.1),
+                    "operation": "scale",
+                },
+            ),
+            randomize_rigid_body_mass=EventTermSpec(
+                kind="shadow_randomize_body_inertia",
+                mode="startup",
+                target=EntityRef(
+                    "robot",
+                    bodies=("torso_link", ".*ankle.*", ".*wrist.*"),
+                ),
+                params={"add_range": (0.8, 1.2), "operation": "scale"},
+            ),
         )
     else:
         events["push_robot"] = EventTermSpec(
             kind="push_root_velocity",
             mode="interval",
             interval_range_s=(1.0, 3.0),
-            params={"velocity_range": (-0.5, 0.5)},
+            params={
+                "velocity_range": {
+                    "x": (-0.5, 0.5),
+                    "y": (-0.5, 0.5),
+                    "z": (-0.2, 0.2),
+                    "roll": (-0.52, 0.52),
+                    "pitch": (-0.52, 0.52),
+                    "yaw": (-0.78, 0.78),
+                }
+            },
+        )
+    reset_params = {
+        "position_offset": (0.0, 0.0, 0.0),
+        "dof_vel_ratio": 1.0,
+        "base_lin_vel_ratio": 1.0,
+        "base_ang_vel_ratio": 1.0,
+        "randomize_joint_pos_range": (-0.1, 0.1),
+    }
+    if perceptive:
+        reset_params.update(
+            randomize_pose_range={
+                "x": (-0.15, 0.15),
+                "y": (-0.15, 0.15),
+                "z": (0.0, 0.0),
+            },
+            randomize_velocity_range={},
+        )
+    else:
+        reset_params.update(
+            randomize_pose_range={
+                "x": (-0.05, 0.05),
+                "y": (-0.05, 0.05),
+                "z": (-0.01, 0.01),
+                "roll": (-0.1, 0.1),
+                "pitch": (-0.1, 0.1),
+                "yaw": (-0.2, 0.2),
+            },
+            randomize_velocity_range={
+                "x": (-0.5, 0.5),
+                "y": (-0.5, 0.5),
+                "z": (-0.2, 0.2),
+                "roll": (-0.52, 0.52),
+                "pitch": (-0.52, 0.52),
+                "yaw": (-0.78, 0.78),
+            },
         )
     if variant.family == "perceptive_hoi":
-        events["reset_robot"] = EventTermSpec(kind="shadow_reset_robot_from_reference", mode="reset")
+        events["reset_robot"] = EventTermSpec(
+            kind="shadow_reset_robot_from_reference", mode="reset", params=reset_params
+        )
         events["reset_rigid_objects_state_by_reference"] = EventTermSpec(
             kind="shadow_reset_objects_from_reference", mode="reset"
         )
         events["update_rigid_objects_state_by_reference"] = EventTermSpec(
-            kind="shadow_update_objects_from_reference", mode="interval", interval_range_s=(0.02, 0.02)
+            kind="shadow_update_objects_from_reference",
+            mode="interval",
+            interval_range_s=(0.02, 0.02),
+            params={"invalid_object_pos": (0.0, 0.0, -1.0)},
         )
     else:
-        events["match_motion_ref_with_scene"] = EventTermSpec(kind="shadow_match_reference_origin", mode="reset")
-        events["reset_robot"] = EventTermSpec(kind="shadow_reset_robot_from_reference", mode="reset")
+        events["match_motion_ref_with_scene"] = EventTermSpec(kind="shadow_match_reference_origin", mode="startup")
+        events["reset_robot"] = EventTermSpec(
+            kind="shadow_reset_robot_from_reference", mode="reset", params=reset_params
+        )
     events["bin_fail_counter_smoothing"] = EventTermSpec(
-        kind="shadow_smooth_bin_failures", mode="interval", interval_range_s=(0.02, 0.02)
+        kind="shadow_smooth_bin_failures",
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
     )
     if variant.play:
         for name in ("push_robot", "bin_fail_counter_smoothing"):
@@ -376,22 +660,73 @@ def _events(variant: ShadowingVariant) -> dict[str, EventTermSpec]:
 def _terminations(variant: ShadowingVariant, motion: MotionReferenceRef) -> dict[str, DoneTermSpec]:
     terms = {
         "time_out": DoneTermSpec(func=mdp.time_out, time_out=True),
-        "base_pos_too_far": DoneTermSpec(kind="shadow_base_position_too_far"),
-        "base_pg_too_far": DoneTermSpec(kind="shadow_projected_gravity_too_far"),
-        "link_pos_too_far": DoneTermSpec(kind="shadow_link_position_too_far"),
+        "base_pos_too_far": DoneTermSpec(
+            kind="shadow_base_position_too_far",
+            params={
+                "distance_threshold": 0.25,
+                "check_at_keyframe_threshold": -1,
+                "print_reason": False,
+                "height_only": True,
+            },
+        ),
+        "base_pg_too_far": DoneTermSpec(
+            kind="shadow_projected_gravity_too_far",
+            params={
+                "projected_gravity_threshold": 0.8,
+                "check_at_keyframe_threshold": -1,
+                "z_only": False,
+                "print_reason": False,
+            },
+        ),
+        "link_pos_too_far": DoneTermSpec(
+            kind="shadow_link_position_too_far",
+            params={
+                "distance_threshold": 0.25,
+                "in_base_frame": False,
+                "check_at_keyframe_threshold": -1,
+                "height_only": True,
+                "print_reason": False,
+            },
+            target=EntityRef(
+                "motion_reference",
+                bodies=(
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                    "left_wrist_yaw_link",
+                    "right_wrist_yaw_link",
+                ),
+                preserve_order=True,
+            ),
+        ),
         "dataset_exhausted": DoneTermSpec(
             func=mdp.dataset_exhausted,
-            params={"sensor": motion, "reset_without_notice": variant.family == "perceptive_vae"},
+            params={
+                "sensor": motion,
+                "reset_without_notice": variant.family == "perceptive_vae",
+            },
             time_out=True,
         ),
-        "out_of_border": DoneTermSpec(func=mdp.terrain_out_of_bounds, time_out=True),
+        "out_of_border": DoneTermSpec(
+            func=mdp.terrain_out_of_bounds,
+            params={"distance_buffer": 0.1},
+            time_out=True,
+        ),
     }
     if variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}:
         terms = {
             "time_out": terms.pop("time_out"),
-            "illegal_reset_contact": DoneTermSpec(kind="shadow_illegal_reset_contact"),
+            "illegal_reset_contact": DoneTermSpec(
+                kind="shadow_illegal_reset_contact",
+                params={
+                    "sensor": _contact_sensor(variant, undesired_subset=True),
+                    "threshold": 500.0,
+                    "episode_length_threshold": 2,
+                },
+            ),
             **terms,
         }
+    if variant.family == "perceptive_hoi":
+        terms.pop("out_of_border")
     return terms
 
 
