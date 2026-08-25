@@ -31,6 +31,15 @@ DELIBERATE_OMISSIONS = frozenset()
 
 # Cross-engine / hub-spelling drifts that change Isaac relative to main but were accepted.
 KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
+    "reward/volume_points_penetration/weight": (
+        "weight=-4.0",
+        "weight=-8.0",
+        (
+            "Requested follow-up experiment doubles the virtual-terrain penetration penalty for the "
+            "next MJLab run. The shared declaration also records this for future Isaac runs, while the "
+            "already-running baselines retain the -4.0 configuration loaded at process construction."
+        ),
+    ),
     "reward/track_lin_vel_xy_exp/velocity_frame": (
         "root_lin_vel_b (COM alias)",
         "root_link_lin_vel_b",
@@ -183,7 +192,10 @@ def test_reward_names_match_main(task) -> None:
 
 def test_reward_weights_match_main(task) -> None:
     declared = {name: term.weight for name, term in task.mdp.rewards["rewards"].items()}
-    assert declared == main_ref.reward_weights()
+    reference = main_ref.reward_weights()
+    assert declared.pop("volume_points_penetration") == -8.0
+    assert reference.pop("volume_points_penetration") == -4.0
+    assert declared == reference
 
 
 def test_reward_numeric_params_match_main_effective_g1(task) -> None:
@@ -337,7 +349,7 @@ def test_agent_shared_hyperparameters_match_main(our_agent, main_agent) -> None:
 
 
 def test_known_drifts_table_is_non_empty_and_stable() -> None:
-    assert len(KNOWN_DRIFTS) == 8
+    assert len(KNOWN_DRIFTS) == 9
     assert "actuation/delay" in KNOWN_DRIFTS
     assert "dataset_exhausted" not in DELIBERATE_OMISSIONS
     assert "reward/undesired_contacts/threshold" not in KNOWN_DRIFTS
@@ -349,6 +361,7 @@ def test_known_drifts_table_is_non_empty_and_stable() -> None:
     assert "amp/symmetric_augmentation" not in KNOWN_DRIFTS
     assert "obs/joint_axis" in KNOWN_DRIFTS
     assert "obs/base_lin_vel_frame" in KNOWN_DRIFTS
+    assert "reward/volume_points_penetration/weight" in KNOWN_DRIFTS
 
 
 def test_documented_drifts_are_still_present(task) -> None:
@@ -357,6 +370,8 @@ def test_documented_drifts_are_still_present(task) -> None:
     from instinctlab.mdp.observations import base_lin_vel
 
     rewards = task.mdp.rewards["rewards"]
+    assert main_ref.reward_weights()["volume_points_penetration"] == -4.0
+    assert rewards["volume_points_penetration"].weight == -8.0
     assert rewards["track_lin_vel_xy_exp"].func.__name__ == "track_lin_vel_xy_exp"
     assert rewards["dont_wait"].func.__name__ == "dont_wait"
     assert rewards["undesired_contacts"].kind == "undesired_contacts"

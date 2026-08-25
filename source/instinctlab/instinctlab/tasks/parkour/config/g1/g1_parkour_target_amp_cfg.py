@@ -453,7 +453,7 @@ def _rewards(joints: EntityRef, velocity_limits: tuple[float, ...]) -> dict[str,
         # Regularization rewards
         "volume_points_penetration": RewardTermSpec(
             func=mdp.volume_points_penetration,
-            weight=-4.0,
+            weight=-8.0,
             params={"sensor": LEG_VOLUME_POINTS},
             level=Requirement.REQUIRED,
         ),

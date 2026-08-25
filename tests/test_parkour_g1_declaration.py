@@ -41,7 +41,7 @@ REWARDS = {
     "dont_wait": -0.5,
     "is_alive": 3.0,
     "stand_still": -0.3,
-    "volume_points_penetration": -4.0,
+    "volume_points_penetration": -8.0,
     "feet_air_time": 0.5,
     "feet_slide": -0.4,
     "joint_deviation_hip": -0.5,
@@ -256,7 +256,7 @@ def test_volume_points_and_edge_cylinders_are_declared_and_required(task) -> Non
     assert obstacles[0].min_points == 2
     term = task.mdp.rewards["rewards"]["volume_points_penetration"]
     assert term.func is not None
-    assert term.weight == -4.0
+    assert term.weight == -8.0
     assert term.level is Requirement.REQUIRED
     assert term.params["sensor"] is sensor
     event = task.mdp.events["register_virtual_obstacles"]
@@ -592,7 +592,7 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     assert terrain_cfg.virtual_obstacle_hfield_height_threshold == 0.04
     assert events["register_virtual_obstacles"].func is register_virtual_obstacles
     assert events["register_virtual_obstacles"].params["sensor"].name == "leg_volume_points"
-    assert compiled.env_cfg.rewards["volume_points_penetration"].weight == -4.0
+    assert compiled.env_cfg.rewards["volume_points_penetration"].weight == -8.0
     assert "found" in sensors["contact_forces"].fields
     assert sensors["left_height_scanner"].ray_alignment == "yaw"
     assert sensors["left_height_scanner"].max_distance == 10.0

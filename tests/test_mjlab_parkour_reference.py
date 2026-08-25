@@ -97,6 +97,15 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
             "reward that is absent from the original InstinctMJ parkour factory."
         ),
     ),
+    "reward/volume_points_penetration/weight": (
+        "InstinctMJ weight=-4.0",
+        "weight=-8.0",
+        (
+            "Requested follow-up experiment: double the virtual-terrain penetration penalty after "
+            "the motor-speed baseline starts, so the next MJLab run measures whether stronger edge "
+            "avoidance improves traversal rather than silently treating the new run as reference parity."
+        ),
+    ),
     "motion/source": (
         "AmassMotionCfg yaml filter → parkour_motion_without_run.yaml",
         "MotionReferenceRef clip=…parkour_motion_without_run_retargetted.npz",
@@ -159,8 +168,10 @@ def test_reward_sets_differ_only_by_the_documented_extra(task) -> None:
 def test_shared_reward_weights_match(task) -> None:
     declared = {name: term.weight for name, term in task.mdp.rewards["rewards"].items()}
     reference = mj_ref.reward_weights()
-    shared = {name: declared[name] for name in reference}
-    assert shared == reference
+    shared = {name: declared[name] for name in reference if name != "volume_points_penetration"}
+    assert shared == {name: weight for name, weight in reference.items() if name != "volume_points_penetration"}
+    assert reference["volume_points_penetration"] == -4.0
+    assert declared["volume_points_penetration"] == -8.0
     assert declared["dof_vel_limits"] == -1.0
 
 
@@ -502,7 +513,7 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 3
+    assert len(KNOWN_DRIFTS) == 4
     assert len(DELIBERATE) == 2
     assert len(REFERENCE_DIVERGENCE) == 1
     assert "agent/normalizers" not in KNOWN_DRIFTS
@@ -847,4 +858,4 @@ def test_the_prose_counts_the_drift_table() -> None:
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {3}
+    assert counts == {len(KNOWN_DRIFTS)} == {4}
