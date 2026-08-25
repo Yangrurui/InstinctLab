@@ -190,9 +190,15 @@ def _play(args, engine, resources: ExitStack) -> None:
         return
 
     viewer = _resolve_viewer(args.viewer)
-    from instinctlab.play.viser import enable_pose_command_debug_vis
+    from instinctlab.play.viser import (
+        enable_camera_debug_vis,
+        enable_pose_command_debug_vis,
+        enable_volume_points_debug_vis,
+    )
 
     enable_pose_command_debug_vis(env)
+    enable_volume_points_debug_vis(env)
+    enable_camera_debug_vis(env)
     print(f"[INFO] Playing {args.task} on {args.engine} with {viewer}", flush=True)
     engine.play(
         PlayEnv(env),

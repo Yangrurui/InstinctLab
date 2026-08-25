@@ -113,7 +113,9 @@ def _iter_joint_stiffness(asset):
         if getattr(actuator, "transmission_type", "joint") != "joint":
             continue
         base = _unwrap_base_actuator(actuator)
-        yield base.target_ids, base.cfg.stiffness
+        stiffness = getattr(base.cfg, "stiffness", None)
+        if stiffness is not None:
+            yield base.target_ids, stiffness
 
 
 def joint_torques_l2(

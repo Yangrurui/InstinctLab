@@ -7,9 +7,9 @@ declarations; task policy does not live in an adapter.
 
 The declaration keeps the two established reference choices explicit:
 
-* MJLab follows InstinctMJ's effective ten-column terrain, ankle-origin height
-  scanners, and 25-term reward set.
-* Isaac retains the main task's sky-origin scanners and ``dof_vel_limits`` term.
+* MJLab follows InstinctMJ's effective ten-column terrain and ankle-origin
+  height scanners. It additionally uses the shared joint-speed safety penalty.
+* Isaac retains the main task's sky-origin scanners.
 
 Both engines share the same motion-reference exhaustion behavior: resample the
 reference silently and continue the robot episode.
@@ -684,7 +684,6 @@ def parkour_target_g1() -> TaskSpec:
                     "contact_sensor_maxmatch": 128,
                     "ccd_iterations": 128,
                     "num_cols": 10,
-                    "omit_rewards": ("dof_vel_limits",),
                 }
             },
         ),

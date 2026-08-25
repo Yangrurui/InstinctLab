@@ -106,10 +106,12 @@ def test_soft_joint_limit_factor_matches(spec, mjlab_robot) -> None:
 
 
 def test_mjlab_actuators_hold_the_hub_episode_delay(spec, mjlab_robot) -> None:
-    lags = {(act.delay_min_lag, act.delay_max_lag) for act in mjlab_robot.articulation.actuators}
+    actuators = mjlab_robot.articulation.actuators
+    pd_actuators = tuple(act for act in actuators if type(act).__name__ == "BuiltinPdActuatorCfg")
+    lags = {(act.delay_min_lag, act.delay_max_lag) for act in pd_actuators}
     assert spec.robot.actuator_delay == (0, 2)
     assert lags == {(0, 2)}
-    periods = [act.delay_update_period for act in mjlab_robot.articulation.actuators]
+    periods = [act.delay_update_period for act in pd_actuators]
     assert all(period >= DELAY_RESET_ONLY_PERIOD for period in periods)
     # Distinct periods, once. It read as "keep mjlab from fusing groups", but fusion is the
     # only way two configs can share a lag draw, and the G1's legs need exactly that -- they
@@ -117,8 +119,40 @@ def test_mjlab_actuators_hold_the_hub_episode_delay(spec, mjlab_robot) -> None:
     # count of distinct periods is the count of buses, not the count of configs.
     assert len(set(periods)) == len(spec.robot.actuator_groups()) == 5
     assert len(periods) == 7
-    assert all(act.delay_per_env_phase is False for act in mjlab_robot.articulation.actuators)
-    assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in mjlab_robot.articulation.actuators)
+    assert all(act.delay_per_env_phase is False for act in pd_actuators)
+    assert len(pd_actuators) == 7
+
+
+def test_mjlab_motor_velocity_limiters_match_the_shared_robot(spec, mjlab_robot) -> None:
+    limiters = tuple(
+        act for act in mjlab_robot.articulation.actuators if type(act).__name__ == "JointVelocityLimiterCfg"
+    )
+    by_joint = {name: (act.velocity_limit, act.effort_limit) for act in limiters for name in act.target_names_expr}
+    assert set(by_joint) == set(spec.robot.joint_names)
+    assert all(act.delay_min_lag == act.delay_max_lag == 0 for act in limiters)
+    for joint in spec.robot.joint_properties:
+        assert by_joint[joint.name] == pytest.approx((joint.velocity_limit, joint.effort_limit))
+
+
+def test_mjlab_motor_velocity_limiter_brakes_only_at_the_cap() -> None:
+    torch = pytest.importorskip("torch")
+    from mjlab.actuator import ActuatorCmd
+
+    from instinctlab.engines.mjlab.actuators import JointVelocityLimiter, JointVelocityLimiterCfg
+
+    cfg = JointVelocityLimiterCfg(target_names_expr=("joint",), velocity_limit=20.0, effort_limit=50.0)
+    limiter = JointVelocityLimiter(cfg, entity=None, target_ids=[0], target_names=["joint"])
+    velocity = torch.tensor([[-20.1, -20.0, -19.9, 0.0, 19.9, 20.0, 20.1]])
+    zeros = torch.zeros_like(velocity)
+    command = ActuatorCmd(
+        position_target=zeros,
+        velocity_target=zeros,
+        effort_target=zeros,
+        pos=zeros,
+        vel=velocity,
+    )
+
+    assert limiter.compute(command).tolist() == [[100.0, 100.0, 0.0, 0.0, 0.0, -100.0, -100.0]]
 
 
 def test_undesired_contacts_is_the_per_engine_force_threshold_term_on_mjlab(spec) -> None:

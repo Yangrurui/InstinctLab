@@ -79,15 +79,16 @@ def test_mjlab_builtin_pd_matches_the_shared_plant_without_delay() -> None:
 
     task = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
     actuators = entity(task.robot).articulation.actuators
+    pd_actuators = tuple(cfg for cfg in actuators if type(cfg).__name__ == "BuiltinPdActuatorCfg")
     by_joint = {
         name: (cfg.stiffness, cfg.damping, cfg.armature, cfg.effort_limit)
-        for cfg in actuators
+        for cfg in pd_actuators
         for name in cfg.target_names_expr
     }
 
-    assert len(actuators) == 7
+    assert len(pd_actuators) == 7
     assert set(by_joint) == set(G1_29DOF_DFS_JOINT_NAMES)
-    assert all(cfg.delay_min_lag == cfg.delay_max_lag == 0 for cfg in actuators)
+    assert all(cfg.delay_min_lag == cfg.delay_max_lag == 0 for cfg in pd_actuators)
     for joint in task.robot.joint_properties:
         assert by_joint[joint.name] == pytest.approx(
             (joint.stiffness, joint.damping, joint.armature, joint.effort_limit)

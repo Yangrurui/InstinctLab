@@ -196,6 +196,25 @@ def build_sensor(ref: VolumePointsRef) -> Any:
                 offset_buf[mask] = offset[mask]
             self._sensor_data.penetration_offset[env_ids] = offset_buf
 
+        def debug_vis(self, visualizer) -> None:
+            """Draw the foot sample cloud: green free, red inside a virtual edge."""
+            if not self.cfg.debug_vis or self._sensor_data is None:
+                return
+            env_ids = list(visualizer.get_env_indices(self._num_envs))
+            if not env_ids:
+                return
+            points = self._sensor_data.points_pos_w[env_ids].reshape(-1, 3)
+            penetrated = (
+                torch.linalg.vector_norm(self._sensor_data.penetration_offset[env_ids].reshape(-1, 3), dim=-1) > 0.0
+            )
+            if not bool(torch.any(penetrated)):
+                points = torch.cat([points, torch.zeros_like(points[:1])], dim=0)
+                penetrated = torch.cat([penetrated, torch.tensor([True], device=points.device)], dim=0)
+            for point in points[~penetrated].cpu().numpy():
+                visualizer.add_sphere(center=point, radius=0.01, color=(0.0, 1.0, 0.0, 1.0))
+            for point in points[penetrated].cpu().numpy():
+                visualizer.add_sphere(center=point, radius=0.01, color=(1.0, 0.0, 0.0, 1.0))
+
         def _resolve_env_ids(self, env_ids: Sequence[int] | torch.Tensor | None) -> torch.Tensor:
             if env_ids is None:
                 return self._ALL_INDICES

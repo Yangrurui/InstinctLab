@@ -79,6 +79,24 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
     # certainly not the closure the hypothesis predicted. The alignment is kept because the
     # partition is a physical fact both references declare and we were the odd one out on it,
     # not because it bought anything measurable. Our higher fall rate remains unexplained.
+    "actuation/velocity_limit": (
+        "InstinctMJ BuiltinPd has no motor-side joint-speed limiter",
+        "BuiltinPd plus a braking motor at each catalog velocity limit",
+        (
+            "Requested plant constraint: MuJoCo has no PhysX velocity_limit_sim equivalent, so the "
+            "native implicit PD is retained and an auxiliary motor applies reverse effort only when "
+            "a joint reaches its declared 20/22/32/37 rad/s limit."
+        ),
+    ),
+    "reward/dof_vel_limits": (
+        "InstinctMJ has no dof_vel_limits reward",
+        "weight=-1.0, soft_ratio=0.9, using the shared per-joint motor limits",
+        (
+            "Requested safety term: MJLab now penalizes speeds above 90 percent of each catalog "
+            "motor limit, matching the unified Isaac task arithmetic while deliberately adding one "
+            "reward that is absent from the original InstinctMJ parkour factory."
+        ),
+    ),
     "motion/source": (
         "AmassMotionCfg yaml filter → parkour_motion_without_run.yaml",
         "MotionReferenceRef clip=…parkour_motion_without_run_retargetted.npz",
@@ -252,9 +270,8 @@ def test_parkour_robot_matches_instinctmj_on_spawn_delay_shoe(task, compiled) ->
     robot = compiled.env_cfg.scene.entities["robot"]
     assert robot.init_state.pos[2] == pytest.approx(mj_ref.SPAWN_Z)
     assert mj_ref.sim_overrides()["init_pos"][2] == pytest.approx(mj_ref.SPAWN_Z)
-    lags = {
-        (getattr(act, "delay_min_lag", 0), getattr(act, "delay_max_lag", 0)) for act in robot.articulation.actuators
-    }
+    pd_actuators = (act for act in robot.articulation.actuators if type(act).__name__ == "BuiltinPdActuatorCfg")
+    lags = {(act.delay_min_lag, act.delay_max_lag) for act in pd_actuators}
     assert lags == {(0, mj_ref.DELAY_MAX_LAG)}
     assert mj_ref.delayed_actuator_lags() == (0, mj_ref.DELAY_MAX_LAG)
     asset = task.robot.asset_for("mjlab").path
@@ -265,9 +282,8 @@ def test_parkour_robot_matches_instinctmj_on_spawn_delay_shoe(task, compiled) ->
 def test_compiled_scanners_volume_contact_and_camera_are_the_documented_drifts(task, compiled) -> None:
     robot = compiled.env_cfg.scene.entities["robot"]
     assert robot.init_state.pos[2] == pytest.approx(mj_ref.SPAWN_Z)
-    lags = {
-        (getattr(act, "delay_min_lag", 0), getattr(act, "delay_max_lag", 0)) for act in robot.articulation.actuators
-    }
+    pd_actuators = (act for act in robot.articulation.actuators if type(act).__name__ == "BuiltinPdActuatorCfg")
+    lags = {(act.delay_min_lag, act.delay_max_lag) for act in pd_actuators}
     assert lags == {(0, mj_ref.DELAY_MAX_LAG)}
     asset = task.robot.asset_for("mjlab").path
     assert asset.endswith(mj_ref.SHOE_XML_SUFFIX)
@@ -486,12 +502,12 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 1
+    assert len(KNOWN_DRIFTS) == 3
     assert len(DELIBERATE) == 2
     assert len(REFERENCE_DIVERGENCE) == 1
     assert "agent/normalizers" not in KNOWN_DRIFTS
     assert "scene/height_scanner/offset" not in KNOWN_DRIFTS
-    assert "reward/dof_vel_limits" not in KNOWN_DRIFTS
+    assert "reward/dof_vel_limits" in KNOWN_DRIFTS
     assert "camera/hit_targets" not in KNOWN_DRIFTS
     assert "camera/hit_targets" not in REFERENCE_DIVERGENCE
     assert "contact/threshold" not in KNOWN_DRIFTS
@@ -709,11 +725,12 @@ def test_every_extractor_has_a_caller() -> None:
 def test_dof_vel_limits_tracks_each_engine_reference(task, compiled) -> None:
     assert "dof_vel_limits" in task.mdp.rewards["rewards"]
     assert task.mdp.rewards["rewards"]["dof_vel_limits"].weight == -1.0
-    assert "dof_vel_limits" not in compiled.env_cfg.rewards
+    assert "dof_vel_limits" in compiled.env_cfg.rewards
+    assert compiled.env_cfg.rewards["dof_vel_limits"].weight == -1.0
     key = "reward/rewards/dof_vel_limits"
-    assert key not in compiled.resolution.resolved
-    assert key in compiled.resolution.omitted
-    assert key in compiled.resolution.manifest()["omitted"]
+    assert key in compiled.resolution.resolved
+    assert key not in compiled.resolution.omitted
+    assert key not in compiled.resolution.manifest()["omitted"]
     assert "dof_vel_limits" not in mj_ref.reward_names()
     assert "dof_vel_limits" in main_ref.reward_names()
     assert main_ref.reward_weights()["dof_vel_limits"] == -1.0
@@ -772,7 +789,10 @@ def test_camera_hit_mutation_wrong_groups_would_fail(task) -> None:
 
 def test_reference_divergence_pd_tracks_each_reference(task, compiled) -> None:
     robot = compiled.env_cfg.scene.entities["robot"]
-    assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in robot.articulation.actuators)
+    pd_actuators = tuple(act for act in robot.articulation.actuators if type(act).__name__ == "BuiltinPdActuatorCfg")
+    limiters = tuple(act for act in robot.articulation.actuators if type(act).__name__ == "JointVelocityLimiterCfg")
+    assert len(pd_actuators) == 7
+    assert limiters
     assert mj_ref.delayed_actuator_lags() == (0, mj_ref.DELAY_MAX_LAG)
     assert task.robot.actuator_delay == (0, 2)
     assert main_ref.effective_robot_actuators()["delayed"] is False
@@ -827,4 +847,4 @@ def test_the_prose_counts_the_drift_table() -> None:
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {1}
+    assert counts == {len(KNOWN_DRIFTS)} == {3}

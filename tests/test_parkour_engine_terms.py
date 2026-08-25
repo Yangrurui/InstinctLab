@@ -110,6 +110,31 @@ def test_mjlab_motors_power_square_uses_qfrc_times_joint_vel() -> None:
     assert torch.equal(out, torch.tensor([9.0 + 64.0]))
 
 
+def test_mjlab_motors_power_square_ignores_auxiliary_velocity_limiter() -> None:
+    pd = SimpleNamespace(
+        transmission_type="joint",
+        target_ids=torch.tensor([0, 1]),
+        cfg=SimpleNamespace(stiffness=2.0),
+    )
+    limiter = SimpleNamespace(
+        transmission_type="joint",
+        target_ids=torch.tensor([0, 1]),
+        cfg=SimpleNamespace(velocity_limit=20.0),
+    )
+    robot = SimpleNamespace(
+        actuators=(pd, limiter),
+        data=SimpleNamespace(
+            qfrc_actuator=torch.tensor([[2.0, 4.0]]),
+            joint_vel=torch.tensor([[3.0, 2.0]]),
+        ),
+    )
+    env = SimpleNamespace(scene={"robot": robot})
+
+    out = motors_power_square(env, asset_cfg=SimpleNamespace(name="robot", joint_ids=slice(None)))
+
+    assert torch.equal(out, torch.tensor([(2.0 * 3.0 / 2.0) ** 2 + (4.0 * 2.0 / 2.0) ** 2]))
+
+
 def test_mjlab_applied_torque_limits_by_ratio_reads_joint_effort_limits_when_present() -> None:
     env = SimpleNamespace(
         scene={

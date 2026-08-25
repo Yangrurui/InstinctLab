@@ -71,7 +71,10 @@ def test_play_uses_mjlab_viser_play_viewer() -> None:
     assert "ViserPlayViewer" in source
     assert "enable_pose_command_debug_vis" in source
     assert "enable_depth_image_debug_vis" in source
-    assert "enable_virtual_terrain_debug_vis" in inspect.getsource(play_viser)
+    assert "enable_virtual_terrain_debug_vis" not in source
+    assert "enable_height_scanner_debug_vis" not in source
+    assert "enable_volume_points_debug_vis" in source
+    assert "enable_camera_debug_vis" in source
     assert "set_debug_image_sink" in source
     assert "_update_env_dependent_plots" in source
     assert "add_mesh_trimesh" not in source
@@ -108,6 +111,10 @@ def test_play_turns_on_pose_command_debug_vis_after_the_env_exists() -> None:
 
     play = (Path(__file__).resolve().parents[1] / "scripts" / "play.py").read_text()
     assert play.index("compiled.make_env()") < play.index("enable_pose_command_debug_vis(")
+    assert play.index("compiled.make_env()") < play.index("enable_volume_points_debug_vis(")
+    assert play.index("compiled.make_env()") < play.index("enable_camera_debug_vis(")
+    assert "enable_virtual_terrain_debug_vis(" not in play
+    assert "enable_height_scanner_debug_vis(" not in play
 
 
 def test_play_depth_debug_vis_routes_through_viser_not_cv2_during_reset() -> None:
@@ -132,6 +139,70 @@ def test_play_enables_virtual_terrain_debug_vis_on_live_terrain() -> None:
     terrain.set_debug_vis = _set_debug_vis
     play_viser.enable_virtual_terrain_debug_vis(env)
     assert terrain._debug_vis_enabled is True
+
+
+def test_play_enables_volume_points_debug_vis_on_the_live_sensor() -> None:
+    volume = SimpleNamespace(cfg=SimpleNamespace(debug_vis=False))
+    scanner = SimpleNamespace(cfg=SimpleNamespace(debug_vis=False))
+    env = SimpleNamespace(
+        unwrapped=SimpleNamespace(
+            scene=SimpleNamespace(sensors={"leg_volume_points": volume, "left_height_scanner": scanner})
+        )
+    )
+    play_viser.enable_volume_points_debug_vis(env)
+    assert volume.cfg.debug_vis is True
+    assert scanner.cfg.debug_vis is False
+
+
+def test_volume_points_debug_vis_draws_free_and_penetrated_spheres() -> None:
+    import torch
+
+    from instinctlab.engines.mjlab.volume_points import build_sensor
+    from instinctlab.spec.sensor import Grid3dPointsRef, VolumePointsRef
+
+    class _Vis:
+        def __init__(self) -> None:
+            self.spheres: list[tuple] = []
+
+        def get_env_indices(self, num_envs: int):
+            del num_envs
+            return [0]
+
+        def add_sphere(self, *, center, radius, color, label=None) -> None:
+            del label
+            self.spheres.append((tuple(center), radius, tuple(color)))
+
+    sensor = build_sensor(
+        VolumePointsRef(
+            name="leg_volume_points",
+            attach=("left_ankle_roll_link",),
+            grid=Grid3dPointsRef(
+                x_min=0.0, x_max=0.0, x_num=1, y_min=0.0, y_max=0.0, y_num=1, z_min=0.0, z_max=0.0, z_num=1
+            ),
+        )
+    ).build()
+    sensor.cfg.debug_vis = True
+    sensor._num_envs = 1
+    sensor._sensor_data = SimpleNamespace(
+        points_pos_w=torch.tensor([[[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]]]),
+        penetration_offset=torch.tensor([[[[0.0, 0.0, 0.0], [0.05, 0.0, 0.0]]]]),
+    )
+    vis = _Vis()
+    sensor.debug_vis(vis)
+    colors = {sphere[2] for sphere in vis.spheres}
+    assert (0.0, 1.0, 0.0, 1.0) in colors
+    assert (1.0, 0.0, 0.0, 1.0) in colors
+
+
+def test_play_enables_camera_debug_vis_on_the_live_sensor() -> None:
+    left = SimpleNamespace(cfg=SimpleNamespace(debug_vis=False))
+    camera = SimpleNamespace(cfg=SimpleNamespace(debug_vis=False))
+    env = SimpleNamespace(
+        unwrapped=SimpleNamespace(scene=SimpleNamespace(sensors={"left_height_scanner": left, "camera": camera}))
+    )
+    play_viser.enable_camera_debug_vis(env)
+    assert camera.cfg.debug_vis is True
+    assert left.cfg.debug_vis is False
 
 
 def test_play_enables_instinctmj_pose_command_debug_vis() -> None:

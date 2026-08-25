@@ -246,6 +246,48 @@ def enable_virtual_terrain_debug_vis(target: object) -> None:
         setter(True)
 
 
+def enable_height_scanner_debug_vis(target: object) -> None:
+    """Turn on height-scanner hit markers for play.
+
+    Training leaves ``RayCastSensorCfg.debug_vis=False``. The native viewer and
+    Viser both read the live sensor cfg, so this has to land after ``make_env()``.
+    """
+    _enable_named_sensor_debug_vis(target, ("height_scanner",))
+
+
+def enable_camera_debug_vis(target: object) -> None:
+    """Turn on depth-camera ray hit markers for play.
+
+    Training leaves the pinhole ``debug_vis=False``. The 2D depth panel is a
+    separate path (``enable_depth_image_debug_vis``); this is the 3-D rays.
+    """
+    _enable_named_sensor_debug_vis(target, ("camera",))
+
+
+def enable_volume_points_debug_vis(target: object) -> None:
+    """Turn on the foot sample cloud that queries virtual-terrain cylinders.
+
+    InstinctMJ's play factory sets ``leg_volume_points.debug_vis = True``. These
+    are the points that report penetration into the edge cylinders — not the
+    height-scanner hits, and not the cylinders themselves.
+    """
+    _enable_named_sensor_debug_vis(target, ("volume_points",))
+
+
+def _enable_named_sensor_debug_vis(target: object, needles: tuple[str, ...]) -> None:
+    env = getattr(target, "unwrapped", target)
+    scene = getattr(env, "scene", None)
+    sensors = getattr(scene, "sensors", None)
+    if not isinstance(sensors, dict):
+        return
+    for name, sensor in sensors.items():
+        if not any(needle in name for needle in needles):
+            continue
+        cfg = getattr(sensor, "cfg", None)
+        if cfg is not None and hasattr(cfg, "debug_vis"):
+            cfg.debug_vis = True
+
+
 def _import_viser():
     """Import Viser, preferring the env install over Isaac Sim's bundled websockets.
 
@@ -374,8 +416,8 @@ def play_with_viser(
     set_debug_image_sink(_show_depth)
     enable_depth_image_debug_vis(env)
     enable_pose_command_debug_vis(env)
-    # Virtual terrain cylinders are temporarily off during play (re-enable via
-    # enable_virtual_terrain_debug_vis(env) when needed).
+    enable_volume_points_debug_vis(env)
+    enable_camera_debug_vis(env)
     try:
         _InstinctViserPlayViewer(
             env,
