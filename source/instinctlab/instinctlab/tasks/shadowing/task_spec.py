@@ -363,8 +363,11 @@ def _terminations(variant: ShadowingVariant, motion: MotionReferenceRef) -> dict
 
 
 def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
-    robot = make_g1_29dof_robot_spec().overridden(actuator_delay=(0, 2))
+    # Both final G1 references replace their base robot with the BeyondMimic plant. On Isaac this
+    # is ImplicitPD; on MJLab it is BuiltinPD. Neither final override uses the delayed tables.
+    robot = make_g1_29dof_robot_spec()
     joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
+    action_scale = {joint.name: joint.action_scale for joint in robot.joint_properties}
     motion = _motion_reference(variant, tuple(robot.joint_names))
     curriculum = (
         {} if variant.play else {"beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")}
@@ -397,7 +400,13 @@ def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
         ),
         mdp=MdpSpec(
             observations=_observations(variant, joints, motion),
-            actions={"joint_pos": ActionTermSpec(kind="joint_position", target=joints, params={"scale": 0.5})},
+            actions={
+                "joint_pos": ActionTermSpec(
+                    kind="joint_position",
+                    target=joints,
+                    params={"scale": action_scale, "use_default_offset": True},
+                )
+            },
             commands=_commands(variant),
             rewards=_rewards(variant),
             events=_events(variant),
