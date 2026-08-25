@@ -1,7 +1,6 @@
 import os
 
-from isaaclab.utils import configclass
-
+from instinctlab.utils.configclass import configclass
 from instinctlab.utils.wrappers.instinct_rl import (
     InstinctRlActorCriticCfg,
     InstinctRlNormalizerCfg,

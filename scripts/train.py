@@ -58,6 +58,8 @@ def _parse() -> argparse.Namespace:
     parser.add_argument("--logroot", type=str, default=None, help="Override the log root, default logs/<engine>/.")
     parser.add_argument("--run_name", type=str, default="", help="Suffix appended to the run directory.")
     parser.add_argument("--resume", action="store_true", help="Resume training from a checkpoint.")
+    parser.add_argument("--distributed", action="store_true", help="Enable torchrun distributed training.")
+    parser.add_argument("--local-rank", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--load_run", type=str, default=None, help="Run directory name or regular expression to resume."
     )
@@ -76,7 +78,7 @@ def _parse() -> argparse.Namespace:
         default=False,
         help=(
             "Log episode length/reward per sub-terrain name. Measured at ~2.7 ms/step "
-            "(~9% of a wrapped step at 16 envs); the bookkeeping is Python over the "
+            "(~9%% of a wrapped step at 16 envs); the bookkeeping is Python over the "
             "named types, not the overflow poll. Off by default. Overflow refusal "
             "is separate and stays on."
         ),
@@ -144,6 +146,11 @@ def _resolve_resume_checkpoint(args: argparse.Namespace, agent_cfg: object) -> P
 def main() -> None:
     args = _parse()
 
+    from instinctlab.training import distributed_run, rank_device
+
+    distributed = distributed_run(args.distributed, args.local_rank)
+    args.device = rank_device(args.device, distributed)
+
     from instinctlab.engines import adapter as engine_adapter
 
     engine = engine_adapter(args.engine)
@@ -151,6 +158,10 @@ def main() -> None:
     # Must precede every engine import. For mjlab this does nothing, which is the point: the
     # launcher does not need to know that only one of the two engines has a runtime to start.
     app = engine.bootstrap(args)
+
+    from instinctlab.training import initialize_process_group
+
+    initialize_process_group(distributed)
 
     from instinctlab.tasks.registry import spec as task_spec
 
@@ -175,28 +186,33 @@ def main() -> None:
 
         validate_checkpoint_contract(resume_path, spec)
 
-    log_dir = _log_dir(args, agent_cfg.experiment_name)
+    from instinctlab.training import shared_run_directory
+
+    log_dir = shared_run_directory(_log_dir(args, agent_cfg.experiment_name), distributed)
     os.makedirs(log_dir, exist_ok=True)
 
     print(compiled.resolution.summary_table())
     manifest_path = os.path.join(log_dir, "manifest.json")
     from instinctlab.checkpoint import add_task_contract
 
-    with open(manifest_path, "w") as handle:
-        json.dump(
-            add_task_contract(compiled.resolution.manifest(), spec),
-            handle,
-            indent=2,
-            sort_keys=True,
-            default=str,
-        )
-    print(f"[INFO] Wrote the compilation manifest to {manifest_path}")
+    manifest = add_task_contract(compiled.resolution.manifest(), spec)
+    manifest["distributed"] = {
+        "enabled": distributed.enabled,
+        "world_size": distributed.world_size,
+        "rank_seed_rule": "agent_seed + global_rank",
+        "rank_seeds": [agent_cfg.seed + rank for rank in range(distributed.world_size)],
+    }
+    manifest["resume_environment_state"] = "fresh reset; simulator and motion runtime are resampled"
+    if distributed.is_primary:
+        with open(manifest_path, "w") as handle:
+            json.dump(manifest, handle, indent=2, sort_keys=True, default=str)
+        print(f"[INFO] Wrote the compilation manifest to {manifest_path}")
 
     # The environment seeds itself from its own config, and both reference training scripts hand it
     # the agent's seed to do that with. Left unset it defaults to None on both engines, which means
     # no seeding at all -- runs still look fine and are simply not reproducible, and the randomised
     # mass, friction and pushes come from wherever the global RNG happened to be.
-    compiled.env_cfg.seed = agent_cfg.seed
+    compiled.env_cfg.seed = distributed.seed(agent_cfg.seed)
 
     if args.allow_contact_overflow:
         os.environ["INSTINCTLAB_ALLOW_CONTACT_OVERFLOW"] = "1"
@@ -214,10 +230,13 @@ def main() -> None:
     runner.add_git_repo_to_log(__file__)
     if resume_path is not None:
         print(f"[INFO] Loading training checkpoint from {resume_path}")
-        runner.load(str(resume_path))
+        from instinctlab.training import load_runner_checkpoint
 
-    with open(os.path.join(log_dir, "agent.json"), "w") as handle:
-        json.dump(agent_cfg.to_dict(), handle, indent=2, sort_keys=True, default=str)
+        load_runner_checkpoint(runner, resume_path, distributed)
+
+    if distributed.is_primary:
+        with open(os.path.join(log_dir, "agent.json"), "w") as handle:
+            json.dump(agent_cfg.to_dict(), handle, indent=2, sort_keys=True, default=str)
 
     print(f"[INFO] Training {args.task} on {args.engine}: {args.num_envs} envs on {args.device}, logs in {log_dir}")
     runner.learn(
@@ -228,6 +247,9 @@ def main() -> None:
     if getattr(runner, "writer", None) is not None:
         runner.writer.close()
     env.close()
+    from instinctlab.training import destroy_process_group
+
+    destroy_process_group(distributed)
     if app is not None:
         app.close()
     # Isaac Sim's shutdown can hang on teardown after a long run; the process is done either way.

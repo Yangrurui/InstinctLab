@@ -74,10 +74,10 @@ def reset_robot_from_reference(
     asset.write_joint_state_to_sim(joint_pos, state.joint_vel[env_ids, 0] * dof_vel_ratio, env_ids=env_ids)
 
 
-def smooth_bin_failures(env, env_ids, curriculum_name="beyond_adaptive_sampling"):
+def smooth_bin_failures(env, env_ids, curriculum_name="beyond_adaptive_sampling", motion_reference="motion_reference"):
     """Apply the same per-step EMA used by both reference implementations."""
     del env_ids, curriculum_name
-    env.scene["motion_reference"]._runtime.smooth_failures(alpha=0.001)
+    env.scene[motion_reference]._runtime.smooth_failures(alpha=0.001)
 
 
 def adaptive_sampling(env, env_ids=None):

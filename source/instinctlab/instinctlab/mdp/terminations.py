@@ -138,14 +138,17 @@ def _map_half_extents(env: RlEnv) -> tuple[float, float]:
 def terrain_out_of_bounds(env: RlEnv, distance_buffer: float, asset_cfg: Any = None) -> torch.Tensor:
     """Terminate when the actor is too close to the edge of the whole generated map.
 
-    Both engines' terrain-generator configs expose ``size``, ``num_rows``, ``num_cols`` and
-    ``border_width``. Missing any of them fails here rather than returning a constant ``False`` —
-    a termination that never fires is indistinguishable from a working one that happens not to
-    trigger. A plane has no generator and fails for the same reason.
+    Both references explicitly return false for their infinite plane. Generated terrain uses
+    ``size``, ``num_rows``, ``num_cols`` and ``border_width``; missing any generator field fails
+    rather than silently disabling the boundary on a finite map.
 
     Reads ``root_link_pos_w``. Isaac Lab's original used the legacy ``root_pos_w`` alias, which
     is the same link quantity.
     """
+    terrain = env.scene.terrain
+    generator = getattr(getattr(terrain, "cfg", None), "terrain_generator", None)
+    if generator is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     half_x, half_y = _map_half_extents(env)
     asset = env.scene[_name(asset_cfg)]
     x_out = torch.abs(asset.data.root_link_pos_w[:, 0]) > half_x - distance_buffer

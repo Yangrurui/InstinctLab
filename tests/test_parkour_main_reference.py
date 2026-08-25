@@ -594,14 +594,14 @@ def test_train_scripts_agree_on_seed_num_envs_and_tf32() -> None:
     ours = Path("/root/InstinctLab/scripts/train.py").read_text()
     adapter = Path("/root/InstinctLab/source/instinctlab/instinctlab/engines/isaacsim/adapter.py").read_text()
     assert theirs["sets_env_seed_from_agent"] is True
-    assert "compiled.env_cfg.seed = agent_cfg.seed" in ours
+    assert "compiled.env_cfg.seed = distributed.seed(agent_cfg.seed)" in ours
     assert theirs["num_envs_default"] is None
     assert "default=4096" in ours
     assert theirs["seed_default"] is None
     assert theirs["sets_tf32"] is True
     assert "allow_tf32 = True" in adapter
     assert theirs["calls_runner_load"] is True
-    assert "runner.load(" in ours
+    assert "load_runner_checkpoint(runner, resume_path, distributed)" in ours
     assert theirs["init_at_random_ep_len"] is True
     assert "init_at_random_ep_len" in ours
     assert theirs["wrapper"] is True

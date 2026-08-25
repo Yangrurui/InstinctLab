@@ -1,0 +1,30 @@
+{
+  "action_finite": true,
+  "action_shape": [
+    1,
+    29
+  ],
+  "artifacts": {
+    "exported/actor.onnx": {
+      "bytes": 9975753,
+      "sha256": "a62914849da83e04433589f5f85ef344a2a7e65317650de24f8fce3a5a088b8d"
+    },
+    "exported/policy_normalizer.npz": {
+      "bytes": 7238,
+      "sha256": "6280f7499c2a10424672e50cbc3ac42ecdee82c7988777df439b987b376494b1"
+    },
+    "manifest.json": {
+      "bytes": 7460,
+      "sha256": "c3fa99acfdf3915fa898794487a07a9e598cb1200b9c992691a976b4f503b5bd"
+    },
+    "model_0.pt": {
+      "bytes": 21005077,
+      "sha256": "17199e255c7983a05d07d110503fad58598acbb09e5bd712cb7a52c71cb0e1e1"
+    }
+  },
+  "checkpoint_iteration": 0,
+  "device": "cuda:1",
+  "engine": "mjlab",
+  "seed": 2026,
+  "task": "Instinct-Shadowing-WholeBody-Plane-G1-Live"
+}

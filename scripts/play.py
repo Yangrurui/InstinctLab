@@ -17,6 +17,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -56,6 +57,11 @@ def _parse() -> argparse.Namespace:
         help="auto picks viser when there is no display.",
     )
     parser.add_argument("--port", type=int, default=8080, help="Viser port.")
+    parser.add_argument("--export-onnx", action="store_true", help="Export the loaded policy and normalizer.")
+    parser.add_argument(
+        "--export-dir", type=str, default=None, help="ONNX output directory; defaults beside checkpoint."
+    )
+    parser.add_argument("--export-only", action="store_true", help="Exit after ONNX export without opening a viewer.")
     parser.add_argument(
         "--strict",
         action="store_true",
@@ -98,6 +104,10 @@ def _resolve_checkpoint(args: argparse.Namespace, experiment: str) -> Path:
 
 def main() -> None:
     args = _parse()
+    if args.export_only and not args.export_onnx:
+        raise ValueError("--export-only requires --export-onnx")
+    if args.export_onnx and args.agent != "trained":
+        raise ValueError("ONNX export requires --agent trained")
 
     from instinctlab.engines import adapter as engine_adapter
 
@@ -158,6 +168,35 @@ def main() -> None:
             return runner.get_inference_policy(device=args.device)
 
         checkpoint_dir = checkpoint.parent
+        if args.export_onnx:
+            if args.num_envs != 1:
+                raise ValueError("ONNX export requires --num_envs 1")
+            export_dir = (
+                Path(args.export_dir).expanduser().resolve() if args.export_dir else checkpoint_dir / "exported"
+            )
+            export_dir.mkdir(parents=True, exist_ok=True)
+            obs, _ = env.get_observations()
+            runner.export_as_onnx(obs, str(export_dir))
+            from instinctlab.checkpoint import task_contract
+
+            with (export_dir / "export.json").open("w") as handle:
+                json.dump(
+                    {
+                        "checkpoint": str(checkpoint),
+                        "task_contract": task_contract(spec),
+                    },
+                    handle,
+                    indent=2,
+                    sort_keys=True,
+                )
+            print(f"[INFO] Exported ONNX policy to {export_dir}", flush=True)
+
+    if args.export_only:
+        env.close()
+        if app is not None:
+            app.close()
+        sys.stdout.flush()
+        os._exit(0)
 
     viewer = _resolve_viewer(args.viewer)
     from instinctlab.play.viser import enable_pose_command_debug_vis

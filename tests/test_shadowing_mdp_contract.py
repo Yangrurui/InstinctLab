@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import torch
 import trimesh
 import yaml
@@ -13,6 +14,7 @@ from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
 from instinctlab.engines.mjlab.adapter import MjlabAdapter
 from instinctlab.engines.motion_reference.buffers import fill_buffers, make_buffers
 from instinctlab.engines.motion_reference.clip import MotionSample
+from instinctlab.mdp import shadowing as shadowing_mdp
 from instinctlab.tasks import registry
 from instinctlab.tasks.shadowing.task_spec import MOTION_LINKS
 
@@ -26,6 +28,17 @@ def test_every_shadowing_term_has_a_strict_native_lowering() -> None:
         task = registry.spec(task_id)
         for adapter in (IsaacSimAdapter(), MjlabAdapter()):
             assert adapter.contract_report(task)["missing"] == {}
+
+
+def test_shadowing_termination_signatures_are_native_manager_compatible() -> None:
+    for func in (
+        shadowing_mdp.base_position_too_far,
+        shadowing_mdp.projected_gravity_too_far,
+        shadowing_mdp.link_position_too_far,
+    ):
+        parameters = tuple(inspect.signature(func).parameters.values())
+        assert all(parameter.kind is not inspect.Parameter.VAR_KEYWORD for parameter in parameters)
+        assert all(parameter.default is not inspect.Parameter.empty for parameter in parameters[1:])
 
 
 def test_reference_observation_anchor_noise_and_history_match_effective_sources() -> None:

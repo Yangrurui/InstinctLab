@@ -557,12 +557,13 @@ def test_terrain_out_of_bounds_uses_the_whole_map():
     assert mdp.terrain_out_of_bounds(env, distance_buffer=2.0).tolist() == [False, True, True]
 
 
-def test_terrain_out_of_bounds_refuses_a_plane():
+def test_terrain_out_of_bounds_matches_reference_infinite_plane():
     env = _Env()
+    env.num_envs = 1
+    env.device = "cpu"
     env.scene.terrain = _Terrain(generator=None)
     env.scene["robot"] = _Entity(root_link_pos_w=torch.zeros(1, 3))
-    with pytest.raises(RuntimeError, match="no generator"):
-        mdp.terrain_out_of_bounds(env, distance_buffer=2.0)
+    assert mdp.terrain_out_of_bounds(env, distance_buffer=2.0).tolist() == [False]
 
 
 def test_terrain_out_of_bounds_refuses_a_generator_missing_a_field():

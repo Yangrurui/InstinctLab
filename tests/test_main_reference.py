@@ -47,6 +47,21 @@ EDITED = {
     "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/README.md": (
         "documents the shared BeyondMimic declaration"
     ),
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/agents/beyondmimic_ppo_cfg.py": (
+        "uses the engine-neutral configclass so MJLab can resolve the shared agent without Kit"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/agents/instinct_rl_ppo_cfg.py": (
+        "uses the engine-neutral configclass and removes an unused Isaac-only observation import"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/agents/instinct_rl_vae_cfg.py": (
+        "uses the engine-neutral configclass and removes an unused Isaac-only observation import"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/agents/instinct_rl_ppo_cfg.py": (
+        "uses the engine-neutral configclass and removes an unused Isaac-only observation import"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/agents/instinct_rl_ppo_cfg.py": (
+        "uses the engine-neutral configclass so MJLab can resolve the shared agent without Kit"
+    ),
     "source/instinctlab/instinctlab/tasks/parkour/README.md": (
         "documents the engine-neutral task id and unified train/play entry points"
     ),

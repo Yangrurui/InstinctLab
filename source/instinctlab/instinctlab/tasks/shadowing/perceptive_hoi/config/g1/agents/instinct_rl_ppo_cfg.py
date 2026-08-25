@@ -1,8 +1,6 @@
 import os
 
-from isaaclab.utils import configclass
-
-from instinctlab.envs.mdp.observations.exteroception import visualizable_image
+from instinctlab.utils.configclass import configclass
 from instinctlab.utils.wrappers.instinct_rl import (
     InstinctRlActorCriticCfg,
     InstinctRlConv2dHeadCfg,

@@ -103,6 +103,17 @@ def test_launchers_reject_unknown_arguments(launcher: pathlib.Path) -> None:
     assert "unrecognized arguments: --definitely_misspelled" in result.stderr
 
 
+@pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
+def test_launchers_render_help(launcher: pathlib.Path) -> None:
+    result = subprocess.run(
+        [sys.executable, str(launcher), "--engine", "mjlab", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--device" in result.stdout
+
+
 def test_play_selects_the_highest_numeric_checkpoint(tmp_path: pathlib.Path) -> None:
     module_spec = importlib.util.spec_from_file_location("_instinctlab_play_entry", _PLAY)
     assert module_spec is not None and module_spec.loader is not None
@@ -279,9 +290,9 @@ def test_the_environment_is_given_a_seed(entry_source: str) -> None:
         "the entry point never seeds the environment; main does this with env_cfg.seed = "
         "agent_cfg.seed and InstinctMJ with cfg.env.seed = seed"
     )
-    assert assignments["compiled.env_cfg.seed"] == "agent_cfg.seed", (
+    assert assignments["compiled.env_cfg.seed"] == "distributed.seed(agent_cfg.seed)", (
         f"the environment is seeded from {assignments['compiled.env_cfg.seed']}, not from the agent's seed; "
-        "the two must agree or --seed changes the policy's initialisation without changing the episodes"
+        "rank zero must use the agent seed and every other rank must use a stable, distinct offset"
     )
 
 

@@ -41,11 +41,16 @@ def randomize_default_joint_pos(env, env_ids, asset_cfg, offset_distribution_par
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
     joint_ids = asset_cfg.joint_ids
-    target = asset.data.default_joint_pos[env_ids][:, joint_ids]
+    if joint_ids is None or isinstance(joint_ids, slice):
+        joint_ids = torch.arange(asset.data.default_joint_pos.shape[1], device=env.device)
+    else:
+        joint_ids = torch.as_tensor(joint_ids, dtype=torch.long, device=env.device).flatten()
+    index = (env_ids[:, None], joint_ids[None, :])
+    target = asset.data.default_joint_pos[index]
     noise = torch.empty_like(target).uniform_(*offset_distribution_params)
-    asset.data.default_joint_pos[env_ids[:, None], joint_ids] += noise
+    asset.data.default_joint_pos[index] = target + noise
     action = env.action_manager.get_term("joint_pos")
-    action._offset[env_ids[:, None], joint_ids] = asset.data.default_joint_pos[env_ids[:, None], joint_ids]
+    action._offset[index] = asset.data.default_joint_pos[index]
 
 
 def randomize_ray_offsets(env, env_ids, sensor_name="camera", offset_pose_ranges=None):

@@ -75,7 +75,8 @@ def link_rotation(env, asset_cfg, *, in_base_frame: bool = True):
 
 
 def base_position_imitation(env, reference_cfg="motion_reference", asset_cfg="robot", std: float = 0.3):
-    ref = env.scene[_name(reference_cfg, "motion_reference")].data.base_pos_w[:, 0]
+    reference = env.scene[_name(reference_cfg, "motion_reference")].data
+    ref = reference.base_pos_w[:, 0]
     pos = _field(env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w")
     return torch.exp(-torch.square(pos - ref).sum(dim=-1) / (std * std))
 
@@ -83,7 +84,8 @@ def base_position_imitation(env, reference_cfg="motion_reference", asset_cfg="ro
 def base_rotation_imitation(
     env, reference_cfg="motion_reference", asset_cfg="robot", std: float = 0.4, difference_type="axis_angle"
 ):
-    ref = env.scene[_name(reference_cfg, "motion_reference")].data.base_quat_w[:, 0]
+    reference = env.scene[_name(reference_cfg, "motion_reference")].data
+    ref = reference.base_quat_w[:, 0]
     quat = _field(env.scene[_name(asset_cfg, "robot")].data, "root_quat_w", "root_link_quat_w")
     if difference_type == "axis_angle":
         error = math_utils.axis_angle_from_quat(math_utils.quat_mul(ref, math_utils.quat_conjugate(quat))).norm(dim=-1)
@@ -180,20 +182,34 @@ def link_angular_velocity_imitation(
 
 
 def base_position_too_far(
-    env, reference_cfg="motion_reference", asset_cfg="robot", distance_threshold=0.25, height_only=True, **_
+    env,
+    reference_cfg="motion_reference",
+    asset_cfg="robot",
+    distance_threshold=0.25,
+    height_only=True,
+    check_at_keyframe_threshold=-1,
+    print_reason=False,
 ):
-    ref = env.scene[_name(reference_cfg, "motion_reference")].data.base_pos_w[:, 0]
+    reference = env.scene[_name(reference_cfg, "motion_reference")].data
+    ref = reference.base_pos_w[:, 0]
     pos = _field(env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w")
     diff = (pos - ref).abs() if height_only else (pos - ref).norm(dim=-1)
     return (diff[:, 2] if height_only else diff) > distance_threshold
 
 
 def projected_gravity_too_far(
-    env, reference_cfg="motion_reference", asset_cfg="robot", projected_gravity_threshold=0.8, z_only=False, **_
+    env,
+    reference_cfg="motion_reference",
+    asset_cfg="robot",
+    projected_gravity_threshold=0.8,
+    z_only=False,
+    check_at_keyframe_threshold=-1,
+    print_reason=False,
 ):
     asset = env.scene[_name(asset_cfg, "robot")]
     quat = _field(asset.data, "root_quat_w", "root_link_quat_w")
-    ref = env.scene[_name(reference_cfg, "motion_reference")].data.base_quat_w[:, 0]
+    reference = env.scene[_name(reference_cfg, "motion_reference")].data
+    ref = reference.base_quat_w[:, 0]
     gravity = _field(asset.data, "GRAVITY_VEC_W", "gravity_vec_w")
     diff = math_utils.quat_apply_inverse(quat, gravity) - math_utils.quat_apply_inverse(ref, gravity)
     return (diff[:, 2].abs() if z_only else diff.norm(dim=-1)) > projected_gravity_threshold
@@ -207,7 +223,8 @@ def link_position_too_far(
     distance_threshold=0.25,
     height_only=True,
     in_base_frame=False,
-    **_,
+    check_at_keyframe_threshold=-1,
+    print_reason=False,
 ):
     actual = link_position(env, asset_cfg, in_base_frame=in_base_frame)[:, link_ids]
     buffers = env.scene[_name(reference_cfg, "motion_reference")].data

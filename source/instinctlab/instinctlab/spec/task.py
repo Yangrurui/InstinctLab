@@ -209,7 +209,7 @@ class SceneSpec:
     motion_references: tuple[MotionReferenceRef, ...] = ()
     """Clip-backed motion references. A new sensor family, not a ray or a contact."""
     volume_points: tuple[VolumePointsRef, ...] = ()
-    rigid_objects: tuple[RigidObjectRef, ...] = ()
+    rigid_objects: tuple[RigidObjectRef, ...] = field(default=(), metadata={"contract_omit_if_default": True})
     """Ankle (or other) volume-point clouds. Penetration is not a raycast."""
     env_spacing: float = 2.5
 
