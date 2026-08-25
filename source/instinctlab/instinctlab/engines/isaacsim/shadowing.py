@@ -27,11 +27,4 @@ def build_command(kind: str, params: dict):
     return ShadowingCommandCfg()
 
 
-def mdp_function(module: str, name: str):
-    """Load the retained main implementation only inside a running Isaac application."""
-    import importlib
-
-    return getattr(importlib.import_module(f"instinctlab.envs.mdp.{module}"), name)
-
-
-__all__ = ["build_command", "mdp_function"]
+__all__ = ["build_command"]

@@ -3,20 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 
-def shadowing_fallback_task() -> Any:
-    """Swap only unavailable dataset bindings; keep the whole-body MDP unchanged."""
+def shadowing_task_with_motion(task_id: str, clip_path: str | Path) -> Any:
+    """Return a registered shadowing task with one explicit motion clip binding.
+
+    This is a diagnostic override, not a second task registration. Keeping the original task ID
+    makes reports comparable with the normal launcher, while the task-contract hash still records
+    the changed dataset binding and prevents accidental checkpoint interchange.
+    """
     from instinctlab.tasks import registry
 
-    task = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
+    clip = Path(clip_path).expanduser().resolve()
+    if not clip.is_file():
+        raise FileNotFoundError(f"shadowing probe motion clip not found: {clip}")
+    task = registry.spec(task_id)
+    if len(task.scene.motion_references) != 1:
+        raise ValueError(
+            "shadowing motion override requires exactly one reference, got "
+            f"{len(task.scene.motion_references)} for {task_id!r}"
+        )
     old = task.scene.motion_references[0]
-    clip = "/root/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run_retargetted.npz"
     motion = replace(
         old,
-        clip=clip,
-        engine_clips={"isaacsim": clip, "mjlab": clip},
+        clip=str(clip),
+        engine_clips={"isaacsim": str(clip), "mjlab": str(clip)},
         selected_files=(),
         first_motion_only=True,
     )
@@ -37,7 +50,6 @@ def shadowing_fallback_task() -> Any:
     terminations = {name: patch_term(term) for name, term in task.mdp.terminations.items()}
     return replace(
         task,
-        task_id="Instinct-Shadowing-WholeBody-Plane-G1-Live",
         scene=replace(task.scene, motion_references=(motion,)),
         mdp=replace(task.mdp, observations=observations, terminations=terminations),
     )
@@ -117,4 +129,4 @@ def collect_shadowing_rollout(env: Any, task: Any, *, steps: int) -> dict[str, A
     return result
 
 
-__all__ = ["collect_shadowing_rollout", "shadowing_fallback_task"]
+__all__ = ["collect_shadowing_rollout", "shadowing_task_with_motion"]

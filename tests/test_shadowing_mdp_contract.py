@@ -9,11 +9,14 @@ import yaml
 from types import SimpleNamespace
 
 import mujoco
+import pytest
 
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
 from instinctlab.engines.mjlab.adapter import MjlabAdapter
+from instinctlab.engines.mjlab.shadowing import randomize_default_joint_pos
 from instinctlab.engines.motion_reference.buffers import fill_buffers, make_buffers
 from instinctlab.engines.motion_reference.clip import MotionSample
+from instinctlab.engines.shadowing_commands import _root
 from instinctlab.mdp import shadowing as shadowing_mdp
 from instinctlab.tasks import registry
 from instinctlab.tasks.shadowing.task_spec import MOTION_LINKS
@@ -39,6 +42,38 @@ def test_shadowing_termination_signatures_are_native_manager_compatible() -> Non
         parameters = tuple(inspect.signature(func).parameters.values())
         assert all(parameter.kind is not inspect.Parameter.VAR_KEYWORD for parameter in parameters)
         assert all(parameter.default is not inspect.Parameter.empty for parameter in parameters[1:])
+
+
+def test_mjlab_default_joint_randomization_honors_partial_slices_and_list_env_ids() -> None:
+    default = torch.zeros(2, 4)
+    offset = torch.zeros_like(default)
+    asset = SimpleNamespace(data=SimpleNamespace(default_joint_pos=default))
+    action = SimpleNamespace(_offset=offset)
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        scene={"robot": asset},
+        action_manager=SimpleNamespace(get_term=lambda name: action),
+    )
+
+    randomize_default_joint_pos(
+        env,
+        env_ids=[1],
+        asset_cfg=SimpleNamespace(name="robot", joint_ids=slice(1, 3)),
+        offset_distribution_params=(0.5, 0.5),
+    )
+
+    torch.testing.assert_close(default, torch.tensor([[0.0, 0.0, 0.0, 0.0], [0.0, 0.5, 0.5, 0.0]]))
+    torch.testing.assert_close(offset, default)
+
+
+def test_shadowing_root_accessor_prefers_explicit_link_names_and_fails_loudly() -> None:
+    explicit = torch.tensor([1.0])
+    legacy = torch.tensor([2.0])
+    assert _root(SimpleNamespace(root_link_pos_w=explicit, root_pos_w=legacy), "root_pos_w") is explicit
+    assert _root(SimpleNamespace(root_pos_w=legacy), "root_pos_w") is legacy
+    with pytest.raises(AttributeError, match="root_link_pos_w"):
+        _root(SimpleNamespace(), "root_pos_w")
 
 
 def test_reference_observation_anchor_noise_and_history_match_effective_sources() -> None:

@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
 if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
@@ -102,22 +103,14 @@ def _resolve_checkpoint(args: argparse.Namespace, experiment: str) -> Path:
     return latest_run_checkpoint(root, run_pattern=run_pattern, skip_empty_runs=True)
 
 
-def main() -> None:
-    args = _parse()
+def _validate_args(args: argparse.Namespace) -> None:
     if args.export_only and not args.export_onnx:
         raise ValueError("--export-only requires --export-onnx")
     if args.export_onnx and args.agent != "trained":
         raise ValueError("ONNX export requires --agent trained")
 
-    from instinctlab.engines import adapter as engine_adapter
 
-    engine = engine_adapter(args.engine)
-    # Viser must be imported before Isaac Sim's AppLauncher prepends Kit's pip_prebundle:
-    # that bundle ships an older websockets without ``asyncio.server``.
-    if _resolve_viewer(args.viewer) == "viser":
-        import viser  # noqa: F401
-    app = engine.bootstrap(args)
-
+def _play(args, engine, resources: ExitStack) -> None:
     from instinctlab.play.env import PlayEnv
     from instinctlab.tasks.registry import spec as task_spec
 
@@ -127,7 +120,9 @@ def main() -> None:
     compiled.env_cfg.seed = compiled.agent_cfg.seed
     print(compiled.resolution.summary_table())
 
-    env = engine.wrap_for_rl(compiled.make_env())
+    native_env = compiled.make_env()
+    resources.callback(native_env.close)
+    env = engine.wrap_for_rl(native_env)
     dummy = args.agent in {"zero", "random"}
     reload_policy = None
     checkpoint_dir = None
@@ -192,11 +187,7 @@ def main() -> None:
             print(f"[INFO] Exported ONNX policy to {export_dir}", flush=True)
 
     if args.export_only:
-        env.close()
-        if app is not None:
-            app.close()
-        sys.stdout.flush()
-        os._exit(0)
+        return
 
     viewer = _resolve_viewer(args.viewer)
     from instinctlab.play.viser import enable_pose_command_debug_vis
@@ -214,9 +205,26 @@ def main() -> None:
         checkpoint_dir=checkpoint_dir,
         strict=args.strict,
     )
-    env.close()
-    if app is not None:
-        app.close()
+
+
+def main() -> None:
+    args = _parse()
+    _validate_args(args)
+
+    from instinctlab.engines import adapter as engine_adapter
+
+    engine = engine_adapter(args.engine)
+    # Viser must be imported before Isaac Sim's AppLauncher prepends Kit's pip_prebundle:
+    # that bundle ships an older websockets without ``asyncio.server``.
+    if _resolve_viewer(args.viewer) == "viser":
+        import viser  # noqa: F401
+
+    with ExitStack() as resources:
+        app = engine.bootstrap(args)
+        if app is not None:
+            resources.callback(app.close)
+        _play(args, engine, resources)
+
     sys.stdout.flush()
     os._exit(0)
 

@@ -36,7 +36,13 @@ Neither reference checkpoint contains simulator, episode, command RNG or motion-
 Resume therefore creates a fresh environment and resamples motion/commands.  The manifest records
 this explicitly as `resume_environment_state`; exact continuation of a physical episode is not
 claimed.  Process-group initialization and shutdown are owned by the generic training launcher,
-and manifest/agent writes are rank-zero-only.
+and manifest/agent writes are rank-zero-only. Shutdown does not enter a collective barrier: after
+one rank fails, waiting for every peer during cleanup would turn the original exception into a
+permanent hang. Rank, local-rank and world-size coordinates are validated before engine startup.
+
+Train, play and diagnostic entry points register acquired resources immediately and release them
+in reverse order. This includes the runner writer, native environment, distributed process group
+and Isaac application, on both successful completion and exceptions.
 
 ## Live evidence
 
@@ -44,6 +50,11 @@ The production shadow datasets configured by the references are absent on this h
 therefore change only the dataset binding to the available parkour reference clip and retain the
 whole-body scene and MDP.  GPU 2 remained occupied by the pre-existing parkour training process;
 all probes used GPU 1.
+
+The override is explicit (`--motion PATH`) and is not a registered fallback task or a machine path
+inside the library. It keeps the production task ID; the changed motion path remains part of the
+task-contract hash, so its checkpoint cannot be mistaken for one produced with the production
+dataset. Live pytest can receive the same path through `INSTINCTLAB_SHADOWING_LIVE_MOTION`.
 
 The following artifacts were generated with seed 2026:
 

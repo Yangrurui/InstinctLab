@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import sys
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
@@ -143,26 +144,13 @@ def _resolve_resume_checkpoint(args: argparse.Namespace, agent_cfg: object) -> P
     )
 
 
-def main() -> None:
-    args = _parse()
+def _close_runner_writer(runner: object) -> None:
+    writer = getattr(runner, "writer", None)
+    if writer is not None:
+        writer.close()
 
-    from instinctlab.training import distributed_run, rank_device
 
-    distributed = distributed_run(args.distributed, args.local_rank)
-    args.device = rank_device(args.device, distributed)
-
-    from instinctlab.engines import adapter as engine_adapter
-
-    engine = engine_adapter(args.engine)
-
-    # Must precede every engine import. For mjlab this does nothing, which is the point: the
-    # launcher does not need to know that only one of the two engines has a runtime to start.
-    app = engine.bootstrap(args)
-
-    from instinctlab.training import initialize_process_group
-
-    initialize_process_group(distributed)
-
+def _train(args, engine, distributed, resources: ExitStack) -> None:
     from instinctlab.tasks.registry import spec as task_spec
 
     spec = task_spec(args.task)
@@ -217,8 +205,9 @@ def main() -> None:
     if args.allow_contact_overflow:
         os.environ["INSTINCTLAB_ALLOW_CONTACT_OVERFLOW"] = "1"
 
-    env = compiled.make_env()
-    env = engine.wrap_for_rl(env)
+    native_env = compiled.make_env()
+    resources.callback(native_env.close)
+    env = engine.wrap_for_rl(native_env)
     if args.log_terrain_split:
         from instinctlab.utils.terrain_split_log import attach_terrain_split
 
@@ -227,6 +216,7 @@ def main() -> None:
     from instinct_rl.runners import OnPolicyRunner
 
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    resources.callback(_close_runner_writer, runner)
     runner.add_git_repo_to_log(__file__)
     if resume_path is not None:
         print(f"[INFO] Loading training checkpoint from {resume_path}")
@@ -244,14 +234,31 @@ def main() -> None:
         init_at_random_ep_len=getattr(agent_cfg, "init_at_random_ep_len", False),
     )
 
-    if getattr(runner, "writer", None) is not None:
-        runner.writer.close()
-    env.close()
-    from instinctlab.training import destroy_process_group
 
-    destroy_process_group(distributed)
-    if app is not None:
-        app.close()
+def main() -> None:
+    args = _parse()
+
+    from instinctlab.training import distributed_run, rank_device
+
+    distributed = distributed_run(args.distributed, args.local_rank)
+    args.device = rank_device(args.device, distributed)
+
+    from instinctlab.engines import adapter as engine_adapter
+
+    engine = engine_adapter(args.engine)
+    with ExitStack() as resources:
+        # Must precede every engine import. For mjlab this does nothing, which is the point: the
+        # launcher does not need to know that only one engine has an application runtime.
+        app = engine.bootstrap(args)
+        if app is not None:
+            resources.callback(app.close)
+
+        from instinctlab.training import destroy_process_group, initialize_process_group
+
+        initialize_process_group(distributed)
+        resources.callback(destroy_process_group, distributed)
+        _train(args, engine, distributed, resources)
+
     # Isaac Sim's shutdown can hang on teardown after a long run; the process is done either way.
     sys.stdout.flush()
     os._exit(0)

@@ -149,6 +149,88 @@ def test_train_resume_selects_the_highest_numeric_checkpoint(tmp_path: pathlib.P
     assert module._resolve_resume_checkpoint(args, agent).name == "model_1000.pt"
 
 
+def test_train_releases_process_group_and_application_when_training_fails(monkeypatch) -> None:
+    module_spec = importlib.util.spec_from_file_location("_instinctlab_train_cleanup", _ENTRY)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+
+    closed = []
+    destroyed = []
+    app = SimpleNamespace(close=lambda: closed.append("app"))
+    engine = SimpleNamespace(bootstrap=lambda args: app)
+    args = SimpleNamespace(engine="mjlab", distributed=False, local_rank=None, device="cpu")
+
+    def fail_training(*unused) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module, "_parse", lambda: args)
+    monkeypatch.setattr(module, "_train", fail_training)
+    monkeypatch.setattr(engines, "adapter", lambda name: engine)
+
+    import instinctlab.training as training
+
+    monkeypatch.setattr(training, "initialize_process_group", lambda run: None)
+    monkeypatch.setattr(training, "destroy_process_group", lambda run: destroyed.append(True))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        module.main()
+    assert destroyed == [True]
+    assert closed == ["app"]
+
+
+def test_play_releases_application_when_playback_fails(monkeypatch) -> None:
+    module_spec = importlib.util.spec_from_file_location("_instinctlab_play_cleanup", _PLAY)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+
+    closed = []
+    app = SimpleNamespace(close=lambda: closed.append("app"))
+    engine = SimpleNamespace(bootstrap=lambda args: app)
+    args = SimpleNamespace(
+        engine="mjlab",
+        viewer="native",
+        export_only=False,
+        export_onnx=False,
+        agent="zero",
+    )
+
+    def fail_playback(*unused) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module, "_parse", lambda: args)
+    monkeypatch.setattr(module, "_play", fail_playback)
+    monkeypatch.setattr(engines, "adapter", lambda name: engine)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        module.main()
+    assert closed == ["app"]
+
+
+def test_play_rejects_invalid_export_before_bootstrap(monkeypatch) -> None:
+    module_spec = importlib.util.spec_from_file_location("_instinctlab_play_validation", _PLAY)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+
+    bootstrapped = []
+    engine = SimpleNamespace(bootstrap=lambda args: bootstrapped.append(args))
+    args = SimpleNamespace(
+        engine="mjlab",
+        viewer="native",
+        export_only=True,
+        export_onnx=False,
+        agent="trained",
+    )
+    monkeypatch.setattr(module, "_parse", lambda: args)
+    monkeypatch.setattr(engines, "adapter", lambda name: engine)
+
+    with pytest.raises(ValueError, match="--export-only requires --export-onnx"):
+        module.main()
+    assert bootstrapped == []
+
+
 @pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
 def test_the_entry_point_imports_no_engine(launcher: pathlib.Path) -> None:
     """Including inside functions: an engine imported anywhere here runs before ``bootstrap``."""

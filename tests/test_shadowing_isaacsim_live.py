@@ -16,9 +16,10 @@ def test_isaacsim_shadowing_short_rollout() -> None:
     ensure_isaac_app(device=device)
 
     from instinctlab.engines.isaacsim import IsaacSimAdapter
-    from instinctlab.shadowing_probe import collect_shadowing_rollout, shadowing_fallback_task
+    from instinctlab.shadowing_probe import collect_shadowing_rollout, shadowing_task_with_motion
+    from tests.shadowing_live import resolve_shadowing_motion
 
-    task = shadowing_fallback_task()
+    task = shadowing_task_with_motion("Instinct-Shadowing-WholeBody-Plane-G1-v0", resolve_shadowing_motion())
     compiled = IsaacSimAdapter().compile(task, num_envs=2, device=device, strict=True)
     compiled.env_cfg.seed = 2026
     env = compiled.make_env()

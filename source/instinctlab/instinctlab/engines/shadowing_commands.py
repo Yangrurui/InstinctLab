@@ -17,7 +17,10 @@ from instinctlab.utils.math import quat_to_tan_norm
 def _root(data: Any, name: str) -> torch.Tensor:
     """Resolve Isaac's root names and MJLab's explicit root-link names at one boundary."""
     mj_name = name.replace("root_", "root_link_")
-    return getattr(data, mj_name, getattr(data, name, None))
+    for candidate in (mj_name, name):
+        if hasattr(data, candidate):
+            return getattr(data, candidate)
+    raise AttributeError(f"robot data has neither {mj_name!r} nor {name!r}")
 
 
 def make_shadowing_command_classes(command_term_base: type) -> dict[str, type]:

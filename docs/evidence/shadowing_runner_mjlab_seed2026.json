@@ -14,8 +14,8 @@
       "sha256": "6280f7499c2a10424672e50cbc3ac42ecdee82c7988777df439b987b376494b1"
     },
     "manifest.json": {
-      "bytes": 7460,
-      "sha256": "c3fa99acfdf3915fa898794487a07a9e598cb1200b9c992691a976b4f503b5bd"
+      "bytes": 7456,
+      "sha256": "232fdc2e7b046ced895ea82d80b9a410a4c59eaff49ca48cae4627f40caf254d"
     },
     "model_0.pt": {
       "bytes": 21005077,
@@ -26,5 +26,5 @@
   "device": "cuda:1",
   "engine": "mjlab",
   "seed": 2026,
-  "task": "Instinct-Shadowing-WholeBody-Plane-G1-Live"
+  "task": "Instinct-Shadowing-WholeBody-Plane-G1-v0"
 }

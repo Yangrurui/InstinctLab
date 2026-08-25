@@ -29,10 +29,14 @@ def distributed_run(requested: bool = False, local_rank: int | None = None) -> D
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     resolved_local_rank = int(os.environ.get("LOCAL_RANK", local_rank if local_rank is not None else 0))
     enabled = requested or world_size > 1
+    if world_size < 1:
+        raise ValueError(f"WORLD_SIZE must be positive, got {world_size}.")
+    if rank < 0 or rank >= world_size:
+        raise ValueError(f"RANK must satisfy 0 <= RANK < WORLD_SIZE, got rank={rank}, world_size={world_size}.")
+    if resolved_local_rank < 0:
+        raise ValueError(f"LOCAL_RANK must be non-negative, got {resolved_local_rank}.")
     if not enabled and (rank != 0 or resolved_local_rank != 0):
         raise ValueError("RANK/LOCAL_RANK are set without distributed training.")
-    if enabled and world_size < 1:
-        raise ValueError(f"WORLD_SIZE must be positive, got {world_size}.")
     return DistributedRun(enabled, rank, resolved_local_rank, world_size)
 
 
@@ -93,7 +97,6 @@ def destroy_process_group(run: DistributedRun) -> None:
     import torch.distributed as dist
 
     if dist.is_initialized():
-        dist.barrier()
         dist.destroy_process_group()
 
 

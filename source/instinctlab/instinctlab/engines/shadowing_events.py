@@ -7,12 +7,17 @@ import torch
 from instinctlab.compat import math as math_utils
 
 
+def _method(asset, *names):
+    for name in names:
+        method = getattr(asset, name, None)
+        if callable(method):
+            return method
+    raise AttributeError(f"{type(asset).__name__} provides none of the required methods {names!r}")
+
+
 def match_reference_origin(env, env_ids, motion_reference="motion_reference"):
     del env_ids
-    sensor = env.scene[motion_reference]
-    origins = getattr(env.scene, "env_origins", None)
-    if origins is not None:
-        sensor.bind_origins(origins)
+    env.scene[motion_reference].bind_origins(env.scene.env_origins)
 
 
 def reset_robot_from_reference(
@@ -56,16 +61,8 @@ def reset_robot_from_reference(
         ang += sample[:, 3:]
     pose = torch.cat((pos, quat), dim=-1)
     velocity = torch.cat((lin, ang), dim=-1)
-    write_pose = getattr(
-        asset,
-        "write_root_link_pose_to_sim",
-        getattr(asset, "write_root_pose_to_sim", None),
-    )
-    write_velocity = getattr(
-        asset,
-        "write_root_link_velocity_to_sim",
-        getattr(asset, "write_root_velocity_to_sim", None),
-    )
+    write_pose = _method(asset, "write_root_link_pose_to_sim", "write_root_pose_to_sim")
+    write_velocity = _method(asset, "write_root_link_velocity_to_sim", "write_root_velocity_to_sim")
     write_pose(pose, env_ids=env_ids)
     write_velocity(velocity, env_ids=env_ids)
     joint_pos = state.joint_pos[env_ids, 0].clone()
@@ -118,18 +115,12 @@ def _write_objects(env, env_ids, state, frame: int, invalid_object_pos=None):
                 dim=-1,
             )
             mocap = getattr(asset, "write_mocap_pose_to_sim", None)
-            write_pose = mocap or getattr(
-                asset,
-                "write_root_link_pose_to_sim",
-                getattr(asset, "write_root_pose_to_sim", None),
+            write_pose = (
+                mocap if callable(mocap) else _method(asset, "write_root_link_pose_to_sim", "write_root_pose_to_sim")
             )
             write_pose(pose, env_ids=selected)
-            if mocap is None:
-                write_velocity = getattr(
-                    asset,
-                    "write_root_link_velocity_to_sim",
-                    getattr(asset, "write_root_velocity_to_sim", None),
-                )
+            if not callable(mocap):
+                write_velocity = _method(asset, "write_root_link_velocity_to_sim", "write_root_velocity_to_sim")
                 write_velocity(velocity, env_ids=selected)
         invalid = ~valid
         if invalid_object_pos is not None and invalid.any():
@@ -137,10 +128,9 @@ def _write_objects(env, env_ids, state, frame: int, invalid_object_pos=None):
             pose = torch.zeros(len(selected), 7, device=env.device)
             pose[:, :3] = torch.as_tensor(invalid_object_pos, device=env.device)
             pose[:, 3] = 1.0
-            writer = getattr(asset, "write_mocap_pose_to_sim", None) or getattr(
-                asset,
-                "write_root_link_pose_to_sim",
-                getattr(asset, "write_root_pose_to_sim", None),
+            mocap = getattr(asset, "write_mocap_pose_to_sim", None)
+            writer = (
+                mocap if callable(mocap) else _method(asset, "write_root_link_pose_to_sim", "write_root_pose_to_sim")
             )
             writer(pose, env_ids=selected)
 

@@ -40,9 +40,13 @@ def randomize_default_joint_pos(env, env_ids, asset_cfg, offset_distribution_par
     asset = env.scene[asset_cfg.name]
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
+    else:
+        env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=env.device).flatten()
     joint_ids = asset_cfg.joint_ids
-    if joint_ids is None or isinstance(joint_ids, slice):
+    if joint_ids is None:
         joint_ids = torch.arange(asset.data.default_joint_pos.shape[1], device=env.device)
+    elif isinstance(joint_ids, slice):
+        joint_ids = torch.arange(asset.data.default_joint_pos.shape[1], device=env.device)[joint_ids]
     else:
         joint_ids = torch.as_tensor(joint_ids, dtype=torch.long, device=env.device).flatten()
     index = (env_ids[:, None], joint_ids[None, :])

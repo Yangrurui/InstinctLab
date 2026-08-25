@@ -14,8 +14,8 @@
       "sha256": "6280f7499c2a10424672e50cbc3ac42ecdee82c7988777df439b987b376494b1"
     },
     "manifest.json": {
-      "bytes": 7640,
-      "sha256": "a7e6142705cbf5acf2aec0038d95b72b5cc547b6e52ab9285ed3d3d132e3fa98"
+      "bytes": 7636,
+      "sha256": "19a7f15018c5241b8b6478fd02a72b8de748c0ac2ca80e28bfb3ba95c7fdf08f"
     },
     "model_0.pt": {
       "bytes": 21005077,
@@ -26,5 +26,5 @@
   "device": "cuda:1",
   "engine": "isaacsim",
   "seed": 2026,
-  "task": "Instinct-Shadowing-WholeBody-Plane-G1-Live"
+  "task": "Instinct-Shadowing-WholeBody-Plane-G1-v0"
 }

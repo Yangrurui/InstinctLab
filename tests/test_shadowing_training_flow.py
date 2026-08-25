@@ -6,15 +6,41 @@ import torch
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from instinctlab.checkpoint import task_contract
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
 from instinctlab.engines.mjlab.adapter import MjlabAdapter
+from instinctlab.shadowing_probe import shadowing_task_with_motion
 from instinctlab.tasks import registry
-from instinctlab.training import DistributedRun, distributed_run, load_runner_checkpoint, rank_device
+from instinctlab.training import (
+    DistributedRun,
+    destroy_process_group,
+    distributed_run,
+    load_runner_checkpoint,
+    rank_device,
+)
 
 SHADOW_IDS = tuple(
     task_id for task_id in registry.ids() if any(token in task_id for token in ("Shadowing", "Mimic", "Vae"))
 )
+
+
+def test_motion_probe_override_is_explicit_and_keeps_the_registered_identity(tmp_path) -> None:
+    clip = tmp_path / "motion.npz"
+    clip.touch()
+    task_id = "Instinct-Shadowing-WholeBody-Plane-G1-v0"
+    original = registry.spec(task_id)
+    overridden = shadowing_task_with_motion(task_id, clip)
+
+    assert overridden.task_id == task_id
+    assert overridden.scene.motion_references[0].clip == str(clip.resolve())
+    assert task_contract(overridden) != task_contract(original)
+
+
+def test_motion_probe_override_refuses_a_missing_clip(tmp_path) -> None:
+    with pytest.raises(FileNotFoundError, match="motion clip not found"):
+        shadowing_task_with_motion("Instinct-Shadowing-WholeBody-Plane-G1-v0", tmp_path / "missing.npz")
 
 
 def test_train_and_play_compile_the_same_shadowing_contract() -> None:
@@ -45,6 +71,35 @@ def test_distributed_rank_device_and_seed_streams_are_stable(monkeypatch) -> Non
         44,
         45,
     ]
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    (("WORLD_SIZE", "0", "WORLD_SIZE"), ("RANK", "1", "RANK"), ("LOCAL_RANK", "-1", "LOCAL_RANK")),
+)
+def test_distributed_coordinates_are_validated(monkeypatch, name, value, message) -> None:
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("LOCAL_RANK", "0")
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError, match=message):
+        distributed_run(requested=True)
+
+
+def test_distributed_shutdown_does_not_wait_for_failed_peers(monkeypatch) -> None:
+    import torch.distributed as dist
+
+    destroyed = []
+    monkeypatch.setattr(dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(dist, "destroy_process_group", lambda: destroyed.append(True))
+    monkeypatch.setattr(
+        dist,
+        "barrier",
+        lambda: pytest.fail("shutdown must not barrier after another rank can have failed"),
+    )
+
+    destroy_process_group(DistributedRun(True, 0, 0, 2))
+    assert destroyed == [True]
 
 
 class _Stateful:
