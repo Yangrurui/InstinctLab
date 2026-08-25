@@ -43,6 +43,10 @@ first edit has to say why.
 """
 
 EDITED = {
+    "source/instinctlab/instinctlab/tasks/shadowing/README.md": "documents the unified train/play surface",
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/README.md": (
+        "documents the shared BeyondMimic declaration"
+    ),
     "source/instinctlab/instinctlab/tasks/parkour/README.md": (
         "documents the engine-neutral task id and unified train/play entry points"
     ),
@@ -82,9 +86,6 @@ EDITED = {
     "source/instinctlab/instinctlab/sim/__init__.py": (
         "now fronts the engine-neutral contract; legacy spawners load lazily"
     ),
-    "source/instinctlab/instinctlab/tasks/shadowing/play.py": (
-        "calls register_legacy_isaac_tasks() before using a Gym id"
-    ),
     "source/instinctlab/setup.py": "declares the new packages",
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/flat_env_cfg.py": (
         "Isaac EnvCfg replaced by the engine-free TaskSpec; the Gym ids are gone"
@@ -99,19 +100,32 @@ EDITED = {
         "same hyperparameters; configclass is vendored so reading them does not start Isaac Sim"
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/beyondmimic_plane_cfg.py": (
-        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+        "Isaac EnvCfg replaced by an engine-neutral TaskSpec factory"
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_shadowing_cfg.py": (
-        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+        "Isaac EnvCfg replaced by normal and OneMotion TaskSpec factories"
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_vae_cfg.py": (
-        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+        "Isaac VAE EnvCfg replaced by an engine-neutral TaskSpec factory"
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/perceptive_shadowing_cfg.py": (
-        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+        "Isaac HOI EnvCfg replaced by an engine-neutral TaskSpec factory"
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py": (
-        "imports ArticulationCfg from assets.unitree_g1.isaacsim"
+        "Isaac EnvCfg replaced by an engine-neutral TaskSpec factory"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/__init__.py": "exports engine-neutral task factories",
+    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/__init__.py": (
+        "Gym registration replaced by TaskSpec exports"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/__init__.py": (
+        "Gym registrations replaced by TaskSpec exports"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/__init__.py": (
+        "Gym registration replaced by TaskSpec exports"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/__init__.py": (
+        "Gym registration replaced by TaskSpec exports"
     ),
     "source/instinctlab/instinctlab/sensors/volume_points/volume_points_cfg.py": (
         "optional body_order so discovery must match the declared attach list; default None keeps legacy; "
@@ -130,6 +144,30 @@ EDITED = {
 """Main's, with a deliberate edit. The text says which one."""
 
 REMOVED = {
+    "source/instinctlab/instinctlab/tasks/shadowing/play.py": "generic scripts/play.py serves both engines",
+    "source/instinctlab/instinctlab/tasks/shadowing/cli_args.py": (
+        "generic train/play argument parsing owns the unified tasks"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/grid_search.sh": "depended on the removed Isaac-only player",
+    "source/instinctlab/instinctlab/tasks/shadowing/mdp/__init__.py": (
+        "shadowing terms move to shared mdp or engine registries"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/mdp/curriculums.py": (
+        "shadowing curriculum is declared semantically once"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/mdp/events.py": "shadowing events are declared semantically once",
+    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/shadowing_env_cfg.py": (
+        "base Isaac EnvCfg replaced by the shared declaration builder"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/perceptive_env_cfg.py": (
+        "base Isaac EnvCfg replaced by the shared declaration builder"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/perceptive_env_cfg.py": (
+        "base Isaac EnvCfg replaced by the shared declaration builder"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/beyondmimic_env_cfg.py": (
+        "base Isaac EnvCfg replaced by the shared declaration builder"
+    ),
     "source/instinctlab/instinctlab/tasks/parkour/mdp/__init__.py": (
         "the shared Parkour TaskSpec uses the portable instinctlab.mdp package"
     ),

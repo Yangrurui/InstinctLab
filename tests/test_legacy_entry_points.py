@@ -97,9 +97,9 @@ def _entry_points() -> list[tuple[str, str, str]]:
 ENTRY_POINTS = _entry_points()
 
 
-def test_the_scan_found_the_registrations_at_all() -> None:
-    """Parametrising over a computed list means an empty list is a silent pass."""
-    assert len(ENTRY_POINTS) >= 28, f"only {len(ENTRY_POINTS)} entry points parsed; the scan is no longer finding them"
+def test_no_legacy_gym_registration_remains() -> None:
+    """All production task IDs now resolve through the engine-neutral registry."""
+    assert ENTRY_POINTS == []
 
 
 @pytest.mark.parametrize(("task_id", "role", "target"), ENTRY_POINTS, ids=lambda value: str(value))

@@ -91,9 +91,8 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
     would pass here and fail on a machine that has only mjlab -- the worst place to find out. The
     import is therefore done with both engines cut off, the same way ``instinctlab.spec`` is above.
 
-    The negative control below matters as much as the positive one: without it, a blocker that had
-    quietly stopped blocking would make this test pass while checking nothing. It points at an
-    explicitly Isaac-only shadowing task rather than the shared declarations under test.
+    Shadowing is part of the shared declarations too. The negative control is the legacy Isaac
+    registration loader, which must remain unreachable with engine packages blocked.
     """
 
     class _Blocker:
@@ -105,14 +104,13 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
 
     blocker = _Blocker()
     reloaded = "instinctlab.tasks.locomotion.config"
-    # The control's module is evicted too: a cached copy would import from ``sys.modules`` without
-    # consulting the blocker, and the control would pass without testing anything.
-    isaac_only = "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg"
+    shadowing_decl = "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg"
+    isaac_only = "instinctlab.tasks"
     parkour_decl = "instinctlab.tasks.parkour.config.g1"
     evicted = {
         name: module
         for name, module in sys.modules.items()
-        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith((reloaded, isaac_only, parkour_decl))
+        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith((reloaded, shadowing_decl, isaac_only, parkour_decl))
     }
     for name in evicted:
         del sys.modules[name]
@@ -128,13 +126,13 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
         assert agent.G1FlatPPORunnerCfg().max_iterations > 0
         assert parkour.parkour_target_g1().task_id == "Instinct-Parkour-Target-G1"
         assert parkour_agent.G1ParkourTargetPPORunnerCfg().num_steps_per_env == 24
+        shadowing = importlib.import_module(shadowing_decl)
+        shadowing.g1_plane_shadowing().validate()
 
-        # The other side of the boundary. An Isaac-only task must still be unreachable here.
-        assert (
-            pathlib.Path(instinctlab.__file__).parent / "tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py"
-        ).is_file(), "the control points at a file that no longer exists, which would make it pass vacuously"
+        # The other side of the boundary. Calling the explicit legacy registration loader remains Isaac-only.
+        legacy = importlib.import_module(isaac_only)
         with pytest.raises(ImportError):
-            importlib.import_module(isaac_only)
+            legacy.register_legacy_isaac_tasks()
     finally:
         sys.meta_path.remove(blocker)
         sys.modules.update(evicted)

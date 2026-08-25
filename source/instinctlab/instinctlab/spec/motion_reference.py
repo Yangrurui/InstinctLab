@@ -141,8 +141,13 @@ class MotionReferenceRef:
             raise ValueError(f"Motion reference {self.name!r} repeats a link name.")
         if self.num_frames < 1:
             raise ValueError(f"Motion reference {self.name!r} has num_frames={self.num_frames}.")
-        if not math.isfinite(self.frame_interval_s) or self.frame_interval_s <= 0.0:
-            raise ValueError(f"Motion reference {self.name!r} has a non-positive frame_interval_s.")
+        if not math.isfinite(self.frame_interval_s) or self.frame_interval_s < 0.0:
+            raise ValueError(f"Motion reference {self.name!r} has a negative frame_interval_s.")
+        if self.frame_interval_s == 0.0 and self.num_frames != 1:
+            raise ValueError(
+                f"Motion reference {self.name!r} has frame_interval_s=0 with num_frames={self.num_frames}; "
+                "zero interval is only meaningful for a current-frame-only reference."
+            )
         if not math.isfinite(self.update_period) or self.update_period <= 0.0:
             raise ValueError(f"Motion reference {self.name!r} has a non-positive update_period.")
         if not math.isfinite(self.clip_target_fps) or self.clip_target_fps <= 0.0:

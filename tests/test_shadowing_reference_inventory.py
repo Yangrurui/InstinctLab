@@ -66,10 +66,15 @@ def test_instinctmj_train_registrations_reach_factories_not_play_classes() -> No
     assert "env_cfg_factory=lambda: _beyondmimic_plane_env_cfg(play=False)" in beyondmimic
 
 
-def test_legacy_local_shadowing_surface_is_fully_inventoried() -> None:
-    root = Path("source/instinctlab/instinctlab/tasks/shadowing")
-    families = {path.name for path in root.iterdir() if path.is_dir() and not path.name.startswith("__")}
-    assert {"whole_body", "perceptive", "perceptive_hoi", "beyondmimic", "mdp"} <= families
-    assert (root / "play.py").is_file()
-    assert (root / "cli_args.py").is_file()
-    assert (root / "grid_search.sh").is_file()
+def test_audit_records_the_removed_legacy_surface() -> None:
+    audit = Path("docs/shadowing_reference_audit.md").read_text()
+    for name in (
+        "whole_body",
+        "perceptive",
+        "perceptive_hoi",
+        "beyondmimic",
+        "play.py",
+        "cli_args.py",
+        "grid_search.sh",
+    ):
+        assert name in audit
