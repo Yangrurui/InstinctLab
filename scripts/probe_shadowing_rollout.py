@@ -50,6 +50,7 @@ def _probe(args, engine, resources: ExitStack) -> None:
                 "device": args.device,
                 "task": task.task_id,
                 "motion": task.scene.motion_references[0].clip,
+                "joint_names": list(task.robot.joint_names),
             },
             sort_keys=True,
         )

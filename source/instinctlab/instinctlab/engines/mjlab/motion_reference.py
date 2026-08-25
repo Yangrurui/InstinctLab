@@ -95,6 +95,11 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         def init_reference_state(self):
             return self._runtime.init_buffers
 
+        @property
+        def joint_names(self):
+            """Canonical joint order used by every tensor in the reference buffers."""
+            return tuple(self._runtime.ref.joints)
+
         def _compute_data(self):
             return self._data
 

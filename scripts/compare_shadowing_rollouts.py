@@ -24,6 +24,7 @@ def main() -> None:
             "motion_start_s",
             "joint_pos",
             "joint_vel",
+            "motion_joint_pos",
             "root_pos",
             "root_quat",
             "root_vel",

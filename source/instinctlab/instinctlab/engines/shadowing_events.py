@@ -15,6 +15,21 @@ def _method(asset, *names):
     raise AttributeError(f"{type(asset).__name__} provides none of the required methods {names!r}")
 
 
+def reference_joint_ids(asset, joint_names, *, device):
+    """Resolve canonical motion joints to entity-local indices without losing their order."""
+    expected = tuple(joint_names)
+    joint_ids, resolved_names = asset.find_joints(expected, preserve_order=True)
+    resolved = tuple(resolved_names)
+    if resolved != expected:
+        missing = tuple(name for name in expected if name not in resolved)
+        unexpected = tuple(name for name in resolved if name not in expected)
+        raise ValueError(
+            "Motion-reference joints do not resolve one-to-one on the target articulation: "
+            f"expected {expected!r}, resolved {resolved!r}, missing {missing!r}, unexpected {unexpected!r}."
+        )
+    return torch.as_tensor(joint_ids, dtype=torch.long, device=device)
+
+
 def match_reference_origin(env, env_ids, motion_reference="motion_reference"):
     del env_ids
     env.scene[motion_reference].bind_origins(env.scene.env_origins)
@@ -68,7 +83,13 @@ def reset_robot_from_reference(
     joint_pos = state.joint_pos[env_ids, 0].clone()
     if randomize_joint_pos_range != (0.0, 0.0):
         joint_pos += math_utils.sample_uniform(*randomize_joint_pos_range, joint_pos.shape, device=env.device)
-    asset.write_joint_state_to_sim(joint_pos, state.joint_vel[env_ids, 0] * dof_vel_ratio, env_ids=env_ids)
+    joint_ids = reference_joint_ids(asset, sensor.joint_names, device=env.device)
+    asset.write_joint_state_to_sim(
+        joint_pos,
+        state.joint_vel[env_ids, 0] * dof_vel_ratio,
+        joint_ids=joint_ids,
+        env_ids=env_ids,
+    )
 
 
 def smooth_bin_failures(env, env_ids, curriculum_name="beyond_adaptive_sampling", motion_reference="motion_reference"):
@@ -150,6 +171,7 @@ def update_objects_from_reference(env, env_ids, motion_reference="motion_referen
 __all__ = [
     "adaptive_sampling",
     "match_reference_origin",
+    "reference_joint_ids",
     "reset_objects_from_reference",
     "reset_robot_from_reference",
     "smooth_bin_failures",

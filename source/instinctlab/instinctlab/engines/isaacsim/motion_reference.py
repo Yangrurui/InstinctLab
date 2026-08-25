@@ -85,6 +85,11 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         def init_reference_state(self):
             return self._runtime.init_buffers
 
+        @property
+        def joint_names(self):
+            """Canonical joint order used by every tensor in the reference buffers."""
+            return tuple(self._runtime.ref.joints)
+
         def _update_buffers_impl(self, env_ids):
             env_ids = torch.as_tensor(env_ids, device=self.device)
             self._runtime.buffers.timestamp[env_ids] = self._timestamp[env_ids]

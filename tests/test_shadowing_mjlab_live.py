@@ -26,5 +26,9 @@ def test_mjlab_shadowing_short_rollout() -> None:
         state = collect_shadowing_rollout(env, task, steps=4)
         assert state["joint_pos"].shape == (5, 2, 29)
         assert state["motion_pos"].shape == (5, 2, 3)
+        torch.testing.assert_close(
+            torch.from_numpy(state["joint_pos"][0]),
+            torch.from_numpy(state["motion_joint_pos"][0]),
+        )
     finally:
         env.close()

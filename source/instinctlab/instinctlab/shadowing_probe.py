@@ -65,7 +65,7 @@ def collect_shadowing_rollout(env: Any, task: Any, *, steps: int) -> dict[str, A
     """
     import torch
 
-    from instinctlab.engines.shadowing_events import reset_robot_from_reference
+    from instinctlab.engines.shadowing_events import reference_joint_ids, reset_robot_from_reference
 
     env.reset()
     robot = env.scene["robot"]
@@ -85,12 +85,14 @@ def collect_shadowing_rollout(env: Any, task: Any, *, steps: int) -> dict[str, A
     env.scene.update(dt=0.0)
     env.command_manager.reset(env_ids)
     fixed_start_s = runtime.buffers.start_s.detach().cpu().clone()
+    joint_ids = reference_joint_ids(robot, sensor.joint_names, device=env.device)
     action = torch.linspace(-0.2, 0.2, len(task.robot.joint_names), device=env.device).repeat(env.num_envs, 1)
     fields = {
         name: []
         for name in (
             "joint_pos",
             "joint_vel",
+            "motion_joint_pos",
             "root_pos",
             "root_quat",
             "root_vel",
@@ -108,8 +110,9 @@ def collect_shadowing_rollout(env: Any, task: Any, *, steps: int) -> dict[str, A
 
     def capture(reward=None, done=None):
         data = robot.data
-        fields["joint_pos"].append(data.joint_pos.detach().cpu())
-        fields["joint_vel"].append(data.joint_vel.detach().cpu())
+        fields["joint_pos"].append(data.joint_pos[:, joint_ids].detach().cpu())
+        fields["joint_vel"].append(data.joint_vel[:, joint_ids].detach().cpu())
+        fields["motion_joint_pos"].append(sensor.data.joint_pos[:, 0].detach().cpu())
         fields["root_pos"].append(native_field(data, "root_link_pos_w", "root_pos_w").detach().cpu())
         fields["root_quat"].append(native_field(data, "root_link_quat_w", "root_quat_w").detach().cpu())
         fields["root_vel"].append(native_field(data, "root_link_vel_w", "root_vel_w").detach().cpu())

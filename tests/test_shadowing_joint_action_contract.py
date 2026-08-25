@@ -3,16 +3,75 @@ from __future__ import annotations
 import json
 import torch
 from dataclasses import replace
+from types import SimpleNamespace
 from xml.etree import ElementTree
 
 import pytest
 
 from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
 from instinctlab.checkpoint import add_task_contract, validate_checkpoint_contract
+from instinctlab.engines.shadowing_events import reset_robot_from_reference
 from instinctlab.sim.backend import CanonicalIndexMap
 from instinctlab.tasks import registry
 
 SHADOWING_IDS = tuple(task_id for task_id in registry.ids() if "Shadowing" in task_id or "BeyondMimic" in task_id)
+
+
+class _ResetAsset:
+    def __init__(self, native_joint_names: tuple[str, ...]) -> None:
+        self.joint_names = native_joint_names
+        self.joint_pos = torch.zeros(1, len(native_joint_names))
+        self.joint_vel = torch.zeros_like(self.joint_pos)
+
+    def find_joints(self, names, preserve_order=False):
+        assert preserve_order is True
+        resolved = tuple(name for name in names if name in self.joint_names)
+        return [self.joint_names.index(name) for name in resolved], list(resolved)
+
+    def write_root_link_pose_to_sim(self, pose, env_ids=None):
+        pass
+
+    def write_root_link_velocity_to_sim(self, velocity, env_ids=None):
+        pass
+
+    def write_joint_state_to_sim(self, position, velocity, joint_ids=None, env_ids=None):
+        self.joint_pos[env_ids[:, None], joint_ids[None, :]] = position
+        self.joint_vel[env_ids[:, None], joint_ids[None, :]] = velocity
+
+
+def _reset_env(canonical_joint_names: tuple[str, ...], native_joint_names: tuple[str, ...]):
+    asset = _ResetAsset(native_joint_names)
+    joint_pos = torch.arange(len(canonical_joint_names), dtype=torch.float32) + 10.0
+    joint_vel = torch.arange(len(canonical_joint_names), dtype=torch.float32) + 1.0
+    state = SimpleNamespace(
+        base_pos_w=torch.zeros(1, 1, 3),
+        base_quat_w=torch.tensor([[[1.0, 0.0, 0.0, 0.0]]]),
+        base_lin_vel_w=torch.zeros(1, 1, 3),
+        base_ang_vel_w=torch.zeros(1, 1, 3),
+        joint_pos=joint_pos.reshape(1, 1, -1),
+        joint_vel=joint_vel.reshape(1, 1, -1),
+    )
+    sensor = SimpleNamespace(init_reference_state=state, joint_names=canonical_joint_names)
+    env = SimpleNamespace(device="cpu", scene={"robot": asset, "motion_reference": sensor})
+    reset_robot_from_reference(env, torch.tensor([0]), randomize_joint_pos_range=(0.0, 0.0))
+    return asset
+
+
+def test_shadowing_reset_writes_canonical_values_to_native_joint_indices() -> None:
+    canonical = G1_29DOF_DFS_JOINT_NAMES
+    native = G1_29DOF_ISAAC_BFS_JOINT_NAMES
+
+    asset = _reset_env(canonical, native)
+
+    expected_pos = torch.tensor([[canonical.index(name) + 10.0 for name in native]])
+    expected_vel = torch.tensor([[canonical.index(name) + 1.0 for name in native]])
+    torch.testing.assert_close(asset.joint_pos, expected_pos)
+    torch.testing.assert_close(asset.joint_vel, expected_vel)
+
+
+def test_shadowing_reset_rejects_an_incomplete_joint_mapping() -> None:
+    with pytest.raises(ValueError, match="do not resolve one-to-one"):
+        _reset_env(("waist_joint", "missing_joint", "right_joint"), ("right_joint", "waist_joint"))
 
 
 @pytest.mark.parametrize("task_id", SHADOWING_IDS)
