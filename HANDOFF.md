@@ -238,6 +238,26 @@ operator explicitly chooses to stop them, but do not resume them or promote
 their curves as final baselines. Their logs remain useful only for diagnosing
 the corrected faults.
 
+On 2026-08-26 the operator explicitly requested stopping the obsolete GPU 0
+Isaac Whole Body process `dfsreset_currentref_diveroll_gpu0`; PID 26325 exited
+cleanly. A final-commit MJLab Whole Body production test was then started on
+physical GPU 0 with 4096 environments, seed 42, and 50000 iterations:
+
+```text
+logs/mjlab/g1_shadowing/20260826_202114_finalaligned_datafixed_4096_gpu0_20260826
+logs/train_mjlab_wholebody_finalaligned_datafixed_4096_gpu0_20260826.log
+```
+
+The first launch exposed that the MJLab binding still used InstinctMJ's private
+`~/Xyk/Datasets/...` directory. Commit `5f2e0df` binds the same released clip
+through the portable `~/Datasets/...` compatibility path; the underlying data
+and training semantics are unchanged. The corrected run reached iteration 10:
+iteration 0 reported 41.3k steps/s, reward -1.67, and episode length 21.14;
+iteration 10 reported 48.4k steps/s, reward -1.05, and episode length 19.03.
+The critic width is 889. It is linked into the port-6006 comparison as
+`logs/tb_compare/g1_shadowing_diveroll/mjlab_finalaligned_4096_gpu0` and was
+still live at this handoff update.
+
 Two matching Isaac reference runs from `/root/InstinctLab-main` were started
 from scratch on 2026-08-26 with 4096 environments, seed 42, and 50000
 iterations. Both reached learning iteration 0 and remain live:
