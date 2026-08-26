@@ -334,14 +334,11 @@ def _reference_observations(*, policy: bool, has_anchor_command: bool = True) ->
     }
 
 
-def _proprioception(joints: EntityRef, *, corrupt: bool, history_length: int) -> dict[str, ObsTermSpec]:
+def _proprioception(
+    joints: EntityRef, *, corrupt: bool, history_length: int, include_projected_gravity: bool = True
+) -> dict[str, ObsTermSpec]:
     noise = (lambda lo, hi: NoiseSpec("uniform", lo, hi)) if corrupt else (lambda lo, hi: None)
-    return {
-        "projected_gravity": ObsTermSpec(
-            func=mdp.projected_gravity,
-            noise=noise(-0.05, 0.05),
-            history_length=history_length,
-        ),
+    terms = {
         "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, noise=noise(-0.2, 0.2), history_length=history_length),
         "joint_pos": ObsTermSpec(
             func=mdp.joint_pos_rel,
@@ -357,6 +354,17 @@ def _proprioception(joints: EntityRef, *, corrupt: bool, history_length: int) ->
         ),
         "last_action": ObsTermSpec(func=mdp.last_action, history_length=history_length),
     }
+    if include_projected_gravity:
+        # Keep main's declaration order: gravity precedes the other proprioception.
+        return {
+            "projected_gravity": ObsTermSpec(
+                func=mdp.projected_gravity,
+                noise=noise(-0.05, 0.05),
+                history_length=history_length,
+            ),
+            **terms,
+        }
+    return terms
 
 
 def _observations(variant: ShadowingVariant, joints: EntityRef, motion: MotionReferenceRef) -> dict[str, ObsGroupSpec]:
@@ -417,12 +425,20 @@ def _observations(variant: ShadowingVariant, joints: EntityRef, motion: MotionRe
         if variant.family in {"perceptive", "perceptive_hoi"}:
             critic["height_scan"] = ObsTermSpec(kind="shadow_height_scan", params={"sensor": _height_scanner()})
         critic["base_lin_vel"] = ObsTermSpec(kind="shadow_base_linear_velocity", history_length=history_length)
-        critic.update(_proprioception(joints, corrupt=False, history_length=history_length))
+        critic.update(
+            _proprioception(
+                joints, corrupt=False, history_length=history_length, include_projected_gravity=False
+            )
+        )
     else:
         critic["depth_image"] = ObsTermSpec(
             kind="shadow_depth_image", params={"sensor": _camera(include_objects=False)}
         )
-        critic.update(_proprioception(joints, corrupt=False, history_length=history_length))
+        critic.update(
+            _proprioception(
+                joints, corrupt=False, history_length=history_length, include_projected_gravity=False
+            )
+        )
     return {
         "policy": ObsGroupSpec(terms=policy, enable_corruption=True, concatenate_terms=False),
         "critic": ObsGroupSpec(terms=critic, enable_corruption=False, concatenate_terms=False),

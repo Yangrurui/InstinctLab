@@ -78,6 +78,43 @@ def test_shadowing_root_accessor_prefers_explicit_link_names_and_fails_loudly() 
         _root(SimpleNamespace(), "root_pos_w")
 
 
+def test_shadowing_link_terms_read_link_frames_not_com_aliases() -> None:
+    """main and InstinctMJ track link origins; Isaac's legacy velocity alias is COM."""
+    zeros3 = torch.zeros(1, 2, 3)
+    zeros4 = torch.zeros(1, 2, 4)
+    zeros4[..., 0] = 1.0
+    data = SimpleNamespace(
+        body_link_pos_w=zeros3,
+        body_pos_w=torch.full_like(zeros3, 7.0),
+        body_link_quat_w=zeros4,
+        body_quat_w=torch.full_like(zeros4, 7.0),
+        body_link_lin_vel_w=zeros3,
+        body_lin_vel_w=torch.full_like(zeros3, 7.0),
+        body_link_ang_vel_w=zeros3,
+        body_ang_vel_w=torch.full_like(zeros3, 7.0),
+    )
+    reference = SimpleNamespace(
+        data=SimpleNamespace(
+            link_lin_vel_w=zeros3.unsqueeze(1),
+            link_ang_vel_w=zeros3.unsqueeze(1),
+        )
+    )
+    env = SimpleNamespace(scene={"robot": SimpleNamespace(data=data), "motion_reference": reference})
+    asset_cfg = SimpleNamespace(name="robot", body_ids=slice(None))
+
+    torch.testing.assert_close(shadowing_mdp.link_position(env, asset_cfg, in_base_frame=False), zeros3)
+    torch.testing.assert_close(
+        shadowing_mdp.link_rotation(env, asset_cfg, in_base_frame=False),
+        shadowing_mdp.quat_to_tan_norm(zeros4),
+    )
+    torch.testing.assert_close(
+        shadowing_mdp.link_linear_velocity_imitation(env, asset_cfg=asset_cfg), torch.ones(1)
+    )
+    torch.testing.assert_close(
+        shadowing_mdp.link_angular_velocity_imitation(env, asset_cfg=asset_cfg), torch.ones(1)
+    )
+
+
 def test_reference_observation_anchor_noise_and_history_match_effective_sources() -> None:
     whole = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
     policy = whole.mdp.observations["policy"].terms
@@ -93,6 +130,8 @@ def test_reference_observation_anchor_noise_and_history_match_effective_sources(
         0.05,
     )
     assert {term.history_length for term in policy.values()} == {0}
+    assert "projected_gravity" in policy
+    assert "projected_gravity" not in critic
 
     for task_id in (
         "Instinct-Perceptive-Shadowing-G1-v0",
@@ -100,6 +139,8 @@ def test_reference_observation_anchor_noise_and_history_match_effective_sources(
         "Instinct-Perceptive-HOI-Shadowing-G1-v0",
     ):
         task = registry.spec(task_id)
+        assert "projected_gravity" in task.mdp.observations["policy"].terms
+        assert "projected_gravity" not in task.mdp.observations["critic"].terms
         for group in task.mdp.observations.values():
             proprio = {
                 name: term

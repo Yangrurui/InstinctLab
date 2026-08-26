@@ -55,7 +55,11 @@ def _combine(square: torch.Tensor, std: float, method: str) -> torch.Tensor:
 
 def link_position(env, asset_cfg, *, in_base_frame: bool = True):
     asset = env.scene[_name(asset_cfg, "robot")]
-    pos = _field(asset.data, "body_pos_w", "body_link_pos_w")[:, _ids(asset_cfg)]
+    # Both references track the link-frame origin.  Isaac Lab's legacy
+    # ``body_pos_w`` currently aliases this tensor, but spelling the point
+    # explicitly keeps this term out of the COM/link compatibility trap that
+    # affects the corresponding velocity aliases.
+    pos = asset.data.body_link_pos_w[:, _ids(asset_cfg)]
     if in_base_frame:
         inv = math_utils.subtract_frame_transforms(
             _field(asset.data, "root_pos_w", "root_link_pos_w"),
@@ -67,7 +71,7 @@ def link_position(env, asset_cfg, *, in_base_frame: bool = True):
 
 def link_rotation(env, asset_cfg, *, in_base_frame: bool = True):
     asset = env.scene[_name(asset_cfg, "robot")]
-    quat = _field(asset.data, "body_quat_w", "body_link_quat_w")[:, _ids(asset_cfg)]
+    quat = asset.data.body_link_quat_w[:, _ids(asset_cfg)]
     if in_base_frame:
         root_inv = math_utils.quat_inv(_field(asset.data, "root_quat_w", "root_link_quat_w"))
         quat = math_utils.quat_mul(root_inv.unsqueeze(1).expand(-1, quat.shape[1], -1), quat)
@@ -146,7 +150,7 @@ def link_rotation_imitation(
 ):
     asset = env.scene[_name(asset_cfg, "robot")]
     buffers = env.scene[_name(reference_cfg, "motion_reference")].data
-    actual = _field(asset.data, "body_quat_w", "body_link_quat_w")[:, _ids(asset_cfg)]
+    actual = asset.data.body_link_quat_w[:, _ids(asset_cfg)]
     if in_base_frame:
         root_inv = math_utils.quat_inv(_field(asset.data, "root_quat_w", "root_link_quat_w"))
         actual = math_utils.quat_mul(root_inv.unsqueeze(1).expand(-1, actual.shape[1], -1), actual)
@@ -162,9 +166,11 @@ def link_rotation_imitation(
 def _link_velocity_imitation(env, reference_cfg, asset_cfg, std, combine_method, angular):
     asset = env.scene[_name(asset_cfg, "robot")]
     buffers = env.scene[_name(reference_cfg, "motion_reference")].data
-    attr = "body_ang_vel_w" if angular else "body_lin_vel_w"
-    mj_attr = "body_link_ang_vel_w" if angular else "body_link_lin_vel_w"
-    actual = _field(asset.data, attr, mj_attr)[:, _ids(asset_cfg)]
+    # main and InstinctMJ both use the velocity of the link-frame origin.
+    # On Isaac Lab ``body_lin_vel_w`` is the COM velocity, so preferring that
+    # legacy alias silently optimizes a different imitation objective.
+    attr = "body_link_ang_vel_w" if angular else "body_link_lin_vel_w"
+    actual = getattr(asset.data, attr)[:, _ids(asset_cfg)]
     target = buffers.link_ang_vel_w[:, 0] if angular else buffers.link_lin_vel_w[:, 0]
     return _combine(torch.square(actual - target).sum(dim=-1), std, combine_method)
 
