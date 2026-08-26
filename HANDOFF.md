@@ -283,6 +283,26 @@ Whole Body comparison and `isaacsim_final_long_4096_gpu6` plus
 runs were live at this update; do not stop, restart, or promote them before
 reviewing long-horizon reward, episode length, and termination trends.
 
+The GPU 7 fixed-capacity MJLab Perceptive run later failed immediately after
+iteration 180 because the policy mean became entirely NaN. It was not an OOM or
+an external kill. The older auto-capacity GPU 2 run remained finite beyond
+iteration 4400, so commit `6c472bf` restored production Perceptive to the old
+stable simulator profile (`nconmax=None`, `njmax=1200`, default CCD 500 and
+Jacobian auto) while retaining all observation, motion, terrain, and reward
+alignment fixes. A replacement 4096-environment, seed-42, 50000-iteration run
+is live on physical GPU 7:
+
+```text
+logs/mjlab/g1_perceptive_shadowing/20260826_232458_stablecaps_final_long_4096_gpu7_20260826
+logs/train_mjlab_perceptive_stablecaps_final_long_4096_gpu7_20260826.log
+```
+
+It reached iteration 0 at 12.0k steps/s with reward -1.80 and episode length
+20.96. Its port-6007 TensorBoard name is
+`mjlab_stablecaps_final_long_4096_gpu7`; retain the failed
+`mjlab_final_long_4096_gpu7` series as the fixed-capacity comparison rather than
+repointing it.
+
 Two matching Isaac reference runs from `/root/InstinctLab-main` were started
 from scratch on 2026-08-26 with 4096 environments, seed 42, and 50000
 iterations. Both reached learning iteration 0 and remain live:
