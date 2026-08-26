@@ -121,6 +121,19 @@ def test_shadowing_link_terms_read_link_frames_not_com_aliases() -> None:
     )
 
 
+def test_shadowing_depth_clamps_before_resizing_like_both_references(monkeypatch) -> None:
+    from instinctlab.compat import sensors as compat_sensors
+
+    raw = torch.tensor([[[[0.0], [4.0], [0.0], [4.0]]]])
+    sensor_ref = SimpleNamespace(name="camera", crop=None)
+    env = SimpleNamespace(scene=SimpleNamespace(sensors={"camera": object()}))
+    monkeypatch.setattr(compat_sensors, "depth_image", lambda _sensor: raw)
+
+    processed = shadowing_mdp.depth_image(env, sensor_ref, resize_shape=(1, 2), normalization_range=(0.0, 2.0))
+
+    torch.testing.assert_close(processed, torch.full((1, 1, 1, 2), 0.5))
+
+
 def test_shadowing_imitation_rewards_use_current_reference_frame_not_lookahead_data() -> None:
     """main evaluates imitation at t; sensor data starts at t + dt for commands."""
     zeros3 = torch.zeros(1, 2, 3)

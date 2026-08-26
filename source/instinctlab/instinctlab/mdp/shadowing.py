@@ -16,17 +16,16 @@ from instinctlab.utils.math import quat_to_tan_norm
 
 
 def depth_image(env, sensor, resize_shape=(18, 32), normalization_range=(0.0, 2.0)):
-    """Reference camera pipeline: crop 2px, resize, clamp to 0..2 m, normalize."""
+    """Reference camera pipeline: clamp/normalize first, then crop and resize."""
     from instinctlab.compat.sensors import depth_image as read_depth
 
     raw = read_depth(env.scene.sensors[sensor.name]).squeeze(-1)
-    finite = torch.where(torch.isfinite(raw), raw, torch.full_like(raw, normalization_range[1]))
+    lo, hi = normalization_range
+    normalized = raw.clamp(lo, hi).sub(lo).div(hi - lo)
     if sensor.crop is not None:
         top, bottom, left, right = sensor.crop
-        finite = finite[:, top : finite.shape[1] - bottom, left : finite.shape[2] - right]
-    resized = F.interpolate(finite.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False).squeeze(1)
-    lo, hi = normalization_range
-    return resized.clamp(lo, hi).sub(lo).div(hi - lo).unsqueeze(1)
+        normalized = normalized[:, top : normalized.shape[1] - bottom, left : normalized.shape[2] - right]
+    return F.interpolate(normalized.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False)
 
 
 def _field(data: Any, isaac: str, mjlab: str | None = None):
