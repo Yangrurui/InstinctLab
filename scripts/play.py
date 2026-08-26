@@ -37,7 +37,7 @@ def _parse() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(description=__doc__, parents=[chooser])
     parser.add_argument("--task", type=str, default="Instinct-Velocity-Flat-G1", help="Task id to play.")
-    parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
+    parser.add_argument("--num_envs", type=int, default=10, help="Number of environments to simulate.")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to a model_*.pt file.")
     parser.add_argument(
         "--agent",
