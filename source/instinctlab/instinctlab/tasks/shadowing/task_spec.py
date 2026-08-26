@@ -647,21 +647,30 @@ def _events(variant: ShadowingVariant) -> dict[str, EventTermSpec]:
         )
     if variant.family == "perceptive_hoi":
         events["reset_robot"] = EventTermSpec(
-            kind="shadow_reset_robot_from_reference", mode="reset", params=reset_params
+            kind="shadow_reset_robot_from_reference",
+            mode="reset",
+            params=reset_params,
+            engine_params={"isaacsim": {"root_velocity_frame": "com"}},
         )
         events["reset_rigid_objects_state_by_reference"] = EventTermSpec(
-            kind="shadow_reset_objects_from_reference", mode="reset"
+            kind="shadow_reset_objects_from_reference",
+            mode="reset",
+            engine_params={"isaacsim": {"root_velocity_frame": "com"}},
         )
         events["update_rigid_objects_state_by_reference"] = EventTermSpec(
             kind="shadow_update_objects_from_reference",
             mode="interval",
             interval_range_s=(0.02, 0.02),
             params={"invalid_object_pos": (0.0, 0.0, -1.0)},
+            engine_params={"isaacsim": {"root_velocity_frame": "com"}},
         )
     else:
         events["match_motion_ref_with_scene"] = EventTermSpec(kind="shadow_match_reference_origin", mode="startup")
         events["reset_robot"] = EventTermSpec(
-            kind="shadow_reset_robot_from_reference", mode="reset", params=reset_params
+            kind="shadow_reset_robot_from_reference",
+            mode="reset",
+            params=reset_params,
+            engine_params={"isaacsim": {"root_velocity_frame": "com"}},
         )
     events["bin_fail_counter_smoothing"] = EventTermSpec(
         kind="shadow_smooth_bin_failures",

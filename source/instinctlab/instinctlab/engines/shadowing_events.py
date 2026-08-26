@@ -15,6 +15,15 @@ def _method(asset, *names):
     raise AttributeError(f"{type(asset).__name__} provides none of the required methods {names!r}")
 
 
+def _root_velocity_writer(asset, frame: str):
+    """Resolve the reference backend's explicitly chosen root-velocity point."""
+    if frame == "link":
+        return _method(asset, "write_root_link_velocity_to_sim")
+    if frame == "com":
+        return _method(asset, "write_root_com_velocity_to_sim", "write_root_velocity_to_sim")
+    raise ValueError(f"root_velocity_frame must be 'link' or 'com', got {frame!r}")
+
+
 def reference_joint_ids(asset, joint_names, *, device):
     """Resolve canonical motion joints to entity-local indices without losing their order."""
     expected = tuple(joint_names)
@@ -47,6 +56,7 @@ def reset_robot_from_reference(
     randomize_pose_range=None,
     randomize_velocity_range=None,
     randomize_joint_pos_range=(0.0, 0.0),
+    root_velocity_frame="link",
 ):
     """Write the separately floor-indexed reset sample exactly once, in canonical order."""
     sensor = env.scene[motion_reference]
@@ -77,7 +87,7 @@ def reset_robot_from_reference(
     pose = torch.cat((pos, quat), dim=-1)
     velocity = torch.cat((lin, ang), dim=-1)
     write_pose = _method(asset, "write_root_link_pose_to_sim", "write_root_pose_to_sim")
-    write_velocity = _method(asset, "write_root_link_velocity_to_sim", "write_root_velocity_to_sim")
+    write_velocity = _root_velocity_writer(asset, root_velocity_frame)
     write_pose(pose, env_ids=env_ids)
     write_velocity(velocity, env_ids=env_ids)
     joint_pos = state.joint_pos[env_ids, 0].clone()
@@ -113,7 +123,7 @@ def adaptive_sampling(env, env_ids=None):
     return runtime.update_adaptive_weights()
 
 
-def _write_objects(env, env_ids, state, frame: int, invalid_object_pos=None):
+def _write_objects(env, env_ids, state, frame: int, invalid_object_pos=None, root_velocity_frame="link"):
     names = state.scene_object_names
     validity = state.object_validity[env_ids, frame]
     for object_id, name in enumerate(names):
@@ -141,7 +151,7 @@ def _write_objects(env, env_ids, state, frame: int, invalid_object_pos=None):
             )
             write_pose(pose, env_ids=selected)
             if not callable(mocap):
-                write_velocity = _method(asset, "write_root_link_velocity_to_sim", "write_root_velocity_to_sim")
+                write_velocity = _root_velocity_writer(asset, root_velocity_frame)
                 write_velocity(velocity, env_ids=selected)
         invalid = ~valid
         if invalid_object_pos is not None and invalid.any():
@@ -156,16 +166,20 @@ def _write_objects(env, env_ids, state, frame: int, invalid_object_pos=None):
             writer(pose, env_ids=selected)
 
 
-def reset_objects_from_reference(env, env_ids, motion_reference="motion_reference"):
+def reset_objects_from_reference(env, env_ids, motion_reference="motion_reference", root_velocity_frame="link"):
     sensor = env.scene[motion_reference]
-    _write_objects(env, env_ids, sensor.init_reference_state, 0)
+    _write_objects(env, env_ids, sensor.init_reference_state, 0, root_velocity_frame=root_velocity_frame)
 
 
-def update_objects_from_reference(env, env_ids, motion_reference="motion_reference", invalid_object_pos=None):
+def update_objects_from_reference(
+    env, env_ids, motion_reference="motion_reference", invalid_object_pos=None, root_velocity_frame="link"
+):
     del env_ids
     sensor = env.scene[motion_reference]
     all_ids = torch.arange(sensor.data.timestamp.shape[0], device=env.device)
-    _write_objects(env, all_ids, sensor.data, 0, invalid_object_pos)
+    _write_objects(
+        env, all_ids, sensor.data, 0, invalid_object_pos, root_velocity_frame=root_velocity_frame
+    )
 
 
 __all__ = [

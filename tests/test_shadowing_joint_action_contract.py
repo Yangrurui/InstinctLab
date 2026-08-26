@@ -32,7 +32,10 @@ class _ResetAsset:
         pass
 
     def write_root_link_velocity_to_sim(self, velocity, env_ids=None):
-        pass
+        self.root_velocity_writer = "link"
+
+    def write_root_com_velocity_to_sim(self, velocity, env_ids=None):
+        self.root_velocity_writer = "com"
 
     def write_joint_state_to_sim(self, position, velocity, joint_ids=None, env_ids=None):
         self.joint_pos[env_ids[:, None], joint_ids[None, :]] = position
@@ -67,6 +70,30 @@ def test_shadowing_reset_writes_canonical_values_to_native_joint_indices() -> No
     expected_vel = torch.tensor([[canonical.index(name) + 1.0 for name in native]])
     torch.testing.assert_close(asset.joint_pos, expected_pos)
     torch.testing.assert_close(asset.joint_vel, expected_vel)
+
+
+def test_shadowing_reset_uses_the_declared_root_velocity_point() -> None:
+    canonical = G1_29DOF_DFS_JOINT_NAMES
+    asset = _reset_env(canonical, canonical)
+    assert asset.root_velocity_writer == "link"
+
+    state = SimpleNamespace(
+        base_pos_w=torch.zeros(1, 1, 3),
+        base_quat_w=torch.tensor([[[1.0, 0.0, 0.0, 0.0]]]),
+        base_lin_vel_w=torch.zeros(1, 1, 3),
+        base_ang_vel_w=torch.zeros(1, 1, 3),
+        joint_pos=torch.zeros(1, 1, len(canonical)),
+        joint_vel=torch.zeros(1, 1, len(canonical)),
+    )
+    sensor = SimpleNamespace(init_reference_state=state, joint_names=canonical)
+    env = SimpleNamespace(device="cpu", scene={"robot": asset, "motion_reference": sensor})
+    reset_robot_from_reference(
+        env,
+        torch.tensor([0]),
+        randomize_joint_pos_range=(0.0, 0.0),
+        root_velocity_frame="com",
+    )
+    assert asset.root_velocity_writer == "com"
 
 
 def test_shadowing_reset_rejects_an_incomplete_joint_mapping() -> None:

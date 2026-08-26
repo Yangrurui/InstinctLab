@@ -12,6 +12,18 @@ from tests.test_shadowing_reference_inventory import COMMON_IDS, MJ_ONLY_IDS
 
 SHADOW_IDS = COMMON_IDS | MJ_ONLY_IDS
 ROOT = Path("source/instinctlab/instinctlab/tasks/shadowing")
+MAIN_RESET_SOURCE = Path(
+    "/root/InstinctLab-main/source/instinctlab/instinctlab/envs/mdp/events/motion_reference.py"
+)
+MJ_RESET_SOURCE = Path(
+    "/root/InstinctMJ/src/instinct_mj/envs/mdp/events/motion_reference.py"
+)
+
+
+def _function_source(path: Path, name: str) -> str:
+    tree = ast.parse(path.read_text(), filename=str(path))
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name)
+    return ast.unparse(function)
 
 
 @pytest.mark.parametrize("task_id", sorted(SHADOW_IDS))
@@ -64,6 +76,17 @@ def test_declaration_order_matches_effective_whole_body_factory() -> None:
         "joint_limit",
         "undesired_contacts",
     )
+    reset = task.mdp.events["reset_robot"]
+    assert reset.resolved_params("isaacsim")["root_velocity_frame"] == "com"
+    assert reset.resolved_params("mjlab").get("root_velocity_frame", "link") == "link"
+
+
+def test_root_reset_velocity_point_tracks_each_reference_backend() -> None:
+    main = _function_source(MAIN_RESET_SOURCE, "reset_robot_state_by_reference")
+    mjlab = _function_source(MJ_RESET_SOURCE, "reset_robot_state_by_reference")
+    assert "asset.write_root_velocity_to_sim" in main
+    assert "asset.write_root_link_velocity_to_sim" not in main
+    assert "asset.write_root_link_velocity_to_sim" in mjlab
 
 
 def test_shadowing_physx_budgets_match_effective_main_configs() -> None:
