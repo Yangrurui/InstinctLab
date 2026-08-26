@@ -195,6 +195,29 @@ Its initial mean reward was -1.80, mean episode length was 13.99, and throughput
 was about 12.8k steps/s. These are startup measurements, not convergence
 evidence; inspect the long-horizon trend before promoting it to a baseline.
 
+Two fresh Perceptive production-comparison runs were started from scratch at
+`6face18` with 4096 environments, seed 42, 50000 iterations, and strict term
+resolution. Both completed learning iteration 0 and remain live:
+
+- physical GPU 1, Isaac Sim:
+  `logs/isaacsim/g1_perceptive_shadowing/20260826_163829_perceptive_repro_4096_gpu1`;
+  initial throughput 5.84k steps/s, collection 12.849 s, learning 3.982 s;
+- physical GPU 2, MJLab (isolated as local `cuda:0`):
+  `logs/mjlab/g1_perceptive_shadowing/20260826_163818_perceptive_repro_4096_gpu2`;
+  initial throughput 11.79k steps/s, collection 4.204 s, learning 4.137 s.
+
+Full stdout is preserved separately and continuously at:
+
+```text
+logs/train_isaacsim_perceptive_repro_4096_gpu1.log
+logs/train_mjlab_perceptive_repro_4096_gpu2.log
+```
+
+Isaac's first simulation start took 126.95 s and emitted about 11.5 MiB of
+repeated unresolved visual-reference warnings while cloning 4096 environments;
+the warnings did not prevent rollout or learning. These startup measurements
+are not convergence evidence.
+
 ## Current AMP correction
 
 The current migration commit changes AMP timing to match main while preserving
