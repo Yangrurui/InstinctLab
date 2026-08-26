@@ -117,6 +117,32 @@ logs/isaacsim/g1_shadowing/20260825_202305_released_diveroll_gpu1
 The last Isaac shadowing run predates the canonical DFS-to-native BFS reset fix
 and is invalid as convergence evidence. Do not resume it.
 
+## Reproduction status
+
+- **Parkour: complete.** The current unified parkour task is accepted as the
+  reproduced Isaac Sim/MJLab implementation. Its task/agent declarations,
+  released AMP data path, ordered AMP schema, motion sampling, and production
+  training behavior have been checked against the two reference repositories.
+  Engine-native physics differences listed below remain intentional. The
+  concatenated-release boundary issue is a source-data limitation, not a
+  blocker for the reproduction status.
+- **Whole-body plane shadowing: in progress.** MJLab has a released-data run;
+  the corrected Isaac run with DFS reset mapping is live and still needs
+  long-horizon convergence review.
+- **Other shadowing families: not production-reproduced.** Perceptive,
+  perceptive one-motion, perceptive VAE, perceptive HOI, and BeyondMimic have
+  unified declarations, but do not yet have accepted production training/play
+  evidence on both engines.
+- **Locomotion: not production-reproduced.** Flat and rough locomotion are in
+  the active registry, but no accepted cross-engine production convergence
+  baselines are recorded here. They are the only non-shadowing task family
+  remaining after parkour.
+
+Play variants do not require independent training reproduction; validate them
+with an accepted checkpoint from their corresponding train task. Real
+multi-node distributed training remains an infrastructure validation item, not
+a task-reproduction item.
+
 On the replacement server, the released shadowing data was downloaded from the
 official InstinctMJ Google Drive folder into:
 
@@ -267,9 +293,12 @@ Isaac/main versus MJLab/InstinctMJ actuator semantics; engine-native contact
 forces and joint accelerations; Isaac visual filtering versus MJLab geom groups;
 and engine-specific RNG consumption order.
 
-Not yet proven: matched long-horizon training after the AMP timing fix,
-corrected long-horizon Isaac shadowing convergence, policy-quality equivalence,
-production perceptive/HOI runs, and real multi-node distributed training.
+Not yet proven: corrected long-horizon Isaac shadowing convergence, accepted
+cross-engine convergence for flat/rough locomotion, production perceptive/VAE/
+HOI/BeyondMimic runs, and real multi-node distributed training. Parkour is
+accepted as reproduced; its intentional engine-native differences and released
+motion boundary risk remain documented rather than treated as open reproduction
+work.
 
 ## New-server bring-up
 
