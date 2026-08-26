@@ -102,6 +102,13 @@ def test_shadowing_physx_budgets_match_effective_main_configs() -> None:
             assert "gpu_collision_stack_size" not in profile
 
 
+def test_shadowing_isaac_merges_fixed_joints_like_effective_main() -> None:
+    """The task overrides the catalog flag without changing MJLab's asset."""
+    task = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
+    assert task.robot.asset_for("isaacsim").import_options["merge_fixed_joints"] is True
+    assert task.robot.asset_for("mjlab").path.endswith("g1_29dof_torsobase_popsicle.xml")
+
+
 def test_shadowing_mjlab_budgets_match_effective_instinctmj_configs() -> None:
     expected = {
         "whole_body": (None, 1200, None, 500, None),

@@ -759,7 +759,12 @@ def _terminations(variant: ShadowingVariant, motion: MotionReferenceRef) -> dict
 def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
     # Both final G1 references replace their base robot with the BeyondMimic plant. On Isaac this
     # is ImplicitPD; on MJLab it is BuiltinPD. Neither final override uses the delayed tables.
-    robot = make_g1_29dof_robot_spec()
+    # main's effective shadowing ArticulationCfg leaves UrdfFileCfg's
+    # ``merge_fixed_joints=True`` default in force.  The shared catalog keeps fixed joints for
+    # locomotion/MJCF inventory purposes, so shadowing carries this Isaac-only plant override.
+    robot = make_g1_29dof_robot_spec().overridden(
+        import_options={"isaacsim": {"merge_fixed_joints": True}},
+    )
     joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
     action_scale = {joint.name: joint.action_scale for joint in robot.joint_properties}
     motion = _motion_reference(variant, tuple(robot.joint_names))
