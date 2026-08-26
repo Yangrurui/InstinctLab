@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 import torch
 import weakref
@@ -23,11 +24,12 @@ _FORCE_HISTORY: Mapping[str, tuple[str, bool]] = MappingProxyType(
 
 _NAMES: MutableMapping[Any, list[str]] = weakref.WeakKeyDictionary()
 _IDS: MutableMapping[Any, dict[tuple[str, tuple[str, ...], bool], list[int]]] = weakref.WeakKeyDictionary()
+_ENGINES: MutableMapping[Any, str] = weakref.WeakKeyDictionary()
 
 
 def forget(sensor: Any | None = None) -> None:
     """Clear cached name resolutions; intended for tests that mutate stub sensors."""
-    for cache in (_NAMES, _IDS):
+    for cache in (_NAMES, _IDS, _ENGINES):
         if sensor is None:
             cache.clear()
         else:
@@ -36,8 +38,21 @@ def forget(sensor: Any | None = None) -> None:
 
 def sensor_engine(sensor: Any) -> str:
     """Identify a native contact sensor from its element-name API."""
+    try:
+        return _ENGINES[sensor]
+    except (KeyError, TypeError):
+        pass
+
+    missing = object()
     for engine, attribute in _ELEMENT_NAME_ATTR.items():
-        if hasattr(sensor, attribute):
+        # ``hasattr`` executes descriptors.  Isaac's ``body_names`` property
+        # rebuilds names from the physics view, so merely asking which engine
+        # owns the sensor used to pay that GPU/CPU synchronization every step.
+        if inspect.getattr_static(sensor, attribute, missing) is not missing:
+            try:
+                _ENGINES[sensor] = engine
+            except TypeError:
+                pass
             return engine
     expected = " or ".join(_ELEMENT_NAME_ATTR.values())
     raise PortabilityError(f"{type(sensor).__name__} exposes neither {expected}, so its element ordering is unknown.")

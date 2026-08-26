@@ -346,6 +346,17 @@ def test_indices_are_resolved_once_per_reference() -> None:
     assert sensor.reads == reads_after_first, "re-resolved a reference that had already been resolved"
 
 
+def test_cached_force_history_does_not_probe_body_names_each_step() -> None:
+    """Engine detection must not execute Isaac's expensive ``body_names`` property."""
+    sensor = _CountingSensor()
+    forget(sensor)
+    contact_force_history(sensor, ANKLES)
+    reads_after_first = sensor.reads
+    for _ in range(20):
+        contact_force_history(sensor, ANKLES)
+    assert sensor.reads == reads_after_first, "engine detection re-read body_names on the contact hot path"
+
+
 def test_two_references_against_one_sensor_do_not_collide() -> None:
     """The cache is keyed by reference as well as by sensor; one entry per sensor would alias."""
     sensor = _CountingSensor()
