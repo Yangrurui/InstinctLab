@@ -92,7 +92,17 @@ Copy symlink targets, not only the links:
      20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall
 ```
 
-The parkour and shadowing datasets are about 58 MiB and 4.4 MiB. `logs/` is
+The released parkour AMP folder was downloaded from the official InstinctMJ
+Google Drive link. It contains one 61-byte YAML manifest and one 2.7 MiB NPZ:
+
+```text
+parkour_motion_without_run.yaml
+  sha256 f79e5bbc9207976e1610459ab3727a9e1da6d5c0c6cc75793dcec34b81cb7679
+parkour_motion_without_run_retargetted.npz
+  sha256 7cfb7c1dcaa6f2a55a13c4849be9e17b4c960ce4015c500ac0ddfb9d77f4ba5b
+```
+
+The shadowing dataset is about 4.4 MiB. `logs/` is
 about 11 GiB and is not tracked. Important baselines are:
 
 ```text
@@ -194,6 +204,28 @@ identical root pose/velocity, joints, motion selection, start time, and mirror
 mask; link FK differed by at most `7.2e-7`. Unconstrained engine runs consume
 global RNG in different orders, so identical global seeds do not imply matching
 per-environment motion or DR assignments.
+
+The released parkour NPZ has 18,982 finite frames at 50 Hz and 29 named joints.
+Its joint order is not canonical DFS, but the shared loader remaps it by name
+correctly. Isaac's URDF and MJLab's MJCF paths then agree to numerical precision:
+joint/root terms are identical, maximum link-position error is `7.63e-6`, and
+maximum link-linear-velocity error is `3.82e-4`. The shared half-open resampling
+contract produces 18,981 packed frames, matching both reference repositories.
+
+There is nevertheless an unresolved data-semantic risk: the single NPZ appears
+to concatenate motion segments without boundary metadata. Forward differencing,
+which is also the behavior in InstinctLab-main and InstinctMJ, treats the jumps
+as physical motion. Across the 18,981 transitions, 55 (`0.290%`) exceed a
+conservative union of root translation, joint, or rotation discontinuity
+thresholds. Observed maxima are `620.36 m/s` root linear velocity,
+`156.73 rad/s` root angular velocity, and `88.10 rad/s` joint velocity. With a
+10-frame AMP history, up to 533 frames (`2.81%`) can include one of these
+transitions. Cross-engine parity is therefore verified, but semantic correctness
+at internal clip boundaries is not. The preferred repair is to recover or
+validate authoritative segment boundaries, split the release into independent
+clips, and prevent sampling/history windows from crossing them. Merely clipping
+or zeroing boundary velocity would leave pose teleportation in AMP look-ahead
+windows.
 
 ## Alignment and boundaries
 
