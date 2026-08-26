@@ -79,16 +79,17 @@ def link_rotation(env, asset_cfg, *, in_base_frame: bool = True):
 
 
 def base_position_imitation(env, reference_cfg="motion_reference", asset_cfg="robot", std: float = 0.3):
-    reference = env.scene[_name(reference_cfg, "motion_reference")].data
+    reference = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     ref = reference.base_pos_w[:, 0]
     pos = _field(env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w")
-    return torch.exp(-torch.square(pos - ref).sum(dim=-1) / (std * std))
+    reward = torch.exp(-torch.square(pos - ref).sum(dim=-1) / (std * std))
+    return reward * reference.validity[:, 0]
 
 
 def base_rotation_imitation(
     env, reference_cfg="motion_reference", asset_cfg="robot", std: float = 0.4, difference_type="axis_angle"
 ):
-    reference = env.scene[_name(reference_cfg, "motion_reference")].data
+    reference = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     ref = reference.base_quat_w[:, 0]
     quat = _field(env.scene[_name(asset_cfg, "robot")].data, "root_quat_w", "root_link_quat_w")
     if difference_type == "axis_angle":
@@ -128,7 +129,7 @@ def link_position_imitation(
     in_relative_world_frame=True,
 ):
     asset = env.scene[_name(asset_cfg, "robot")]
-    buffers = env.scene[_name(reference_cfg, "motion_reference")].data
+    buffers = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     actual = link_position(env, asset_cfg, in_base_frame=in_base_frame)
     if in_base_frame:
         target = buffers.link_pos_b[:, 0]
@@ -149,7 +150,7 @@ def link_rotation_imitation(
     in_relative_world_frame=True,
 ):
     asset = env.scene[_name(asset_cfg, "robot")]
-    buffers = env.scene[_name(reference_cfg, "motion_reference")].data
+    buffers = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     actual = asset.data.body_link_quat_w[:, _ids(asset_cfg)]
     if in_base_frame:
         root_inv = math_utils.quat_inv(_field(asset.data, "root_quat_w", "root_link_quat_w"))
@@ -165,7 +166,7 @@ def link_rotation_imitation(
 
 def _link_velocity_imitation(env, reference_cfg, asset_cfg, std, combine_method, angular):
     asset = env.scene[_name(asset_cfg, "robot")]
-    buffers = env.scene[_name(reference_cfg, "motion_reference")].data
+    buffers = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     # main and InstinctMJ both use the velocity of the link-frame origin.
     # On Isaac Lab ``body_lin_vel_w`` is the COM velocity, so preferring that
     # legacy alias silently optimizes a different imitation objective.

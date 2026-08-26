@@ -97,7 +97,11 @@ def test_shadowing_link_terms_read_link_frames_not_com_aliases() -> None:
         data=SimpleNamespace(
             link_lin_vel_w=zeros3.unsqueeze(1),
             link_ang_vel_w=zeros3.unsqueeze(1),
-        )
+        ),
+        reference_frame=SimpleNamespace(
+            link_lin_vel_w=zeros3.unsqueeze(1),
+            link_ang_vel_w=zeros3.unsqueeze(1),
+        ),
     )
     env = SimpleNamespace(scene={"robot": SimpleNamespace(data=data), "motion_reference": reference})
     asset_cfg = SimpleNamespace(name="robot", body_ids=slice(None))
@@ -113,6 +117,54 @@ def test_shadowing_link_terms_read_link_frames_not_com_aliases() -> None:
     torch.testing.assert_close(
         shadowing_mdp.link_angular_velocity_imitation(env, asset_cfg=asset_cfg), torch.ones(1)
     )
+
+
+def test_shadowing_imitation_rewards_use_current_reference_frame_not_lookahead_data() -> None:
+    """main evaluates imitation at t; sensor data starts at t + dt for commands."""
+    zeros3 = torch.zeros(1, 2, 3)
+    zeros4 = torch.zeros(1, 2, 4)
+    zeros4[..., 0] = 1.0
+    current = SimpleNamespace(
+        base_pos_w=torch.zeros(1, 1, 3),
+        base_quat_w=torch.tensor([[[1.0, 0.0, 0.0, 0.0]]]),
+        link_pos_w=zeros3.unsqueeze(1),
+        link_pos_b=zeros3.unsqueeze(1),
+        link_quat_w=zeros4.unsqueeze(1),
+        link_quat_b=zeros4.unsqueeze(1),
+        link_lin_vel_w=zeros3.unsqueeze(1),
+        link_ang_vel_w=zeros3.unsqueeze(1),
+        validity=torch.ones(1, 1),
+    )
+    lookahead = SimpleNamespace(
+        **{
+            name: torch.full_like(value, 7.0)
+            for name, value in vars(current).items()
+            if name != "validity"
+        },
+        validity=torch.ones(1, 1),
+    )
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            root_pos_w=torch.zeros(1, 3),
+            root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+            body_link_pos_w=zeros3,
+            body_link_quat_w=zeros4,
+            body_link_lin_vel_w=zeros3,
+            body_link_ang_vel_w=zeros3,
+        )
+    )
+    reference = SimpleNamespace(data=lookahead, reference_frame=current)
+    env = SimpleNamespace(scene={"robot": robot, "motion_reference": reference})
+
+    for reward in (
+        shadowing_mdp.base_position_imitation(env),
+        shadowing_mdp.base_rotation_imitation(env),
+        shadowing_mdp.link_position_imitation(env),
+        shadowing_mdp.link_rotation_imitation(env),
+        shadowing_mdp.link_linear_velocity_imitation(env),
+        shadowing_mdp.link_angular_velocity_imitation(env),
+    ):
+        torch.testing.assert_close(reward, torch.ones(1))
 
 
 def test_reference_observation_anchor_noise_and_history_match_effective_sources() -> None:
