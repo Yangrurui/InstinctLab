@@ -221,6 +221,32 @@ repeated unresolved visual-reference warnings while cloning 4096 environments;
 the warnings did not prevent rollout or learning. These startup measurements
 are not convergence evidence.
 
+Two matching Isaac reference runs from `/root/InstinctLab-main` were started
+from scratch on 2026-08-26 with 4096 environments, seed 42, and 50000
+iterations. Both reached learning iteration 0 and remain live:
+
+- physical GPU 3, main Whole Body:
+  `/root/InstinctLab-main/logs/main_reference/g1_shadowing/20260826_171625_G1Shadowing_LafanFiltered_pgTermXYalso_independentMotionBins_fixFramerate_diveroll4_main_wholebody_4096_gpu3_retry1`;
+  initial throughput 16.15k steps/s, collection 5.512 s, learning 0.576 s;
+- physical GPU 4, main Perceptive:
+  `/root/InstinctLab-main/logs/main_reference/g1_perceptive_shadowing/20260826_171734_g1Perceptive_concatMotionBins_main_perceptive_4096_gpu4_retry1`;
+  initial throughput 9.23k steps/s, collection 6.872 s, learning 3.779 s.
+
+Their continuously written stdout logs are
+`/root/InstinctLab-main/logs/main_reference/train_main_wholebody_4096_gpu3_retry1.log`
+and
+`/root/InstinctLab-main/logs/main_reference/train_main_perceptive_4096_gpu4_retry1.log`.
+The main Perceptive literal data placeholder is temporarily satisfied by the
+runtime symlink `/root/InstinctLab-main/{AbsolutePathOfYourDataDirectory}` to
+the released dataset root; retain it while this run is live. For comparison in
+one TensorBoard invocation, the two run directories are linked as
+`logs/tb_compare/g1_shadowing_diveroll/main_wholebody_4096_gpu3` and
+`logs/tb_compare/g1_perceptive_shadowing/main_perceptive_4096_gpu4`.
+Main Perceptive reported NaN values only in the position-monitor summaries at
+iteration 0 (along with its existing empty-slice warning); rollout, reward,
+loss, and optimization continued. Treat that monitor series cautiously while
+comparing the curves.
+
 ## Current AMP correction
 
 The current migration commit changes AMP timing to match main while preserving
