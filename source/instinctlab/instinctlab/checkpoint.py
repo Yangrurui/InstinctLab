@@ -162,7 +162,9 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
     """Validate the manifest next to a checkpoint before loading its tensors.
 
     Legacy runs have no contract and remain loadable because existing Isaac and InstinctMJ
-    checkpoints predate the unified launcher. A present contract is never ignored.
+    checkpoints predate the unified launcher. Spec-hash drift is recorded in the manifest
+    but does not block load: the same task keeps training and playback across declaration
+    edits. A different ``task_id`` or contract version still fails.
     """
     checkpoint_path = Path(checkpoint).expanduser().resolve()
     manifest_path = checkpoint_path.parent / "manifest.json"
@@ -184,12 +186,11 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
         )
         return
     current = task_contract(spec)
-    if stored.get("version") != current["version"] or stored.get("hash") != current["hash"]:
+    if stored.get("version") != current["version"] or stored.get("task_id") != current["task_id"]:
         raise ValueError(
             f"Checkpoint task contract mismatch for {checkpoint_path}: "
-            f"checkpoint task={stored.get('task_id')!r}, hash={str(stored.get('hash'))[:12]}; "
-            f"runtime task={current['task_id']!r}, hash={current['hash'][:12]}. "
-            "Use a checkpoint produced by the same TaskSpec declaration."
+            f"checkpoint task={stored.get('task_id')!r}, version={stored.get('version')!r}; "
+            f"runtime task={current['task_id']!r}, version={current['version']!r}."
         )
 
 

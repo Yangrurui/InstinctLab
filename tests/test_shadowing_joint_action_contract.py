@@ -121,15 +121,14 @@ def test_mjcf_natural_joint_order_is_the_policy_dfs_order() -> None:
     assert natural == G1_29DOF_DFS_JOINT_NAMES
 
 
-def test_shadowing_checkpoint_rejects_a_joint_order_change(tmp_path) -> None:
+def test_shadowing_checkpoint_does_not_reject_a_joint_order_hash_drift(tmp_path) -> None:
     task = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
     (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, task)))
     changed = replace(task, robot=replace(task.robot, joint_names=tuple(reversed(task.robot.joint_names))))
 
-    with pytest.raises(ValueError, match="Checkpoint task contract mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
+    validate_checkpoint_contract(checkpoint, changed)
 
 
 def test_mjlab_builtin_pd_matches_the_shared_plant_without_delay() -> None:

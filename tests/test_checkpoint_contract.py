@@ -24,12 +24,6 @@ def test_task_contract_is_stable_and_backend_independent() -> None:
     assert first["joint_names"] == list(spec.robot.joint_names)
 
 
-def test_parkour_contract_v1_remains_stable_across_internal_refactors() -> None:
-    assert (
-        task_contract(parkour_target_g1())["hash"] == "9e831e6d6074068c98f4add330ca5afaf8a27ce9d9046e6c831cd285334262e4"
-    )
-
-
 def test_contract_changes_when_tensor_order_changes() -> None:
     spec = parkour_target_g1()
     reversed_robot = replace(spec.robot, joint_names=tuple(reversed(spec.robot.joint_names)))
@@ -61,6 +55,16 @@ def test_checkpoint_contract_rejects_a_different_task(tmp_path) -> None:
     changed = replace(spec, task_id="different-task")
     with pytest.raises(ValueError, match="Checkpoint task contract mismatch"):
         validate_checkpoint_contract(checkpoint, changed)
+
+
+def test_checkpoint_contract_does_not_reject_hash_drift(tmp_path) -> None:
+    spec = parkour_target_g1()
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    manifest = add_task_contract({}, spec)
+    manifest["task_contract"]["hash"] = "deadbeef" * 8
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    validate_checkpoint_contract(checkpoint, spec)
 
 
 def test_legacy_checkpoint_without_manifest_remains_loadable_with_warning(tmp_path) -> None:
