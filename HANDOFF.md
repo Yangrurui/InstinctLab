@@ -107,6 +107,19 @@ logs/isaacsim/g1_shadowing/20260825_202305_released_diveroll_gpu1
 The last Isaac shadowing run predates the canonical DFS-to-native BFS reset fix
 and is invalid as convergence evidence. Do not resume it.
 
+On the replacement server, the released shadowing data was downloaded from the
+official InstinctMJ Google Drive folder into:
+
+```text
+/root/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1
+```
+
+The compatibility path
+`/root/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single`
+points to its `20251106_diveroll4_roadRamp_noWall` subdirectory. The active
+clip is `diveroll4-ziwen-0-retargeted.npz` (751 frames, 29 joints, SHA-256
+`8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59`).
+
 ## Live process state at handoff
 
 GPU 0 training was explicitly stopped. Two MJLab parkour runs were still live:
@@ -125,6 +138,20 @@ logs/train_mjlab_parkour_oldstack_mw31001_wp114_gpu2.log
 
 Processes cannot migrate. Let them finish or stop them explicitly, copy their
 run directories, and use new `run_name` values on the new server.
+
+Those old-server MJLab processes are not present on the replacement server. A
+fresh corrected Isaac shadowing convergence run was started on GPU 0 on
+2026-08-26 with 4096 environments, seed 42, and 50000 iterations:
+
+```text
+logs/isaacsim/g1_shadowing/20260826_130452_dfsreset_currentref_diveroll_gpu0
+```
+
+It uses the DFS reset mapping and current-time reference fixes at `7d8a445`,
+does not resume a checkpoint, and reached learning iteration 0 successfully.
+Its initial mean reward was -1.80, mean episode length was 13.99, and throughput
+was about 12.8k steps/s. These are startup measurements, not convergence
+evidence; inspect the long-horizon trend before promoting it to a baseline.
 
 ## Current AMP correction
 
