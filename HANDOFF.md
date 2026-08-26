@@ -133,10 +133,13 @@ and is invalid as convergence evidence. Do not resume it.
   perceptive one-motion, perceptive VAE, perceptive HOI, and BeyondMimic have
   unified declarations, but do not yet have accepted production training/play
   evidence on both engines.
-- **Locomotion: not production-reproduced.** Flat and rough locomotion are in
-  the active registry, but no accepted cross-engine production convergence
-  baselines are recorded here. They are the only non-shadowing task family
-  remaining after parkour.
+- **Locomotion: complete.** Flat (`Instinct-Velocity-Flat-G1`) and rough
+  (`Instinct-Velocity-Rough-G1`) locomotion have already been tested on both
+  engines and are accepted as reproduced. This status was confirmed on
+  2026-08-26 after the handoff had incorrectly left them open. Their original
+  run directories are not present in this replacement server's `logs/`, so
+  recover the archived logs if exact numerical provenance is needed; do not
+  rerun them solely because the earlier handoff status was stale.
 
 Play variants do not require independent training reproduction; validate them
 with an accepted checkpoint from their corresponding train task. Real
@@ -322,12 +325,11 @@ Isaac/main versus MJLab/InstinctMJ actuator semantics; engine-native contact
 forces and joint accelerations; Isaac visual filtering versus MJLab geom groups;
 and engine-specific RNG consumption order.
 
-Not yet proven: corrected long-horizon Isaac shadowing convergence, accepted
-cross-engine convergence for flat/rough locomotion, production perceptive/VAE/
-HOI/BeyondMimic runs, and real multi-node distributed training. Parkour is
-accepted as reproduced; its intentional engine-native differences and released
-motion boundary risk remain documented rather than treated as open reproduction
-work.
+Not yet proven: corrected long-horizon Isaac shadowing convergence, production
+perceptive/VAE/HOI/BeyondMimic runs, and real multi-node distributed training.
+Parkour and flat/rough locomotion are accepted as reproduced; their intentional
+engine-native differences and any documented data risks are not treated as open
+reproduction work.
 
 Strict Perceptive live smokes on 2026-08-26 now complete one full 192-step
 rollout and learning iteration on both engines. MJLab uses its reference-native
