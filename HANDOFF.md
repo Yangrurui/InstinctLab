@@ -125,7 +125,15 @@ and is invalid as convergence evidence. Do not resume it.
   training behavior have been checked against the two reference repositories.
   Engine-native physics differences listed below remain intentional. The
   concatenated-release boundary issue is a source-data limitation, not a
-  blocker for the reproduction status.
+  blocker for the reproduction status. A post-shadowing backport audit on
+  2026-08-26 confirmed that Parkour automatically benefits from the shared
+  contact-sensor engine-detection cache. The other shadowing fixes are not on
+  its execution path: Parkour uses additive state reset rather than randomized
+  default action offsets, a single clip without terrain metadata or concat-bin
+  sampling, the dedicated delayed-depth pipeline, and the generic AMP
+  current-time `reference_frame`. Do not copy Perceptive height/depth or
+  terrain-origin settings into Parkour. Its focused declaration, AMP, motion,
+  depth, contact, and reference-contract suite passed 244 tests (6 deselected).
 - **Whole-body plane shadowing: short-horizon parity established.** The final
   Isaac audit reproduces main's early learning curve and runtime at 4096
   environments after correcting the native/canonical action-offset mapping and
