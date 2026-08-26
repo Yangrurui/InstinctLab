@@ -82,6 +82,21 @@ _UNTUNABLE_FATAL_RATE = 0.01
 _UNTUNABLE_MIN_SAMPLES = 200
 _UNTUNABLE_STATE_ATTR = "_instinctlab_untunable_overflow"
 
+# mujoco-warp 3.10.0.1 predates the public OverflowType enum. Keep the bit
+# contract locally so diagnostics and persisted snapshots remain readable on
+# the pinned InstinctMJ stack as well as newer stacks.
+_OVERFLOW_BIT_NAMES = (
+    "NEFC",
+    "NJMAX_NNZ",
+    "BROADPHASE",
+    "NARROWPHASE",
+    "CCD",
+    "HFIELD",
+    "CONTACT_MATCH",
+    "NVMAX",
+    "EPA_HORIZON",
+)
+
 
 class ContactOverflowError(RuntimeError):
     """The engine dropped contacts or constraints. Physics is no longer the model."""
@@ -424,11 +439,12 @@ class OverflowGuardVecEnv:
 def decode_overflow(mask: int) -> list[str]:
     if mask == 0:
         return []
-    try:
-        from mujoco_warp._src.types import OverflowType
-    except ImportError:
-        return [f"bits=0x{mask:x}"]
-    return [flag.name for flag in OverflowType if mask & int(flag)]
+    names = [name for bit, name in enumerate(_OVERFLOW_BIT_NAMES) if mask & (1 << bit)]
+    known_mask = (1 << len(_OVERFLOW_BIT_NAMES)) - 1
+    unknown = mask & ~known_mask
+    if unknown:
+        names.append(f"bits=0x{unknown:x}")
+    return names
 
 
 def _consume_mjlab_overflow(raw: Any) -> None:
