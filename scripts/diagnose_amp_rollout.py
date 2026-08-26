@@ -1,9 +1,14 @@
-"""Measure AMP inputs and discriminator scores during a deterministic rollout.
+"""Measure AMP inputs and discriminator scores during a controlled rollout.
 
 Run the same checkpoint once per engine, then compare the two JSON files.  The
 probe deliberately uses the task's normal compiler and RL wrapper: observation
 history, joint selection, reset handling, and discriminator packing are the
 ones used by training rather than a parallel reimplementation.
+
+The default uses the deterministic policy mean.  ``stochastic_sample`` adds
+the checkpoint's learned action standard deviation with an isolated generator,
+so action sampling cannot perturb environment, reset, or domain-randomization
+RNG streams.
 """
 
 from __future__ import annotations
@@ -70,6 +75,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=500)
     parser.add_argument("--warmup-steps", type=int, default=50)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--policy-actions",
+        choices=("deterministic_mean", "stochastic_sample"),
+        default="deterministic_mean",
+    )
+    parser.add_argument("--action-seed", type=int, default=12345)
     parser.add_argument("--strict", action="store_true")
     adapter(selected.engine).add_cli_args(parser)
     return parser.parse_args()
@@ -123,6 +134,19 @@ def record_terms(stats, slices, actor, reference) -> None:
         stats[name]["reference_history_delta"].add(history_delta(reference_term))
 
 
+def policy_action(actor_critic, obs, mode: str, generator):
+    """Return a mean or reproducibly sampled action without touching global RNG."""
+    import torch
+
+    mean = actor_critic.act_inference(obs)
+    if mode == "deterministic_mean":
+        return mean
+    if mode != "stochastic_sample":
+        raise ValueError(f"unknown policy action mode: {mode!r}")
+    noise = torch.randn(mean.shape, dtype=mean.dtype, device=mean.device, generator=generator)
+    return mean + noise * actor_critic.std
+
+
 def run(args: argparse.Namespace, engine, resources: ExitStack, output_path: Path) -> dict:
     import torch
 
@@ -149,7 +173,8 @@ def run(args: argparse.Namespace, engine, resources: ExitStack, output_path: Pat
     print("[INFO] AMP probe runner is ready; loading checkpoint.", flush=True)
     runner.load(str(checkpoint))
     runner.eval_mode()
-    policy = runner.get_inference_policy(device=args.device)
+    action_generator = torch.Generator(device=torch.device(args.device))
+    action_generator.manual_seed(args.action_seed)
     print("[INFO] AMP probe checkpoint is loaded.", flush=True)
 
     obs_format = env.get_obs_format()
@@ -162,6 +187,7 @@ def run(args: argparse.Namespace, engine, resources: ExitStack, output_path: Pat
     discriminator_actor = Moments()
     discriminator_reference = Moments()
     discriminator_reward = Moments()
+    environment_reward = Moments()
     action_moments = Moments()
     done_count = 0
     sampled_env_steps = 0
@@ -172,7 +198,7 @@ def run(args: argparse.Namespace, engine, resources: ExitStack, output_path: Pat
         actor = observations[agent_cfg.algorithm.actor_state_key]
         reference = observations[agent_cfg.algorithm.reference_state_key]
         with torch.inference_mode():
-            action = policy(obs)
+            action = policy_action(runner.alg.actor_critic, obs, args.policy_actions, action_generator)
             actor_logit = runner.alg.discriminator(actor)
             reference_logit = runner.alg.discriminator(reference)
             style_reward = torch.clamp(1.0 - 0.25 * torch.square(actor_logit - 1.0), min=0.0)
@@ -185,8 +211,9 @@ def run(args: argparse.Namespace, engine, resources: ExitStack, output_path: Pat
             action_moments.add(action)
             sampled_env_steps += args.num_envs
 
-        obs, _reward, dones, extras = env.step(action.detach())
+        obs, environment_step_reward, dones, extras = env.step(action.detach())
         if step >= args.warmup_steps:
+            environment_reward.add(environment_step_reward)
             done_count += int(dones.sum())
     print("[INFO] AMP probe rollout is complete.", flush=True)
 
@@ -201,7 +228,9 @@ def run(args: argparse.Namespace, engine, resources: ExitStack, output_path: Pat
             "steps": args.steps,
             "warmup_steps": args.warmup_steps,
             "observation_noise": False,
-            "policy_actions": "deterministic_mean",
+            "policy_actions": args.policy_actions,
+            "action_seed": args.action_seed,
+            "learned_action_std": runner.alg.actor_critic.std.detach().float().cpu().tolist(),
             "amp_format": {name: [int(size) for size in shape] for name, shape in actor_format.items()},
         },
         "discriminator": {
@@ -212,6 +241,7 @@ def run(args: argparse.Namespace, engine, resources: ExitStack, output_path: Pat
                 agent_cfg.algorithm.discriminator_reward_coef
             ),
         },
+        "environment_reward": environment_reward.summary(),
         "action": action_moments.summary(),
         "done_fraction": done_count / max(sampled_env_steps, 1),
         "terms": {

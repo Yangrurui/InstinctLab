@@ -205,6 +205,29 @@ mask; link FK differed by at most `7.2e-7`. Unconstrained engine runs consume
 global RNG in different orders, so identical global seeds do not imply matching
 per-environment motion or DR assignments.
 
+A controlled action-noise A/B used the paired 11k checkpoints, 128 environments,
+1,000 control steps (100 warm-up), seed 42, observation noise off, and an isolated
+action generator. It compared policy-mean actions against
+`mean + learned_std * epsilon` without consuming the environment RNG:
+
+| Metric | Isaac mean | Isaac sampled | MJLab mean | MJLab sampled |
+|---|---:|---:|---:|---:|
+| Environment reward / step | 0.1426 | 0.1117 | 0.1232 | 0.0712 |
+| Raw AMP reward | 0.7855 | 0.5880 | 0.8262 | 0.5269 |
+| Action RMS | 0.4076 | 0.9952 | 0.4448 | 1.5070 |
+| Done fraction | 0.001111 | 0.001111 | 0.001120 | 0.001189 |
+
+The deterministic MJLab environment reward was 13.6% below Isaac, while the
+sampled reward was 36.3% below. Additively, about 48% of the sampled cross-engine
+gap came from the deterministic policy/plant gap and 52% from MJLab's excess
+learned-noise damage in this rollout. The raw AMP ordering reversed: MJLab was
+higher with mean actions and lower with sampled actions. Independent
+discriminators are not an absolute cross-run ruler, but the within-checkpoint A/B
+shows that the larger learned MJLab standard deviation is sufficient to explain
+the AMP reversal. Reference logits stayed stable between each engine's two arms,
+confirming that only actor sampling changed. Full JSON and stdout are under
+`logs/diagnostics/amp_noise_ab_20260826/` (untracked).
+
 The released parkour NPZ has 18,982 finite frames at 50 Hz and 29 named joints.
 Its joint order is not canonical DFS, but the shared loader remaps it by name
 correctly. Isaac's URDF and MJLab's MJCF paths then agree to numerical precision:
