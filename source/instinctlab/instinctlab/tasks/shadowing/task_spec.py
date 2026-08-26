@@ -185,6 +185,18 @@ def _motion_reference(variant: ShadowingVariant, joints: tuple[str, ...]) -> Mot
         motion_bin_length_s=1.0 if binned else None,
         ensure_link_below_zero_ground=variant.family == "perceptive",
         motion_start_height_offset=0.1 if variant.family == "perceptive" else 0.0,
+        # main disables the terrain-motion lift for Isaac Perceptive, while
+        # InstinctMJ intentionally keeps it to reduce early terrain contacts.
+        engine_overrides=(
+            {
+                "isaacsim": {
+                    "ensure_link_below_zero_ground": False,
+                    "motion_start_height_offset": 0.0,
+                }
+            }
+            if variant.family == "perceptive"
+            else {}
+        ),
         exhaustion="freeze_last_and_flag",
         quaternion="wxyz",
         symmetric_augmentation=None,

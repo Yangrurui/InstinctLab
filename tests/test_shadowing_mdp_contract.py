@@ -212,6 +212,14 @@ def test_reference_observation_anchor_noise_and_history_match_effective_sources(
             assert proprio and {term.history_length for term in proprio.values()} == {8}
 
 
+def test_perceptive_motion_height_preprocessing_matches_each_reference_engine() -> None:
+    motion = registry.spec("Instinct-Perceptive-Shadowing-G1-v0").scene.motion_references[0]
+    isaac = motion.for_engine("isaacsim")
+    mjlab = motion.for_engine("mjlab")
+    assert (isaac.ensure_link_below_zero_ground, isaac.motion_start_height_offset) == (False, 0.0)
+    assert (mjlab.ensure_link_below_zero_ground, mjlab.motion_start_height_offset) == (True, 0.1)
+
+
 def test_mjlab_perceptive_compilation_preserves_base_linear_velocity_history() -> None:
     """A semantic lowering must retain the observation metadata carried by TaskSpec."""
     task = registry.spec("Instinct-Perceptive-Shadowing-G1-v0")

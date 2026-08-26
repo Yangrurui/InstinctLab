@@ -114,6 +114,9 @@ class MotionReferenceRef:
     links: str | Sequence[str]
     scene_objects: tuple[str, ...] = field(default=(), metadata={"contract_omit_if_default": True})
     engine_clips: Mapping[str, str] = field(default_factory=dict, metadata={"contract_omit_if_default": True})
+    engine_overrides: Mapping[str, Mapping[str, object]] = field(
+        default_factory=dict, metadata={"contract_omit_if_default": True}
+    )
     entity: str = "robot"
     num_frames: int = 1
     frame_interval_s: float = 0.02
@@ -143,6 +146,7 @@ class MotionReferenceRef:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "engine_clips", dict(self.engine_clips or {}))
+        object.__setattr__(self, "engine_overrides", {engine: dict(values) for engine, values in self.engine_overrides.items()})
         object.__setattr__(self, "joints", as_name_tuple(self.joints))
         object.__setattr__(self, "links", as_name_tuple(self.links))
         object.__setattr__(self, "scene_objects", as_name_tuple(self.scene_objects))
@@ -152,6 +156,13 @@ class MotionReferenceRef:
             raise ValueError(f"Motion reference {self.name!r} has no clip path.")
         if any(not engine or not path for engine, path in self.engine_clips.items()):
             raise ValueError(f"Motion reference {self.name!r} has an empty engine clip binding.")
+        allowed_overrides = {"ensure_link_below_zero_ground", "motion_start_height_offset"}
+        for engine, values in self.engine_overrides.items():
+            unknown = set(values) - allowed_overrides
+            if not engine or unknown:
+                raise ValueError(
+                    f"Motion reference {self.name!r} has invalid overrides for {engine!r}: {sorted(unknown)}."
+                )
         if not self.joints:
             raise ValueError(f"Motion reference {self.name!r} was given no joint names.")
         if not self.links:
@@ -229,7 +240,13 @@ class MotionReferenceRef:
 
     def for_engine(self, engine: str) -> MotionReferenceRef:
         """Resolve the reference project's engine-specific dataset root."""
-        return replace(self, clip=self.engine_clips.get(engine, self.clip), engine_clips={})
+        return replace(
+            self,
+            clip=self.engine_clips.get(engine, self.clip),
+            engine_clips={},
+            engine_overrides={},
+            **self.engine_overrides.get(engine, {}),
+        )
 
 
 __all__ = ["MotionReferenceRef", "SymmetricAugmentationSpec"]
