@@ -248,18 +248,13 @@ class MotionReferenceRuntime:
     def _sample_motion_origins(self, env_ids: torch.Tensor, generator: torch.Generator | None) -> None:
         if self._motion_origins is None:
             return
+        random = torch.rand(env_ids.numel(), device=env_ids.device, generator=generator)
         for motion_id, origins in enumerate(self._motion_origins):
-            selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
+            mask = self.buffers.motion_id[env_ids] == motion_id
+            selected = env_ids[mask]
             if selected.numel() == 0:
                 continue
-            indexes = torch.floor(
-                torch.rand(
-                    selected.numel(),
-                    device=selected.device,
-                    generator=generator,
-                )
-                * origins.shape[0]
-            ).long()
+            indexes = torch.floor(random[mask] * origins.shape[0]).long()
             self.env_origins[selected] = origins[indexes]
 
     def reset(self, env_ids: torch.Tensor, generator: torch.Generator | None = None) -> None:
@@ -305,20 +300,24 @@ class MotionReferenceRuntime:
                 )
         self.buffers.motion_id[env_ids] = motion_ids
         lo, hi = self.ref.start_range
-        random = torch.rand(
-            int(env_ids.numel()),
-            device=self.buffers.timestamp.device,
-            generator=generator,
-        )
+        random = None
+        if self.ref.sampling_strategy == "concat_motion_bins" and self.ref.motion_bin_length_s is not None:
+            within = torch.rand(int(env_ids.numel()), device=device, generator=generator)
+            self.buffers.start_s[env_ids] = (sampled_bins + within) * self.ref.motion_bin_length_s
+        else:
+            random = torch.rand(int(env_ids.numel()), device=device, generator=generator)
         for motion_id, clip in enumerate(self.clips):
-            selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
+            mask = self.buffers.motion_id[env_ids] == motion_id
+            selected = env_ids[mask]
             if selected.numel() == 0:
                 continue
-            selected_random = random[self.buffers.motion_id[env_ids] == motion_id]
+            if random is None:
+                continue
+            selected_random = random[mask]
             if self.ref.motion_bin_length_s is None:
                 self.buffers.start_s[selected] = (selected_random * (hi - lo) + lo) * clip.sampling_length_s
             else:
-                bin_id = sampled_bins[self.buffers.motion_id[env_ids] == motion_id]
+                bin_id = sampled_bins[mask]
                 within = torch.rand(int(selected.numel()), device=selected.device, generator=generator)
                 self.buffers.start_s[selected] = (bin_id + within) * self.ref.motion_bin_length_s
         self.buffers.timestamp[env_ids] = 0.0
