@@ -311,12 +311,17 @@ terms and compiled the released motion-matched terrain, but failed during ray
 sensor initialization. The MJLab terrain-only ray mask uses geom groups also
 used by the robot (`group=2`), so the guard in `engines/mjlab/raycast.py`
 correctly refused a height scan that could hit robot geoms before terrain. This
-is the next Perceptive implementation blocker. A simultaneous Isaac smoke was
-requested on GPU 1 while the corrected GPU 0 Isaac shadowing run remained live;
-the second Kit instance closed after application startup and before task
-compilation. Enabling the rendering experience was not a workaround and also
-exposed the server's missing `libGLU.so.1`/MDL runtime. No Isaac Perceptive live
-result has therefore been established yet, and the GPU 0 run was not disturbed.
+is one Perceptive implementation blocker. A simultaneous Isaac smoke on GPU 1
+successfully completed Kit bootstrap while the corrected GPU 0 Isaac shadowing
+run remained live; the KVDB lock warning is non-fatal. Isaac then failed while
+compiling the `height_scan` observation because `_sensor_entity()` treated its
+`RayCasterRef` as a `ContactSensorRef` and read the nonexistent `.elements`
+attribute. The normal entry point's Kit exception hook masked that traceback and
+returned exit code 0; a staged launcher exposed it. No Isaac Perceptive live
+rollout has therefore been established yet, and the GPU 0 run was not
+disturbed. The rendering experience is not required for these ray casters; a
+separate attempt with it also exposed the server's missing `libGLU.so.1`/MDL
+runtime but is not the task blocker.
 
 ## New-server bring-up
 
