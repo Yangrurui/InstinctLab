@@ -66,7 +66,8 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
 
         @property
         def reference_frame(self):
-            return self.data
+            self._update_outdated_buffers()
+            return self._runtime.reference_frame
 
         @property
         def num_frames(self):

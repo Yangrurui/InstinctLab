@@ -40,8 +40,10 @@ class MotionReferenceRuntime:
         inventory: tuple[MotionInventoryEntry, ...],
         buffers: MotionReferenceBuffers,
         init_buffers: MotionReferenceBuffers,
+        reference_buffers: MotionReferenceBuffers,
         env_origins: torch.Tensor,
         last_update: torch.Tensor,
+        reference_timestamp: torch.Tensor,
         mask: torch.Tensor,
         resolved: ResolvedSymmetricAugmentation | None,
     ) -> None:
@@ -54,8 +56,10 @@ class MotionReferenceRuntime:
         self.clip = clips[0]
         self.buffers = buffers
         self.init_buffers = init_buffers
+        self.reference_buffers = reference_buffers
         self.env_origins = env_origins
         self.last_update = last_update
+        self._reference_timestamp = reference_timestamp
         self.mask = mask
         self.resolved = resolved
         self._bin_counts = torch.tensor(
@@ -119,6 +123,14 @@ class MotionReferenceRuntime:
             tuple(ref.scene_objects),
             device=device,
         )
+        reference_buffers = make_buffers(
+            num_envs,
+            1,
+            len(joints),
+            len(links),
+            tuple(ref.scene_objects),
+            device=device,
+        )
         resolved = None
         if ref.symmetric_augmentation is not None:
             resolved = resolve_symmetric_augmentation(ref.symmetric_augmentation, joints, links)
@@ -128,8 +140,10 @@ class MotionReferenceRuntime:
             inventory=inventory,
             buffers=buffers,
             init_buffers=init_buffers,
+            reference_buffers=reference_buffers,
             env_origins=torch.zeros(num_envs, 3, device=device),
             last_update=torch.zeros(num_envs, device=device),
+            reference_timestamp=torch.full((num_envs,), -1.0, device=device),
             mask=torch.zeros(num_envs, dtype=torch.bool, device=device),
             resolved=resolved,
         )
@@ -181,6 +195,14 @@ class MotionReferenceRuntime:
         aiming[aiming >= self.ref.num_frames] = -1
         return aiming
 
+    @property
+    def reference_frame(self) -> MotionReferenceBuffers:
+        """Motion state at the current clip time, matching main's AMP path."""
+        outdated = (self._reference_timestamp - self.buffers.timestamp).abs() > 1e-6
+        if outdated.any():
+            self.refresh_reference(outdated.nonzero(as_tuple=False).flatten())
+        return self.reference_buffers
+
     def bind_origins(self, origins: torch.Tensor) -> None:
         if origins.shape != self.env_origins.shape:
             raise ValueError(
@@ -191,6 +213,8 @@ class MotionReferenceRuntime:
         self.buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
         self.init_buffers.base_pos_w += delta.unsqueeze(1)
         self.init_buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
+        self.reference_buffers.base_pos_w += delta.unsqueeze(1)
+        self.reference_buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
         self.env_origins = origins
 
     def reset(self, env_ids: torch.Tensor, generator: torch.Generator | None = None) -> None:
@@ -254,6 +278,7 @@ class MotionReferenceRuntime:
                 self.buffers.start_s[selected] = (bin_id + within) * self.ref.motion_bin_length_s
         self.buffers.timestamp[env_ids] = 0.0
         self.last_update[env_ids] = 0.0
+        self._reference_timestamp[env_ids] = -1.0
         draw_symmetric_mask(self.mask, env_ids, enabled=self.enabled, generator=generator)
         self.refresh_initial(env_ids)
         self.refresh_at_current_time(env_ids)
@@ -349,6 +374,27 @@ class MotionReferenceRuntime:
         if self.resolved is not None:
             apply_symmetric_augmentation(self.init_buffers, env_ids, self.mask, self.resolved)
         translate_world_positions(self.init_buffers, env_ids, self.env_origins)
+
+    def refresh_reference(self, env_ids: torch.Tensor) -> None:
+        """Sample a single frame at ``t`` independently of the look-ahead window."""
+        self.reference_buffers.motion_id[env_ids] = self.buffers.motion_id[env_ids]
+        self.reference_buffers.start_s[env_ids] = self.buffers.start_s[env_ids]
+        self.reference_buffers.timestamp[env_ids] = self.buffers.timestamp[env_ids]
+        for motion_id, clip in enumerate(self.clips):
+            selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
+            if selected.numel() == 0:
+                continue
+            times = self.buffers.start_s[selected].unsqueeze(-1) + self.buffers.timestamp[selected].unsqueeze(-1)
+            fill_buffers(
+                self.reference_buffers,
+                selected,
+                sample_clip(clip, times),
+                torch.zeros_like(times),
+            )
+        if self.resolved is not None:
+            apply_symmetric_augmentation(self.reference_buffers, env_ids, self.mask, self.resolved)
+        translate_world_positions(self.reference_buffers, env_ids, self.env_origins)
+        self._reference_timestamp[env_ids] = self.buffers.timestamp[env_ids]
 
     def refresh(self, env_ids: torch.Tensor) -> None:
         """Rebuild selected buffers without changing their clock bookkeeping."""

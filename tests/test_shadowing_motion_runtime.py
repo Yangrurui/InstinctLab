@@ -174,6 +174,28 @@ def test_reset_rebuilds_history_and_last_update_without_carrying_old_frames() ->
     assert runtime.buffers.frame_index[0].tolist() == [0, 1, 2]
 
 
+def test_reference_frame_is_current_time_while_data_remains_look_ahead() -> None:
+    """AMP matches main's t sample without changing the t+dt aiming window."""
+    ref = _ref(
+        "unused",
+        num_frames=3,
+        frame_interval_s=0.02,
+        update_period=0.02,
+        data_start_from="one_frame_interval",
+        start_range=(0.0, 0.0),
+    )
+    runtime = MotionReferenceRuntime.from_clip(ref, _clip("only", 0.0), 1)
+    runtime.reset(torch.tensor([0]), torch.Generator().manual_seed(1))
+
+    assert runtime.reference_frame.frame_index[0].tolist() == [0]
+    assert runtime.buffers.frame_index[0].tolist() == [1, 2, 3]
+
+    runtime.advance(0.02)
+
+    assert runtime.reference_frame.frame_index[0].tolist() == [1]
+    assert runtime.buffers.frame_index[0].tolist() == [2, 3, 4]
+
+
 def test_reset_state_uses_floor_index_and_height_adjustment_separate_from_history() -> None:
     ref = _ref(
         "unused",

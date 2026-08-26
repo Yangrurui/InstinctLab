@@ -179,7 +179,7 @@ def _reference_obs(env: RlEnv, sensor: MotionReferenceRef, asset_cfg: Any) -> di
     joint_ids = _joint_ids(asset_cfg)
     gravity_w = quat_apply(robot.data.root_link_quat_w, robot.data.projected_gravity_b)
     return amp_obs_from_reference(
-        _motion_reference(env, sensor).data,
+        _motion_reference(env, sensor).reference_frame,
         robot.data.default_joint_pos[:, joint_ids],
         robot.data.default_joint_vel[:, joint_ids],
         gravity_w,

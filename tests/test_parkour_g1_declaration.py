@@ -375,6 +375,8 @@ def test_the_motion_reference_and_amp_groups_are_declared(task) -> None:
     assert sensor.start_range == (0.0, 0.9)
     assert sensor.exhaustion == "freeze_last_and_flag"
     assert sensor.quaternion == "wxyz"
+    # Main keeps its look-ahead buffer at t+dt but feeds AMP from a separate
+    # current-time reference frame.
     assert sensor.data_start_from == "one_frame_interval"
     assert AMP_ORDER == AMP_TERM_ORDER
     assert set(task.mdp.observations) >= {"amp_policy", "amp_reference"}

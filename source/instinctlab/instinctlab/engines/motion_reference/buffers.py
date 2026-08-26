@@ -199,8 +199,8 @@ def clip_frame(
     """Root orientation, world velocities and joints at one look-ahead frame.
 
     Field names of the clip buffers live here so portable AMP terms never write
-    ``*.data.base_quat_w``. Frame 0 is the first look-ahead sample, matching both
-    source managers' ``[:, 0]`` AMP path — not the 10-frame imitation horizon.
+    engine-specific field access. AMP passes the dedicated current-time
+    ``reference_frame`` buffer; look-ahead consumers may pass ``data`` instead.
     """
     return (
         buffers.base_quat_w[:, frame],
