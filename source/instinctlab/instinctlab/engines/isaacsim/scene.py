@@ -47,6 +47,10 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
     "solver_position_iterations": None,
     "solver_velocity_iterations": None,
     "max_depenetration_velocity": None,
+    "gpu_max_rigid_patch_count": None,
+    "gpu_max_rigid_contact_count": None,
+    "gpu_collision_stack_size": None,
+    "use_terrain_physics_material": False,
     "friction_dr": {
         "static_friction_range": (0.25, 0.8),
         "dynamic_friction_range": (0.2, 0.6),
@@ -57,7 +61,7 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
 """Engine settings a task may state through ``spec.sim.profiles['isaacsim']``.
 
 ``friction_dr`` is main's randomisation for the flat locomotion task and has no asset to come from.
-The rest default to the asset's own values; a task overrides one by naming it.
+The rest default to the asset or simulator values; a task overrides one by naming it.
 """
 
 _ROBOT_PRIM = "{ENV_REGEX_NS}/Robot"

@@ -765,6 +765,57 @@ def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
         "perceptive_hoi": {"isaacsim": 4096, "mjlab": 4096},
         "beyondmimic": {"isaacsim": 4096, "mjlab": 4096},
     }[variant.family]
+    isaac_profile = {
+        # All effective main shadowing configs set the terrain material as the
+        # simulation default and double Isaac Lab's rigid-patch budget, including
+        # the plane tasks.  At 4096 envs these are plant settings, not tuning hints.
+        "use_terrain_physics_material": True,
+        "gpu_max_rigid_patch_count": 10 * 2**15,
+    }
+    if variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}:
+        # Effective main Perceptive/HOI configs also raise both contact storage
+        # and the collision stack from Isaac Lab's much smaller defaults.
+        isaac_profile.update(
+            gpu_max_rigid_contact_count=2**27,
+            gpu_collision_stack_size=2**27,
+        )
+    mjlab_profile = {
+        "iterations": 10,
+        "ls_iterations": 20,
+        "njmax": 1200,
+        "nconmax": None,
+    }
+    if variant.family == "perceptive":
+        mjlab_profile.update(
+            njmax=700,
+            nconmax=128,
+            contact_sensor_maxmatch=128,
+            ccd_iterations=128,
+            jacobian="sparse",
+        )
+    elif variant.family == "perceptive_vae":
+        mjlab_profile.update(
+            njmax=512,
+            nconmax=128,
+            contact_sensor_maxmatch=128,
+            ccd_iterations=128,
+            jacobian="sparse",
+        )
+    elif variant.family == "perceptive_hoi":
+        mjlab_profile.update(
+            njmax=700,
+            nconmax=256,
+            contact_sensor_maxmatch=256,
+            ccd_iterations=128,
+            jacobian="sparse",
+        )
+    elif variant.family == "beyondmimic":
+        mjlab_profile.update(
+            njmax=None if variant.play else 350,
+            nconmax=None if variant.play else 100,
+            contact_sensor_maxmatch=500 if variant.play else 100,
+            ccd_iterations=80,
+        )
     return TaskSpec(
         task_id=variant.task_id,
         robot=robot,
@@ -774,13 +825,8 @@ def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
             decimation=4,
             episode_length_s=10.0,
             profiles={
-                "isaacsim": {},
-                "mjlab": {
-                    "iterations": 10,
-                    "ls_iterations": 20,
-                    "njmax": 1200,
-                    "nconmax": None,
-                },
+                "isaacsim": isaac_profile,
+                "mjlab": mjlab_profile,
             },
         ),
         mdp=MdpSpec(

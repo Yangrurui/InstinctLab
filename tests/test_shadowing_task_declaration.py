@@ -66,6 +66,66 @@ def test_declaration_order_matches_effective_whole_body_factory() -> None:
     )
 
 
+def test_shadowing_physx_budgets_match_effective_main_configs() -> None:
+    for task_id in sorted(SHADOW_IDS):
+        profile = registry.spec(task_id).sim.profiles["isaacsim"]
+        assert profile["use_terrain_physics_material"] is True
+        assert profile["gpu_max_rigid_patch_count"] == 10 * 2**15
+        if any(name in task_id for name in ("Perceptive", "Vae")):
+            assert profile["gpu_max_rigid_contact_count"] == 2**27
+            assert profile["gpu_collision_stack_size"] == 2**27
+        else:
+            assert "gpu_max_rigid_contact_count" not in profile
+            assert "gpu_collision_stack_size" not in profile
+
+
+def test_shadowing_mjlab_budgets_match_effective_instinctmj_configs() -> None:
+    expected = {
+        "whole_body": (None, 1200, None, 500, None),
+        "perceptive": (128, 700, 128, 128, "sparse"),
+        "perceptive_vae": (128, 512, 128, 128, "sparse"),
+        "perceptive_hoi": (256, 700, 256, 128, "sparse"),
+        "beyondmimic": (100, 350, 100, 80, None),
+    }
+    for task_id in sorted(SHADOW_IDS):
+        task = registry.spec(task_id)
+        family = task.engine_extras["mjlab"]["shadowing_family"]
+        nconmax, njmax, maxmatch, ccd, jacobian = expected[family]
+        if family == "beyondmimic" and task.engine_extras["mjlab"]["play"]:
+            nconmax, njmax, maxmatch = None, None, 500
+        profile = task.sim.profiles["mjlab"]
+        assert profile["nconmax"] == nconmax
+        assert profile["njmax"] == njmax
+        assert profile.get("contact_sensor_maxmatch") == maxmatch
+        assert profile.get("ccd_iterations", 500) == ccd
+        assert profile.get("jacobian") == jacobian
+
+
+@pytest.mark.parametrize(
+    ("task_id", "expected"),
+    (
+        ("Instinct-Shadowing-WholeBody-Plane-G1-v0", (None, 1200, 64, 500, "auto")),
+        ("Instinct-Perceptive-Shadowing-G1-v0", (128, 700, 128, 128, "sparse")),
+        ("Instinct-Perceptive-Vae-G1-v0", (128, 512, 128, 128, "sparse")),
+        ("Instinct-Perceptive-HOI-Shadowing-G1-v0", (256, 700, 256, 128, "sparse")),
+        ("Instinct-BeyondMimic-Plane-G1-v0", (100, 350, 100, 80, "auto")),
+    ),
+)
+def test_compiled_mjlab_shadowing_capacities_match_instinctmj(task_id: str, expected: tuple) -> None:
+    pytest.importorskip("mjlab")
+    from instinctlab.engines.mjlab import MjlabAdapter
+
+    cfg = MjlabAdapter().compile(registry.spec(task_id), num_envs=2, device="cpu").env_cfg
+    actual = (
+        cfg.sim.nconmax,
+        cfg.sim.njmax,
+        cfg.sim.contact_sensor_maxmatch,
+        cfg.sim.mujoco.ccd_iterations,
+        cfg.sim.mujoco.jacobian,
+    )
+    assert actual == expected
+
+
 def test_play_specs_are_explicit_contracts_not_gym_aliases() -> None:
     for task_id in sorted(SHADOW_IDS):
         task = registry.spec(task_id)

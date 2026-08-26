@@ -51,6 +51,29 @@ _SCENE_SENSOR_RESERVED_NAMES = frozenset(
 )
 
 
+def _configure_sim_contact_budget(sim: Any, profile: Mapping[str, Any], terrain_kind: str, terrain_material: Any) -> None:
+    """Apply task-native PhysX budgets, falling back to the generic mesh recipe."""
+    mesh_terrain = terrain_kind in {"generator", "rough"}
+    patch_count = profile.get("gpu_max_rigid_patch_count")
+    if patch_count is not None:
+        sim.physx.gpu_max_rigid_patch_count = patch_count
+    elif mesh_terrain:
+        sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+
+    contact_count = profile.get("gpu_max_rigid_contact_count")
+    if contact_count is not None:
+        sim.physx.gpu_max_rigid_contact_count = contact_count
+
+    collision_stack = profile.get("gpu_collision_stack_size")
+    if collision_stack is not None:
+        sim.physx.gpu_collision_stack_size = collision_stack
+    elif mesh_terrain:
+        sim.physx.gpu_collision_stack_size = 2**29
+
+    if profile.get("use_terrain_physics_material", False) or mesh_terrain:
+        sim.physics_material = terrain_material
+
+
 def _validate_observation_term_names(spec: TaskSpec) -> None:
     """Reject term names Isaac Lab interprets as observation-group settings."""
     for group_name, group in spec.mdp.observations.items():
@@ -269,16 +292,7 @@ class IsaacSimAdapter:
 
         scene = build_scene(spec.scene, spec.robot, profile, num_envs=num_envs, sensor_period=spec.sim.physics_dt)
         sim = SimulationCfg(dt=spec.sim.physics_dt, render_interval=spec.sim.decimation, device=device)
-        if spec.scene.terrain.kind in {"generator", "rough"}:
-            # Mesh tiles create far more contact patches than a plane; Isaac Lab's own rough
-            # locomotion raises this, and leaving the default silently drops contacts.
-            sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
-            # The upstream Isaac Parkour configuration raises this
-            # from Isaac Lab PhysxCfg's default 2**26. GPU PhysX cannot grow the
-            # collision stack: overflow logs a PhysX error, drops contacts, and the
-            # step still succeeds. 2**29 is 512 MiB of pinned host memory.
-            sim.physx.gpu_collision_stack_size = 2**29
-            sim.physics_material = scene.terrain.physics_material
+        _configure_sim_contact_budget(sim, profile, spec.scene.terrain.kind, scene.terrain.physics_material)
         env_cfg = ManagerBasedRLEnvCfg(
             scene=scene,
             observations=_observation_groups(mdp["observations"]),

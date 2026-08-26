@@ -179,15 +179,16 @@ class MjlabAdapter:
         record_reward_omissions(resolution, mdp["rewards"], omitted_rewards)
 
         mj_overrides = spec.sim.profile_for(self.name)
-        sim_kwargs: dict[str, Any] = {
-            "mujoco": MujocoCfg(
-                timestep=spec.sim.physics_dt,
-                solver=profile["solver"],
-                iterations=profile["iterations"],
-                ls_iterations=profile["ls_iterations"],
-                ccd_iterations=profile["ccd_iterations"],
-            ),
+        mujoco_kwargs: dict[str, Any] = {
+            "timestep": spec.sim.physics_dt,
+            "solver": profile["solver"],
+            "iterations": profile["iterations"],
+            "ls_iterations": profile["ls_iterations"],
+            "ccd_iterations": profile["ccd_iterations"],
         }
+        if "jacobian" in mj_overrides:
+            mujoco_kwargs["jacobian"] = mj_overrides["jacobian"]
+        sim_kwargs: dict[str, Any] = {"mujoco": MujocoCfg(**mujoco_kwargs)}
         if spec.scene.terrain.kind == "generator":
             # InstinctMJ / mjlab's own G1 rough raises both; the plane defaults underflow a
             # generated grid and drop contacts without raising.
@@ -205,6 +206,13 @@ class MjlabAdapter:
             sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get("contact_sensor_maxmatch", 128)
         else:
             sim_kwargs["njmax"] = mj_overrides.get("njmax", profile["njmax"])
+
+        # Task-native capacities take precedence for every terrain kind.  In particular,
+        # shadow_motion_matched is neither the generic "generator" nor "rough" spelling;
+        # previously its InstinctMJ overrides were silently discarded here.
+        for field in ("nconmax", "njmax", "contact_sensor_maxmatch"):
+            if field in mj_overrides:
+                sim_kwargs[field] = mj_overrides[field]
         from .env import TerrainAwareRlEnv
 
         env_cfg = ManagerBasedRlEnvCfg(
