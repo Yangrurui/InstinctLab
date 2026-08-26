@@ -156,6 +156,12 @@ points to its `20251106_diveroll4_roadRamp_noWall` subdirectory. The active
 clip is `diveroll4-ziwen-0-retargeted.npz` (751 frames, 29 joints, SHA-256
 `8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59`).
 
+The unified Perceptive task now binds both engines to the released dataset root
+`/root/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1`.
+Its top-level `metadata.yaml` pairs ten motions with six terrain meshes. This
+replaces main's literal data-directory placeholder and InstinctMJ's unavailable
+server-local `~/Xyk/Datasets/her_leveled` path.
+
 ## Live process state at handoff
 
 GPU 0 training was explicitly stopped. Two MJLab parkour runs were still live:
@@ -299,6 +305,18 @@ HOI/BeyondMimic runs, and real multi-node distributed training. Parkour is
 accepted as reproduced; its intentional engine-native differences and released
 motion boundary risk remain documented rather than treated as open reproduction
 work.
+
+The first strict Perceptive live smoke on 2026-08-26 resolved all 55 MJLab
+terms and compiled the released motion-matched terrain, but failed during ray
+sensor initialization. The MJLab terrain-only ray mask uses geom groups also
+used by the robot (`group=2`), so the guard in `engines/mjlab/raycast.py`
+correctly refused a height scan that could hit robot geoms before terrain. This
+is the next Perceptive implementation blocker. A simultaneous Isaac smoke was
+requested on GPU 1 while the corrected GPU 0 Isaac shadowing run remained live;
+the second Kit instance closed after application startup and before task
+compilation. Enabling the rendering experience was not a workaround and also
+exposed the server's missing `libGLU.so.1`/MDL runtime. No Isaac Perceptive live
+result has therefore been established yet, and the GPU 0 run was not disturbed.
 
 ## New-server bring-up
 
