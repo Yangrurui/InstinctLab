@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import sys
 import torch
 import trimesh
@@ -312,6 +313,21 @@ def test_domain_randomization_and_reset_order_match_effective_sources() -> None:
     assert perceptive.scene.terrain.kind == "shadow_motion_matched"
     assert perceptive.mdp.events["reset_robot"].params["randomize_velocity_range"] == {}
     assert perceptive.mdp.events["physics_material"].resolved_params("mjlab")["ranges"][2] == (0.0, 0.5)
+
+
+def test_whole_body_undesired_contact_reward_excludes_support_links() -> None:
+    """Both main and InstinctMJ permit ankle and wrist support contacts."""
+    task = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
+    sensor = task.mdp.rewards["rewards"]["undesired_contacts"].params["sensor"]
+    pattern = sensor.elements[0]
+    assert re.fullmatch(pattern, "pelvis")
+    for support in (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+        "left_wrist_yaw_link",
+        "right_wrist_yaw_link",
+    ):
+        assert re.fullmatch(pattern, support) is None
 
 
 def test_mjlab_pd_gain_randomization_uses_the_reference_whole_robot_selector() -> None:

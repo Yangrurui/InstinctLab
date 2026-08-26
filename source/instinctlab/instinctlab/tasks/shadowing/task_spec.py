@@ -247,7 +247,7 @@ def _contact_sensor(variant: ShadowingVariant, *, undesired_subset: bool = False
     perceptive = variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
     return ContactSensorRef(
         name="contact_forces" if perceptive else "undesired_contact_forces",
-        elements=_NON_SUPPORT_CONTACTS if perceptive and undesired_subset else ".*",
+        elements=_NON_SUPPORT_CONTACTS if undesired_subset else ".*",
         track_air_time=perceptive,
         air_time_force_threshold=1.0,
         history_length=3,
