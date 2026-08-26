@@ -266,8 +266,8 @@ def test_shadowing_dataset_roots_keep_the_two_reference_bindings_explicit() -> N
             "~/Xyk/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
         ),
         "Instinct-Perceptive-Shadowing-G1-v0": (
-            "{AbsolutePathOfYourDataDirectory}",
-            "~/Xyk/Datasets/her_leveled",
+            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
         ),
         "Instinct-Perceptive-Vae-G1-v0": (
             "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1",

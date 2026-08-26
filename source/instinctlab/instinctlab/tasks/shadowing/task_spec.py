@@ -68,8 +68,8 @@ MOTION_PATHS = {
         "mjlab": "~/Xyk/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
     },
     "perceptive": {
-        "isaacsim": "{AbsolutePathOfYourDataDirectory}",
-        "mjlab": "~/Xyk/Datasets/her_leveled",
+        "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+        "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
     },
     "perceptive_vae": {
         "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1",
