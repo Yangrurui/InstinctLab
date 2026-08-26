@@ -126,9 +126,12 @@ and is invalid as convergence evidence. Do not resume it.
   Engine-native physics differences listed below remain intentional. The
   concatenated-release boundary issue is a source-data limitation, not a
   blocker for the reproduction status.
-- **Whole-body plane shadowing: in progress.** MJLab has a released-data run;
-  the corrected Isaac run with DFS reset mapping is live and still needs
-  long-horizon convergence review.
+- **Whole-body plane shadowing: short-horizon parity established.** The final
+  Isaac audit reproduces main's early learning curve and runtime at 4096
+  environments after correcting the native/canonical action-offset mapping and
+  the shadowing runtime differences listed below. A 101-iteration validation is
+  accepted as short-horizon evidence; a fresh long-horizon run from the final
+  commit is still required before declaring production convergence complete.
 - **Other shadowing families: not production-reproduced.** Perceptive,
   perceptive one-motion, perceptive VAE, perceptive HOI, and BeyondMimic have
   unified declarations, but do not yet have accepted production training/play
@@ -221,6 +224,12 @@ repeated unresolved visual-reference warnings while cloning 4096 environments;
 the warnings did not prevent rollout or learning. These startup measurements
 are not convergence evidence.
 
+Both unified Perceptive runs above, and the GPU 0 Whole Body run, predate the
+final parity fixes through `530b4b8`. Leave the processes untouched unless an
+operator explicitly chooses to stop them, but do not resume them or promote
+their curves as final baselines. Their logs remain useful only for diagnosing
+the corrected faults.
+
 Two matching Isaac reference runs from `/root/InstinctLab-main` were started
 from scratch on 2026-08-26 with 4096 environments, seed 42, and 50000
 iterations. Both reached learning iteration 0 and remain live:
@@ -246,6 +255,83 @@ Main Perceptive reported NaN values only in the position-monitor summaries at
 iteration 0 (along with its existing empty-slice warning); rollout, reward,
 loss, and optimization continued. Treat that monitor series cautiously while
 comparing the curves.
+
+The completed shadowing audit through `530b4b8` found and corrected the
+following silent parity faults:
+
+- Isaac randomized action offsets were written in native BFS articulation order
+  into the canonical DFS policy vector. Explicit name mapping (`b986f24`) was
+  the primary Whole Body curve correction.
+- Shadow rewards used a legacy COM-velocity tensor instead of link-frame origin
+  velocity, the critic had an extra projected-gravity term, reset velocities
+  used the wrong backend frame, Isaac imported fixed joints differently, and
+  support links were included in the illegal-contact penalty.
+- A contact-sensor engine probe rebuilt Isaac body names inside every reward
+  evaluation. Caching the static result removed the collection hot path;
+  PhysX rigid patch guard queries were measured and were not the slowdown.
+- The custom shadow velocity observation builders discarded declared history,
+  noise, scale, and clipping. Perceptive critic input is now 1667, matching
+  main, rather than the incorrect 1646.
+- Perceptive motion height preprocessing now follows main on Isaac and
+  InstinctMJ on MJLab; reference depth is clamped and normalized before
+  crop/resize as in both references.
+- Perceptive motion `terrain_id` metadata is now matched to compatible scene
+  terrain origins at reset. Previously the independently sampled scene terrain
+  was the largest remaining Perceptive semantic mismatch. Concatenated-motion
+  reset random draws now also follow the reference batch order.
+- Engine-specific simulator capacity profiles are restored. The corrected
+  MJLab Perceptive run used about 23.44 GiB instead of 27.68 GiB, saving about
+  4.24 GiB without imposing Isaac's PhysX capacities on MuJoCo.
+
+The final 4096-environment Whole Body validation is:
+
+```text
+logs/isaacsim/g1_shadowing/20260826_184409_isaac_actionoffset_fixed_4096_gpu5_20260826
+logs/train_isaacsim_wholebody_actionoffset_fixed_4096_gpu5_20260826.log
+```
+
+Its unified/main mean rewards at iterations 0, 10, 20, 40, and 100 were
+respectively -1.63/-1.65, -0.96/-0.98, -0.48/-0.49, -0.23/-0.19, and
+0.06/0.09. At iteration 100 it reported 3.314 s collection, 0.452 s learning,
+and 26.1k steps/s. A separate 11-iteration run after the final contact fix is
+`20260826_185021_isaac_fully_aligned_4096_gpu7_20260826` and retained the same
+early behavior. These runs establish short-horizon parity, not long-horizon
+convergence.
+
+The strongest final Perceptive Isaac/main comparison is the terrain-matched
+4096-environment run:
+
+```text
+logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_4096_gpu6_20260826
+logs/train_isaacsim_perceptive_terrainmatched_4096_gpu6_20260826.log
+```
+
+At iteration 0, unified/main mean reward was -1.57/-1.58 and mean episode
+length was 19.90/20.48. Illegal-contact, base-position, projected-gravity,
+link-position, and dataset-exhaustion termination metrics were respectively
+0.1218/0.1217, 0.0040/0.0047, 0.0397/0.0448, 0.0880/0.0875, and
+0.0045/0.0044. At iteration 10, reward was -0.87/-0.79 and episode length
+13.93/12.59, so the startup distribution is effectively aligned while longer
+convergence remains unproven. The final sampling-order run is
+`20260826_192749_perceptive_samplingaligned_4096_gpu6_20260826`; its statistical
+iteration-10 difference did not improve, although its reset semantics now match
+the references.
+
+The corresponding corrected MJLab short validation is
+`logs/mjlab/g1_perceptive_shadowing/20260826_192212_perceptive_terrainmatched_4096_gpu5_20260826`.
+It has the correct 1667-input critic and completed 11 iterations, but no direct
+InstinctMJ production curve was available on this server, so it is construction
+and short-rollout evidence rather than convergence evidence.
+
+TensorBoard comparisons are collected under
+`logs/tb_compare/g1_shadowing_diveroll` on port 6006 and
+`logs/tb_compare/g1_perceptive_shadowing` on port 6007. They include main,
+pre-fix diagnostics, the final Isaac validations, and the corrected MJLab
+Perceptive validation.
+
+Final verification is 1190 passed, 3 skipped, 30 deselected, with one existing
+NumPy warning in the parkour plant probe. `scripts/check_mjlab.py` exits 0 and
+constructs and steps the flat locomotion task successfully.
 
 ## Current AMP correction
 
@@ -351,8 +437,9 @@ Isaac/main versus MJLab/InstinctMJ actuator semantics; engine-native contact
 forces and joint accelerations; Isaac visual filtering versus MJLab geom groups;
 and engine-specific RNG consumption order.
 
-Not yet proven: corrected long-horizon Isaac shadowing convergence, production
-perceptive/VAE/HOI/BeyondMimic runs, and real multi-node distributed training.
+Not yet proven: final-commit long-horizon Whole Body and Perceptive convergence,
+production perceptive VAE/HOI/BeyondMimic runs, direct final-commit InstinctMJ
+curve comparison, and real multi-node distributed training.
 Parkour and flat/rough locomotion are accepted as reproduced; their intentional
 engine-native differences and any documented data risks are not treated as open
 reproduction work.
@@ -385,9 +472,8 @@ logs/mjlab/g1_parkour/20260826_163025_smoke_parkour_no_vel_limiter_gpu2
 ```
 
 These are construction/rollout smoke results, not accepted Perceptive
-production convergence evidence. Full verification after the fixes was 1169
-passed, 3 skipped, 30 deselected; `scripts/check_mjlab.py` also constructed and
-stepped the flat locomotion task successfully.
+production convergence evidence. Later audit results and the final verification
+counts are recorded above.
 
 ## New-server bring-up
 
