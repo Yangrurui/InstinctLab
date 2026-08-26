@@ -12,6 +12,7 @@ from isaaclab.sensors import RayCaster
 from isaaclab.sensors.ray_caster.ray_cast_utils import obtain_world_pose_from_view
 
 from instinctlab.sensors import GroupedRayCaster
+from instinctlab.utils.name_order import copy_named_columns_
 
 if TYPE_CHECKING:
     from isaaclab.sensors import Camera, RayCasterCamera
@@ -52,11 +53,23 @@ def randomize_default_joint_pos(
             pos, offset_distribution_params, env_ids, joint_ids, operation=operation, distribution=distribution
         )[env_ids][:, joint_ids]
 
-        if env_ids != slice(None) and joint_ids != slice(None):
-            env_ids = env_ids[:, None]  # type: ignore
-        asset.data.default_joint_pos[env_ids, joint_ids] = pos
-        # update the offset in action since it is not updated automatically
-        env.action_manager.get_term("joint_pos")._offset[env_ids, joint_ids] = pos
+        if isinstance(joint_ids, slice):
+            asset.data.default_joint_pos[env_ids] = pos
+            selected_joint_names = tuple(asset.joint_names)
+        else:
+            asset.data.default_joint_pos[env_ids[:, None], joint_ids] = pos
+            selected_joint_names = tuple(asset.joint_names[index] for index in joint_ids.tolist())
+
+        # Isaac's articulation is BFS while shared shadowing actions are canonical DFS. Reusing
+        # native joint_ids here silently assigns each randomized default to another action column.
+        action = env.action_manager.get_term("joint_pos")
+        copy_named_columns_(
+            action._offset,
+            pos,
+            env_ids,
+            value_names=selected_joint_names,
+            target_names=tuple(action._joint_names),
+        )
 
 
 def randomize_ray_offsets(

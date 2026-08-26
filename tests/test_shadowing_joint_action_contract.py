@@ -13,6 +13,7 @@ from instinctlab.checkpoint import add_task_contract, validate_checkpoint_contra
 from instinctlab.engines.shadowing_events import reset_robot_from_reference
 from instinctlab.sim.backend import CanonicalIndexMap
 from instinctlab.tasks import registry
+from instinctlab.utils.name_order import copy_named_columns_
 
 SHADOWING_IDS = tuple(task_id for task_id in registry.ids() if "Shadowing" in task_id or "BeyondMimic" in task_id)
 
@@ -135,6 +136,24 @@ def test_isaac_bfs_to_policy_dfs_mapping_is_name_based_and_reversible() -> None:
     torch.testing.assert_close(rebuilt, native)
     for name in ("waist_pitch_joint", "left_hip_pitch_joint", "right_wrist_yaw_joint"):
         assert canonical[G1_29DOF_DFS_JOINT_NAMES.index(name)] == G1_29DOF_ISAAC_BFS_JOINT_NAMES.index(name)
+
+
+def test_default_randomization_scatter_maps_native_columns_into_action_order() -> None:
+    """Isaac startup DR must not write BFS offsets positionally into DFS actions."""
+    native_names = ("left_hip", "right_hip", "waist")
+    action_names = ("waist", "left_hip", "right_hip")
+    offsets = torch.zeros(2, 3)
+    native_values = torch.tensor([[10.0, 20.0, 30.0], [11.0, 21.0, 31.0]])
+
+    copy_named_columns_(
+        offsets,
+        native_values,
+        torch.tensor([0, 1]),
+        value_names=native_names,
+        target_names=action_names,
+    )
+
+    torch.testing.assert_close(offsets, torch.tensor([[30.0, 10.0, 20.0], [31.0, 11.0, 21.0]]))
 
 
 def test_mjcf_natural_joint_order_is_the_policy_dfs_order() -> None:

@@ -43,6 +43,10 @@ first edit has to say why.
 """
 
 EDITED = {
+    "source/instinctlab/instinctlab/envs/mdp/events/randomization.py": (
+        "updates randomized action offsets by joint name because shared actions are canonical DFS "
+        "while Isaac articulations are native BFS; main uses one native order for both"
+    ),
     "source/instinctlab/instinctlab/tasks/shadowing/README.md": "documents the unified train/play surface",
     "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/README.md": (
         "documents the shared BeyondMimic declaration"

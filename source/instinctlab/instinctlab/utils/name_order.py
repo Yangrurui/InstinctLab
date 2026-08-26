@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import torch
+
 
 class NameOrderError(ValueError):
     """A source-to-target name order cannot be resolved unambiguously."""
@@ -39,4 +41,24 @@ def resolve_name_indices(
     return tuple(source_index[name] for name in target)
 
 
-__all__ = ["NameOrderError", "resolve_name_indices"]
+def copy_named_columns_(
+    target: torch.Tensor,
+    values: torch.Tensor,
+    row_ids: torch.Tensor | slice,
+    *,
+    value_names: Sequence[str],
+    target_names: Sequence[str],
+) -> None:
+    """Copy named ``values`` columns into a differently ordered target in-place."""
+    column_ids = torch.tensor(
+        resolve_name_indices(target_names, value_names),
+        dtype=torch.long,
+        device=target.device,
+    )
+    if isinstance(row_ids, slice):
+        target[row_ids, column_ids] = values
+    else:
+        target[row_ids[:, None], column_ids] = values
+
+
+__all__ = ["NameOrderError", "copy_named_columns_", "resolve_name_indices"]
