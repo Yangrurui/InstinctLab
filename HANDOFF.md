@@ -289,7 +289,7 @@ Verified or guarded:
 - common task/agent schema and observation/action order;
 - canonical DFS policy/motion order and Isaac BFS boundary mapping;
 - shared AMP schema, scale, history, mirroring, and current-time reference;
-- MJLab actuator motor-bus delay grouping, effort/velocity safeguards;
+- MJLab reference PD-actuator construction and motor-bus delay grouping;
 - motion reset, exhaustion lifecycle, and timestamp refresh;
 - sensor/virtual-terrain contracts and generic train/play entry points;
 - pinned MJLab physics stack.
@@ -306,22 +306,37 @@ accepted as reproduced; its intentional engine-native differences and released
 motion boundary risk remain documented rather than treated as open reproduction
 work.
 
-The first strict Perceptive live smoke on 2026-08-26 resolved all 55 MJLab
-terms and compiled the released motion-matched terrain, but failed during ray
-sensor initialization. The MJLab terrain-only ray mask uses geom groups also
-used by the robot (`group=2`), so the guard in `engines/mjlab/raycast.py`
-correctly refused a height scan that could hit robot geoms before terrain. This
-is one Perceptive implementation blocker. A simultaneous Isaac smoke on GPU 1
-successfully completed Kit bootstrap while the corrected GPU 0 Isaac shadowing
-run remained live; the KVDB lock warning is non-fatal. Isaac then failed while
-compiling the `height_scan` observation because `_sensor_entity()` treated its
-`RayCasterRef` as a `ContactSensorRef` and read the nonexistent `.elements`
-attribute. The normal entry point's Kit exception hook masked that traceback and
-returned exit code 0; a staged launcher exposed it. No Isaac Perceptive live
-rollout has therefore been established yet, and the GPU 0 run was not
-disturbed. The rendering experience is not required for these ray casters; a
-separate attempt with it also exposed the server's missing `libGLU.so.1`/MDL
-runtime but is not the task blocker.
+Strict Perceptive live smokes on 2026-08-26 now complete one full 192-step
+rollout and learning iteration on both engines. MJLab uses its reference-native
+terrain-height query (geom group 0, 5 m range) instead of the general ray path;
+Isaac selects the whole ray sensor by name instead of applying contact-sensor
+body fields. The verified runs are:
+
+```text
+logs/mjlab/g1_perceptive_shadowing/20260826_162958_smoke_perceptive_no_vel_limiter_gpu2
+logs/isaacsim/g1_perceptive_shadowing/20260826_162701_smoke_perceptive_fixed_gpu1
+```
+
+MJLab reported collection/learning times of 1.446/0.249 s; Isaac reported
+2.453/0.272 s. The Isaac run ran concurrently on GPU 1 while the corrected
+whole-body shadowing run remained live on GPU 0, confirming that waiting for
+GPU 0 is unnecessary. The KVDB lock and missing `libGLU.so.1` warnings are
+non-fatal for this headless ray-caster task.
+
+MJLab no longer adds a custom joint-velocity-limiter actuator. Its generated G1
+now contains only the seven grouped `BuiltinPdActuatorCfg` entries used by
+InstinctMJ, and gain randomization again targets the whole robot as in the
+reference. A strict Parkour smoke after this plant change completed one rollout
+and learning iteration at:
+
+```text
+logs/mjlab/g1_parkour/20260826_163025_smoke_parkour_no_vel_limiter_gpu2
+```
+
+These are construction/rollout smoke results, not accepted Perceptive
+production convergence evidence. Full verification after the fixes was 1169
+passed, 3 skipped, 30 deselected; `scripts/check_mjlab.py` also constructed and
+stepped the flat locomotion task successfully.
 
 ## New-server bring-up
 
