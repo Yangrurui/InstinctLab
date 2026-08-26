@@ -56,6 +56,12 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         def bind_origins(self, origins: torch.Tensor) -> None:
             self._runtime.bind_origins(origins)
 
+        def match_scene(self, scene) -> None:
+            if ref.dataset_kind == "terrain":
+                self._runtime.match_terrain_origins(scene.terrain)
+            else:
+                self._runtime.bind_origins(scene.env_origins)
+
         @property
         def aiming_frame_idx(self):
             return self._runtime.aiming_frame_idx

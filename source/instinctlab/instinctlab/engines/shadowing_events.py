@@ -41,7 +41,12 @@ def reference_joint_ids(asset, joint_names, *, device):
 
 def match_reference_origin(env, env_ids, motion_reference="motion_reference"):
     del env_ids
-    env.scene[motion_reference].bind_origins(env.scene.env_origins)
+    sensor = env.scene[motion_reference]
+    match_scene = getattr(sensor, "match_scene", None)
+    if callable(match_scene):
+        match_scene(env.scene)
+    else:
+        sensor.bind_origins(env.scene.env_origins)
 
 
 def reset_robot_from_reference(

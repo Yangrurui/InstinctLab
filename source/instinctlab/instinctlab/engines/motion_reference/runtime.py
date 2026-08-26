@@ -77,6 +77,7 @@ class MotionReferenceRuntime:
         self.motion_bin_weights = torch.ones(total_bins, device=buffers.timestamp.device)
         self.motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
         self.current_motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
+        self._motion_origins: tuple[torch.Tensor, ...] | None = None
 
     def _num_bins(self, clip: MotionClip) -> int:
         if self.ref.motion_bin_length_s is None:
@@ -217,6 +218,50 @@ class MotionReferenceRuntime:
         self.reference_buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
         self.env_origins = origins
 
+    def match_terrain_origins(self, terrain: object, *, max_origins_per_motion: int = 49) -> None:
+        """Bind each terrain motion to origins containing its declared terrain mesh."""
+        origins = torch.as_tensor(terrain.terrain_origins, device=self.env_origins.device, dtype=self.env_origins.dtype)
+        cfgs = terrain.subterrain_specific_cfgs
+        if cfgs is None or origins.ndim != 3 or len(cfgs) != origins.shape[0] * origins.shape[1]:
+            raise ValueError("Motion-matched terrain does not expose one subterrain config per origin.")
+        terrain_ids = [entry.terrain_id for entry in self.inventory]
+        if any(terrain_id is None for terrain_id in terrain_ids):
+            raise ValueError("A terrain motion inventory entry has no terrain_id.")
+        num_terrains = max(int(terrain_id) for terrain_id in terrain_ids) + 1
+        by_terrain: dict[int, list[torch.Tensor]] = {terrain_id: [] for terrain_id in range(num_terrains)}
+        for row in range(origins.shape[0]):
+            for col in range(origins.shape[1]):
+                cfg = cfgs[row * origins.shape[1] + col]
+                if cfg is None or not hasattr(cfg, "difficulty"):
+                    raise ValueError(f"Motion-matched terrain cell ({row}, {col}) has no resolved difficulty.")
+                terrain_id = min(max(int(float(cfg.difficulty) * num_terrains), 0), num_terrains - 1)
+                by_terrain[terrain_id].append(origins[row, col])
+        motion_origins = []
+        for terrain_id in terrain_ids:
+            available = by_terrain[int(terrain_id)]
+            if not available:
+                raise ValueError(f"Terrain motion {terrain_id} has no compatible scene origin.")
+            stacked = torch.stack(available)
+            motion_origins.append(stacked[:max_origins_per_motion])
+        self._motion_origins = tuple(motion_origins)
+
+    def _sample_motion_origins(self, env_ids: torch.Tensor, generator: torch.Generator | None) -> None:
+        if self._motion_origins is None:
+            return
+        for motion_id, origins in enumerate(self._motion_origins):
+            selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
+            if selected.numel() == 0:
+                continue
+            indexes = torch.floor(
+                torch.rand(
+                    selected.numel(),
+                    device=selected.device,
+                    generator=generator,
+                )
+                * origins.shape[0]
+            ).long()
+            self.env_origins[selected] = origins[indexes]
+
     def reset(self, env_ids: torch.Tensor, generator: torch.Generator | None = None) -> None:
         if env_ids.numel() == 0:
             return
@@ -280,6 +325,7 @@ class MotionReferenceRuntime:
         self.last_update[env_ids] = 0.0
         self._reference_timestamp[env_ids] = -1.0
         draw_symmetric_mask(self.mask, env_ids, enabled=self.enabled, generator=generator)
+        self._sample_motion_origins(env_ids, generator)
         self.refresh_initial(env_ids)
         self.refresh_at_current_time(env_ids)
 

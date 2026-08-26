@@ -5,6 +5,7 @@ import torch
 import yaml
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -131,6 +132,27 @@ def test_multiclip_reset_is_seed_stable_and_refreshes_the_selected_clip() -> Non
         ("first", 151, 50.0),
         ("second", 151, 50.0),
     ]
+
+
+def test_terrain_motion_reset_uses_only_origins_matching_the_sampled_motion() -> None:
+    ref = _ref("unused", dataset_kind="terrain", metadata_yaml="unused")
+    runtime = MotionReferenceRuntime.from_clips(
+        ref,
+        (_clip("first", 0.0), _clip("second", 1000.0)),
+        (MotionInventoryEntry("first", terrain_id=0), MotionInventoryEntry("second", terrain_id=1)),
+        128,
+    )
+    terrain = SimpleNamespace(
+        terrain_origins=torch.tensor([[[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]]),
+        subterrain_specific_cfgs=[SimpleNamespace(difficulty=0.1), SimpleNamespace(difficulty=0.75)],
+    )
+    runtime.match_terrain_origins(terrain)
+    runtime.reset(torch.arange(128), torch.Generator().manual_seed(7))
+
+    expected_x = runtime.buffers.motion_id.to(torch.float32) + 1.0
+    torch.testing.assert_close(runtime.env_origins[:, 0], expected_x)
+    torch.testing.assert_close(runtime.init_buffers.base_pos_w[:, 0, 0], expected_x)
+    torch.testing.assert_close(runtime.buffers.base_pos_w[:, 0, 0], expected_x)
 
 
 def test_adaptive_sampling_records_smooths_and_reweights_failed_bins() -> None:

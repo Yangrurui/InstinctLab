@@ -163,6 +163,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     if spec.kind == "shadow_motion_matched":
         import os
 
+        from instinctlab.terrains import TerrainImporterCfg as InstinctTerrainImporterCfg
         from instinctlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
         from instinctlab.terrains.trimesh.mesh_terrains_cfg import MotionMatchedTerrainCfg
 
@@ -180,9 +181,9 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
                 )
             },
         )
-        return TerrainImporterCfg(
+        return InstinctTerrainImporterCfg(
             prim_path="/World/ground",
-            terrain_type="generator",
+            terrain_type="hacked_generator",
             terrain_generator=generator,
             collision_group=-1,
             physics_material=_physics_material(spec),
