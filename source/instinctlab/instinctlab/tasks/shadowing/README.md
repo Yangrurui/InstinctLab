@@ -16,4 +16,4 @@ Perceptive OneMotion train/play contracts.  Dataset sources and their engine pro
 in `task_spec.py`; no task-local CLI mutates configuration at import time.
 
 Native contact, actuator, solver and object semantics intentionally remain in the corresponding
-engine adapter.  See `docs/shadowing_reference_audit.md` for the reference boundary.
+engine adapter. See the repository-root `HANDOFF.md` for the current reference boundary.

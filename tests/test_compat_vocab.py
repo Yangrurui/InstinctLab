@@ -34,18 +34,6 @@ from instinctlab.compat.denylist import LEGACY_LINK_ALIASES, explicit_name
 
 _SAME_AS = re.compile(r"^Same as :attr:`([A-Za-z0-9_]+)`")
 
-_REPO = pathlib.Path(__file__).resolve().parents[1]
-
-# Three documents stated three different sizes for the same table -- five, six and seven -- because
-# nothing tied the prose to the list. Each entry here is a place that commits to a count out loud.
-_COUNTED_IN_PROSE = (
-    (".cursor/rules/multi-engine-training.mdc", r"(\d+) 个同名不同义的陷阱", "DENYLIST"),
-    ("CROSS_ENGINE_DESIGN.md", r"denylist：(\d+) 个同名不同义", "DENYLIST"),
-    ("CROSS_ENGINE_DESIGN.md", r"(\d+) 项 denylist", "DENYLIST"),
-    (".cursor/rules/multi-engine-training.mdc", r"legacy 别名共 (\d+) 个", "ALIASES"),
-    ("CROSS_ENGINE_DESIGN.md", r"legacy 别名是 (\d+) 个", "ALIASES"),
-)
-
 
 def _isaac_data_members() -> dict[str, str]:
     """Map ``ArticulationData`` member name -> docstring, without importing ``omni``."""
@@ -206,17 +194,6 @@ def test_legacy_aliases_are_absent_from_mjlab() -> None:
 
 
 # --- denylist -----------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(("relative", "pattern", "table"), _COUNTED_IN_PROSE)
-def test_the_prose_counts_the_table_it_describes(relative: str, pattern: str, table: str) -> None:
-    sizes = {"DENYLIST": len(DENYLIST), "ALIASES": len(LEGACY_COM_ALIASES) + len(LEGACY_LINK_ALIASES)}
-    stated = re.search(pattern, (_REPO / relative).read_text())
-    assert stated is not None, f"{relative} no longer says how big {table} is; the regex needs updating"
-    assert int(stated.group(1)) == sizes[table], (
-        f"{relative} says {table} has {stated.group(1)} entries, but it has {sizes[table]}. "
-        "A reader trusts the number, so fix the prose rather than this test."
-    )
 
 
 def test_denylisted_attributes_are_not_reachable_through_the_hub() -> None:

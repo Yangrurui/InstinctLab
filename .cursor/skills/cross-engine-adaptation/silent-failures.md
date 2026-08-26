@@ -67,9 +67,7 @@
 
 **规则**：**退役一层不等于停止使用它。** 只要还有 `from .retired import *`，被退役的实现就仍是活的且优先。
 
-> 当初加的守卫禁止 `tasks/locomotion/mdp/__init__.py` 出现星号导入。**该文件与守卫已随 D3 一并删除**（整个 locomotion Isaac-only 栈退役），所以现在仓库里**没有任何自动检查在防这件事**——下一个碰到星号导入的人要自己带守卫来。
-
-**这个模式在 parkour 仍然活着**：`tasks/parkour/mdp/__init__.py` 有七层星号链，实测 `joint_torques_l2` 在 `isaaclab.envs.mdp` 与 `instinctlab.envs.mdp` 各有一份、后者静默胜出。今天良性（默认行为一致），但**专门调查这份代码的 agent 把它标成了「来自 Isaac Lab」——标错了**。绑定关系读不出来就是危害本身。详见 [repo-tasks.md](repo-tasks.md)。
+旧 locomotion 与 parkour 的任务内 MDP 星号链已经随统一任务重构删除。这个故障模式仍需保留：新增聚合模块时使用显式导出，或使用遇到重名就报错的惰性查找，并补一条静态守卫。
 
 ## 6. 副作用改成显式函数，调用点没跟上
 

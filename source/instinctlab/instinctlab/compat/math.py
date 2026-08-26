@@ -41,7 +41,7 @@ two whose sources have drifted apart cosmetically (``quat_from_matrix`` and its 
 
 Conventions
 -----------
-Quaternions are ``(w, x, y, z)`` throughout, per decision D8 in ``CROSS_ENGINE_DESIGN.md``. The
+Quaternions are ``(w, x, y, z)`` throughout, per the canonical convention in ``AGENTS.md``. The
 ``xyzw`` layout is real but belongs at engine API boundaries only -- PhysX root transforms, warp
 mesh transforms, and external motion data. Converting between layouts is therefore an explicit,
 named operation with no default direction; see :func:`quat_wxyz_to_xyzw`. Both engines' upstream

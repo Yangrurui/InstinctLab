@@ -14,7 +14,7 @@
 | 非根 body 线速度 | per-body COM 偏移 | root `subtree_com` | 中枢**不提供任何 per-body 速度** |
 | 默认根状态速度行 | COM 系 | link 系 | denylist |
 
-**通用问法**：任何速度量先问「哪个点的速度」，任何姿态量先问「相对哪个系」。同名不代表同义——`root_lin_vel_b` 在 Isaac 读起来像 link 量，实际是 `root_com_lin_vel_b`，而 mjlab 没有这些别名，按直觉改写就换了物理量且下游不报错（19 个 legacy 别名见规则文件）。
+**通用问法**：任何速度量先问「哪个点的速度」，任何姿态量先问「相对哪个系」。同名不代表同义——`root_lin_vel_b` 在 Isaac 读起来像 link 量，实际是 `root_com_lin_vel_b`，而 mjlab 没有这些别名，按直觉改写就换了物理量且下游不报错。兼容名和禁用语义分别以 `compat/vocab.py`、`compat/denylist.py` 为准。
 
 ## 二、关节与自由度空间
 

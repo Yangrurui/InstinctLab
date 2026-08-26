@@ -1,10 +1,8 @@
 # Documentations and Core concepts
 
-## Multi-engine training (agent brief)
+## Multi-engine training
 
-跨引擎训练同一任务的选型、本仓库立场和硬约束见 [`MULTI_ENGINE_TRAINING.md`](MULTI_ENGINE_TRAINING.md)。实现契约（`SimulatorBackend`、Capability、canonical 顺序、reset 顺序）见 [`UNIFIED_ENGINE_PLAN.md`](UNIFIED_ENGINE_PLAN.md)。
-
-把后续任务交给其他 agent 时，最少附上这两份文档，并写清目标是“扩展 backend”还是“改 Task/MDP”。
+仓库级架构约束与验证命令见 [`AGENTS.md`](AGENTS.md)，当前服务器、环境、数据集、运行中实验和未提交工作见 [`HANDOFF.md`](HANDOFF.md)。两者分别维护稳定规则与易变状态，避免让历史设计文档充当当前事实来源。
 
 ## Monitor
 A monitor is an environment component that the user can use to store the simulation status and plot them in tensorboard.

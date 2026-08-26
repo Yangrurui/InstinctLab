@@ -64,17 +64,3 @@ def test_instinctmj_train_registrations_reach_factories_not_play_classes() -> No
     beyondmimic = (MJ / "beyondmimic/config/g1/__init__.py").read_text()
     assert "env_cfg_factory=lambda: _plane_shadowing_env_cfg(play=False)" in whole_body
     assert "env_cfg_factory=lambda: _beyondmimic_plane_env_cfg(play=False)" in beyondmimic
-
-
-def test_audit_records_the_removed_legacy_surface() -> None:
-    audit = Path("docs/shadowing_reference_audit.md").read_text()
-    for name in (
-        "whole_body",
-        "perceptive",
-        "perceptive_hoi",
-        "beyondmimic",
-        "play.py",
-        "cli_args.py",
-        "grid_search.sh",
-    ):
-        assert name in audit

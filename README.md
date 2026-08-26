@@ -76,7 +76,7 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     python -m pip install -e "source/instinctlab[mjlab]"
     ```
 
-- Train the same locomotion task on either engine. One declaration, compiled by the chosen engine's
+- Train any registered unified task on either engine. One declaration, compiled by the chosen engine's
   adapter; `--headless` and the other launch flags belong to the engine and are accepted only where
   it defines them.
 
@@ -85,18 +85,12 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     python scripts/train.py --engine mjlab    --task Instinct-Velocity-Flat-G1 --num_envs 4096 --device cuda:1
     ```
 
-- Legacy Isaac-only tasks still use:
-
-    ```bash
-    python scripts/instinct_rl/train.py --task=Instinct-Shadowing-WholeBody-Plane-G1-Play-v0 --headless
-    ```
-
 ## Documentation of Critical Components
 
 - [Instinct-RL Documentation](https://github.com/project-instinct/instinct_rl/blob/main/README.md)
-- [InstinctLab Documentation](https://github.com/project-instinct/instinctlab/blob/main/DOCS.md)
-- [跨引擎训练简报（给后续 agent）](MULTI_ENGINE_TRAINING.md)
-- [统一训练引擎实现计划](UNIFIED_ENGINE_PLAN.md)
+- [InstinctLab Documentation](DOCS.md)
+- [Server migration and current-state handoff](HANDOFF.md)
+- [Repository instructions for coding agents](AGENTS.md)
 
 ### Set up IDE (Optional)
 
