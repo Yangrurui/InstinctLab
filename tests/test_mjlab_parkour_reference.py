@@ -801,9 +801,8 @@ def test_camera_hit_mutation_wrong_groups_would_fail(task) -> None:
 def test_reference_divergence_pd_tracks_each_reference(task, compiled) -> None:
     robot = compiled.env_cfg.scene.entities["robot"]
     pd_actuators = tuple(act for act in robot.articulation.actuators if type(act).__name__ == "BuiltinPdActuatorCfg")
-    limiters = tuple(act for act in robot.articulation.actuators if type(act).__name__ == "JointVelocityLimiterCfg")
     assert len(pd_actuators) == 7
-    assert limiters
+    assert tuple(robot.articulation.actuators) == pd_actuators
     assert mj_ref.delayed_actuator_lags() == (0, mj_ref.DELAY_MAX_LAG)
     assert task.robot.actuator_delay == (0, 2)
     assert main_ref.effective_robot_actuators()["delayed"] is False

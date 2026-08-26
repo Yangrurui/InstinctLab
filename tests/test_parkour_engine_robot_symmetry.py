@@ -123,36 +123,10 @@ def test_mjlab_actuators_hold_the_hub_episode_delay(spec, mjlab_robot) -> None:
     assert len(pd_actuators) == 7
 
 
-def test_mjlab_motor_velocity_limiters_match_the_shared_robot(spec, mjlab_robot) -> None:
-    limiters = tuple(
-        act for act in mjlab_robot.articulation.actuators if type(act).__name__ == "JointVelocityLimiterCfg"
-    )
-    by_joint = {name: (act.velocity_limit, act.effort_limit) for act in limiters for name in act.target_names_expr}
-    assert set(by_joint) == set(spec.robot.joint_names)
-    assert all(act.delay_min_lag == act.delay_max_lag == 0 for act in limiters)
-    for joint in spec.robot.joint_properties:
-        assert by_joint[joint.name] == pytest.approx((joint.velocity_limit, joint.effort_limit))
-
-
-def test_mjlab_motor_velocity_limiter_brakes_only_at_the_cap() -> None:
-    torch = pytest.importorskip("torch")
-    from mjlab.actuator import ActuatorCmd
-
-    from instinctlab.engines.mjlab.actuators import JointVelocityLimiter, JointVelocityLimiterCfg
-
-    cfg = JointVelocityLimiterCfg(target_names_expr=("joint",), velocity_limit=20.0, effort_limit=50.0)
-    limiter = JointVelocityLimiter(cfg, entity=None, target_ids=[0], target_names=["joint"])
-    velocity = torch.tensor([[-20.1, -20.0, -19.9, 0.0, 19.9, 20.0, 20.1]])
-    zeros = torch.zeros_like(velocity)
-    command = ActuatorCmd(
-        position_target=zeros,
-        velocity_target=zeros,
-        effort_target=zeros,
-        pos=zeros,
-        vel=velocity,
-    )
-
-    assert limiter.compute(command).tolist() == [[100.0, 100.0, 0.0, 0.0, 0.0, -100.0, -100.0]]
+def test_mjlab_uses_only_the_reference_pd_actuators(mjlab_robot) -> None:
+    actuators = tuple(mjlab_robot.articulation.actuators)
+    assert len(actuators) == 7
+    assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in actuators)
 
 
 def test_undesired_contacts_is_the_per_engine_force_threshold_term_on_mjlab(spec) -> None:

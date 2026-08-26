@@ -26,7 +26,13 @@ _TERRAIN_BODY = "terrain"
 
 
 def terrain_height_scanner(sensor: RayCasterRef) -> Any:
-    """Build the native terrain-height query used by InstinctMJ."""
+    """Build the native terrain-height query used by InstinctMJ.
+
+    InstinctMJ's Perceptive scanner starts at the torso (rather than Isaac's
+    20 m sky offset), casts at most 5 m, and includes only geom group 0. The
+    task's engine override carries that range; parkour independently declares
+    10 m through the same interface.
+    """
     from mjlab.sensor import GridPatternCfg, ObjRef
     from mjlab.sensor.raycast_sensor import RayCastSensorCfg
 
@@ -41,8 +47,9 @@ def terrain_height_scanner(sensor: RayCasterRef) -> Any:
             direction=sensor.direction,
         ),
         ray_alignment=sensor.ray_alignment,
-        max_distance=10.0,
+        max_distance=sensor.max_distance,
         exclude_parent_body=True,
+        include_geom_groups=(0,),
         debug_vis=False,
     )
 

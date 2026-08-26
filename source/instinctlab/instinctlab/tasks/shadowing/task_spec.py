@@ -225,6 +225,7 @@ def _camera(*, include_objects: bool = False) -> RayCasterRef:
 def _height_scanner() -> RayCasterRef:
     return RayCasterRef(
         name="height_scanner",
+        mode="terrain_height",
         attach="torso_link",
         offset=(0.0, 0.0, 20.0),
         pattern=RayPatternRef(kind="grid", resolution=0.1, size=(1.6, 1.0)),

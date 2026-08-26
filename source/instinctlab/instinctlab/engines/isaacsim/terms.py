@@ -167,6 +167,16 @@ def _sensor_entity(ref, ctx):
     return SceneEntityCfg(ref.name, body_names=elements if isinstance(elements, str) else list(elements))
 
 
+def _ray_sensor_entity(ref):
+    """A whole ray sensor selection, without contact-only body filtering."""
+    from isaaclab.managers import SceneEntityCfg
+    from instinctlab.spec.sensor import RayCasterRef
+
+    if not isinstance(ref, RayCasterRef):
+        raise TypeError(f"Isaac ray sensor term expected RayCasterRef, got {type(ref).__name__}.")
+    return SceneEntityCfg(ref.name)
+
+
 # World-frame *normal* load only (ContactSensorData.net_forces_w). Isaac Lab's
 # own docstring excludes the tangential contribution. 1 N here is main parkour's
 # number against that quantity -- not mjlab's 1 N on a friction-inclusive force.
@@ -510,7 +520,7 @@ def _shadow_height(spec, ctx):
     sensor = params.pop("sensor")
     return _import_cfgs()["obs"](
         func=height_scan,
-        params={"sensor_cfg": _sensor_entity(sensor, ctx)},
+        params={"sensor_cfg": _ray_sensor_entity(sensor)},
         clip=(-20.0, 20.0),
     )
 

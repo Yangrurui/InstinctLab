@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import inspect
+import sys
 import torch
 import trimesh
+import types
 import yaml
 from types import SimpleNamespace
 
@@ -157,8 +159,9 @@ def test_camera_height_and_contact_sensor_contract() -> None:
     assert camera.min_distance == 0.05
     assert camera.for_engine("isaacsim").max_distance == 1.0e6
     scanner = task.scene.ray_caster("height_scanner")
-    assert scanner.for_engine("isaacsim").max_distance == 1.0e6
-    assert scanner.for_engine("mjlab").max_distance == 5.0
+    assert scanner.mode == "terrain_height"
+    assert scanner.for_engine("isaacsim").max_distance == pytest.approx(1.0e6)
+    assert scanner.for_engine("mjlab").max_distance == pytest.approx(5.0)
     contact = task.scene.contact_sensors[0]
     assert contact.history_length == 3
     assert contact.track_air_time is True
@@ -167,6 +170,40 @@ def test_camera_height_and_contact_sensor_contract() -> None:
     hoi = registry.spec("Instinct-Perceptive-HOI-Shadowing-G1-v0")
     hoi_camera = hoi.scene.ray_caster("camera")
     assert {obj.name for obj in hoi.scene.rigid_objects} <= set(hoi_camera.hit)
+
+
+def test_isaac_height_scan_selects_the_whole_ray_sensor_without_contact_body_fields(monkeypatch) -> None:
+    """A RayCasterRef has no contact ``elements``; the height term selects it by name."""
+    from instinctlab.engines.isaacsim import terms as isaac_terms
+
+    class SceneEntityCfg:
+        def __init__(self, name, **kwargs):
+            self.name = name
+            self.kwargs = kwargs
+
+    fake_isaaclab = types.ModuleType("isaaclab")
+    fake_envs = types.ModuleType("isaaclab.envs")
+    fake_mdp = types.ModuleType("isaaclab.envs.mdp")
+    fake_managers = types.ModuleType("isaaclab.managers")
+    fake_mdp.height_scan = object()
+    fake_envs.mdp = fake_mdp
+    fake_isaaclab.envs = fake_envs
+    fake_managers.SceneEntityCfg = SceneEntityCfg
+    monkeypatch.setitem(sys.modules, "isaaclab", fake_isaaclab)
+    monkeypatch.setitem(sys.modules, "isaaclab.envs", fake_envs)
+    monkeypatch.setitem(sys.modules, "isaaclab.envs.mdp", fake_mdp)
+    monkeypatch.setitem(sys.modules, "isaaclab.managers", fake_managers)
+    monkeypatch.setattr(
+        isaac_terms,
+        "_import_cfgs",
+        lambda: {"obs": lambda **kwargs: SimpleNamespace(**kwargs)},
+    )
+
+    term = registry.spec("Instinct-Perceptive-Shadowing-G1-v0").mdp.observations["critic"].terms["height_scan"]
+    built = isaac_terms._shadow_height(term, SimpleNamespace(params=lambda value: dict(value.params)))
+    selector = built.params["sensor_cfg"]
+    assert selector.name == "height_scanner"
+    assert selector.kwargs == {}
 
 
 def test_domain_randomization_and_reset_order_match_effective_sources() -> None:
@@ -182,6 +219,15 @@ def test_domain_randomization_and_reset_order_match_effective_sources() -> None:
     assert perceptive.scene.terrain.kind == "shadow_motion_matched"
     assert perceptive.mdp.events["reset_robot"].params["randomize_velocity_range"] == {}
     assert perceptive.mdp.events["physics_material"].resolved_params("mjlab")["ranges"][2] == (0.0, 0.5)
+
+
+def test_mjlab_pd_gain_randomization_uses_the_reference_whole_robot_selector() -> None:
+    task = registry.spec("Instinct-Perceptive-Shadowing-G1-v0")
+    compiled = MjlabAdapter().compile(task, num_envs=2, device="cpu", strict=True)
+    selector = compiled.env_cfg.events["randomize_actuator_gains"].params["asset_cfg"]
+    assert selector.actuator_names is None
+    assert selector.actuator_ids == slice(None)
+    assert all(type(act).__name__ == "BuiltinPdActuatorCfg" for act in compiled.env_cfg.scene.entities["robot"].articulation.actuators)
 
 
 def test_omomo_object_slots_are_name_mapped_and_invalid_slots_are_cleared() -> None:

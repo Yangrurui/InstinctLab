@@ -150,6 +150,7 @@ LEFT_HEIGHT_SCANNER = RayCasterRef(
     hit="terrain",
     ray_alignment="yaw",
     miss="infinity",
+    engine_max_distances={"mjlab": 10.0},
 )
 RIGHT_HEIGHT_SCANNER = RayCasterRef(
     name="right_height_scanner",
@@ -160,6 +161,7 @@ RIGHT_HEIGHT_SCANNER = RayCasterRef(
     hit="terrain",
     ray_alignment="yaw",
     miss="infinity",
+    engine_max_distances={"mjlab": 10.0},
 )
 
 DEPTH_CAMERA = RayCasterRef(

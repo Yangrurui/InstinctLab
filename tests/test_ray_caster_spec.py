@@ -124,10 +124,12 @@ def test_mjlab_terrain_height_mode_uses_the_native_ankle_query() -> None:
             attach="left_ankle_roll_link",
             mode="terrain_height",
             offset=(0.04, 0.0, 20.0),
+            max_distance=10.0,
         )
     )
     assert cfg.frame.name == "left_ankle_roll_link"
     assert cfg.max_distance == 10.0
+    assert cfg.include_geom_groups == (0,)
     assert not hasattr(cfg, "origin_offset")
 
 

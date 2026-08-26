@@ -19,7 +19,7 @@ from xml.etree import ElementTree
 
 from instinctlab.sim.robot_spec import JointProperties, RobotSpec
 
-__all__ = ["DELAY_RESET_ONLY_PERIOD", "entity", "grouped_actuators", "grouped_velocity_limiters"]
+__all__ = ["DELAY_RESET_ONLY_PERIOD", "entity", "grouped_actuators"]
 
 # Isaac DelayedPD draws one lag in reset and holds it for the episode. mjlab's
 # DelayBuffer resamples every physics step when delay_update_period == 0 — a
@@ -77,22 +77,6 @@ def grouped_actuators(
     return tuple((tuple(groups[key]), heads[key], key[0]) for key in order)
 
 
-def grouped_velocity_limiters(
-    joints: Iterable[JointProperties],
-) -> tuple[tuple[tuple[str, ...], JointProperties], ...]:
-    """Group joints that share the same motor speed and effort limits."""
-    groups: dict[tuple[float, float], list[str]] = {}
-    heads: dict[tuple[float, float], JointProperties] = {}
-    order: list[tuple[float, float]] = []
-    for joint in joints:
-        key = (float(joint.velocity_limit), float(joint.effort_limit))
-        if key not in groups:
-            groups[key], heads[key] = [], joint
-            order.append(key)
-        groups[key].append(joint.name)
-    return tuple((tuple(groups[key]), heads[key]) for key in order)
-
-
 def _without_visual_meshes(xml: str) -> str:
     """Drop mesh assets and mesh geoms from an MJCF document."""
     root = ElementTree.fromstring(xml)
@@ -141,8 +125,6 @@ def entity(robot: RobotSpec, *, actuator_order: Sequence[str] | None = None) -> 
     from mjlab.actuator import BuiltinPdActuatorCfg
     from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
-    from .actuators import JointVelocityLimiterCfg
-
     asset = robot.asset_for("mjlab")
     path = Path(asset.path)
     if not path.is_file():
@@ -159,14 +141,6 @@ def entity(robot: RobotSpec, *, actuator_order: Sequence[str] | None = None) -> 
         )
         for names, head, group in grouped_actuators(robot.joint_properties)
     )
-    velocity_limiters = tuple(
-        JointVelocityLimiterCfg(
-            target_names_expr=names,
-            velocity_limit=head.velocity_limit,
-            effort_limit=head.effort_limit,
-        )
-        for names, head in grouped_velocity_limiters(robot.joint_properties)
-    )
     return EntityCfg(
         init_state=EntityCfg.InitialStateCfg(
             pos=robot.default_root_pos,
@@ -176,7 +150,7 @@ def entity(robot: RobotSpec, *, actuator_order: Sequence[str] | None = None) -> 
         ),
         spec_fn=lambda: _load_spec(path, asset.load_mode),
         articulation=EntityArticulationInfoCfg(
-            actuators=(*pd_actuators, *velocity_limiters),
+            actuators=pd_actuators,
             soft_joint_pos_limit_factor=robot.soft_joint_pos_limit_factor,
         ),
     )
