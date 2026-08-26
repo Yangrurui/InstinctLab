@@ -65,7 +65,10 @@ MOTION_LINKS = (
 MOTION_PATHS = {
     "whole_body": {
         "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
-        "mjlab": "~/Xyk/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+        # Both references consume the same released clip.  InstinctMJ's source spells this as a
+        # developer-specific ~/Xyk path; bind the engine to the portable compatibility root used
+        # on this server instead of requiring that private directory layout.
+        "mjlab": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
     },
     "perceptive": {
         "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",

@@ -285,7 +285,7 @@ def test_shadowing_dataset_roots_keep_the_two_reference_bindings_explicit() -> N
     expected = {
         "Instinct-Shadowing-WholeBody-Plane-G1-v0": (
             "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
-            "~/Xyk/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+            "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
         ),
         "Instinct-Perceptive-Shadowing-G1-v0": (
             "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
