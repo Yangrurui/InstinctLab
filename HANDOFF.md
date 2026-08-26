@@ -258,6 +258,31 @@ The critic width is 889. It is linked into the port-6006 comparison as
 `logs/tb_compare/g1_shadowing_diveroll/mjlab_finalaligned_4096_gpu0` and was
 still live at this handoff update.
 
+Three additional final-commit long-horizon runs were started on 2026-08-26 at
+`07223e2`, all with 4096 environments, seed 42, 50000 iterations, strict term
+resolution, and continuously saved stdout:
+
+- physical GPU 5, Isaac Whole Body:
+  `logs/isaacsim/g1_shadowing/20260826_203402_final_long_4096_gpu5_20260826` and
+  `logs/train_isaacsim_wholebody_final_long_4096_gpu5_20260826.log`; iteration 0
+  reward -1.57, episode length 19.24, 15.3k steps/s; iteration 10 reward -0.90,
+  episode length 15.50, 26.1k steps/s;
+- physical GPU 6, Isaac Perceptive:
+  `logs/isaacsim/g1_perceptive_shadowing/20260826_203420_final_long_4096_gpu6_20260826`
+  and `logs/train_isaacsim_perceptive_final_long_4096_gpu6_20260826.log`;
+  iteration 0 reward -1.52, episode length 19.13, 8.5k steps/s;
+- physical GPU 7, MJLab Perceptive (isolated as local `cuda:0`):
+  `logs/mjlab/g1_perceptive_shadowing/20260826_203411_final_long_4096_gpu7_20260826`
+  and `logs/train_mjlab_perceptive_final_long_4096_gpu7_20260826.log`; iteration
+  0 reward -1.76, episode length 20.44, 11.7k steps/s; iteration 10 reward
+  -1.26, episode length 18.75, 18.5k steps/s.
+
+Their TensorBoard names are `isaacsim_final_long_4096_gpu5` under the port-6006
+Whole Body comparison and `isaacsim_final_long_4096_gpu6` plus
+`mjlab_final_long_4096_gpu7` under the port-6007 Perceptive comparison. These
+runs were live at this update; do not stop, restart, or promote them before
+reviewing long-horizon reward, episode length, and termination trends.
+
 Two matching Isaac reference runs from `/root/InstinctLab-main` were started
 from scratch on 2026-08-26 with 4096 environments, seed 42, and 50000
 iterations. Both reached learning iteration 0 and remain live:
