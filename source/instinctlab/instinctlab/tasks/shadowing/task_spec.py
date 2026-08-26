@@ -814,15 +814,7 @@ def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
         "njmax": 1200,
         "nconmax": None,
     }
-    if variant.family == "perceptive":
-        mjlab_profile.update(
-            njmax=700,
-            nconmax=128,
-            contact_sensor_maxmatch=128,
-            ccd_iterations=128,
-            jacobian="sparse",
-        )
-    elif variant.family == "perceptive_vae":
+    if variant.family == "perceptive_vae":
         mjlab_profile.update(
             njmax=512,
             nconmax=128,

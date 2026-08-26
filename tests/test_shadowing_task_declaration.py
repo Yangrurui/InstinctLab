@@ -109,10 +109,12 @@ def test_shadowing_isaac_merges_fixed_joints_like_effective_main() -> None:
     assert task.robot.asset_for("mjlab").path.endswith("g1_29dof_torsobase_popsicle.xml")
 
 
-def test_shadowing_mjlab_budgets_match_effective_instinctmj_configs() -> None:
+def test_shadowing_mjlab_budgets_match_reference_or_validated_safe_configs() -> None:
     expected = {
         "whole_body": (None, 1200, None, 500, None),
-        "perceptive": (128, 700, 128, 128, "sparse"),
+        # InstinctMJ's smaller fixed caps became numerically unstable in the
+        # 4096-environment production run; retain the previously stable auto-capacity profile.
+        "perceptive": (None, 1200, None, 500, None),
         "perceptive_vae": (128, 512, 128, 128, "sparse"),
         "perceptive_hoi": (256, 700, 256, 128, "sparse"),
         "beyondmimic": (100, 350, 100, 80, None),
@@ -135,7 +137,7 @@ def test_shadowing_mjlab_budgets_match_effective_instinctmj_configs() -> None:
     ("task_id", "expected"),
     (
         ("Instinct-Shadowing-WholeBody-Plane-G1-v0", (None, 1200, 64, 500, "auto")),
-        ("Instinct-Perceptive-Shadowing-G1-v0", (128, 700, 128, 128, "sparse")),
+        ("Instinct-Perceptive-Shadowing-G1-v0", (None, 1200, 64, 500, "auto")),
         ("Instinct-Perceptive-Vae-G1-v0", (128, 512, 128, 128, "sparse")),
         ("Instinct-Perceptive-HOI-Shadowing-G1-v0", (256, 700, 256, 128, "sparse")),
         ("Instinct-BeyondMimic-Plane-G1-v0", (100, 350, 100, 80, "auto")),
