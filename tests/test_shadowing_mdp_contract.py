@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import mujoco
 import pytest
 
+from instinctlab.engines.isaacsim import terms as isaac_terms
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
 from instinctlab.engines.mjlab.adapter import MjlabAdapter
 from instinctlab.engines.mjlab.shadowing import randomize_default_joint_pos
@@ -209,6 +210,41 @@ def test_reference_observation_anchor_noise_and_history_match_effective_sources(
                 }
             }
             assert proprio and {term.history_length for term in proprio.values()} == {8}
+
+
+def test_mjlab_perceptive_compilation_preserves_base_linear_velocity_history() -> None:
+    """A semantic lowering must retain the observation metadata carried by TaskSpec."""
+    task = registry.spec("Instinct-Perceptive-Shadowing-G1-v0")
+    compiled = MjlabAdapter().compile(task, num_envs=1, device="cpu", strict=True)
+    declared = task.mdp.observations["critic"].terms["base_lin_vel"]
+    native = compiled.env_cfg.observations["critic"].terms["base_lin_vel"]
+    assert declared.history_length == 8
+    assert native.history_length == declared.history_length
+
+
+def test_isaac_shadow_base_linear_velocity_lowering_preserves_observation_metadata(monkeypatch) -> None:
+    """Isaac needs an app for its real imports, so isolate the lowering boundary here."""
+
+    class NativeObservation:
+        def __init__(self, **kwargs):
+            vars(self).update(kwargs)
+
+    fake_envs = types.ModuleType("isaaclab.envs")
+    fake_envs.mdp = SimpleNamespace(base_lin_vel=object())
+    monkeypatch.setitem(sys.modules, "isaaclab.envs", fake_envs)
+    monkeypatch.setattr(isaac_terms, "_import_cfgs", lambda: {"obs": NativeObservation})
+
+    spec = registry.spec("Instinct-Perceptive-Shadowing-G1-v0").mdp.observations["critic"].terms[
+        "base_lin_vel"
+    ]
+    noise = object()
+    ctx = SimpleNamespace(params=lambda _spec: {}, noise=lambda _noise: noise)
+    native = isaac_terms.TERMS.lookup("observation", "shadow_base_linear_velocity")(spec, ctx)
+
+    assert native.history_length == spec.history_length == 8
+    assert native.noise is noise
+    assert native.scale == spec.scale
+    assert native.clip == spec.clip
 
 
 def test_imitation_rewards_and_failures_match_effective_sources() -> None:

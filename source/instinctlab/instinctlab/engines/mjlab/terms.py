@@ -414,7 +414,14 @@ TERMS.register("observation", "shadow_link_rotation", _shadow_obs)
 def _shadow_base_linear_velocity(spec, ctx):
     from mjlab.envs import mdp
 
-    return _cfgs()["obs"](func=mdp.base_lin_vel, params=ctx.params(spec))
+    return _cfgs()["obs"](
+        func=mdp.base_lin_vel,
+        params=ctx.params(spec),
+        noise=ctx.noise(spec.noise),
+        scale=spec.scale,
+        clip=spec.clip,
+        history_length=spec.history_length,
+    )
 
 
 @TERMS.observation("shadow_depth_image")
