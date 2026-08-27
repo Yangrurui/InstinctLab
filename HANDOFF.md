@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 09:32 UTC
+Updated: 2026-08-27 09:59 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -613,6 +613,57 @@ configuration fixes affect currently inactive VAE/HOI/BeyondMimic or Play
 variants; the active Perceptive timeout behavior was already equivalent in the
 native builders.
 
+## Event, randomization, and curriculum audit (2026-08-27)
+
+The startup/reset/interval event sets and curriculum terms were compared
+separately against main for Isaac and InstinctMJ for MJLab. The native manager
+loops agree on the relevant order: curriculum records completed episodes
+before reset events and manager reset, while interval events run after reset
+in the same control step. A temporal probe now protects that failure counters
+are recorded before the per-step EMA consumes and clears them.
+
+Six silent differences were fixed:
+
+- Perceptive, one-motion Perceptive, VAE, and HOI Play now remove training-only
+  friction, default-joint, and COM randomization. Their reset pose, velocity,
+  and joint ranges are explicit six-axis zeros, matching both references while
+  preserving sensor, gain, and inertia randomization. Whole Body and
+  BeyondMimic intentionally retain their Play randomization.
+- OneMotion training no longer schedules adaptive sampling or its 0.02-second
+  smoothing event when `motion_bin_length_s` is disabled.
+- HOI Play keeps main's Isaac-only `(0, 1, 2)` visualization offset while
+  MJLab retains InstinctMJ's zero offset. Fixed-state reset tests verify exact
+  pose, velocity, and canonical joint writes on both lowerings.
+- MJLab Shadow inertia randomization now samples mass scale uniformly in
+  `[0.8, 1.2]` before converting to pseudo-inertia alpha. The old lowering
+  sampled alpha uniformly and therefore produced a log-uniform mass ratio.
+- Independent multi-motion adaptive sampling now reports the first four
+  motions under the reference `motion_i_sampling_*` metric schema. Concatenated
+  sampling keeps the unprefixed schema and all metrics still cross the device
+  boundary in one transfer.
+- MJLab camera calibration noise now perturbs camera-local ray starts and
+  directions after the fixed mount pose, exactly like InstinctMJ. The reported
+  camera pose remains the unperturbed mount pose; the old implementation
+  composed rotation in the opposite order and reported the noisy pose.
+
+Evidence:
+
+```text
+5 expected failures before the event/curriculum fixes
+9 passed (new declaration, reset-effect, distribution, metric, and timing regressions)
+287 passed, 1 deselected (Shadow/reference/compile/ray-caster focus)
+1269 passed, 2 skipped, 32 deselected (full default suite)
+1 passed, 6 deselected (MJLab CUDA fixed-state calibration-ray probe)
+scripts/check_mjlab.py resolved all 39 Locomotion terms,
+  constructed 16 environments in DFS action order, and stepped 5 times
+```
+
+No fresh Isaac environment is claimed because the host still lacks
+`libGLU.so.1`. The three live training processes were inspected and not
+signaled. In particular, the GPU 7 MJLab Perceptive process loaded the old
+inertia distribution and camera calibration code before these commits; treat
+it as convergence diagnostics, not post-fix randomization evidence.
+
 ## Train/play checkpoint contract audit (2026-08-27)
 
 Manifest-backed Shadowing checkpoints trained under a normal task id could
@@ -652,7 +703,7 @@ replaced at explicit operator request. GPU 7 was not signaled.
 |---:|---|---:|---:|---:|---|
 | 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 0 | -1.66 | 20.36 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
 | 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 20 | -0.52 | 9.08 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 9700 | 14.73 | 243.73 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera reference fixes |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 9700 | 14.73 | 243.73 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
 
 Do not stop or restart these runs without an explicit operator request. Review
 reward, episode length, termination mix, and action noise together before
