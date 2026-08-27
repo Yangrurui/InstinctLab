@@ -315,6 +315,52 @@ def test_delayed_depth_image_is_oldest_to_newest_and_does_not_use_mjlab_delay() 
     assert delay1[:, 0].tolist()[0][0][0] == pytest.approx(0.05 / 2.5)
 
 
+def test_delayed_depth_image_does_not_convert_priming_state_to_a_python_bool(monkeypatch) -> None:
+    sensor = RayCasterRef(
+        name="camera",
+        attach="torso_link",
+        pattern=RayPatternRef(kind="pinhole", width=4, height=4),
+        hit=("terrain",),
+        max_distance=2.5,
+    )
+    raw = torch.ones(2, 4, 4, 1)
+
+    class _Data:
+        output = {"distance_to_image_plane": raw}
+
+    class _Cam:
+        data = _Data()
+        frame_sequence = 1
+
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        scene=SimpleNamespace(sensors={"camera": _Cam()}),
+    )
+    cfg = SimpleNamespace(
+        params={
+            "sensor": sensor,
+            "history_skip_frames": 1,
+            "num_output_frames": 1,
+            "delayed_frame_ranges": (0, 0),
+            "history_length": 1,
+            "blur_kernel_size": 1,
+            "blur_sigma": 0.0,
+        }
+    )
+    term = mdp.DelayedDepthImage(cfg, env)
+
+    def refuse_tensor_bool(_tensor) -> bool:
+        raise AssertionError("DelayedDepthImage converted priming state to a Python bool")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(torch.Tensor, "__bool__", refuse_tensor_bool)
+        depth = term(env, sensor)
+
+    assert tuple(depth.shape) == (2, 1, 4, 4)
+    assert term._primed.tolist() == [True, True]
+
+
 def _delayed_depth_term(num_envs: int = 3, history_length: int = 37):
     sensor = RayCasterRef(
         name="camera",

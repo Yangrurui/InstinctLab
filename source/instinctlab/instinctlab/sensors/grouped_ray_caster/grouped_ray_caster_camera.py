@@ -65,6 +65,9 @@ class GroupedRayCasterCamera(RayCasterCamera, GroupedRayCaster):
         super().__init__(cfg)
         # create empty variables for storing output data
         self._data = CameraData()
+        # DelayedDepthImage compares this host-side generation instead of
+        # copying the per-environment CUDA timestamps to Python every read.
+        self.frame_sequence = 0
 
     def __str__(self) -> str:
         """Returns: A string containing information about the instance."""
@@ -192,3 +195,5 @@ class GroupedRayCasterCamera(RayCasterCamera, GroupedRayCaster):
 
         if "normals" in self.cfg.data_types:
             self._data.output["normals"][env_ids] = ray_normal.view(-1, *self.image_shape, 3)
+
+        self.frame_sequence += 1

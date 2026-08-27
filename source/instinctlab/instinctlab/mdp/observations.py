@@ -248,9 +248,8 @@ class DelayedDepthImage:
         if new_frame:
             self._history[:, self._write] = processed
             unprimed = ~self._primed
-            if bool(unprimed.any()):
-                self._history[unprimed] = processed[unprimed].unsqueeze(1)
-                self._primed[unprimed] = True
+            self._history[unprimed] = processed[unprimed].unsqueeze(1)
+            self._primed[unprimed] = True
             self._write = (self._write + 1) % self.sensor_history_length
             self._last_sensor_epoch = epoch
         order = (torch.arange(self.sensor_history_length, device=self._history.device) + self._write) % (
