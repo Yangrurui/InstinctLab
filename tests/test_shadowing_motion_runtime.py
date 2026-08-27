@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import re
 import torch
 import yaml
@@ -163,6 +164,64 @@ def test_multiclip_refresh_uses_one_packed_device_gather(monkeypatch) -> None:
     assert runtime.buffers.frame_index.tolist() == [[2, 2, 2], [4, 4, 4]]
     assert runtime.buffers.validity.tolist() == [[True, False, False], [True, False, False]]
     assert runtime.buffers.joint_pos[:, 0, 0].tolist() == pytest.approx([2.0, 1004.0])
+
+
+def test_multiclip_packed_path_matches_per_clip_oracle_for_all_buffers() -> None:
+    """The packed optimization must preserve reset, current-time, and look-ahead samples."""
+    ref = _ref(
+        "unused",
+        num_frames=4,
+        frame_interval_s=0.02,
+        data_start_from="one_frame_interval",
+        start_range=(0.0, 0.9),
+    )
+    clips = (_clip("short", 0.0, nframes=5), _clip("long", 1000.0, nframes=8))
+    tensor_fields = (
+        "joint_pos",
+        "joint_vel",
+        "base_pos_w",
+        "base_quat_w",
+        "base_lin_vel_w",
+        "base_ang_vel_w",
+        "link_pos_b",
+        "link_quat_b",
+        "link_pos_w",
+        "link_quat_w",
+        "link_lin_vel_b",
+        "link_ang_vel_b",
+        "link_lin_vel_w",
+        "link_ang_vel_w",
+    )
+    for clip_id, clip in enumerate(clips):
+        for field_id, name in enumerate(tensor_fields):
+            values = getattr(clip, name)
+            values.copy_(
+                torch.arange(values.numel(), dtype=values.dtype).reshape_as(values)
+                + clip_id * 10000.0
+                + field_id * 100.0
+            )
+    inventory = (MotionInventoryEntry("short"), MotionInventoryEntry("long"))
+    packed = MotionReferenceRuntime.from_clips(ref, clips, inventory, 32)
+    oracle = MotionReferenceRuntime.from_clips(ref, clips, inventory, 32)
+    oracle._packed_clips = None
+    env_ids = torch.arange(32)
+
+    packed.reset(env_ids, torch.Generator().manual_seed(2026))
+    oracle.reset(env_ids, torch.Generator().manual_seed(2026))
+    assert set(packed.buffers.motion_id.tolist()) == {0, 1}
+    packed.advance(0.04)
+    oracle.advance(0.04)
+
+    for buffer_name in ("buffers", "init_buffers", "reference_buffers"):
+        packed_buffers = getattr(packed, buffer_name)
+        oracle_buffers = getattr(oracle, buffer_name)
+        for field in dataclasses.fields(packed_buffers):
+            actual = getattr(packed_buffers, field.name)
+            expected = getattr(oracle_buffers, field.name)
+            if isinstance(actual, torch.Tensor):
+                torch.testing.assert_close(actual, expected, msg=f"{buffer_name}.{field.name}")
+            else:
+                assert actual == expected
 
 
 def test_terrain_motion_reset_uses_only_origins_matching_the_sampled_motion() -> None:
