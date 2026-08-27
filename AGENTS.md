@@ -17,6 +17,10 @@ use Git history when their provenance is needed.
 - Keep each task's concrete configuration together in one obvious task config
   file whenever practical. Avoid inheritance chains and repeated overrides that
   make the final value of a parameter difficult to find.
+- For adapted tasks, preserve the directory layout, file names, declaration
+  order, and terminology used by `/root/InstinctLab-main` and
+  `/root/InstinctMJ`. Do not replace those task files with a central variant
+  dispatcher or generate declarations through nested loops.
 - Use `TaskSpec` only to describe the stable, engine-neutral task contract and
   component selection. Do not put concrete reward weights, training settings,
   physics values, or engine-specific parameters in `TaskSpec`; those belong in

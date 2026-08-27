@@ -103,7 +103,7 @@ def test_shadowing_physx_budgets_match_effective_main_configs() -> None:
 
 
 def test_shadowing_isaac_merges_fixed_joints_like_effective_main() -> None:
-    """The task overrides the catalog flag without changing MJLab's asset."""
+    """The named Shadowing robot declaration keeps MJLab's asset unchanged."""
     task = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
     assert task.robot.asset_for("isaacsim").import_options["merge_fixed_joints"] is True
     assert task.robot.asset_for("mjlab").path.endswith("g1_29dof_torsobase_popsicle.xml")
@@ -185,16 +185,22 @@ def test_no_shadowing_module_registers_gym_or_imports_an_engine() -> None:
         assert not imported & engine_roots, f"{path} imports {sorted(imported & engine_roots)}"
 
 
-def test_isaac_only_shadowing_surface_and_duplicate_mdp_are_removed() -> None:
+def test_obsolete_shadowing_cli_and_duplicate_mdp_are_removed() -> None:
     removed = (
         "play.py",
         "cli_args.py",
         "grid_search.sh",
         "mdp",
+    )
+    assert not [name for name in removed if (ROOT / name).is_file()]
+    assert not list((ROOT / "mdp").glob("*.py"))
+
+
+def test_shadowing_env_files_follow_the_reference_layout() -> None:
+    expected = (
         "whole_body/shadowing_env_cfg.py",
         "perceptive/perceptive_env_cfg.py",
         "perceptive_hoi/perceptive_env_cfg.py",
         "beyondmimic/beyondmimic_env_cfg.py",
     )
-    assert not [name for name in removed if (ROOT / name).is_file()]
-    assert not list((ROOT / "mdp").glob("*.py"))
+    assert all((ROOT / name).is_file() for name in expected)

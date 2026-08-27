@@ -284,7 +284,7 @@ def _g1_actuator_group(name: str) -> str:
     return "arms"
 
 
-def make_g1_29dof_robot_spec() -> RobotSpec:
+def _make_g1_29dof_robot_spec(merge_fixed_joints: bool) -> RobotSpec:
     spec = RobotSpec(
         name="unitree_g1_29dof",
         schema_version="dfs_v1",
@@ -303,7 +303,7 @@ def make_g1_29dof_robot_spec() -> RobotSpec:
                 import_options={
                     "prim_path": "{ENV_REGEX_NS}/Robot",
                     "fix_base": False,
-                    "merge_fixed_joints": False,
+                    "merge_fixed_joints": merge_fixed_joints,
                     "replace_cylinders_with_capsules": True,
                 },
             ),
@@ -320,6 +320,16 @@ def make_g1_29dof_robot_spec() -> RobotSpec:
     )
     spec.validate()
     return spec
+
+
+def make_g1_29dof_robot_spec() -> RobotSpec:
+    """Build the standard G1 catalog declaration."""
+    return _make_g1_29dof_robot_spec(merge_fixed_joints=False)
+
+
+def make_g1_29dof_shadowing_robot_spec() -> RobotSpec:
+    """Build the G1 declaration used by main's Shadowing tasks."""
+    return _make_g1_29dof_robot_spec(merge_fixed_joints=True)
 
 
 _G1_DFS_JOINT_MAP, _G1_DFS_JOINT_REVERSE = g1_symmetric_joint_augmentation(G1_29DOF_DFS_JOINT_NAMES)
@@ -398,4 +408,5 @@ __all__ = [
     "beyondmimic_action_scale",
     "g1_symmetric_joint_augmentation",
     "make_g1_29dof_robot_spec",
+    "make_g1_29dof_shadowing_robot_spec",
 ]

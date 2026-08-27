@@ -109,7 +109,7 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
 
     blocker = _Blocker()
     reloaded = "instinctlab.tasks.locomotion.config"
-    shadowing_decl = "instinctlab.tasks.shadowing.config"
+    shadowing_decl = "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg"
     parkour_decl = "instinctlab.tasks.parkour.config.g1"
     evicted = {
         name: module

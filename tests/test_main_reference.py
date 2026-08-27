@@ -54,6 +54,21 @@ EDITED = {
     "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/agents/beyondmimic_ppo_cfg.py": (
         "uses the engine-neutral configclass so MJLab can resolve the shared agent without Kit"
     ),
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/beyondmimic_env_cfg.py": (
+        "native EnvCfg translated to the engine-neutral BeyondMimic TaskSpec declaration"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/beyondmimic_plane_cfg.py": (
+        "keeps the G1 BeyondMimic data and factories engine-neutral"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/perceptive_env_cfg.py": (
+        "native EnvCfg translated to the engine-neutral Perceptive and VAE TaskSpec declarations"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_shadowing_cfg.py": (
+        "keeps the G1 Perceptive data and factories engine-neutral"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_vae_cfg.py": (
+        "keeps the G1 Perceptive VAE data and factories engine-neutral"
+    ),
     "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/agents/instinct_rl_ppo_cfg.py": (
         "uses the engine-neutral configclass and removes an unused Isaac-only observation import"
     ),
@@ -63,8 +78,20 @@ EDITED = {
     "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/agents/instinct_rl_ppo_cfg.py": (
         "uses the engine-neutral configclass and removes an unused Isaac-only observation import"
     ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/perceptive_env_cfg.py": (
+        "native EnvCfg translated to the engine-neutral Perceptive HOI TaskSpec declaration"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/perceptive_shadowing_cfg.py": (
+        "keeps the G1 Perceptive HOI data and factories engine-neutral"
+    ),
     "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/agents/instinct_rl_ppo_cfg.py": (
         "uses the engine-neutral configclass so MJLab can resolve the shared agent without Kit"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/shadowing_env_cfg.py": (
+        "native EnvCfg translated to the engine-neutral Whole Body TaskSpec declaration"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py": (
+        "keeps the G1 Whole Body data and factories engine-neutral"
     ),
     "source/instinctlab/instinctlab/tasks/parkour/README.md": (
         "documents the engine-neutral task id and unified train/play entry points"
@@ -151,21 +178,6 @@ REMOVED = {
     "scripts/instinct_rl/play.py": "replaced by scripts/play.py for both engines",
     "scripts/instinct_rl/plotter.py": "only the removed legacy player imported it",
     "scripts/instinct_rl/train.py": "replaced by scripts/train.py for both engines",
-    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/beyondmimic_plane_cfg.py": (
-        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_shadowing_cfg.py": (
-        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_vae_cfg.py": (
-        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/perceptive_shadowing_cfg.py": (
-        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py": (
-        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
-    ),
     "source/instinctlab/instinctlab/tasks/shadowing/play.py": "generic scripts/play.py serves both engines",
     "source/instinctlab/instinctlab/tasks/shadowing/cli_args.py": (
         "generic train/play argument parsing owns the unified tasks"
@@ -178,18 +190,6 @@ REMOVED = {
         "shadowing curriculum is declared semantically once"
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/mdp/events.py": "shadowing events are declared semantically once",
-    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/shadowing_env_cfg.py": (
-        "base Isaac EnvCfg replaced by the shared declaration builder"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/perceptive_env_cfg.py": (
-        "base Isaac EnvCfg replaced by the shared declaration builder"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/perceptive_env_cfg.py": (
-        "base Isaac EnvCfg replaced by the shared declaration builder"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/beyondmimic_env_cfg.py": (
-        "base Isaac EnvCfg replaced by the shared declaration builder"
-    ),
     "source/instinctlab/instinctlab/tasks/parkour/mdp/__init__.py": (
         "the shared Parkour TaskSpec uses the portable instinctlab.mdp package"
     ),

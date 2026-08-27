@@ -1,5 +1,5 @@
 # BeyondMimic shadowing
 
-The BeyondMimic factories live with the other concrete Shadowing variants in the parent
-`config.py`. It has no native EnvCfg, task-local MDP package, or Gym registration. Train and play
-through the generic scripts documented in the parent README.
+The common BeyondMimic declaration is in `beyondmimic_env_cfg.py`. G1 data and factories are in
+`config/g1/beyondmimic_plane_cfg.py`, matching main and InstinctMJ. The files remain engine-neutral
+and use the generic train and play scripts documented in the parent README.

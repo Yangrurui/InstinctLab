@@ -12,9 +12,9 @@ python scripts/play.py --engine mjlab --task Instinct-Shadowing-WholeBody-Plane-
 ```
 
 The registry contains whole-body, perceptive, perceptive VAE, perceptive HOI, BeyondMimic and
-Perceptive OneMotion train/play contracts. Dataset sources, MDP values, and engine profiles are
-kept together in `config.py`; `TaskSpec` remains the shared schema rather than a second config
-module. No task-local CLI mutates configuration at import time.
+Perceptive OneMotion train/play contracts. Their files follow main and InstinctMJ: each family has
+its own `*_env_cfg.py`, and each G1 task keeps its concrete values in the corresponding
+`config/g1/*_cfg.py`. No task-local CLI mutates configuration at import time.
 
 Native contact, actuator, solver and object semantics intentionally remain in the corresponding
 engine adapter. See the repository-root `HANDOFF.md` for the current reference boundary.
