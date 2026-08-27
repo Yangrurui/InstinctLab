@@ -221,12 +221,9 @@ class MotionReferenceRuntime:
                 f"motion-reference origins must have shape {tuple(self.env_origins.shape)}, got {tuple(origins.shape)}."
             )
         delta = origins - self.env_origins
-        self.buffers.base_pos_w += delta.unsqueeze(1)
-        self.buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
-        self.init_buffers.base_pos_w += delta.unsqueeze(1)
-        self.init_buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
-        self.reference_buffers.base_pos_w += delta.unsqueeze(1)
-        self.reference_buffers.link_pos_w += delta.unsqueeze(1).unsqueeze(1)
+        env_ids = torch.arange(origins.shape[0], device=origins.device)
+        for buffers in (self.buffers, self.init_buffers, self.reference_buffers):
+            translate_world_positions(buffers, env_ids, delta)
         self.env_origins = origins
 
     def match_terrain_origins(self, terrain: object, *, max_origins_per_motion: int = 49) -> None:

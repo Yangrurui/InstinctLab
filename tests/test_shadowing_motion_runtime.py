@@ -186,6 +186,55 @@ def test_terrain_motion_reset_uses_only_origins_matching_the_sampled_motion() ->
     torch.testing.assert_close(runtime.buffers.base_pos_w[:, 0, 0], expected_x)
 
 
+def test_binding_origins_translates_robot_and_valid_hoi_objects_together() -> None:
+    ref = _ref("unused", scene_objects=("floorlamp", "largebox"))
+    clip = _clip("subject_largebox_motion", 0.0)
+    clip.object_name = "largebox"
+    clip.object_pos_w = torch.full((clip.nframes, 3), 2.0)
+    clip.object_quat_w = torch.zeros(clip.nframes, 4)
+    clip.object_quat_w[:, 0] = 1.0
+    clip.object_lin_vel_w = torch.zeros(clip.nframes, 3)
+    clip.object_ang_vel_w = torch.zeros(clip.nframes, 3)
+    runtime = MotionReferenceRuntime.from_clip(ref, clip, 2)
+    runtime.reset(torch.arange(2), torch.Generator().manual_seed(9))
+    before = {
+        (buffer_name, field): getattr(buffers, field).clone()
+        for buffer_name, buffers in (
+            ("data", runtime.buffers),
+            ("init", runtime.init_buffers),
+            ("reference", runtime.reference_buffers),
+        )
+        for field in ("base_pos_w", "link_pos_w", "object_pos_w")
+    }
+    origins = torch.tensor([[1.0, 2.0, 3.0], [-4.0, 5.0, 6.0]])
+
+    runtime.bind_origins(origins)
+
+    for buffer_name, buffers in (
+        ("data", runtime.buffers),
+        ("init", runtime.init_buffers),
+        ("reference", runtime.reference_buffers),
+    ):
+        torch.testing.assert_close(
+            buffers.base_pos_w,
+            before[(buffer_name, "base_pos_w")] + origins.unsqueeze(1),
+        )
+        torch.testing.assert_close(
+            buffers.link_pos_w,
+            before[(buffer_name, "link_pos_w")] + origins[:, None, None, :],
+        )
+        # The absent floorlamp slot remains its neutral zero pose.  The largebox
+        # slot follows the same environment origin as the robot reference.
+        torch.testing.assert_close(
+            buffers.object_pos_w[:, :, 0],
+            before[(buffer_name, "object_pos_w")][:, :, 0],
+        )
+        torch.testing.assert_close(
+            buffers.object_pos_w[:, :, 1],
+            before[(buffer_name, "object_pos_w")][:, :, 1] + origins.unsqueeze(1),
+        )
+
+
 def test_adaptive_sampling_records_smooths_and_reweights_failed_bins() -> None:
     ref = _ref("unused", motion_bin_length_s=1.0, sampling_strategy="concat_motion_bins")
     runtime = MotionReferenceRuntime.from_clips(
