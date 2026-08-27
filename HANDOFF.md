@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 09:59 UTC
+Updated: 2026-08-27 10:22 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -692,6 +692,39 @@ Evidence:
 4 passed (new pairing, strict mismatch, registry, and load-order regressions)
 80 passed (checkpoint/registry/train-play/joint/task focus)
 1261 passed, 2 skipped, 31 deselected (full default suite)
+```
+
+## Reward, observation, and failure-term numerical audit (2026-08-27)
+
+The active shared MDP terms were checked value-for-value against
+`/root/InstinctLab-main` for Isaac and `/root/InstinctMJ` for MJLab. The
+external RL runner was outside this audit. No production-code discrepancy was
+found.
+
+Shadow imitation now has fixed-state guards for the reference XY/height anchor,
+yaw-only relative-world correction, quaternion left-multiplication order,
+base rotation error, and nonuniform multi-link `mean_prod` reduction. Failure
+guards cover height-only versus full-distance checks, the selected link subset,
+projected-gravity distance, and the first-reset-step accumulated contact gate.
+These probes are nontrivial: the reference and robot have different world
+origins and headings, and the selected links carry different errors.
+
+The audit also reconfirmed that rewards read the separate current-time
+`reference_frame`, while commands and failure checks read
+`motion_reference.data` at its active aiming slot; both native builders resolve
+the declared 14-link tuple in preserved order. Optional reference masking and
+keyframe gating are inactive in the registered tasks (retargetted link/base
+masks are all enabled and failure terms declare
+`check_at_keyframe_threshold=-1`). Reward weights remain step-time scaled on
+both engines.
+
+Evidence:
+
+```text
+5 passed (new fixed-state and temporal Shadow probes)
+128 passed (shared MDP, AMP, Parkour, and Shadow numerical focus)
+136 passed, 1 deselected (reference declarations and native lowering focus)
+1273 passed, 2 skipped, 32 deselected (full default suite)
 ```
 
 ## Live experiments

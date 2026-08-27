@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import mujoco
 import pytest
 
+from instinctlab.compat import math as math_utils
 from instinctlab.engines.isaacsim import terms as isaac_terms
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
 from instinctlab.engines.mjlab import terms as mjlab_terms
@@ -346,6 +347,127 @@ def test_shadowing_imitation_rewards_use_current_reference_frame_not_lookahead_d
         shadowing_mdp.link_angular_velocity_imitation(env),
     ):
         torch.testing.assert_close(reward, torch.ones(1))
+
+
+def test_shadowing_relative_world_imitation_matches_reference_fixed_state() -> None:
+    """Pin main/InstinctMJ's XY-height anchor, yaw correction, and mean-product reduction."""
+    half_sqrt = 2.0**-0.5
+    ref_base_quat = torch.tensor([[[half_sqrt, 0.0, 0.0, half_sqrt]]])
+    robot_quat = torch.tensor([[0.0, 0.0, 0.0, 1.0]])
+    ref_link_quat = torch.tensor(
+        [[[[half_sqrt, half_sqrt, 0.0, 0.0], [half_sqrt, 0.0, half_sqrt, 0.0]]]]
+    )
+    reference_frame = SimpleNamespace(
+        base_pos_w=torch.tensor([[[10.0, 20.0, 1.0]]]),
+        base_quat_w=ref_base_quat,
+        link_pos_w=torch.tensor([[[[11.0, 20.0, 1.0], [10.0, 22.0, 3.0]]]]),
+        link_quat_w=ref_link_quat,
+    )
+    expected_pos = torch.tensor([[[3.0, 5.0, 1.0], [1.0, 4.0, 3.0]]])
+    expected_quat = torch.tensor([[[0.5, 0.5, 0.5, 0.5], [0.5, -0.5, 0.5, 0.5]]])
+
+    position_error = torch.tensor([[[0.3, 0.0, 0.0], [0.0, 0.6, 0.0]]])
+    rotation_error = math_utils.quat_from_angle_axis(
+        torch.tensor([0.0, 0.4]),
+        torch.tensor([[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]]),
+    ).unsqueeze(0)
+    actual_quat = math_utils.quat_mul(rotation_error, expected_quat)
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            # Explicit root-link fields must win over legacy aliases on MJLab.
+            root_link_pos_w=torch.tensor([[3.0, 4.0, 9.0]]),
+            root_pos_w=torch.full((1, 3), -100.0),
+            root_link_quat_w=robot_quat,
+            root_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]),
+            body_link_pos_w=expected_pos + position_error,
+            body_link_quat_w=actual_quat,
+        )
+    )
+    env = SimpleNamespace(
+        scene={"robot": robot, "motion_reference": SimpleNamespace(reference_frame=reference_frame)}
+    )
+    asset_cfg = SimpleNamespace(name="robot", body_ids=slice(None))
+
+    relative_pos, relative_quat = shadowing_mdp._relative_reference(robot, reference_frame)
+    torch.testing.assert_close(relative_pos, expected_pos)
+    torch.testing.assert_close(relative_quat, expected_quat)
+
+    position_reward = shadowing_mdp.link_position_imitation(env, asset_cfg=asset_cfg, std=0.3)
+    rotation_reward = shadowing_mdp.link_rotation_imitation(env, asset_cfg=asset_cfg, std=0.4)
+    torch.testing.assert_close(position_reward, torch.exp(torch.tensor([-2.5])))
+    torch.testing.assert_close(rotation_reward, torch.exp(torch.tensor([-0.5])))
+
+
+def test_shadowing_base_rotation_imitation_matches_reference_fixed_angle() -> None:
+    half_sqrt = 2.0**-0.5
+    reference = SimpleNamespace(
+        reference_frame=SimpleNamespace(
+            base_quat_w=torch.tensor([[[half_sqrt, 0.0, 0.0, half_sqrt]]])
+        )
+    )
+    robot = SimpleNamespace(data=SimpleNamespace(root_link_quat_w=torch.tensor([[0.0, 0.0, 0.0, 1.0]])))
+    env = SimpleNamespace(scene={"robot": robot, "motion_reference": reference})
+
+    reward = shadowing_mdp.base_rotation_imitation(env, std=torch.pi / 2)
+
+    torch.testing.assert_close(reward, torch.exp(torch.tensor([-1.0])))
+
+
+def test_shadowing_failure_terms_match_reference_fixed_state() -> None:
+    identity = torch.tensor([1.0, 0.0, 0.0, 0.0])
+    roll_90 = torch.tensor([2.0**-0.5, 2.0**-0.5, 0.0, 0.0])
+    body_pos = torch.zeros(2, 4, 3)
+    body_pos[0, 0, 2] = 10.0  # An unselected link must not end the episode.
+    body_pos[1, 3, 2] = 0.3
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            root_link_pos_w=torch.tensor([[100.0, 100.0, 0.2], [0.0, 0.0, 0.3]]),
+            root_link_quat_w=torch.stack((identity, roll_90)),
+            gravity_vec_w=torch.tensor([[0.0, 0.0, -1.0], [0.0, 0.0, -1.0]]),
+            body_link_pos_w=body_pos,
+        )
+    )
+    reference_data = SimpleNamespace(
+        base_pos_w=torch.zeros(2, 1, 3),
+        base_quat_w=identity.repeat(2, 1).unsqueeze(1),
+        link_pos_w=torch.zeros(2, 1, 4, 3),
+        link_pos_b=torch.zeros(2, 1, 4, 3),
+    )
+    env = SimpleNamespace(scene={"robot": robot, "motion_reference": SimpleNamespace(data=reference_data)})
+    asset_cfg = SimpleNamespace(name="robot", body_ids=slice(None))
+
+    assert shadowing_mdp.base_position_too_far(env, height_only=True).tolist() == [False, True]
+    assert shadowing_mdp.base_position_too_far(env, height_only=False).tolist() == [True, True]
+    assert shadowing_mdp.projected_gravity_too_far(env).tolist() == [False, True]
+    assert shadowing_mdp.link_position_too_far(
+        env,
+        asset_cfg=asset_cfg,
+        link_ids=(1, 3),
+    ).tolist() == [False, True]
+
+
+def test_shadowing_illegal_reset_contact_matches_reference_temporal_gate(monkeypatch) -> None:
+    from instinctlab.compat import sensors as compat_sensors
+
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        episode_length_buf=torch.tensor([1, 1]),
+        scene=SimpleNamespace(sensors={"reset_contacts": object()}),
+    )
+    term = shadowing_mdp.IllegalResetContact(SimpleNamespace(), env)
+    sensor = SimpleNamespace(name="reset_contacts")
+    history = torch.zeros(2, 3, 2, 3)
+    history[:, 1, 0, 0] = 501.0
+    monkeypatch.setattr(compat_sensors, "contact_force_history", lambda _sensor, _ref: history)
+
+    assert term(env, sensor, threshold=500.0, episode_length_threshold=2).tolist() == [False, False]
+    env.episode_length_buf[:] = torch.tensor([2, 3])
+    assert term(env, sensor, threshold=500.0, episode_length_threshold=2).tolist() == [True, False]
+
+    term.reset([0])
+    assert term.counter.tolist() == [0, 2]
+    assert term(env, sensor, threshold=500.0, episode_length_threshold=2).tolist() == [False, False]
 
 
 def test_reference_observation_anchor_noise_and_history_match_effective_sources() -> None:
