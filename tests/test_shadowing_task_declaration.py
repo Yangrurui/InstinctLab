@@ -6,8 +6,9 @@ import ast
 from pathlib import Path
 
 import pytest
-
+from instinctlab.spec import NoiseSpec
 from instinctlab.tasks import registry
+
 from tests.test_shadowing_reference_inventory import COMMON_IDS, MJ_ONLY_IDS
 
 SHADOW_IDS = COMMON_IDS | MJ_ONLY_IDS
@@ -204,3 +205,25 @@ def test_shadowing_env_files_follow_the_reference_layout() -> None:
         "beyondmimic/beyondmimic_env_cfg.py",
     )
     assert all((ROOT / name).is_file() for name in expected)
+
+
+def test_one_task_can_change_one_reward_and_observation() -> None:
+    from instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_vae_cfg import (
+        G1PerceptiveVaeEnvCfg,
+    )
+
+    class TunedVaeEnvCfg(G1PerceptiveVaeEnvCfg):
+        def __init__(self) -> None:
+            super().__init__()
+            self.rewards.action_rate_l2 = self.rewards.action_rate_l2.replace(weight=-0.2)
+            self.observations.policy.joint_pos = self.observations.policy.joint_pos.replace(
+                noise=NoiseSpec("uniform", -0.02, 0.02)
+            )
+
+    tuned = TunedVaeEnvCfg().to_task_spec("Tuned-VAE", "example:Runner")
+    original = G1PerceptiveVaeEnvCfg().to_task_spec("Original-VAE", "example:Runner")
+
+    assert tuned.mdp.rewards["rewards"]["action_rate_l2"].weight == -0.2
+    assert original.mdp.rewards["rewards"]["action_rate_l2"].weight == -0.1
+    assert tuned.mdp.observations["policy"].terms["joint_pos"].noise == NoiseSpec("uniform", -0.02, 0.02)
+    assert original.mdp.observations["policy"].terms["joint_pos"].noise == NoiseSpec("uniform", -0.01, 0.01)

@@ -17,6 +17,10 @@ use Git history when their provenance is needed.
 - Keep each task's concrete configuration together in one obvious task config
   file whenever practical. Avoid inheritance chains and repeated overrides that
   make the final value of a parameter difficult to find.
+- Task families expose named `EnvCfg`, `RewardsCfg`, and observation config
+  classes. Concrete robot configs inherit once and convert to `TaskSpec` only at
+  the registry boundary. Change one term on that concrete config; do not add a
+  `make_task` dispatcher or reward/observation overrides dictionaries.
 - For adapted tasks, preserve the directory layout, file names, declaration
   order, and terminology used by `/root/InstinctLab-main` and
   `/root/InstinctMJ`. Do not replace those task files with a central variant

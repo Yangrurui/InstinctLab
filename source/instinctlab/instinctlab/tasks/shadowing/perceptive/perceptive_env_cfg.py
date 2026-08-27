@@ -198,9 +198,7 @@ def make_policy_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
 
 def make_critic_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
     return {
-        "base_ang_vel": ObsTermSpec(
-            func=mdp.base_ang_vel, history_length=PROPRIO_HISTORY_LENGTH
-        ),
+        "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, history_length=PROPRIO_HISTORY_LENGTH),
         "joint_pos": ObsTermSpec(
             func=mdp.joint_pos_rel,
             params={"asset_cfg": joints},
@@ -211,9 +209,7 @@ def make_critic_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
             params={"asset_cfg": joints},
             history_length=PROPRIO_HISTORY_LENGTH,
         ),
-        "last_action": ObsTermSpec(
-            func=mdp.last_action, history_length=PROPRIO_HISTORY_LENGTH
-        ),
+        "last_action": ObsTermSpec(func=mdp.last_action, history_length=PROPRIO_HISTORY_LENGTH),
     }
 
 
@@ -261,72 +257,90 @@ def make_critic_reference_observations() -> dict[str, ObsTermSpec]:
     }
 
 
-def make_observations(
-    robot: RobotSpec,
-    motion_reference: MotionReferenceRef,
-    vae: bool,
-) -> dict[str, ObsGroupSpec]:
-    joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
-    links = EntityRef("robot", bodies=motion_reference.links, preserve_order=True)
-    if vae:
-        policy_terms = {
-            "depth_image": ObsTermSpec(
+class ObservationGroupCfg:
+    def __init__(
+        self,
+        terms: dict[str, ObsTermSpec],
+        enable_corruption: bool,
+    ) -> None:
+        self.enable_corruption = enable_corruption
+        for name, term in terms.items():
+            setattr(self, name, term)
+
+    def to_spec(self) -> ObsGroupSpec:
+        terms = dict(vars(self))
+        enable_corruption = terms.pop("enable_corruption")
+        return ObsGroupSpec(
+            terms=terms,
+            enable_corruption=enable_corruption,
+            concatenate_terms=False,
+        )
+
+
+class ObservationsCfg:
+    def __init__(
+        self,
+        robot: RobotSpec,
+        motion_reference: MotionReferenceRef,
+        vae: bool,
+    ) -> None:
+        joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
+        links = EntityRef("robot", bodies=motion_reference.links, preserve_order=True)
+        if vae:
+            policy_terms = {
+                "depth_image": ObsTermSpec(
+                    kind="shadow_depth_image",
+                    params={
+                        "sensor": make_camera(),
+                        "history_length": 10,
+                        "history_skip_frames": 3,
+                        "num_output_frames": 4,
+                        "resize_shape": (18, 32),
+                        "normalization_range": (0.0, 2.0),
+                    },
+                )
+            }
+            policy_terms.update(make_policy_proprioception(joints))
+            critic_terms = make_critic_reference_observations()
+            critic_terms["depth_image"] = ObsTermSpec(
                 kind="shadow_depth_image",
-                params={
-                    "sensor": make_camera(),
-                    "history_length": 10,
-                    "history_skip_frames": 3,
-                    "num_output_frames": 4,
-                    "resize_shape": (18, 32),
-                    "normalization_range": (0.0, 2.0),
-                },
+                params={"sensor": make_camera()},
             )
+            critic_terms.update(make_critic_proprioception(joints))
+        else:
+            policy_terms = make_policy_reference_observations()
+            policy_terms["depth_image"] = ObsTermSpec(
+                kind="shadow_depth_image",
+                params={"sensor": make_camera()},
+            )
+            policy_terms.update(make_policy_proprioception(joints))
+            critic_terms = make_critic_reference_observations()
+            del critic_terms["rotation_ref"]
+            critic_terms["link_pos"] = ObsTermSpec(
+                kind="shadow_link_position",
+                params={"motion_reference": motion_reference, "asset_cfg": links},
+            )
+            critic_terms["link_rot"] = ObsTermSpec(
+                kind="shadow_link_rotation",
+                params={"motion_reference": motion_reference, "asset_cfg": links},
+            )
+            critic_terms["height_scan"] = ObsTermSpec(
+                kind="shadow_height_scan",
+                params={"sensor": make_height_scanner()},
+            )
+            critic_terms["base_lin_vel"] = ObsTermSpec(
+                kind="shadow_base_linear_velocity",
+                history_length=PROPRIO_HISTORY_LENGTH,
+            )
+            critic_terms.update(make_critic_proprioception(joints))
+        self.policy = ObservationGroupCfg(policy_terms, enable_corruption=True)
+        self.critic = ObservationGroupCfg(critic_terms, enable_corruption=False)
+
+    def to_dict(self) -> dict[str, ObsGroupSpec]:
+        return {
+            "policy": self.policy.to_spec(),
+            "critic": self.critic.to_spec(),
         }
-        policy_terms.update(make_policy_proprioception(joints))
-        critic_terms = make_critic_reference_observations()
-        critic_terms["depth_image"] = ObsTermSpec(
-            kind="shadow_depth_image",
-            params={"sensor": make_camera()},
-        )
-        critic_terms.update(make_critic_proprioception(joints))
-    else:
-        policy_terms = make_policy_reference_observations()
-        policy_terms["depth_image"] = ObsTermSpec(
-            kind="shadow_depth_image",
-            params={"sensor": make_camera()},
-        )
-        policy_terms.update(make_policy_proprioception(joints))
-        critic_terms = make_critic_reference_observations()
-        del critic_terms["rotation_ref"]
-        critic_terms["link_pos"] = ObsTermSpec(
-            kind="shadow_link_position",
-            params={"motion_reference": motion_reference, "asset_cfg": links},
-        )
-        critic_terms["link_rot"] = ObsTermSpec(
-            kind="shadow_link_rotation",
-            params={"motion_reference": motion_reference, "asset_cfg": links},
-        )
-        critic_terms["height_scan"] = ObsTermSpec(
-            kind="shadow_height_scan",
-            params={"sensor": make_height_scanner()},
-        )
-        critic_terms["base_lin_vel"] = ObsTermSpec(
-            kind="shadow_base_linear_velocity",
-            history_length=PROPRIO_HISTORY_LENGTH,
-        )
-        critic_terms.update(make_critic_proprioception(joints))
-    return {
-        "policy": ObsGroupSpec(
-            terms=policy_terms,
-            enable_corruption=True,
-            concatenate_terms=False,
-        ),
-        "critic": ObsGroupSpec(
-            terms=critic_terms,
-            enable_corruption=False,
-            concatenate_terms=False,
-        ),
-    }
 
 
 def make_events(play: bool) -> dict[str, EventTermSpec]:
@@ -428,80 +442,85 @@ def make_events(play: bool) -> dict[str, EventTermSpec]:
     return events
 
 
-def make_rewards() -> dict[str, dict[str, RewardTermSpec]]:
-    terms = {
-        "base_position_imitation_gauss": RewardTermSpec(
-            kind="shadow_base_position_gauss",
-            weight=0.5,
-            params={"std": 0.3},
-            level=Requirement.REQUIRED,
-        ),
-        "base_rot_imitation_gauss": RewardTermSpec(
-            kind="shadow_base_rotation_gauss",
-            weight=0.5,
-            params={"std": 0.4, "difference_type": "axis_angle"},
-            level=Requirement.REQUIRED,
-        ),
-        "link_pos_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_position_gauss",
-            weight=1.0,
-            params={
-                "combine_method": "mean_prod",
-                "in_base_frame": False,
-                "in_relative_world_frame": True,
-                "std": 0.3,
-            },
-            level=Requirement.REQUIRED,
-        ),
-        "link_rot_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_rotation_gauss",
-            weight=1.0,
-            params={
-                "combine_method": "mean_prod",
-                "in_base_frame": False,
-                "in_relative_world_frame": True,
-                "std": 0.4,
-            },
-            level=Requirement.REQUIRED,
-        ),
-        "link_lin_vel_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_linear_velocity_gauss",
-            weight=1.0,
-            params={"combine_method": "mean_prod", "std": 1.0},
-            level=Requirement.REQUIRED,
-        ),
-        "link_ang_vel_imitation_gauss": RewardTermSpec(
-            kind="shadow_link_angular_velocity_gauss",
-            weight=1.0,
-            params={"combine_method": "mean_prod", "std": 3.14},
-            level=Requirement.REQUIRED,
-        ),
-        "action_rate_l2": RewardTermSpec(
-            func=mdp.action_rate_l2,
-            weight=-0.1,
-            level=Requirement.REQUIRED,
-        ),
-        "joint_limit": RewardTermSpec(
-            func=mdp.joint_pos_limits,
-            weight=-10.0,
-            level=Requirement.REQUIRED,
-        ),
-        "undesired_contacts": RewardTermSpec(
-            kind="shadow_undesired_contacts",
-            weight=-0.1,
-            params={
-                "threshold": 1.0,
-                "sensor": make_contact_sensor(NON_SUPPORT_CONTACTS),
-            },
-            level=Requirement.REQUIRED,
-        ),
-        "applied_torque_limits_by_ratio": RewardTermSpec(
-            kind="shadow_torque_limit_ratio",
-            weight=-0.05,
-            level=Requirement.REQUIRED,
-        ),
-    }
-    return {"rewards": terms}
+class RewardsCfg:
+    def __init__(self) -> None:
+        terms = {
+            "base_position_imitation_gauss": RewardTermSpec(
+                kind="shadow_base_position_gauss",
+                weight=0.5,
+                params={"std": 0.3},
+                level=Requirement.REQUIRED,
+            ),
+            "base_rot_imitation_gauss": RewardTermSpec(
+                kind="shadow_base_rotation_gauss",
+                weight=0.5,
+                params={"std": 0.4, "difference_type": "axis_angle"},
+                level=Requirement.REQUIRED,
+            ),
+            "link_pos_imitation_gauss": RewardTermSpec(
+                kind="shadow_link_position_gauss",
+                weight=1.0,
+                params={
+                    "combine_method": "mean_prod",
+                    "in_base_frame": False,
+                    "in_relative_world_frame": True,
+                    "std": 0.3,
+                },
+                level=Requirement.REQUIRED,
+            ),
+            "link_rot_imitation_gauss": RewardTermSpec(
+                kind="shadow_link_rotation_gauss",
+                weight=1.0,
+                params={
+                    "combine_method": "mean_prod",
+                    "in_base_frame": False,
+                    "in_relative_world_frame": True,
+                    "std": 0.4,
+                },
+                level=Requirement.REQUIRED,
+            ),
+            "link_lin_vel_imitation_gauss": RewardTermSpec(
+                kind="shadow_link_linear_velocity_gauss",
+                weight=1.0,
+                params={"combine_method": "mean_prod", "std": 1.0},
+                level=Requirement.REQUIRED,
+            ),
+            "link_ang_vel_imitation_gauss": RewardTermSpec(
+                kind="shadow_link_angular_velocity_gauss",
+                weight=1.0,
+                params={"combine_method": "mean_prod", "std": 3.14},
+                level=Requirement.REQUIRED,
+            ),
+            "action_rate_l2": RewardTermSpec(
+                func=mdp.action_rate_l2,
+                weight=-0.1,
+                level=Requirement.REQUIRED,
+            ),
+            "joint_limit": RewardTermSpec(
+                func=mdp.joint_pos_limits,
+                weight=-10.0,
+                level=Requirement.REQUIRED,
+            ),
+            "undesired_contacts": RewardTermSpec(
+                kind="shadow_undesired_contacts",
+                weight=-0.1,
+                params={
+                    "threshold": 1.0,
+                    "sensor": make_contact_sensor(NON_SUPPORT_CONTACTS),
+                },
+                level=Requirement.REQUIRED,
+            ),
+            "applied_torque_limits_by_ratio": RewardTermSpec(
+                kind="shadow_torque_limit_ratio",
+                weight=-0.05,
+                level=Requirement.REQUIRED,
+            ),
+        }
+        for name, term in terms.items():
+            setattr(self, name, term)
+
+    def to_dict(self) -> dict[str, dict[str, RewardTermSpec]]:
+        return {"rewards": dict(vars(self))}
 
 
 def make_terminations(
@@ -572,77 +591,89 @@ def make_terminations(
 def make_curriculum(play: bool) -> dict[str, CurriculumTermSpec]:
     if play:
         return {}
-    return {
-        "beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")
-    }
+    return {"beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")}
 
 
-def make_task(
-    task_id: str,
-    robot: RobotSpec,
-    motion_reference: MotionReferenceRef,
-    motion_paths: dict[str, str],
-    runner: str,
-    play: bool,
-    vae: bool,
-    agent_overrides: dict[str, object],
-) -> TaskSpec:
-    isaac_profile = {
-        "use_terrain_physics_material": True,
-        "gpu_max_rigid_patch_count": 10 * 2**15,
-        "gpu_max_rigid_contact_count": 2**27,
-        "gpu_collision_stack_size": 2**27,
-    }
-    mjlab_profile = {
-        "iterations": 10,
-        "ls_iterations": 20,
-        "njmax": 1200,
-        "nconmax": None,
-    }
-    if vae:
+class PerceptiveShadowingEnvCfg:
+    def __init__(
+        self,
+        robot: RobotSpec,
+        motion_reference: MotionReferenceRef,
+        motion_paths: dict[str, str],
+        play: bool,
+        vae: bool,
+    ) -> None:
+        isaac_profile = {
+            "use_terrain_physics_material": True,
+            "gpu_max_rigid_patch_count": 10 * 2**15,
+            "gpu_max_rigid_contact_count": 2**27,
+            "gpu_collision_stack_size": 2**27,
+        }
         mjlab_profile = {
             "iterations": 10,
             "ls_iterations": 20,
-            "njmax": 512,
-            "nconmax": 128,
-            "contact_sensor_maxmatch": 128,
-            "ccd_iterations": 128,
-            "jacobian": "sparse",
+            "njmax": 1200,
+            "nconmax": None,
         }
-    return TaskSpec(
-        task_id=task_id,
-        robot=robot,
-        scene=make_scene(motion_reference, motion_paths, play, vae),
-        sim=SimSpec(
+        if vae:
+            mjlab_profile = {
+                "iterations": 10,
+                "ls_iterations": 20,
+                "njmax": 512,
+                "nconmax": 128,
+                "contact_sensor_maxmatch": 128,
+                "ccd_iterations": 128,
+                "jacobian": "sparse",
+            }
+        self.robot = robot
+        self.scene = make_scene(motion_reference, motion_paths, play, vae)
+        self.sim = SimSpec(
             physics_dt=0.005,
             decimation=4,
             episode_length_s=10.0,
             profiles={"isaacsim": isaac_profile, "mjlab": mjlab_profile},
-        ),
-        mdp=MdpSpec(
-            observations=make_observations(robot, motion_reference, vae),
-            actions=make_actions(robot),
-            commands=make_commands(),
-            rewards=make_rewards(),
-            events=make_events(play),
-            curriculum=make_curriculum(play),
-            terminations=make_terminations(motion_reference, vae),
-        ),
-        agent=AgentSpec(runner=runner, overrides=agent_overrides),
-        engines=("isaacsim", "mjlab"),
-        engine_extras={
-            "isaacsim": {
-                "shadowing_family": "perceptive_vae" if vae else "perceptive",
-                "play": play,
-                "reference_num_envs": 4096 if vae else 1024,
+        )
+        self.observations = ObservationsCfg(robot, motion_reference, vae)
+        self.actions = make_actions(robot)
+        self.commands = make_commands()
+        self.rewards = RewardsCfg()
+        self.events = make_events(play)
+        self.curriculum = make_curriculum(play)
+        self.terminations = make_terminations(motion_reference, vae)
+        self.play = play
+        self.vae = vae
+        self.agent_overrides: dict[str, object] = {}
+
+    def to_task_spec(self, task_id: str, runner: str) -> TaskSpec:
+        return TaskSpec(
+            task_id=task_id,
+            robot=self.robot,
+            scene=self.scene,
+            sim=self.sim,
+            mdp=MdpSpec(
+                observations=self.observations.to_dict(),
+                actions=self.actions,
+                commands=self.commands,
+                rewards=self.rewards.to_dict(),
+                events=self.events,
+                curriculum=self.curriculum,
+                terminations=self.terminations,
+            ),
+            agent=AgentSpec(runner=runner, overrides=self.agent_overrides),
+            engines=("isaacsim", "mjlab"),
+            engine_extras={
+                "isaacsim": {
+                    "shadowing_family": "perceptive_vae" if self.vae else "perceptive",
+                    "play": self.play,
+                    "reference_num_envs": 4096 if self.vae else 1024,
+                },
+                "mjlab": {
+                    "shadowing_family": "perceptive_vae" if self.vae else "perceptive",
+                    "play": self.play,
+                    "reference_num_envs": 4096 if self.vae else 1024,
+                },
             },
-            "mjlab": {
-                "shadowing_family": "perceptive_vae" if vae else "perceptive",
-                "play": play,
-                "reference_num_envs": 4096 if vae else 1024,
-            },
-        },
-    )
+        )
 
 
-__all__ = ["make_task"]
+__all__ = ["PerceptiveShadowingEnvCfg", "RewardsCfg"]

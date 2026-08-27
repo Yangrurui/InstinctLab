@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from .capability import Requirement
@@ -148,6 +148,10 @@ class TermSpec:
     def engines_named(self) -> frozenset[str]:
         """Engines this term mentions by name, so the compiler can reject typos in engine keys."""
         return frozenset(self.engine_params)
+
+    def replace(self, **changes: Any) -> TermSpec:
+        """Return the same term with only the named configuration fields changed."""
+        return replace(self, **changes)
 
 
 @dataclass(frozen=True)

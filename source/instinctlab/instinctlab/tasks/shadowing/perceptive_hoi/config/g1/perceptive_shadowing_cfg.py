@@ -1,11 +1,11 @@
 """G1 Perceptive HOI Shadowing task configuration."""
 
+import instinctlab.tasks.shadowing.perceptive_hoi.perceptive_env_cfg as perceptual_cfg
 from instinctlab.assets.unitree_g1.catalog import (
     make_g1_29dof_robot_spec,
     make_g1_29dof_shadowing_robot_spec,
 )
 from instinctlab.spec import MotionReferenceRef, RigidObjectRef, TaskSpec
-from instinctlab.tasks.shadowing.perceptive_hoi.perceptive_env_cfg import make_task
 
 TASK_ID = "Instinct-Perceptive-HOI-Shadowing-G1-v0"
 PLAY_TASK_ID = "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0"
@@ -129,26 +129,37 @@ def make_robot():
     return make_g1_29dof_shadowing_robot_spec()
 
 
+class G1PerceptiveHoiShadowingEnvCfg(perceptual_cfg.PerceptiveHoiShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(False),
+            objects=make_objects(),
+            play=False,
+        )
+
+
+class G1PerceptiveHoiShadowingEnvCfg_PLAY(perceptual_cfg.PerceptiveHoiShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(True),
+            objects=make_objects(),
+            play=True,
+        )
+
+
 def g1_perceptive_hoi_shadowing() -> TaskSpec:
-    return make_task(
-        TASK_ID,
-        make_robot(),
-        make_motion_reference(False),
-        make_objects(),
-        RUNNER,
-        False,
-    )
+    return G1PerceptiveHoiShadowingEnvCfg().to_task_spec(TASK_ID, RUNNER)
 
 
 def g1_perceptive_hoi_shadowing_play() -> TaskSpec:
-    return make_task(
-        PLAY_TASK_ID,
-        make_robot(),
-        make_motion_reference(True),
-        make_objects(),
-        RUNNER,
-        True,
-    )
+    return G1PerceptiveHoiShadowingEnvCfg_PLAY().to_task_spec(PLAY_TASK_ID, RUNNER)
 
 
-__all__ = ["g1_perceptive_hoi_shadowing", "g1_perceptive_hoi_shadowing_play"]
+__all__ = [
+    "G1PerceptiveHoiShadowingEnvCfg",
+    "G1PerceptiveHoiShadowingEnvCfg_PLAY",
+    "g1_perceptive_hoi_shadowing",
+    "g1_perceptive_hoi_shadowing_play",
+]

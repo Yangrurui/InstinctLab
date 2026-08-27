@@ -81,34 +81,60 @@ def _canonical_joints(robot: RobotSpec) -> EntityRef:
     return EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
 
 
-def _policy_observations(*, corrupt: bool, joints: EntityRef) -> ObsGroupSpec:
-    """The policy's inputs, and the critic's when the noise is switched off.
+class G1FlatPolicyObsCfg:
+    def __init__(self, joints: EntityRef) -> None:
+        self.base_ang_vel = ObsTermSpec(func=mdp.base_ang_vel, noise=NoiseSpec("uniform", -0.2, 0.2))
+        self.projected_gravity = ObsTermSpec(func=mdp.projected_gravity, noise=NoiseSpec("uniform", -0.05, 0.05))
+        self.velocity_commands = ObsTermSpec(func=mdp.generated_commands, params={"command_name": COMMAND})
+        self.joint_pos = ObsTermSpec(
+            func=mdp.joint_pos_rel,
+            noise=NoiseSpec("uniform", -0.01, 0.01),
+            params={"asset_cfg": joints},
+        )
+        self.joint_vel = ObsTermSpec(
+            func=mdp.joint_vel,
+            noise=NoiseSpec("uniform", -1.5, 1.5),
+            params={"asset_cfg": joints},
+        )
+        self.actions = ObsTermSpec(func=mdp.last_action)
 
-    One function for both groups because they differ in exactly two ways -- the critic sees base
-    linear velocity and no noise -- and writing them separately is how the two silently drift apart
-    in term order, which would make the critic's input a different vector than intended.
-    """
-    noise = (lambda lo, hi: NoiseSpec("uniform", lo, hi)) if corrupt else (lambda lo, hi: None)
-    terms = {
-        "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, noise=noise(-0.2, 0.2)),
-        "projected_gravity": ObsTermSpec(func=mdp.projected_gravity, noise=noise(-0.05, 0.05)),
-        "velocity_commands": ObsTermSpec(func=mdp.generated_commands, params={"command_name": COMMAND}),
-        "joint_pos": ObsTermSpec(func=mdp.joint_pos_rel, noise=noise(-0.01, 0.01), params={"asset_cfg": joints}),
-        "joint_vel": ObsTermSpec(func=mdp.joint_vel, noise=noise(-1.5, 1.5), params={"asset_cfg": joints}),
-        # ``last_action`` reads the action manager's whole vector, so it follows the action term's
-        # order and needs no selector of its own.
-        "actions": ObsTermSpec(func=mdp.last_action),
-    }
-    if not corrupt:
-        terms = {"base_lin_vel": ObsTermSpec(func=mdp.base_lin_vel), **terms}
-    return ObsGroupSpec(terms=terms, enable_corruption=corrupt, concatenate_terms=False)
+    def to_spec(self) -> ObsGroupSpec:
+        return ObsGroupSpec(terms=dict(vars(self)), enable_corruption=True, concatenate_terms=False)
 
 
-def _rewards() -> dict[str, RewardTermSpec]:
-    deviation = lambda joints, weight: RewardTermSpec(
-        func=mdp.joint_deviation_l1, weight=weight, params={"asset_cfg": EntityRef("robot", joints=joints)}
-    )
-    return {
+class G1FlatCriticObsCfg:
+    def __init__(self, joints: EntityRef) -> None:
+        self.base_lin_vel = ObsTermSpec(func=mdp.base_lin_vel)
+        self.base_ang_vel = ObsTermSpec(func=mdp.base_ang_vel)
+        self.projected_gravity = ObsTermSpec(func=mdp.projected_gravity)
+        self.velocity_commands = ObsTermSpec(func=mdp.generated_commands, params={"command_name": COMMAND})
+        self.joint_pos = ObsTermSpec(func=mdp.joint_pos_rel, params={"asset_cfg": joints})
+        self.joint_vel = ObsTermSpec(func=mdp.joint_vel, params={"asset_cfg": joints})
+        self.actions = ObsTermSpec(func=mdp.last_action)
+
+    def to_spec(self) -> ObsGroupSpec:
+        return ObsGroupSpec(terms=dict(vars(self)), enable_corruption=False, concatenate_terms=False)
+
+
+class G1FlatObservationsCfg:
+    def __init__(self, joints: EntityRef) -> None:
+        self.policy = G1FlatPolicyObsCfg(joints)
+        self.critic = G1FlatCriticObsCfg(joints)
+
+    def to_dict(self) -> dict[str, ObsGroupSpec]:
+        return {"policy": self.policy.to_spec(), "critic": self.critic.to_spec()}
+
+
+class G1FlatRewardsCfg:
+    def __init__(self) -> None:
+        def deviation(joints: str | tuple[str, ...], weight: float) -> RewardTermSpec:
+            return RewardTermSpec(
+                func=mdp.joint_deviation_l1,
+                weight=weight,
+                params={"asset_cfg": EntityRef("robot", joints=joints)},
+            )
+
+        terms = {
         "termination_penalty": RewardTermSpec(func=mdp.is_terminated, weight=-200.0),
         "track_lin_vel_xy_exp": RewardTermSpec(
             func=mdp.track_lin_vel_xy_yaw_frame_exp, weight=1.0, params={"command_name": COMMAND, "std": 0.5}
@@ -172,7 +198,12 @@ def _rewards() -> dict[str, RewardTermSpec]:
             params={"asset_cfg": EntityRef("robot", joints=(".*_hip_.*", ".*_knee_joint"))},
             level=Requirement.REQUIRED,
         ),
-    }
+        }
+        for name, term in terms.items():
+            setattr(self, name, term)
+
+    def to_dict(self) -> dict[str, dict[str, RewardTermSpec]]:
+        return {"rewards": dict(vars(self))}
 
 
 def _events() -> dict[str, EventTermSpec]:
@@ -263,42 +294,59 @@ def _action_scale(robot: RobotSpec) -> dict[str, float]:
     return {joint.name: joint.action_scale for joint in robot.joint_properties}
 
 
-def flat_g1() -> TaskSpec:
-    """The task."""
-    robot = make_g1_29dof_robot_spec()
-    joints = _canonical_joints(robot)
-    return TaskSpec(
-        task_id="Instinct-Velocity-Flat-G1",
-        robot=robot,
-        scene=SceneSpec(
+class G1FlatEnvCfg:
+    def __init__(self) -> None:
+        self.robot = make_g1_29dof_robot_spec()
+        joints = _canonical_joints(self.robot)
+        self.scene = SceneSpec(
             contact_sensors=(
                 ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True, history_length=3),
             ),
             env_spacing=2.5,
-        ),
-        sim=SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0),
-        mdp=MdpSpec(
-            observations={
-                "policy": _policy_observations(corrupt=True, joints=joints),
-                "critic": _policy_observations(corrupt=False, joints=joints),
-            },
-            actions={
-                "joint_pos": ActionTermSpec(
-                    kind="joint_position",
-                    target=joints,
-                    params={"scale": _action_scale(robot), "use_default_offset": True},
-                )
-            },
-            commands=_commands(),
-            rewards={"rewards": _rewards()},
-            terminations={
-                "time_out": DoneTermSpec(func=mdp.time_out, time_out=True),
-                "base_contact": DoneTermSpec(
-                    func=mdp.illegal_contact, time_out=False, params={"sensor": UPPER_BODY_CONTACT}
-                ),
-            },
-            events=_events(),
-        ),
-        agent=AgentSpec(runner="instinctlab.tasks.locomotion.config.g1.agents.instinct_rl_ppo_cfg:G1FlatPPORunnerCfg"),
-        engines=("isaacsim", "mjlab"),
-    )
+        )
+        self.sim = SimSpec(physics_dt=0.005, decimation=4, episode_length_s=20.0)
+        self.observations = G1FlatObservationsCfg(joints)
+        self.actions = {
+            "joint_pos": ActionTermSpec(
+                kind="joint_position",
+                target=joints,
+                params={"scale": _action_scale(self.robot), "use_default_offset": True},
+            )
+        }
+        self.commands = _commands()
+        self.rewards = G1FlatRewardsCfg()
+        self.terminations = {
+            "time_out": DoneTermSpec(func=mdp.time_out, time_out=True),
+            "base_contact": DoneTermSpec(
+                func=mdp.illegal_contact,
+                time_out=False,
+                params={"sensor": UPPER_BODY_CONTACT},
+            ),
+        }
+        self.events = _events()
+        self.curriculum = {}
+
+    def to_task_spec(self, task_id: str) -> TaskSpec:
+        return TaskSpec(
+            task_id=task_id,
+            robot=self.robot,
+            scene=self.scene,
+            sim=self.sim,
+            mdp=MdpSpec(
+                observations=self.observations.to_dict(),
+                actions=self.actions,
+                commands=self.commands,
+                rewards=self.rewards.to_dict(),
+                terminations=self.terminations,
+                events=self.events,
+                curriculum=self.curriculum,
+            ),
+            agent=AgentSpec(
+                runner="instinctlab.tasks.locomotion.config.g1.agents.instinct_rl_ppo_cfg:G1FlatPPORunnerCfg"
+            ),
+            engines=("isaacsim", "mjlab"),
+        )
+
+
+def flat_g1() -> TaskSpec:
+    return G1FlatEnvCfg().to_task_spec("Instinct-Velocity-Flat-G1")

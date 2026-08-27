@@ -1,24 +1,19 @@
 """G1 Perceptive Shadowing task configuration."""
 
+import instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg as perceptual_cfg
 from instinctlab.assets.unitree_g1.catalog import (
     make_g1_29dof_robot_spec,
     make_g1_29dof_shadowing_robot_spec,
 )
 from instinctlab.spec import MotionReferenceRef, TaskSpec
-from instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg import make_task
 
 TASK_ID = "Instinct-Perceptive-Shadowing-G1-v0"
 PLAY_TASK_ID = "Instinct-Perceptive-Shadowing-G1-Play-v0"
 ONE_MOTION_TASK_ID = "Instinct-Perceptive-Shadowing-G1-OneMotion-v0"
 ONE_MOTION_PLAY_TASK_ID = "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0"
-MOTION_PATH = (
-    "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1"
-)
+MOTION_PATH = "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1"
 MOTION_PATHS = {"isaacsim": MOTION_PATH, "mjlab": MOTION_PATH}
-RUNNER = (
-    "instinctlab.tasks.shadowing.perceptive.config.g1.agents.instinct_rl_ppo_cfg:"
-    "G1PerceptiveShadowingPPORunnerCfg"
-)
+RUNNER = "instinctlab.tasks.shadowing.perceptive.config.g1.agents.instinct_rl_ppo_cfg:G1PerceptiveShadowingPPORunnerCfg"
 MOTION_LINKS = (
     "pelvis",
     "torso_link",
@@ -76,59 +71,77 @@ def make_robot():
     return make_g1_29dof_shadowing_robot_spec()
 
 
+class G1PerceptiveShadowingEnvCfg(perceptual_cfg.PerceptiveShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(False, False),
+            motion_paths=MOTION_PATHS,
+            play=False,
+            vae=False,
+        )
+
+
+class G1PerceptiveShadowingEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(True, False),
+            motion_paths=MOTION_PATHS,
+            play=True,
+            vae=False,
+        )
+
+
+class G1PerceptiveShadowingOneMotionEnvCfg(perceptual_cfg.PerceptiveShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(False, True),
+            motion_paths=MOTION_PATHS,
+            play=False,
+            vae=False,
+        )
+        self.agent_overrides = {
+            "experiment_name": "g1_perceptive_shadowing_one_motion",
+        }
+
+
+class G1PerceptiveShadowingOneMotionEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(True, True),
+            motion_paths=MOTION_PATHS,
+            play=True,
+            vae=False,
+        )
+        self.agent_overrides = {
+            "experiment_name": "g1_perceptive_shadowing_one_motion",
+        }
+
+
 def g1_perceptive_shadowing() -> TaskSpec:
-    return make_task(
-        TASK_ID,
-        make_robot(),
-        make_motion_reference(False, False),
-        MOTION_PATHS,
-        RUNNER,
-        False,
-        False,
-        {},
-    )
+    return G1PerceptiveShadowingEnvCfg().to_task_spec(TASK_ID, RUNNER)
 
 
 def g1_perceptive_shadowing_play() -> TaskSpec:
-    return make_task(
-        PLAY_TASK_ID,
-        make_robot(),
-        make_motion_reference(True, False),
-        MOTION_PATHS,
-        RUNNER,
-        True,
-        False,
-        {},
-    )
+    return G1PerceptiveShadowingEnvCfg_PLAY().to_task_spec(PLAY_TASK_ID, RUNNER)
 
 
 def g1_perceptive_shadowing_one_motion() -> TaskSpec:
-    return make_task(
-        ONE_MOTION_TASK_ID,
-        make_robot(),
-        make_motion_reference(False, True),
-        MOTION_PATHS,
-        RUNNER,
-        False,
-        False,
-        {"experiment_name": "g1_perceptive_shadowing_one_motion"},
-    )
+    return G1PerceptiveShadowingOneMotionEnvCfg().to_task_spec(ONE_MOTION_TASK_ID, RUNNER)
 
 
 def g1_perceptive_shadowing_one_motion_play() -> TaskSpec:
-    return make_task(
-        ONE_MOTION_PLAY_TASK_ID,
-        make_robot(),
-        make_motion_reference(True, True),
-        MOTION_PATHS,
-        RUNNER,
-        True,
-        False,
-        {"experiment_name": "g1_perceptive_shadowing_one_motion"},
-    )
+    return G1PerceptiveShadowingOneMotionEnvCfg_PLAY().to_task_spec(ONE_MOTION_PLAY_TASK_ID, RUNNER)
 
 
 __all__ = [
+    "G1PerceptiveShadowingEnvCfg",
+    "G1PerceptiveShadowingEnvCfg_PLAY",
+    "G1PerceptiveShadowingOneMotionEnvCfg",
+    "G1PerceptiveShadowingOneMotionEnvCfg_PLAY",
     "g1_perceptive_shadowing",
     "g1_perceptive_shadowing_one_motion",
     "g1_perceptive_shadowing_one_motion_play",

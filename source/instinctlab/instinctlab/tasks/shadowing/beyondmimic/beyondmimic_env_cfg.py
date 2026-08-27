@@ -98,95 +98,109 @@ def make_actions(robot: RobotSpec) -> dict[str, ActionTermSpec]:
     }
 
 
-def make_observations(
-    robot: RobotSpec,
-    motion_reference: MotionReferenceRef,
-) -> dict[str, ObsGroupSpec]:
-    joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
-    links = EntityRef("robot", bodies=motion_reference.links, preserve_order=True)
-    policy_terms = {
-        "joint_pos_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "joint_pos_ref_command"},
-        ),
-        "joint_vel_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "joint_vel_ref_command"},
-        ),
-        "position_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "position_ref_command"},
-            noise=NoiseSpec("uniform", -0.25, 0.25),
-        ),
-        "rotation_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "rotation_ref_command"},
-            noise=NoiseSpec("uniform", -0.05, 0.05),
-        ),
-        "base_lin_vel": ObsTermSpec(kind="shadow_base_linear_velocity"),
-        "projected_gravity": ObsTermSpec(
-            func=mdp.projected_gravity,
-            noise=NoiseSpec("uniform", -0.05, 0.05),
-        ),
-        "base_ang_vel": ObsTermSpec(
-            func=mdp.base_ang_vel,
-            noise=NoiseSpec("uniform", -0.2, 0.2),
-        ),
-        "joint_pos": ObsTermSpec(
-            func=mdp.joint_pos_rel,
-            params={"asset_cfg": joints},
-            noise=NoiseSpec("uniform", -0.01, 0.01),
-        ),
-        "joint_vel": ObsTermSpec(
-            func=mdp.joint_vel_rel,
-            params={"asset_cfg": joints},
-            noise=NoiseSpec("uniform", -0.5, 0.5),
-        ),
-        "last_action": ObsTermSpec(func=mdp.last_action),
-    }
-    critic_terms = {
-        "joint_pos_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "joint_pos_ref_command"},
-        ),
-        "joint_vel_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "joint_vel_ref_command"},
-        ),
-        "position_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "position_ref_command"},
-        ),
-        "rotation_ref": ObsTermSpec(
-            func=mdp.generated_commands,
-            params={"command_name": "rotation_ref_command"},
-        ),
-        "link_pos": ObsTermSpec(
-            kind="shadow_link_position",
-            params={"motion_reference": motion_reference, "asset_cfg": links},
-        ),
-        "link_rot": ObsTermSpec(
-            kind="shadow_link_rotation",
-            params={"motion_reference": motion_reference, "asset_cfg": links},
-        ),
-        "base_lin_vel": ObsTermSpec(kind="shadow_base_linear_velocity"),
-        "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel),
-        "joint_pos": ObsTermSpec(func=mdp.joint_pos_rel, params={"asset_cfg": joints}),
-        "joint_vel": ObsTermSpec(func=mdp.joint_vel_rel, params={"asset_cfg": joints}),
-        "last_action": ObsTermSpec(func=mdp.last_action),
-    }
-    return {
-        "policy": ObsGroupSpec(
-            terms=policy_terms,
-            enable_corruption=True,
+class ObservationGroupCfg:
+    def __init__(
+        self,
+        terms: dict[str, ObsTermSpec],
+        enable_corruption: bool,
+    ) -> None:
+        self.enable_corruption = enable_corruption
+        for name, term in terms.items():
+            setattr(self, name, term)
+
+    def to_spec(self) -> ObsGroupSpec:
+        terms = dict(vars(self))
+        enable_corruption = terms.pop("enable_corruption")
+        return ObsGroupSpec(
+            terms=terms,
+            enable_corruption=enable_corruption,
             concatenate_terms=False,
-        ),
-        "critic": ObsGroupSpec(
-            terms=critic_terms,
-            enable_corruption=False,
-            concatenate_terms=False,
-        ),
-    }
+        )
+
+
+class ObservationsCfg:
+    def __init__(self, robot: RobotSpec, motion_reference: MotionReferenceRef) -> None:
+        joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
+        links = EntityRef("robot", bodies=motion_reference.links, preserve_order=True)
+        policy_terms = {
+            "joint_pos_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "joint_pos_ref_command"},
+            ),
+            "joint_vel_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "joint_vel_ref_command"},
+            ),
+            "position_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "position_ref_command"},
+                noise=NoiseSpec("uniform", -0.25, 0.25),
+            ),
+            "rotation_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "rotation_ref_command"},
+                noise=NoiseSpec("uniform", -0.05, 0.05),
+            ),
+            "base_lin_vel": ObsTermSpec(kind="shadow_base_linear_velocity"),
+            "projected_gravity": ObsTermSpec(
+                func=mdp.projected_gravity,
+                noise=NoiseSpec("uniform", -0.05, 0.05),
+            ),
+            "base_ang_vel": ObsTermSpec(
+                func=mdp.base_ang_vel,
+                noise=NoiseSpec("uniform", -0.2, 0.2),
+            ),
+            "joint_pos": ObsTermSpec(
+                func=mdp.joint_pos_rel,
+                params={"asset_cfg": joints},
+                noise=NoiseSpec("uniform", -0.01, 0.01),
+            ),
+            "joint_vel": ObsTermSpec(
+                func=mdp.joint_vel_rel,
+                params={"asset_cfg": joints},
+                noise=NoiseSpec("uniform", -0.5, 0.5),
+            ),
+            "last_action": ObsTermSpec(func=mdp.last_action),
+        }
+        critic_terms = {
+            "joint_pos_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "joint_pos_ref_command"},
+            ),
+            "joint_vel_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "joint_vel_ref_command"},
+            ),
+            "position_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "position_ref_command"},
+            ),
+            "rotation_ref": ObsTermSpec(
+                func=mdp.generated_commands,
+                params={"command_name": "rotation_ref_command"},
+            ),
+            "link_pos": ObsTermSpec(
+                kind="shadow_link_position",
+                params={"motion_reference": motion_reference, "asset_cfg": links},
+            ),
+            "link_rot": ObsTermSpec(
+                kind="shadow_link_rotation",
+                params={"motion_reference": motion_reference, "asset_cfg": links},
+            ),
+            "base_lin_vel": ObsTermSpec(kind="shadow_base_linear_velocity"),
+            "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel),
+            "joint_pos": ObsTermSpec(func=mdp.joint_pos_rel, params={"asset_cfg": joints}),
+            "joint_vel": ObsTermSpec(func=mdp.joint_vel_rel, params={"asset_cfg": joints}),
+            "last_action": ObsTermSpec(func=mdp.last_action),
+        }
+        self.policy = ObservationGroupCfg(policy_terms, enable_corruption=True)
+        self.critic = ObservationGroupCfg(critic_terms, enable_corruption=False)
+
+    def to_dict(self) -> dict[str, ObsGroupSpec]:
+        return {
+            "policy": self.policy.to_spec(),
+            "critic": self.critic.to_spec(),
+        }
 
 
 def make_events(play: bool) -> dict[str, EventTermSpec]:
@@ -284,16 +298,16 @@ def make_events(play: bool) -> dict[str, EventTermSpec]:
     return events
 
 
-def make_rewards() -> dict[str, dict[str, RewardTermSpec]]:
-    contact_sensor = ContactSensorRef(
-        name="undesired_contact_forces",
-        elements=NON_SUPPORT_CONTACTS,
-        track_air_time=False,
-        air_time_force_threshold=1.0,
-        history_length=3,
-    )
-    return {
-        "rewards": {
+class RewardsCfg:
+    def __init__(self) -> None:
+        contact_sensor = ContactSensorRef(
+            name="undesired_contact_forces",
+            elements=NON_SUPPORT_CONTACTS,
+            track_air_time=False,
+            air_time_force_threshold=1.0,
+            history_length=3,
+        )
+        terms = {
             "base_position_imitation_gauss": RewardTermSpec(
                 kind="shadow_base_position_gauss",
                 weight=0.5,
@@ -340,12 +354,8 @@ def make_rewards() -> dict[str, dict[str, RewardTermSpec]]:
                 params={"combine_method": "mean_prod", "std": 3.14},
                 level=Requirement.REQUIRED,
             ),
-            "action_rate_l2": RewardTermSpec(
-                func=mdp.action_rate_l2, weight=-0.1, level=Requirement.REQUIRED
-            ),
-            "joint_limit": RewardTermSpec(
-                func=mdp.joint_pos_limits, weight=-10.0, level=Requirement.REQUIRED
-            ),
+            "action_rate_l2": RewardTermSpec(func=mdp.action_rate_l2, weight=-0.1, level=Requirement.REQUIRED),
+            "joint_limit": RewardTermSpec(func=mdp.joint_pos_limits, weight=-10.0, level=Requirement.REQUIRED),
             "undesired_contacts": RewardTermSpec(
                 kind="shadow_undesired_contacts",
                 weight=-0.1,
@@ -353,7 +363,11 @@ def make_rewards() -> dict[str, dict[str, RewardTermSpec]]:
                 level=Requirement.REQUIRED,
             ),
         }
-    }
+        for name, term in terms.items():
+            setattr(self, name, term)
+
+    def to_dict(self) -> dict[str, dict[str, RewardTermSpec]]:
+        return {"rewards": dict(vars(self))}
 
 
 def make_terminations(motion_reference: MotionReferenceRef) -> dict[str, DoneTermSpec]:
@@ -413,23 +427,19 @@ def make_terminations(motion_reference: MotionReferenceRef) -> dict[str, DoneTer
 def make_curriculum(play: bool) -> dict[str, CurriculumTermSpec]:
     if play:
         return {}
-    return {
-        "beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")
-    }
+    return {"beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")}
 
 
-def make_task(
-    task_id: str,
-    robot: RobotSpec,
-    motion_reference: MotionReferenceRef,
-    runner: str,
-    play: bool,
-) -> TaskSpec:
-    return TaskSpec(
-        task_id=task_id,
-        robot=robot,
-        scene=make_scene(motion_reference, play),
-        sim=SimSpec(
+class BeyondMimicEnvCfg:
+    def __init__(
+        self,
+        robot: RobotSpec,
+        motion_reference: MotionReferenceRef,
+        play: bool,
+    ) -> None:
+        self.robot = robot
+        self.scene = make_scene(motion_reference, play)
+        self.sim = SimSpec(
             physics_dt=0.005,
             decimation=4,
             episode_length_s=10.0,
@@ -447,31 +457,46 @@ def make_task(
                     "ccd_iterations": 80,
                 },
             },
-        ),
-        mdp=MdpSpec(
-            observations=make_observations(robot, motion_reference),
-            actions=make_actions(robot),
-            commands=make_commands(),
-            rewards=make_rewards(),
-            events=make_events(play),
-            curriculum=make_curriculum(play),
-            terminations=make_terminations(motion_reference),
-        ),
-        agent=AgentSpec(runner=runner),
-        engines=("isaacsim", "mjlab"),
-        engine_extras={
-            "isaacsim": {
-                "shadowing_family": "beyondmimic",
-                "play": play,
-                "reference_num_envs": 4096,
+        )
+        self.observations = ObservationsCfg(robot, motion_reference)
+        self.actions = make_actions(robot)
+        self.commands = make_commands()
+        self.rewards = RewardsCfg()
+        self.events = make_events(play)
+        self.curriculum = make_curriculum(play)
+        self.terminations = make_terminations(motion_reference)
+        self.play = play
+
+    def to_task_spec(self, task_id: str, runner: str) -> TaskSpec:
+        return TaskSpec(
+            task_id=task_id,
+            robot=self.robot,
+            scene=self.scene,
+            sim=self.sim,
+            mdp=MdpSpec(
+                observations=self.observations.to_dict(),
+                actions=self.actions,
+                commands=self.commands,
+                rewards=self.rewards.to_dict(),
+                events=self.events,
+                curriculum=self.curriculum,
+                terminations=self.terminations,
+            ),
+            agent=AgentSpec(runner=runner),
+            engines=("isaacsim", "mjlab"),
+            engine_extras={
+                "isaacsim": {
+                    "shadowing_family": "beyondmimic",
+                    "play": self.play,
+                    "reference_num_envs": 4096,
+                },
+                "mjlab": {
+                    "shadowing_family": "beyondmimic",
+                    "play": self.play,
+                    "reference_num_envs": 4096,
+                },
             },
-            "mjlab": {
-                "shadowing_family": "beyondmimic",
-                "play": play,
-                "reference_num_envs": 4096,
-            },
-        },
-    )
+        )
 
 
-__all__ = ["make_task"]
+__all__ = ["BeyondMimicEnvCfg", "RewardsCfg"]

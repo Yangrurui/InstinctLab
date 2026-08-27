@@ -1,23 +1,18 @@
 """G1 Perceptive VAE task configuration."""
 
+import instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg as perceptual_cfg
 from instinctlab.assets.unitree_g1.catalog import (
     make_g1_29dof_robot_spec,
     make_g1_29dof_shadowing_robot_spec,
 )
 from instinctlab.spec import MotionReferenceRef, TaskSpec
-from instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg import make_task
 
 TASK_ID = "Instinct-Perceptive-Vae-G1-v0"
 PLAY_TASK_ID = "Instinct-Perceptive-Vae-G1-Play-v0"
-ISAAC_MOTION_PATH = (
-    "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1"
-)
+ISAAC_MOTION_PATH = "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1"
 MJLAB_MOTION_PATH = "~/Xyk/Datasets/20260317_50cm_kneeClimbStep1_projectInstinct"
 MOTION_PATHS = {"isaacsim": ISAAC_MOTION_PATH, "mjlab": MJLAB_MOTION_PATH}
-RUNNER = (
-    "instinctlab.tasks.shadowing.perceptive.config.g1.agents.instinct_rl_vae_cfg:"
-    "G1PerceptiveVaePPORunnerCfg"
-)
+RUNNER = "instinctlab.tasks.shadowing.perceptive.config.g1.agents.instinct_rl_vae_cfg:G1PerceptiveVaePPORunnerCfg"
 MOTION_LINKS = (
     "pelvis",
     "torso_link",
@@ -65,30 +60,39 @@ def make_robot():
     return make_g1_29dof_shadowing_robot_spec()
 
 
+class G1PerceptiveVaeEnvCfg(perceptual_cfg.PerceptiveShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(False),
+            motion_paths=MOTION_PATHS,
+            play=False,
+            vae=True,
+        )
+
+
+class G1PerceptiveVaeEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(
+            robot=make_robot(),
+            motion_reference=make_motion_reference(True),
+            motion_paths=MOTION_PATHS,
+            play=True,
+            vae=True,
+        )
+
+
 def g1_perceptive_vae() -> TaskSpec:
-    return make_task(
-        TASK_ID,
-        make_robot(),
-        make_motion_reference(False),
-        MOTION_PATHS,
-        RUNNER,
-        False,
-        True,
-        {},
-    )
+    return G1PerceptiveVaeEnvCfg().to_task_spec(TASK_ID, RUNNER)
 
 
 def g1_perceptive_vae_play() -> TaskSpec:
-    return make_task(
-        PLAY_TASK_ID,
-        make_robot(),
-        make_motion_reference(True),
-        MOTION_PATHS,
-        RUNNER,
-        True,
-        True,
-        {},
-    )
+    return G1PerceptiveVaeEnvCfg_PLAY().to_task_spec(PLAY_TASK_ID, RUNNER)
 
 
-__all__ = ["g1_perceptive_vae", "g1_perceptive_vae_play"]
+__all__ = [
+    "G1PerceptiveVaeEnvCfg",
+    "G1PerceptiveVaeEnvCfg_PLAY",
+    "g1_perceptive_vae",
+    "g1_perceptive_vae_play",
+]

@@ -16,5 +16,18 @@ Perceptive OneMotion train/play contracts. Their files follow main and InstinctM
 its own `*_env_cfg.py`, and each G1 task keeps its concrete values in the corresponding
 `config/g1/*_cfg.py`. No task-local CLI mutates configuration at import time.
 
+Task configuration uses the same base/concrete class shape as main and InstinctMJ. A concrete task
+can change one term without copying the complete reward or observation group:
+
+```python
+class G1PerceptiveVaeEnvCfg(perceptual_cfg.PerceptiveShadowingEnvCfg):
+    def __init__(self) -> None:
+        super().__init__(...)
+        self.rewards.action_rate_l2 = self.rewards.action_rate_l2.replace(weight=-0.2)
+```
+
+The replacement belongs in the concrete task class. Do not pass an override dictionary into the
+registry factory and do not modify a built `TaskSpec`.
+
 Native contact, actuator, solver and object semantics intentionally remain in the corresponding
 engine adapter. See the repository-root `HANDOFF.md` for the current reference boundary.

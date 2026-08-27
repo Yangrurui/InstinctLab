@@ -97,7 +97,10 @@ EDITED = {
         "documents the engine-neutral task id and unified train/play entry points"
     ),
     "source/instinctlab/instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py": (
-        "Isaac-only EnvCfg replaced by the engine-neutral TaskSpec shared with MJLab"
+        "keeps G1 robot, motion data, concrete EnvCfg, and TaskSpec factory engine-neutral"
+    ),
+    "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py": (
+        "native Parkour EnvCfg translated to engine-neutral component config classes shared with MJLab"
     ),
     "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py": (
         "Isaac-only runner config replaced by the engine-neutral runner shared by both engines"
@@ -212,9 +215,6 @@ REMOVED = {
     "source/instinctlab/instinctlab/tasks/parkour/mdp/terminations.py": (
         "portable termination terms live in instinctlab.mdp"
     ),
-    "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py": (
-        "Isaac-only Parkour EnvCfg was replaced by the shared G1 TaskSpec"
-    ),
     "source/instinctlab/instinctlab/tasks/parkour/scripts/play.py": (
         "the unified scripts/play.py handles Parkour on either engine"
     ),
@@ -308,7 +308,10 @@ def test_no_deletion_of_mains_goes_unrecorded(main_ref: str) -> None:
     """
     removed = _git("diff", main_ref, "--name-only", "--diff-filter=D", "--no-renames", "--", "source/", "scripts/")
     assert removed.returncode == 0, removed.stderr
-    unrecorded = {path for path in removed.stdout.split() if path} - set(REMOVED)
+    deleted_paths = {
+        path for path in removed.stdout.split() if path and not (REPO / path).exists()
+    }
+    unrecorded = deleted_paths - set(REMOVED)
     assert not unrecorded, (
         f"these files of {main_ref}'s were deleted without saying why:\n  "
         + "\n  ".join(sorted(unrecorded))
