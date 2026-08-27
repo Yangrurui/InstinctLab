@@ -286,6 +286,24 @@ def test_ray_hits_w_turns_a_negative_distance_into_infinity() -> None:
     assert math.isinf(hits[0, 1, 2]) and hits[0, 1, 2] > 0
 
 
+def test_ray_hits_w_does_not_convert_device_state_to_a_python_bool(monkeypatch) -> None:
+    class _Data:
+        hit_pos_w = torch.tensor([[[1.0, 2.0, 3.0]]])
+        distances = torch.tensor([[-1.0]])
+
+    class _Sensor:
+        data = _Data()
+
+    def refuse_tensor_bool(_tensor) -> bool:
+        raise AssertionError("ray_hits_w converted tensor state to a Python bool")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(torch.Tensor, "__bool__", refuse_tensor_bool)
+        hits = compat_sensors.ray_hits_w(_Sensor())
+
+    assert torch.isinf(hits).all()
+
+
 def test_ray_hits_w_leaves_isaac_infinity_alone() -> None:
     class _Data:
         ray_hits_w = torch.tensor([[[0.0, 0.0, float("inf")]]])

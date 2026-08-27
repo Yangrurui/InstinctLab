@@ -23,11 +23,7 @@ def ray_hits_w(sensor: Any) -> torch.Tensor:
     if distances is None:
         return hits
     misses = distances < 0.0
-    if not bool(misses.any()):
-        return hits
-    normalized = hits.clone()
-    normalized[misses] = float("inf")
-    return normalized
+    return hits.masked_fill(misses.unsqueeze(-1), float("inf"))
 
 
 def depth_image(sensor: Any) -> torch.Tensor:
