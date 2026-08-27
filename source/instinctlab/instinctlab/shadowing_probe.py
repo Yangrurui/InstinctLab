@@ -8,7 +8,7 @@ from typing import Any
 
 
 def shadowing_task_with_motion(task_id: str, clip_path: str | Path) -> Any:
-    """Return a registered shadowing task with one explicit motion clip binding.
+    """Return a registered shadowing task with one explicit motion source binding.
 
     This is a diagnostic override, not a second task registration. Keeping the original task ID
     makes reports comparable with the normal launcher, while the task-contract hash still records
@@ -17,8 +17,8 @@ def shadowing_task_with_motion(task_id: str, clip_path: str | Path) -> Any:
     from instinctlab.tasks import registry
 
     clip = Path(clip_path).expanduser().resolve()
-    if not clip.is_file():
-        raise FileNotFoundError(f"shadowing probe motion clip not found: {clip}")
+    if not clip.exists() or not (clip.is_file() or clip.is_dir()):
+        raise FileNotFoundError(f"shadowing probe motion source not found: {clip}")
     task = registry.spec(task_id)
     if len(task.scene.motion_references) != 1:
         raise ValueError(
@@ -48,9 +48,18 @@ def shadowing_task_with_motion(task_id: str, clip_path: str | Path) -> Any:
         for name, group in task.mdp.observations.items()
     }
     terminations = {name: patch_term(term) for name, term in task.mdp.terminations.items()}
+    terrain = task.scene.terrain
+    if clip.is_dir() and terrain.kind == "shadow_motion_matched":
+        terrain = replace(
+            terrain,
+            params={
+                **terrain.params,
+                "engine_paths": {"isaacsim": str(clip), "mjlab": str(clip)},
+            },
+        )
     return replace(
         task,
-        scene=replace(task.scene, motion_references=(motion,)),
+        scene=replace(task.scene, terrain=terrain, motion_references=(motion,)),
         mdp=replace(task.mdp, observations=observations, terminations=terminations),
     )
 

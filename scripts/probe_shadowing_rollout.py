@@ -24,7 +24,11 @@ def _parse():
     parser.add_argument("--steps", type=int, default=4)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--task", default="Instinct-Shadowing-WholeBody-Plane-G1-v0")
-    parser.add_argument("--motion", required=True, help="Motion clip used by the diagnostic task override.")
+    parser.add_argument(
+        "--motion",
+        required=True,
+        help="Motion clip or dataset directory used by the diagnostic task override.",
+    )
     parser.add_argument("--out", required=True)
     adapter(selected.engine).add_cli_args(parser)
     return parser.parse_args()
@@ -63,8 +67,8 @@ def _probe(args, engine, resources: ExitStack) -> None:
 def main() -> None:
     args = _parse()
     motion = Path(args.motion).expanduser().resolve()
-    if not motion.is_file():
-        raise FileNotFoundError(f"shadowing probe motion clip not found: {motion}")
+    if not motion.exists() or not (motion.is_file() or motion.is_dir()):
+        raise FileNotFoundError(f"shadowing probe motion source not found: {motion}")
     args.motion = str(motion)
     from instinctlab.engines import adapter
 

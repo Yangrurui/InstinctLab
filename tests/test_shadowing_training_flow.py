@@ -38,8 +38,23 @@ def test_motion_probe_override_is_explicit_and_keeps_the_registered_identity(tmp
     assert task_contract(overridden) != task_contract(original)
 
 
+def test_motion_probe_override_accepts_a_dataset_directory(tmp_path) -> None:
+    dataset = tmp_path / "motions"
+    dataset.mkdir()
+    task_id = "Instinct-Perceptive-Vae-G1-v0"
+
+    overridden = shadowing_task_with_motion(task_id, dataset)
+
+    assert overridden.scene.motion_references[0].clip == str(dataset.resolve())
+    assert overridden.scene.motion_references[0].first_motion_only is True
+    assert overridden.scene.terrain.params["engine_paths"] == {
+        "isaacsim": str(dataset.resolve()),
+        "mjlab": str(dataset.resolve()),
+    }
+
+
 def test_motion_probe_override_refuses_a_missing_clip(tmp_path) -> None:
-    with pytest.raises(FileNotFoundError, match="motion clip not found"):
+    with pytest.raises(FileNotFoundError, match="motion source not found"):
         shadowing_task_with_motion("Instinct-Shadowing-WholeBody-Plane-G1-v0", tmp_path / "missing.npz")
 
 
