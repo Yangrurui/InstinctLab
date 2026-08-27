@@ -150,8 +150,15 @@ def test_multiclip_refresh_uses_one_packed_device_gather(monkeypatch) -> None:
     def refuse_per_clip_sampling(*_args, **_kwargs):
         raise AssertionError("object-free multi-clip refresh fell back to per-clip sampling")
 
-    monkeypatch.setattr("instinctlab.engines.motion_reference.runtime.sample_clip", refuse_per_clip_sampling)
-    runtime.refresh(torch.arange(2))
+    def refuse_scalar_conversion(_tensor):
+        raise AssertionError("packed refresh converted device state to a Python scalar")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("instinctlab.engines.motion_reference.runtime.sample_clip", refuse_per_clip_sampling)
+        patch.setattr(torch.Tensor, "__bool__", refuse_scalar_conversion)
+        patch.setattr(torch.Tensor, "__float__", refuse_scalar_conversion)
+        patch.setattr(torch.Tensor, "__int__", refuse_scalar_conversion)
+        runtime.refresh(torch.arange(2))
 
     assert runtime.buffers.frame_index.tolist() == [[2, 2, 2], [4, 4, 4]]
     assert runtime.buffers.validity.tolist() == [[True, False, False], [True, False, False]]
