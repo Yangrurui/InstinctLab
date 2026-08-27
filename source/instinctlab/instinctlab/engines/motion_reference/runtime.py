@@ -198,10 +198,7 @@ class MotionReferenceRuntime:
 
     @property
     def reference_frame(self) -> MotionReferenceBuffers:
-        """Motion state at the current clip time, matching main's AMP path."""
-        outdated = (self._reference_timestamp - self.buffers.timestamp).abs() > 1e-6
-        if outdated.any():
-            self.refresh_reference(outdated.nonzero(as_tuple=False).flatten())
+        """Motion state eagerly sampled at the current clip time for AMP."""
         return self.reference_buffers
 
     def bind_origins(self, origins: torch.Tensor) -> None:
@@ -460,8 +457,9 @@ class MotionReferenceRuntime:
         translate_world_positions(self.buffers, env_ids, self.env_origins)
 
     def refresh_at_current_time(self, env_ids: torch.Tensor) -> None:
-        """Rebuild selected buffers and mark their current timestamp as sampled."""
+        """Rebuild look-ahead and AMP-current buffers at the selected timestamp."""
         self.refresh(env_ids)
+        self.refresh_reference(env_ids)
         self.last_update[env_ids] = self.buffers.timestamp[env_ids]
 
     def advance(self, dt: float) -> torch.Tensor:

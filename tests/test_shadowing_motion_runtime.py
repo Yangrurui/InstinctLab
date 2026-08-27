@@ -218,6 +218,21 @@ def test_reference_frame_is_current_time_while_data_remains_look_ahead() -> None
     assert runtime.buffers.frame_index[0].tolist() == [2, 3, 4]
 
 
+def test_reference_frame_access_does_not_convert_device_state_to_a_python_bool(monkeypatch) -> None:
+    ref = _ref("unused", data_start_from="one_frame_interval", start_range=(0.0, 0.0))
+    runtime = MotionReferenceRuntime.from_clip(ref, _clip("only", 0.0), 1)
+    runtime.reset(torch.tensor([0]), torch.Generator().manual_seed(1))
+
+    def refuse_tensor_bool(_tensor) -> bool:
+        raise AssertionError("reference_frame converted tensor state to a Python bool")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(torch.Tensor, "__bool__", refuse_tensor_bool)
+        current = runtime.reference_frame
+
+    assert current.frame_index[0].tolist() == [0]
+
+
 def test_reset_state_uses_floor_index_and_height_adjustment_separate_from_history() -> None:
     ref = _ref(
         "unused",
