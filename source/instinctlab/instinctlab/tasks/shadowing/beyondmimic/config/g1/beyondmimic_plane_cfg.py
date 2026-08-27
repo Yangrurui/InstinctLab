@@ -1,5 +1,7 @@
 """G1 BeyondMimic task configuration."""
 
+from dataclasses import replace
+
 import instinctlab.tasks.shadowing.beyondmimic.beyondmimic_env_cfg as beyondmimic_cfg
 from instinctlab.assets.unitree_g1.catalog import (
     make_g1_29dof_robot_spec,
@@ -77,6 +79,7 @@ class G1BeyondMimicPlaneEnvCfg_PLAY(beyondmimic_cfg.BeyondMimicEnvCfg):
             motion_reference=make_motion_reference(True),
             play=True,
         )
+        self.sim = replace(self.sim, episode_length_s=6000.0)
 
 
 def g1_beyondmimic_plane() -> TaskSpec:

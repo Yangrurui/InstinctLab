@@ -611,7 +611,7 @@ def _shadow_illegal_reset(spec, ctx):
 
     return _import_cfgs()["done"](
         func=_as_isaac_manager_term(IllegalResetContact),
-        time_out=True,
+        time_out=spec.time_out,
         params=ctx.params(spec),
     )
 

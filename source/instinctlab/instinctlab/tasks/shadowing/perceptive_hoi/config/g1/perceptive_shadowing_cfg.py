@@ -147,6 +147,9 @@ class G1PerceptiveHoiShadowingEnvCfg_PLAY(perceptual_cfg.PerceptiveHoiShadowingE
             objects=make_objects(),
             play=True,
         )
+        self.terminations.pop("base_pos_too_far")
+        self.terminations.pop("base_pg_too_far")
+        self.terminations.pop("link_pos_too_far")
 
 
 def g1_perceptive_hoi_shadowing() -> TaskSpec:

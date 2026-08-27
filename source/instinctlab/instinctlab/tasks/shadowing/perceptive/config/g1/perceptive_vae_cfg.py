@@ -1,5 +1,7 @@
 """G1 Perceptive VAE task configuration."""
 
+from dataclasses import replace
+
 import instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg as perceptual_cfg
 from instinctlab.assets.unitree_g1.catalog import (
     make_g1_29dof_robot_spec,
@@ -79,6 +81,14 @@ class G1PerceptiveVaeEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowingEnvCfg):
             motion_paths=MOTION_PATHS,
             play=True,
             vae=True,
+        )
+        self.terminations.pop("base_pos_too_far")
+        self.terminations.pop("base_pg_too_far")
+        self.terminations.pop("link_pos_too_far")
+        exhausted = self.terminations["dataset_exhausted"]
+        self.terminations["dataset_exhausted"] = replace(
+            exhausted,
+            params={**exhausted.params, "reset_without_notice": True},
         )
 
 

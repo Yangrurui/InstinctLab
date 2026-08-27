@@ -16,6 +16,7 @@ import pytest
 
 from instinctlab.engines.isaacsim import terms as isaac_terms
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
+from instinctlab.engines.mjlab import terms as mjlab_terms
 from instinctlab.engines.mjlab.adapter import MjlabAdapter
 from instinctlab.engines.mjlab.shadowing import randomize_default_joint_pos
 from instinctlab.engines.motion_reference.buffers import fill_buffers, make_buffers
@@ -46,6 +47,144 @@ def test_shadowing_termination_signatures_are_native_manager_compatible() -> Non
         parameters = tuple(inspect.signature(func).parameters.values())
         assert all(parameter.kind is not inspect.Parameter.VAR_KEYWORD for parameter in parameters)
         assert all(parameter.default is not inspect.Parameter.empty for parameter in parameters[1:])
+
+
+def test_shadowing_train_and_play_episode_boundaries_match_both_references() -> None:
+    """Keep evaluation-only reset changes out of the corresponding training task."""
+    expected_terms = {
+        "Instinct-Shadowing-WholeBody-Plane-G1-v0": {
+            "time_out",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": {
+            "time_out",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-BeyondMimic-Plane-G1-v0": {
+            "time_out",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-BeyondMimic-Plane-G1-Play-v0": {
+            "time_out",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Perceptive-Shadowing-G1-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Perceptive-Shadowing-G1-Play-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Perceptive-Shadowing-G1-OneMotion-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Perceptive-Vae-G1-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Perceptive-Vae-G1-Play-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "dataset_exhausted",
+            "out_of_border",
+        },
+        "Instinct-Perceptive-HOI-Shadowing-G1-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "base_pos_too_far",
+            "base_pg_too_far",
+            "link_pos_too_far",
+            "dataset_exhausted",
+        },
+        "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": {
+            "time_out",
+            "illegal_reset_contact",
+            "dataset_exhausted",
+        },
+    }
+
+    for task_id, terms in expected_terms.items():
+        task = registry.spec(task_id)
+        assert set(task.mdp.terminations) == terms, task_id
+        assert task.sim.is_finite_horizon is False
+
+    for task_id in expected_terms:
+        expected_length = 6000.0 if task_id == "Instinct-BeyondMimic-Plane-G1-Play-v0" else 10.0
+        assert registry.spec(task_id).sim.episode_length_s == expected_length, task_id
+
+
+def test_shadowing_timeout_classification_is_declared_at_the_task_boundary() -> None:
+    """The runner bootstraps only terms declared as timeouts; builders must not invent the flag."""
+    timeout_names = {"time_out", "illegal_reset_contact", "dataset_exhausted", "out_of_border"}
+    for task_id in SHADOW_IDS:
+        for name, term in registry.spec(task_id).mdp.terminations.items():
+            assert term.time_out is (name in timeout_names), (task_id, name)
+
+
+def test_vae_hides_dataset_exhaustion_only_in_play() -> None:
+    train = registry.spec("Instinct-Perceptive-Vae-G1-v0").mdp.terminations["dataset_exhausted"]
+    play = registry.spec("Instinct-Perceptive-Vae-G1-Play-v0").mdp.terminations["dataset_exhausted"]
+    assert train.params["reset_without_notice"] is False
+    assert play.params["reset_without_notice"] is True
+
+
+def test_illegal_reset_lowerings_preserve_the_declared_timeout_flag(monkeypatch) -> None:
+    """A future task may classify this term differently; lowering is not task policy."""
+
+    class NativeDone:
+        def __init__(self, **kwargs):
+            vars(self).update(kwargs)
+
+    monkeypatch.setattr(isaac_terms, "_import_cfgs", lambda: {"done": NativeDone})
+    monkeypatch.setattr(isaac_terms, "_as_isaac_manager_term", lambda cls: cls)
+    monkeypatch.setattr(mjlab_terms, "_cfgs", lambda: {"done": NativeDone})
+    spec = SimpleNamespace(kind="shadow_illegal_reset_contact", time_out=False, params={})
+    ctx = SimpleNamespace(params=lambda _spec: {})
+
+    for terms in (isaac_terms, mjlab_terms):
+        native = terms.TERMS.lookup("termination", "shadow_illegal_reset_contact")(spec, ctx)
+        assert native.time_out is False
 
 
 def test_mjlab_default_joint_randomization_honors_partial_slices_and_list_env_ids() -> None:

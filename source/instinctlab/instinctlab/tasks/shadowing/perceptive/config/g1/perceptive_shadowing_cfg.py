@@ -91,6 +91,9 @@ class G1PerceptiveShadowingEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowingEnvCfg)
             play=True,
             vae=False,
         )
+        self.terminations.pop("base_pos_too_far")
+        self.terminations.pop("base_pg_too_far")
+        self.terminations.pop("link_pos_too_far")
 
 
 class G1PerceptiveShadowingOneMotionEnvCfg(perceptual_cfg.PerceptiveShadowingEnvCfg):
@@ -116,6 +119,9 @@ class G1PerceptiveShadowingOneMotionEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowi
             play=True,
             vae=False,
         )
+        self.terminations.pop("base_pos_too_far")
+        self.terminations.pop("base_pg_too_far")
+        self.terminations.pop("link_pos_too_far")
         self.agent_overrides = {
             "experiment_name": "g1_perceptive_shadowing_one_motion",
         }

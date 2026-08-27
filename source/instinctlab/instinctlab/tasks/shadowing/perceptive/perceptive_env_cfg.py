@@ -532,7 +532,6 @@ class RewardsCfg:
 
 def make_terminations(
     motion_reference: MotionReferenceRef,
-    vae: bool,
 ) -> dict[str, DoneTermSpec]:
     return {
         "time_out": DoneTermSpec(func=mdp.time_out, time_out=True),
@@ -543,6 +542,7 @@ def make_terminations(
                 "threshold": 500.0,
                 "episode_length_threshold": 2,
             },
+            time_out=True,
         ),
         "base_pos_too_far": DoneTermSpec(
             kind="shadow_base_position_too_far",
@@ -584,7 +584,7 @@ def make_terminations(
         ),
         "dataset_exhausted": DoneTermSpec(
             func=mdp.dataset_exhausted,
-            params={"sensor": motion_reference, "reset_without_notice": vae},
+            params={"sensor": motion_reference, "reset_without_notice": False},
             time_out=True,
         ),
         "out_of_border": DoneTermSpec(
@@ -648,7 +648,7 @@ class PerceptiveShadowingEnvCfg:
         self.rewards = RewardsCfg()
         self.events = make_events(play)
         self.curriculum = make_curriculum(play)
-        self.terminations = make_terminations(motion_reference, vae)
+        self.terminations = make_terminations(motion_reference)
         self.agent_overrides: dict[str, object] = {}
 
     def to_task_spec(self, task_id: str, runner: str) -> TaskSpec:

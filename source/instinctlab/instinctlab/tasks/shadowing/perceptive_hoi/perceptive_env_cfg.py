@@ -527,6 +527,7 @@ def make_terminations(motion_reference: MotionReferenceRef) -> dict[str, DoneTer
                 "threshold": 500.0,
                 "episode_length_threshold": 2,
             },
+            time_out=True,
         ),
         "base_pos_too_far": DoneTermSpec(
             kind="shadow_base_position_too_far",

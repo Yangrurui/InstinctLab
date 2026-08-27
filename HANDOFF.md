@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 09:03 UTC
+Updated: 2026-08-27 09:27 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -562,6 +562,56 @@ CPU preprocessing; it produced no rollout evidence. The flat and Shadow probes
 cover the same catalog control plant without that terrain cost. HOI remains
 blocked by the already-recorded missing OMOMO object assets. Existing training
 processes on GPUs 5, 6, and 7 were not signaled or restarted.
+
+## Episode boundary and reset audit (2026-08-27)
+
+The native Isaac Lab and MJLab environment loops agree on the episode
+timeline: increment the episode counter after the decimated physics step,
+compute termination before reward, auto-reset completed environments, then
+return post-reset observations together with the pre-reset terminated and
+truncated flags. Both engines use `ceil(episode_length_s / step_dt)` and
+classify `episode_length_buf >= max_episode_length` as a timeout. The shared
+runner preserves that truncation separately for value bootstrapping while
+combining terminated and truncated into PPO's done mask, matching both
+references.
+
+Four declaration/lowering differences were fixed:
+
+- Perceptive VAE training no longer silently resamples an exhausted motion
+  clip without ending the episode. Only VAE Play retains main/InstinctMJ's
+  `reset_without_notice=True` behavior.
+- Perceptive, one-motion Perceptive, VAE, and HOI Play remove the three
+  tracking-failure terminations removed by their corresponding references.
+- BeyondMimic Play now uses the reference 6,000-second horizon instead of the
+  ten-second training horizon.
+- `illegal_reset_contact` is declared as a timeout in the engine-neutral task
+  contract, and both builders now lower the declared `time_out` value instead
+  of hard-coding it. Native behavior was already timeout-classified, so this
+  last change repairs the contract without changing active Perceptive runs.
+
+A two-environment MJLab temporal probe used a two-step horizon. Step one
+returned episode length one with no done flag; step two auto-reset the counter
+to zero and returned `truncated=True`, `terminated=False`, runner `done=True`,
+and runner `time_outs=True`; step three advanced the new episode to one with
+all flags false. This directly checks the boundary and bootstrap plumbing, not
+just construction.
+
+Evidence:
+
+```text
+4 passed (new termination-set, timeout-lowering, and VAE reset regressions)
+88 passed (Shadow contract/runtime/task declaration focus)
+109 passed, 4 deselected (MDP, motion, and depth focus)
+1257 passed, 2 skipped, 31 deselected (full default suite)
+scripts/check_mjlab.py resolved all 39 Locomotion terms,
+  constructed 16 environments and stepped 5 times
+```
+
+No fresh Isaac rollout is claimed because the host still lacks `libGLU.so.1`.
+The live GPU 5--7 training processes were not signaled or restarted. The
+configuration fixes affect currently inactive VAE/HOI/BeyondMimic or Play
+variants; the active Perceptive timeout behavior was already equivalent in the
+native builders.
 
 ## Live experiments
 

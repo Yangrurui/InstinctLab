@@ -528,7 +528,7 @@ for _kind in _SHADOW_DONES:
 def _shadow_illegal_reset(spec, ctx):
     from instinctlab.mdp.shadowing import IllegalResetContact
 
-    return _cfgs()["done"](func=IllegalResetContact, time_out=True, params=ctx.params(spec))
+    return _cfgs()["done"](func=IllegalResetContact, time_out=spec.time_out, params=ctx.params(spec))
 
 
 @TERMS.event("randomize_joint_default")
