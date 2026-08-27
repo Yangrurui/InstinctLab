@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 11:16 UTC
+Updated: 2026-08-27 14:10 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current task cleanup: `a9e3805`
+- Current verified production code: `c68a1e6`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -49,10 +49,10 @@ Current code organization:
   values, solver profiles, and runner selection belong to task configuration,
   not to the schema module.
 
-Verification at `27d9767`:
+Current verification at `c68a1e6`:
 
 ```text
-1188 passed, 2 skipped, 30 deselected
+1283 passed, 2 skipped, 32 deselected
 python scripts/check_mjlab.py:
   Instinct-Velocity-Flat-G1 resolved all 39 terms
   constructed 16 MJLab environments and stepped 5 times
@@ -180,6 +180,34 @@ parkour_motion_without_run_retargetted.npz
   7cfb7c1dcaa6f2a55a13c4849be9e17b4c960ce4015c500ac0ddfb9d77f4ba5b
 ```
 
+Official BeyondMimic/LAFAN1 data is installed from Hugging Face dataset
+`lvhaidong/LAFAN1_Retargeting_Dataset`, pinned at revision
+`ce1572906efe6157840e8474d5a0d7aa87481e74`:
+
+```text
+/root/Datasets/LAFAN1_Retargeting_Dataset
+  40 G1 CSV clips, 264,705 frames
+/root/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz
+  40 converted NPZ clips plus conversion_manifest.json
+/root/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz
+  -> /root/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz
+```
+
+The selected production clip has these provenance hashes:
+
+```text
+sprint1_subject2.csv
+  7babbd9d0a3cebf040709cb75fbf4268e925e337a2d44600dcce3d3b2d24a818
+sprint1_subject2_retargetted.npz
+  f1b1236d13f3f4d695ffb1b6ea8e7faf64363c419f7660336a4bd41da2bb7b55
+```
+
+Regenerate the NPZ set with `scripts/lafan1_csv_to_instinct.py`; its exact
+invocation and format contract are in the BeyondMimic task README. The
+converter changes the pelvis-root source to the production `torso_link` root,
+corrects the three reversed waist axes, emits canonical DFS joints and `wxyz`
+quaternions, and records source/target hashes atomically.
+
 Active Whole Body clip:
 `diveroll4-ziwen-0-retargeted.npz`, 751 frames, 29 joints, SHA-256
 `8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59`.
@@ -218,8 +246,13 @@ logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_
   reference command subtracted Isaac-native BFS defaults positionally from DFS
   reference tensors. That run was stopped at operator request and replaced by
   the fresh GPU 6 run recorded below.
-- **Perceptive VAE, HOI, and BeyondMimic: declarations exist, but no accepted
-  production reproduction on both engines.**
+- **BeyondMimic: official-data L7 reproduction accepted on both engines.** The
+  same selected LAFAN1 clip, 256 environments, seed 42, and 700 iterations ran
+  to `model_700.pt` under both strict builders with all 49 terms resolved.
+  This is a long regression, not a 4096-environment capacity or multi-seed
+  performance claim.
+- **Perceptive VAE and HOI: declarations exist, but no accepted production
+  reproduction on both engines.**
 - Play variants use the corresponding train checkpoint; they do not need an
   independent training reproduction.
 - Real multi-node distributed training remains an infrastructure validation
@@ -794,25 +827,61 @@ engines. Four-step plant divergence is engine-native evidence, not an equality
 requirement: VAE root-to-reference delta differs by at most `0.0321 m` and
 BeyondMimic by `0.00372 m`; all initial joint and reference deltas are zero.
 
-These are real environment construction and temporal rollouts, but not
-production reproductions. The configured VAE directories are absent on both
-engines. The configured Ubisoft LAFAN BeyondMimic directories and selected
-`sprint1_subject2_retargetted.npz` are also absent. BeyondMimic was therefore
-probed with an installed retargetted NPZ of the same runtime schema. HOI cannot
-be substituted safely: both OMOMO motion directories and all six configured
-object meshes are absent, so it remains limited to the existing fixed-state
-object-origin tests.
+These were real environment construction and temporal rollouts. The configured
+VAE directories are still absent on both engines. HOI cannot be substituted
+safely: both OMOMO motion directories and all six configured object meshes are
+absent, so it remains limited to the existing fixed-state object-origin tests.
+
+BeyondMimic's formal data gap was subsequently closed at `c68a1e6`. The
+official LAFAN1 G1 CSV release was converted with a reproducible, tested
+pelvis-to-torso-root transform. All 40 clips load under the production runtime,
+contain finite values in canonical DFS order, have continuous base
+quaternions, and remain within URDF joint position limits. The selected clip
+contains 8,194 source frames; production resampling at 50 Hz produces 13,656
+frames (273.1 seconds). A physical reconstruction test checks that the
+conversion preserves pelvis, leg, and contact-link world transforms rather
+than only checking array shape.
+
+The same selected clip then completed the standard L7 long regression on both
+engines:
+
+```text
+Task: Instinct-BeyondMimic-Plane-G1-v0
+Configuration: 256 environments, seed 42, 700 iterations, strict mode
+MJLab:    logs/mjlab/g1_beyondmimic/
+          20260827_214821_official_lafan1_256_seed42_700_gpu1_retry1_20260827
+Isaac Sim: logs/isaacsim/g1_beyondmimic/
+          20260827_214841_official_lafan1_256_seed42_700_gpu0_retry1_20260827
+Both: 49 terms resolved with none skipped, emulated, or omitted;
+      finite model_700.pt written; task contract hash
+      dc9a32ea68c2e87adf4bed552a2cc906aee00ab64ae44b984623685010c74420
+```
+
+At the last logged point (iteration 690), Isaac/MJLab reward was `1.33/1.34`,
+episode length was `56.62/49.87`, and policy action standard deviation was
+`0.550/0.551`. Over logged iterations 600--690, mean reward was `1.109/1.254`
+and mean episode length was `47.26/47.43`. Both curves began near `-1.26`,
+their non-timeout failure terms fired throughout the run, and no NaN, overflow,
+or fatal simulator error occurred. The close return and episode curves are
+cross-engine behavioral evidence; raw plant trajectories are intentionally not
+required to match.
+
+An empty residual `/root/InstinctLab/scripts/instinct_rl/` directory initially
+shadowed the installed runner as a Python namespace and prevented iteration
+zero. It contained no files and was removed with `rmdir`; no runner source was
+changed. Fresh clones do not contain an untracked empty directory, so the two
+failed launch directories are retained only as diagnostics.
 
 ## Live experiments
 
-Snapshot at 2026-08-27 11:16 UTC. The old GPU 5 and GPU 6 runs were stopped and
+Snapshot at 2026-08-27 14:10 UTC. The old GPU 5 and GPU 6 runs were stopped and
 replaced at explicit operator request. GPU 7 was not signaled.
 
 | GPU | Run | Iteration | Reward | Episode length | Status |
 |---:|---|---:|---:|---:|---|
-| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 4220 | 13.40 | 221.99 | live; recovered from the temporary 3k--3.8k curriculum branch; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 2180 | 2.70 | 57.52 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 12240 | 15.36 | 250.98 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
+| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 7720 | 12.23 | 195.10 | live; recovered from the temporary 3k--3.8k curriculum branch; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
+| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 3740 | 3.46 | 60.39 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 14100 | 15.61 | 243.01 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
 
 Do not stop or restart these runs without an explicit operator request. Review
 reward, episode length, termination mix, and action noise together before
@@ -866,17 +935,21 @@ finite.
    available log. A causal diagnosis requires an exact checkpoint/policy replay
    with synchronous CUDA diagnostics; do not blame the reported `nonzero()`
    synchronization point or resume the run as if it completed.
-3. Install or authoritatively remap the configured VAE, OMOMO HOI, and Ubisoft
-   LAFAN datasets, then run production reproductions. VAE and BeyondMimic native
-   environment paths have short-rollout evidence with substitute installed
-   data; HOI still lacks both motions and all object meshes.
-4. Validate real multi-node distributed training.
-5. Recover authoritative Parkour motion segment boundaries. The released NPZ
+3. Install or authoritatively remap the configured VAE and OMOMO HOI datasets,
+   then run production reproductions. VAE has short-rollout evidence with
+   substitute installed data; HOI still lacks both motions and all object
+   meshes.
+4. BeyondMimic now has accepted official-data L7 evidence, but only for one
+   256-environment seed. Run multiple seeds and a 4096-environment capacity
+   check before using it as a production-throughput or paper-performance
+   baseline.
+5. Validate real multi-node distributed training.
+6. Recover authoritative Parkour motion segment boundaries. The released NPZ
    concatenates clips without boundary metadata: 55 of 18,981 transitions
    exceed conservative discontinuity thresholds, and up to 2.81% of 10-frame
    AMP windows may cross a jump. Cross-engine parity is verified; source-data
    semantics are not.
-6. Continue reducing engine-specific parameter overlays by translating shared
+7. Continue reducing engine-specific parameter overlays by translating shared
    semantic values in builders. Do not move task policy into an engine package
    to achieve this.
 ## Bring-up and verification
