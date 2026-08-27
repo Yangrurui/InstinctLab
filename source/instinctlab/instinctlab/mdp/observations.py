@@ -154,8 +154,15 @@ class DelayedDepthImage:
         self.normalization_range = params.get("normalization_range")
         self.debug_vis = bool(params.get("debug_vis", False))
         crop_h, crop_w = self.sensor_ref.cropped_hw()
+        output_h, output_w = self.resize_shape or (crop_h, crop_w)
         device = env.device
-        self._history = torch.zeros(env.num_envs, self.sensor_history_length, crop_h, crop_w, device=device)
+        self._history = torch.zeros(
+            env.num_envs,
+            self.sensor_history_length,
+            output_h,
+            output_w,
+            device=device,
+        )
         self._write = 0
         self._delay = torch.zeros(env.num_envs, device=device, dtype=torch.long)
         self._primed = torch.zeros(env.num_envs, device=device, dtype=torch.bool)
@@ -225,10 +232,12 @@ class DelayedDepthImage:
         history_length: int = 37,
         blur_kernel_size: int = 3,
         blur_sigma: float = 1.0,
+        resize_shape: tuple[int, int] | None = None,
+        normalization_range: tuple[float, float] | None = None,
         debug_vis: bool = False,
     ) -> torch.Tensor:
         del history_skip_frames, num_output_frames, delayed_frame_ranges, history_length
-        del blur_kernel_size, blur_sigma
+        del blur_kernel_size, blur_sigma, resize_shape, normalization_range
         show_debug = debug_vis or self.debug_vis
         raw = depth_image(env.scene.sensors[sensor.name])
         processed = _process_depth_image(

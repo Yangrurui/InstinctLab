@@ -19,6 +19,8 @@ from instinctlab.tasks import registry
 MAIN_SHADOWING = Path("/root/InstinctLab-main/source/instinctlab/instinctlab/tasks/shadowing")
 MJ_SHADOWING = Path("/root/InstinctMJ/src/instinct_mj/tasks/shadowing")
 MJ_GROUPED_RAY = Path("/root/InstinctMJ/src/instinct_mj/sensors/grouped_ray_caster")
+MAIN_VAE = MAIN_SHADOWING / "perceptive/config/g1/perceptive_vae_cfg.py"
+MJ_VAE = MJ_SHADOWING / "perceptive/config/g1/perceptive_vae_cfg.py"
 
 
 def _call_name(node: ast.Call) -> str:
@@ -225,3 +227,26 @@ def test_mjlab_perceptive_camera_refresh_clock_matches_instinctmj() -> None:
         torch.full((2,), math.fmod(0.02, period)),
         atol=1.0e-7,
     )
+
+
+@pytest.mark.skipif(
+    not MAIN_VAE.is_file() or not MJ_VAE.is_file(),
+    reason="VAE reference configurations are unavailable",
+)
+@pytest.mark.parametrize(
+    "task_id",
+    ("Instinct-Perceptive-Vae-G1-v0", "Instinct-Perceptive-Vae-G1-Play-v0"),
+)
+def test_vae_depth_history_has_no_parkour_frame_delay(task_id: str) -> None:
+    """VAE's four frames are reference slots 0, 3, 6, 9, with no random lag."""
+    for path in (MAIN_VAE, MJ_VAE):
+        source = path.read_text(encoding="utf-8")
+        assert "func=instinct_mdp.visualizable_image" in source
+        assert 'data_histories["distance_to_image_plane_noised"] = 10' in source
+        assert 'params["history_skip_frames"] = 3' in source
+
+    depth = registry.spec(task_id).mdp.observations["policy"].terms["depth_image"]
+    assert depth.params["history_length"] == 10
+    assert depth.params["history_skip_frames"] == 3
+    assert depth.params["num_output_frames"] == 4
+    assert depth.params["delayed_frame_ranges"] == (0, 0)

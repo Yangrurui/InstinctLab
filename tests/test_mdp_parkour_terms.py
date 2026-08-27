@@ -361,7 +361,35 @@ def test_delayed_depth_image_does_not_convert_priming_state_to_a_python_bool(mon
     assert term._primed.tolist() == [True, True]
 
 
-def _delayed_depth_term(num_envs: int = 3, history_length: int = 37):
+def test_delayed_depth_image_accepts_all_configured_processing_params() -> None:
+    term, env, sensor, raw = _delayed_depth_term(
+        num_envs=2,
+        history_length=10,
+        history_skip_frames=3,
+        num_output_frames=4,
+        delayed_frame_ranges=(0, 0),
+        resize_shape=(18, 32),
+        normalization_range=(0.0, 2.0),
+    )
+    raw.fill_(1.0)
+
+    result = term(
+        env,
+        sensor,
+        history_skip_frames=3,
+        num_output_frames=4,
+        delayed_frame_ranges=(0, 0),
+        history_length=10,
+        blur_kernel_size=1,
+        blur_sigma=0.0,
+        resize_shape=(18, 32),
+        normalization_range=(0.0, 2.0),
+    )
+
+    assert result.shape == (2, 4, 18, 32)
+
+
+def _delayed_depth_term(num_envs: int = 3, history_length: int = 37, **param_overrides):
     sensor = RayCasterRef(
         name="camera",
         attach="torso_link",
@@ -382,17 +410,17 @@ def _delayed_depth_term(num_envs: int = 3, history_length: int = 37):
         device="cpu",
         scene=SimpleNamespace(sensors={"camera": _Cam()}),
     )
-    cfg = SimpleNamespace(
-        params={
-            "sensor": sensor,
-            "history_skip_frames": 5,
-            "num_output_frames": 8,
-            "delayed_frame_ranges": (0, 1),
-            "history_length": history_length,
-            "blur_kernel_size": 1,
-            "blur_sigma": 0.0,
-        }
-    )
+    params = {
+        "sensor": sensor,
+        "history_skip_frames": 5,
+        "num_output_frames": 8,
+        "delayed_frame_ranges": (0, 1),
+        "history_length": history_length,
+        "blur_kernel_size": 1,
+        "blur_sigma": 0.0,
+    }
+    params.update(param_overrides)
+    cfg = SimpleNamespace(params=params)
     term = mdp.DelayedDepthImage(cfg, env)
     return term, env, sensor, raw
 

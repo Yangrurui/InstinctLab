@@ -302,6 +302,10 @@ class ObservationsCfg:
                         "history_length": 10,
                         "history_skip_frames": 3,
                         "num_output_frames": 4,
+                        # VAE uses visualizable_image in both reference engines.  It
+                        # samples history slots 0, 3, 6, and 9 without the random
+                        # one-frame delay used by the parkour policy.
+                        "delayed_frame_ranges": (0, 0),
                         "resize_shape": (18, 32),
                         "normalization_range": (0.0, 2.0),
                     },
