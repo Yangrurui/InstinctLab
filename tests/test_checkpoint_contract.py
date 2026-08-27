@@ -67,6 +67,28 @@ def test_checkpoint_contract_does_not_reject_hash_drift(tmp_path) -> None:
     validate_checkpoint_contract(checkpoint, spec)
 
 
+def test_checkpoint_contract_rejects_joint_order_drift(tmp_path) -> None:
+    spec = parkour_target_g1()
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
+    changed = replace(spec, robot=replace(spec.robot, joint_names=tuple(reversed(spec.robot.joint_names))))
+
+    with pytest.raises(ValueError, match="canonical joint order mismatch"):
+        validate_checkpoint_contract(checkpoint, changed)
+
+
+def test_checkpoint_contract_rejects_robot_joint_schema_drift(tmp_path) -> None:
+    spec = parkour_target_g1()
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
+    changed = replace(spec, robot=replace(spec.robot, schema_version="different_joint_schema"))
+
+    with pytest.raises(ValueError, match="robot joint schema mismatch"):
+        validate_checkpoint_contract(checkpoint, changed)
+
+
 def test_legacy_checkpoint_without_manifest_remains_loadable_with_warning(tmp_path) -> None:
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()

@@ -132,14 +132,21 @@ def test_isaacsim_activates_contact_sensors_when_configured() -> None:
 
 
 class _FakeRobot:
-    def __init__(self) -> None:
-        self.data = SimpleNamespace(joint_pos=torch.zeros((2, 2)))
+    def __init__(self, num_joints: int = 2) -> None:
+        self.data = SimpleNamespace(
+            joint_pos=torch.zeros((2, num_joints)),
+            joint_vel=torch.zeros((2, num_joints)),
+        )
         self.actuators = {
             "canonical": SimpleNamespace(
-                stiffness=torch.zeros((2, 2)),
-                damping=torch.zeros((2, 2)),
+                stiffness=torch.zeros((2, num_joints)),
+                damping=torch.zeros((2, num_joints)),
             )
         }
+        self.root_physx_view = SimpleNamespace(
+            set_dof_positions=lambda *args, **kwargs: None,
+            set_dof_velocities=lambda *args, **kwargs: None,
+        )
         self.position_writes = 0
         self.velocity_writes = 0
         self.effort_writes = 0
@@ -148,6 +155,7 @@ class _FakeRobot:
 
     def set_joint_position_target(self, *args, **kwargs) -> None:
         self.position_writes += 1
+        self.last_position_target = (args, kwargs)
 
     def set_joint_velocity_target(self, *args, **kwargs) -> None:
         self.velocity_writes += 1
@@ -162,22 +170,26 @@ class _FakeRobot:
         self.damping_writes += 1
 
 
-def _make_control_backend() -> tuple[IsaacSimBackend, _FakeRobot]:
+def _make_control_backend(
+    canonical_names: tuple[str, ...] = ("first", "second"),
+    native_names: tuple[str, ...] | None = None,
+) -> tuple[IsaacSimBackend, _FakeRobot]:
     backend = object.__new__(IsaacSimBackend)
-    robot = _FakeRobot()
-    names = ("first", "second")
+    if native_names is None:
+        native_names = canonical_names
+    robot = _FakeRobot(len(native_names))
     backend.device = torch.device("cpu")
     backend.num_envs = 2
     backend._sim = object()
     backend._native_scene = object()
     backend._robot = robot
     backend._entity_name = "robot"
-    backend._joint_map = CanonicalIndexMap.build(names, names, device="cpu")
+    backend._joint_map = CanonicalIndexMap.build(canonical_names, native_names, device="cpu")
     backend._all_env_ids = torch.arange(2, dtype=torch.int64)
-    backend._all_joint_ids = torch.arange(2, dtype=torch.int64)
+    backend._all_joint_ids = torch.arange(len(canonical_names), dtype=torch.int64)
     backend._joint_properties = {
-        "stiffness": torch.ones(2),
-        "damping": torch.ones(2),
+        "stiffness": torch.ones(len(canonical_names)),
+        "damping": torch.ones(len(canonical_names)),
     }
     backend._global_control_mode = ControlMode.POSITION
     backend._position_velocity_is_zero = True
@@ -186,7 +198,16 @@ def _make_control_backend() -> tuple[IsaacSimBackend, _FakeRobot]:
     backend._last_position_velocity = None
     backend._last_position_velocity_version = -1
     backend.scene = SimpleNamespace(
-        articulations={"robot": SimpleNamespace(data=SimpleNamespace(joint_effort_limits=torch.full((2, 2), 10.0)))}
+        articulations={
+            "robot": SimpleNamespace(
+                data=SimpleNamespace(
+                    joint_pos=torch.zeros((2, len(canonical_names))),
+                    joint_vel=torch.zeros((2, len(canonical_names))),
+                    joint_acc=torch.zeros((2, len(canonical_names))),
+                    joint_effort_limits=torch.full((2, len(canonical_names)), 10.0),
+                )
+            )
+        }
     )
     return backend, robot
 
@@ -226,3 +247,35 @@ def test_control_mode_switch_writes_gains_once() -> None:
 
     assert robot.stiffness_writes == 1
     assert robot.damping_writes == 1
+
+
+def test_position_control_pairs_canonical_values_with_bfs_native_ids() -> None:
+    canonical = ("waist", "left_hip", "right_hip")
+    native = ("left_hip", "right_hip", "waist")
+    backend, robot = _make_control_backend(canonical, native)
+    value = torch.tensor([[10.0, 20.0, 30.0], [11.0, 21.0, 31.0]])
+
+    backend.set_joint_control_target("robot", JointControlTarget(mode=ControlMode.POSITION, value=value))
+
+    args, kwargs = robot.last_position_target
+    torch.testing.assert_close(args[0], value)
+    torch.testing.assert_close(kwargs["joint_ids"], torch.tensor([2, 0, 1]))
+
+
+def test_joint_state_write_scatters_canonical_values_into_bfs_native_columns() -> None:
+    canonical = ("waist", "left_hip", "right_hip")
+    native = ("left_hip", "right_hip", "waist")
+    backend, robot = _make_control_backend(canonical, native)
+    position = torch.tensor([[10.0, 20.0, 30.0], [11.0, 21.0, 31.0]])
+    velocity = position + 100.0
+    env_ids = torch.tensor([0, 1], dtype=torch.int64)
+
+    backend.write_joint_state("robot", position, velocity, env_ids)
+
+    torch.testing.assert_close(robot.data.joint_pos, torch.tensor([[20.0, 30.0, 10.0], [21.0, 31.0, 11.0]]))
+    torch.testing.assert_close(
+        robot.data.joint_vel,
+        torch.tensor([[120.0, 130.0, 110.0], [121.0, 131.0, 111.0]]),
+    )
+    torch.testing.assert_close(backend.scene.articulations["robot"].data.joint_pos, position)
+    torch.testing.assert_close(backend.scene.articulations["robot"].data.joint_vel, velocity)

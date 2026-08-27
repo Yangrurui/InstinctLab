@@ -348,6 +348,79 @@ def test_scene_sensors_must_name_real_robot_parts_and_entities():
         _task(scene=SceneSpec(volume_points=(bad_volume,))).validate()
 
 
+def test_motion_reference_joint_axis_must_follow_the_robot_canonical_order():
+    motion = MotionReferenceRef(
+        name="motion_reference",
+        clip="clip.npz",
+        joints=("knee", "hip"),
+        links=("root",),
+    )
+    task = _task(scene=SceneSpec(contact_sensors=(FEET,), motion_references=(motion,)))
+
+    with pytest.raises(ValueError, match="joint axis is not the robot's canonical order"):
+        task.validate()
+
+
+def test_policy_joint_selector_must_be_ordered_and_canonical():
+    task = _task()
+    observations = {
+        "policy": ObsGroupSpec(
+            terms={
+                "joint_pos": ObsTermSpec(
+                    _observed,
+                    params={"asset_cfg": EntityRef("robot", joints=("knee", "hip"), preserve_order=True)},
+                )
+            }
+        )
+    }
+    reversed_axis = replace(task, mdp=replace(task.mdp, observations=observations))
+    with pytest.raises(ValueError, match="joint axis is not the RobotSpec canonical order"):
+        reversed_axis.validate()
+
+    native_axis = replace(
+        task,
+        mdp=replace(
+            task.mdp,
+            observations={
+                "policy": ObsGroupSpec(
+                    terms={
+                        "joint_pos": ObsTermSpec(
+                            _observed,
+                            params={"asset_cfg": EntityRef("robot", joints=".*")},
+                        )
+                    }
+                )
+            },
+        ),
+    )
+    with pytest.raises(ValueError, match="without preserve_order=True"):
+        native_axis.validate()
+
+
+def test_joint_action_selector_must_follow_the_robot_canonical_order():
+    task = _task()
+    action = replace(
+        task.mdp.actions["joint_pos"],
+        target=EntityRef("robot", joints=("knee", "hip"), preserve_order=True),
+    )
+    changed = replace(task, mdp=replace(task.mdp, actions={"joint_pos": action}))
+
+    with pytest.raises(ValueError, match="joint axis is not the RobotSpec canonical order"):
+        changed.validate()
+
+
+def test_order_sensitive_reward_joint_selector_must_also_be_canonical():
+    task = _task()
+    reward = RewardTermSpec(
+        _observed,
+        params={"asset_cfg": EntityRef("robot", joints=("knee", "hip"), preserve_order=True)},
+    )
+    changed = replace(task, mdp=replace(task.mdp, rewards={"rewards": {"joint_vector": reward}}))
+
+    with pytest.raises(ValueError, match="joint axis is not the RobotSpec canonical order"):
+        changed.validate()
+
+
 def test_scene_sensor_names_may_not_shadow_scene_entities_or_isaac_fields():
     with pytest.raises(ValueError, match="collide with scene entities"):
         _task(scene=SceneSpec(contact_sensors=(ContactSensorRef(name="robot", elements="foot"),))).validate()

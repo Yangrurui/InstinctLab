@@ -29,10 +29,11 @@ selector it cannot honour.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-__all__ = ["UNIVERSAL_KINDS", "EntityRef"]
+__all__ = ["UNIVERSAL_KINDS", "EntityRef", "resolve_entity_names"]
 
 UNIVERSAL_KINDS: tuple[str, ...] = ("joint", "body")
 """The only selector kinds every supported engine can express. Checked in the tests."""
@@ -45,6 +46,45 @@ def _normalise(patterns: str | Sequence[str] | None) -> tuple[str, ...] | None:
     if isinstance(patterns, str):
         return (patterns,)
     return tuple(patterns)
+
+
+def resolve_entity_names(
+    patterns: str | Sequence[str],
+    available_names: Sequence[str],
+    *,
+    preserve_order: bool,
+) -> tuple[str, ...]:
+    """Resolve selector patterns with the semantics shared by both engines.
+
+    ``preserve_order=False`` follows ``available_names``.  ``True`` groups matches by
+    pattern order while retaining ``available_names`` order inside each pattern.  A name may
+    match only one pattern and every pattern must match, matching both native selector helpers.
+    Keeping this tiny resolver in the declaration layer lets validation and compilation reason
+    about the selected tensor axis before either engine SDK is imported.
+    """
+    expressions = (patterns,) if isinstance(patterns, str) else tuple(patterns)
+    if not expressions:
+        raise ValueError("A selector was given no patterns.")
+
+    matches_by_pattern: list[list[str]] = [[] for _ in expressions]
+    source_order: list[str] = []
+    for name in available_names:
+        matching = [index for index, expression in enumerate(expressions) if re.fullmatch(expression, name)]
+        if len(matching) > 1:
+            duplicate_patterns = tuple(expressions[index] for index in matching)
+            raise ValueError(f"Entity name {name!r} matches multiple selector patterns: {duplicate_patterns!r}.")
+        if matching:
+            matches_by_pattern[matching[0]].append(name)
+            source_order.append(name)
+
+    unmatched = [expression for expression, matches in zip(expressions, matches_by_pattern) if not matches]
+    if unmatched:
+        raise ValueError(
+            f"Selector patterns match no entity names: {unmatched!r}. Available names: {tuple(available_names)!r}."
+        )
+    if not preserve_order:
+        return tuple(source_order)
+    return tuple(name for matches in matches_by_pattern for name in matches)
 
 
 @dataclass(frozen=True)

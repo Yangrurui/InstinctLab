@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 07:35 UTC
+Updated: 2026-08-27 08:19 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -454,6 +454,64 @@ was started from the clean `1ee8654` worktree, with a new log directory. At
 iteration 20 its reward/length were `-0.52/9.08`, close to main's
 `-0.49/8.63`; this is an early sanity check, not convergence evidence.
 
+## Canonical joint-order audit (2026-08-27)
+
+Isaac's native PhysX articulation remains breadth-first; changing that native
+layout would break Isaac Lab's own buffers. The engine-neutral robot, policy,
+motion, and checkpoint interface is the G1 catalog's 29-joint depth-first
+order. Every Isaac boundary must therefore resolve names and gather/scatter
+explicitly rather than writing a DFS tensor positionally into native storage.
+
+The audit covered action targets and scales, policy/critic/AMP observations,
+joint rewards and limits, default/randomized poses, reset state writes, Shadow
+commands and motion-reference buffers, direct-backend state/control writes,
+diagnostic state capture/replay, and checkpoint loading. Four silent gaps were
+closed:
+
+- An ordered selector such as `joints=".*"` is now expanded against
+  `RobotSpec.joint_names` into exact canonical names before either engine
+  resolves it. `preserve_order=True` on one regex alone does not stop Isaac
+  from enumerating matches in native BFS order.
+- Task validation now rejects unordered or non-canonical policy/action joint
+  axes, non-canonical ordered joint references inside other MDP terms, and a
+  motion-reference joint list that is not a canonical subsequence.
+- Manifest-backed checkpoints now compare the ordered joint names and robot
+  schema version. A BFS checkpoint and DFS runtime have the same width and name
+  set, so task ID and contract hash drift checks alone cannot protect them.
+  Pre-manifest checkpoints remain loadable for compatibility but emit an
+  explicit BFS/DFS warning.
+- The retained Isaac `ActionOverridenMixin` now maps overridden articulation
+  joints by name onto the action term's DFS axis instead of using native BFS
+  joint IDs as policy columns. No registered task currently selects this
+  legacy action, but leaving the positional path was unsafe.
+
+Existing name bridges were confirmed for Shadow reset, randomized action
+offsets, joint-position reference defaults, AMP policy/reference terms, and
+motion clip loading. Non-ordered reward selectors were checked individually:
+they either reduce corresponding native tensors without an external joint
+vector, or, for Parkour velocity limits, use an explicitly ordered DFS selector
+with the matching DFS limit vector. The generic Isaac backend's read direction
+(native BFS to canonical DFS) and write direction (canonical values paired
+with mapped native IDs) have distinct regression tests.
+
+Evidence:
+
+```text
+1249 passed, 2 skipped, 31 deselected (full default suite)
+210 passed (joint-order/spec/compiler/checkpoint/backend focused suite)
+python scripts/check_mjlab.py resolved all 39 Locomotion terms,
+  constructed 16 environments, exposed a 29-joint catalog-order action,
+  and stepped 5 times
+```
+
+A fresh Isaac live probe was attempted twice but Kit stopped before environment
+construction while Neuray loaded on this host; its log reports missing
+`libGLU.so.1`. The probe never reached the joint assertions, so this audit does
+not claim a new Isaac live pass. The existing Parkour live test still contains
+the accepted runtime guard that checks native BFS names, DFS observation/action
+names, semantic state values, and action-history columns. The three production
+training processes were not signaled or restarted during this audit.
+
 ## Live experiments
 
 Snapshot at 2026-08-27 07:35 UTC. The old GPU 5 and GPU 6 runs were stopped and
@@ -521,6 +579,9 @@ finite.
 6. Continue reducing engine-specific parameter overlays by translating shared
    semantic values in builders. Do not move task policy into an engine package
    to achieve this.
+7. Restore the host OpenGL utility dependency providing `libGLU.so.1` before
+   rerunning fresh Isaac live joint-order probes; the current failure occurs in
+   Kit/Neuray initialization before an environment is constructed.
 
 ## Bring-up and verification
 

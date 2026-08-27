@@ -164,13 +164,16 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
     Legacy runs have no contract and remain loadable because existing Isaac and InstinctMJ
     checkpoints predate the unified launcher. Spec-hash drift is recorded in the manifest
     but does not block load: the same task keeps training and playback across declaration
-    edits. A different ``task_id`` or contract version still fails.
+    edits. A different ``task_id``, contract version, or ordered joint axis still fails: policy
+    inputs and outputs are shape-compatible when BFS and DFS contain the same names, so checking
+    the hash alone (or only the set of names) is not enough.
     """
     checkpoint_path = Path(checkpoint).expanduser().resolve()
     manifest_path = checkpoint_path.parent / "manifest.json"
     if not manifest_path.is_file():
         warnings.warn(
-            f"Checkpoint {checkpoint_path} has no adjacent manifest.json; compatibility cannot be verified.",
+            f"Checkpoint {checkpoint_path} has no adjacent manifest.json; compatibility cannot be verified. "
+            "In particular, a legacy Isaac policy may use native BFS joint order rather than canonical DFS.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -180,7 +183,8 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
     stored = manifest.get("task_contract")
     if not isinstance(stored, dict):
         warnings.warn(
-            f"Checkpoint manifest {manifest_path} predates task contracts; compatibility cannot be verified.",
+            f"Checkpoint manifest {manifest_path} predates task contracts; compatibility cannot be verified. "
+            "In particular, a legacy Isaac policy may use native BFS joint order rather than canonical DFS.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -191,6 +195,19 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
             f"Checkpoint task contract mismatch for {checkpoint_path}: "
             f"checkpoint task={stored.get('task_id')!r}, version={stored.get('version')!r}; "
             f"runtime task={current['task_id']!r}, version={current['version']!r}."
+        )
+    stored_joint_names = stored.get("joint_names")
+    if stored_joint_names != current["joint_names"]:
+        raise ValueError(
+            f"Checkpoint canonical joint order mismatch for {checkpoint_path}: "
+            f"checkpoint={stored_joint_names!r}; runtime={current['joint_names']!r}. "
+            "A BFS checkpoint cannot be loaded positionally into the DFS policy interface."
+        )
+    if stored.get("robot_schema_version") != current["robot_schema_version"]:
+        raise ValueError(
+            f"Checkpoint robot joint schema mismatch for {checkpoint_path}: "
+            f"checkpoint={stored.get('robot_schema_version')!r}; "
+            f"runtime={current['robot_schema_version']!r}."
         )
 
 

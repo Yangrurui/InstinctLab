@@ -43,6 +43,10 @@ first edit has to say why.
 """
 
 EDITED = {
+    "source/instinctlab/instinctlab/envs/mdp/actions/joint_actions.py": (
+        "maps overridden joints by name onto the DFS action axis; main can use native Isaac IDs "
+        "positionally because its action and articulation axes are both BFS"
+    ),
     "source/instinctlab/instinctlab/envs/mdp/events/randomization.py": (
         "updates randomized action offsets by joint name because shared actions are canonical DFS "
         "while Isaac articulations are native BFS; main uses one native order for both"

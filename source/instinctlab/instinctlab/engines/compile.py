@@ -14,13 +14,13 @@ just passes ``EntityRef`` around.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from instinctlab.compat import entity as compat_entity
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.capability import Requirement
-from instinctlab.spec.entity import EntityRef
+from instinctlab.spec.entity import EntityRef, resolve_entity_names
 from instinctlab.spec.mdp import MdpSpec, NoiseSpec, TermSpec
 from instinctlab.spec.task import TaskSpec
 
@@ -95,6 +95,18 @@ class CompileCtx:
         """
         if ref is None:
             return None
+        if ref.entity == "robot" and ref.joints is not None and ref.preserve_order:
+            # A lone ``.*`` does not make either native resolver use the catalog order: it
+            # preserves the one regex, then still enumerates matches in the articulation's own
+            # order (BFS on Isaac). Expand every order-sensitive robot selector against the
+            # canonical RobotSpec before lowering it so native resolution receives exact DFS
+            # names, one per policy column.
+            canonical_names = resolve_entity_names(
+                ref.joints,
+                self.spec.robot.joint_names,
+                preserve_order=False,
+            )
+            ref = replace(ref, joints=canonical_names)
         return compat_entity.lower(ref, self.engine)
 
     def noise(self, noise: NoiseSpec | None) -> Any:
@@ -268,16 +280,31 @@ def joint_position_target(spec: TermSpec, ctx: CompileCtx) -> EntityRef:
     target = spec.target
     if target is None:
         target = EntityRef(entity="robot", joints=ctx.spec.robot.joint_names, preserve_order=True)
+    if target.entity != "robot":
+        raise ValueError(
+            f"joint_position actions may target only the TaskSpec robot, got entity {target.entity!r}; "
+            "no canonical joint schema is declared for another articulation."
+        )
     if target.bodies is not None or target.other:
         raise ValueError("joint_position actions may select joints only")
     if target.joints is None:
         target = EntityRef(entity=target.entity, joints=ctx.spec.robot.joint_names, preserve_order=True)
-    if len(ctx.spec.engines) > 1 and not target.preserve_order:
+    if not target.preserve_order:
         raise ValueError(
-            "A multi-engine joint_position action must set preserve_order=True; native joint order "
-            "differs between PhysX and MuJoCo."
+            "A joint_position action must set preserve_order=True; the policy joint axis is the "
+            "RobotSpec canonical order, not an engine's native articulation order."
         )
-    return target
+    # Return exact names, not patterns.  Isaac lowers the target through ``ctx.entity`` while
+    # MJLab's preserving action consumes this reference directly; normalising here keeps both
+    # builders on the same engine-neutral policy axis.
+    return replace(
+        target,
+        joints=resolve_entity_names(
+            target.joints,
+            ctx.spec.robot.joint_names,
+            preserve_order=False,
+        ),
+    )
 
 
 def record_reward_omissions(

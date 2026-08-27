@@ -1,7 +1,9 @@
 """The engine-neutral task registry is the only production registration path."""
 
+from collections.abc import Mapping
 from pathlib import Path
 
+from instinctlab.spec import EntityRef
 from instinctlab.tasks import registry
 
 TASK_ROOT = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/tasks"
@@ -24,6 +26,47 @@ def test_every_registered_factory_returns_its_own_task_id() -> None:
 def test_registered_tasks_do_not_use_engine_extras() -> None:
     for task_id in registry.ids():
         assert not registry.spec(task_id).engine_extras
+
+
+def test_every_registered_policy_joint_axis_is_the_robot_canonical_order() -> None:
+    """Discover every task instead of maintaining family-specific joint-order lists."""
+    joint_vector_functions = {
+        "instinctlab.mdp.observations.joint_pos_rel",
+        "instinctlab.mdp.observations.joint_vel",
+        "instinctlab.mdp.observations.joint_vel_rel",
+        "instinctlab.mdp.amp.joint_pos_rel_from_reference",
+        "instinctlab.mdp.amp.joint_vel_rel_from_reference",
+    }
+    for task_id in registry.ids():
+        task = registry.spec(task_id)
+        canonical = tuple(task.robot.joint_names)
+
+        for action_name, action in task.mdp.actions.items():
+            if action.kind != "joint_position":
+                continue
+            assert action.target is not None, (task_id, action_name)
+            assert action.target.joints == canonical, (task_id, action_name)
+            assert action.target.preserve_order is True, (task_id, action_name)
+            scale = action.params.get("scale")
+            if isinstance(scale, Mapping):
+                assert tuple(scale) == canonical, (task_id, action_name)
+
+        for group_name, group in task.mdp.observations.items():
+            for term_name, term in group.terms.items():
+                func = term.func
+                if func is None:
+                    continue
+                function_name = f"{func.__module__}.{func.__qualname__}"
+                if function_name not in joint_vector_functions:
+                    continue
+                selector = term.params.get("asset_cfg")
+                assert isinstance(selector, EntityRef), (task_id, group_name, term_name)
+                assert selector.joints == canonical, (task_id, group_name, term_name)
+                assert selector.preserve_order is True, (task_id, group_name, term_name)
+
+        for motion in task.scene.motion_references:
+            selected = set(motion.joints)
+            assert tuple(motion.joints) == tuple(name for name in canonical if name in selected), task_id
 
 
 def test_shadowing_tasks_use_the_reference_file_layout() -> None:

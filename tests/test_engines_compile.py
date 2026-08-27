@@ -410,6 +410,37 @@ def test_joint_position_defaults_to_the_robot_canonical_order():
     assert target.preserve_order is True
 
 
+def test_ordered_joint_regex_is_expanded_to_explicit_canonical_names_before_lowering():
+    """``.*`` plus preserve_order is otherwise still native BFS on Isaac."""
+    pytest.importorskip("mjlab")
+    from tests.test_spec_task import _task
+
+    task = _task()
+    ctx = _ctx(engine="mjlab")
+    ctx.spec = task
+
+    lowered = ctx.entity(EntityRef("robot", joints=".*", preserve_order=True))
+
+    assert tuple(lowered.joint_names) == task.robot.joint_names
+    assert lowered.preserve_order is True
+
+
+def test_joint_position_regex_is_expanded_before_either_engine_builder_uses_it():
+    from tests.test_spec_task import _task
+
+    task = _task()
+    ctx = _ctx()
+    ctx.spec = task
+    spec = ActionTermSpec(
+        kind="joint_position",
+        target=EntityRef("robot", joints=".*", preserve_order=True),
+    )
+
+    target = joint_position_target(spec, ctx)
+
+    assert target.joints == task.robot.joint_names
+
+
 def test_multi_engine_joint_position_refuses_native_order():
     from tests.test_spec_task import _task
 
@@ -417,6 +448,20 @@ def test_multi_engine_joint_position_refuses_native_order():
     ctx.spec = _task()
     spec = ActionTermSpec(kind="joint_position", target=EntityRef(joints=("hip", "knee")))
     with pytest.raises(ValueError, match="must set preserve_order=True"):
+        joint_position_target(spec, ctx)
+
+
+def test_joint_position_refuses_an_entity_without_a_canonical_joint_schema():
+    from tests.test_spec_task import _task
+
+    ctx = _ctx()
+    ctx.spec = _task()
+    spec = ActionTermSpec(
+        kind="joint_position",
+        target=EntityRef("robot_reference", joints=("hip", "knee"), preserve_order=True),
+    )
+
+    with pytest.raises(ValueError, match="no canonical joint schema"):
         joint_position_target(spec, ctx)
 
 

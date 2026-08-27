@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from .entity import EntityRef, resolve_entity_names
 from .mdp import walk_parameter_values
 from .sensor import ContactSensorRef, MotionReferenceRef, RayCasterRef, VolumePointsRef
 
@@ -70,7 +71,8 @@ def _validate_scene_bindings(spec: TaskSpec) -> None:
 
     body_names = tuple(spec.robot.body_names)
     body_name_set = set(body_names)
-    joint_names = set(spec.robot.joint_names)
+    canonical_joint_names = tuple(spec.robot.joint_names)
+    joint_names = set(canonical_joint_names)
 
     for sensor in scene.contact_sensors:
         if sensor.entity != "robot":
@@ -97,6 +99,13 @@ def _validate_scene_bindings(spec: TaskSpec) -> None:
             raise ValueError(
                 f"Motion reference {sensor.name!r} does not match the robot: "
                 f"entity={sensor.entity!r}, unknown joints={unknown_joints}, unknown links={unknown_links}."
+            )
+        selected = set(sensor.joints)
+        expected_order = tuple(name for name in canonical_joint_names if name in selected)
+        if tuple(sensor.joints) != expected_order:
+            raise ValueError(
+                f"Motion reference {sensor.name!r} joint axis is not the robot's canonical order: "
+                f"declared={tuple(sensor.joints)!r}, expected={expected_order!r}."
             )
 
     for sensor in scene.volume_points:
@@ -189,11 +198,79 @@ def _validate_mdp_references(spec: TaskSpec) -> None:
             _validate_sensor_reference(term_key=key, value=value, sensors=sensors, body_names=body_names)
 
 
+def _validate_canonical_joint_ref(
+    *,
+    label: str,
+    ref: EntityRef,
+    joint_names: tuple[str, ...],
+    require_ordered: bool = False,
+) -> None:
+    """Require an order-sensitive robot selector to resolve to a canonical subsequence."""
+    if ref.entity != "robot" or ref.joints is None:
+        return
+    if not ref.preserve_order:
+        if require_ordered:
+            raise ValueError(
+                f"{label} exposes robot joints without preserve_order=True; Isaac would use native BFS order."
+            )
+        return
+    resolved = resolve_entity_names(ref.joints, joint_names, preserve_order=True)
+    selected = set(resolved)
+    expected = tuple(name for name in joint_names if name in selected)
+    if resolved != expected:
+        raise ValueError(
+            f"{label} joint axis is not the RobotSpec canonical order: "
+            f"resolved={resolved!r}, expected={expected!r}."
+        )
+
+
+def _validate_mdp_joint_axes(spec: TaskSpec) -> None:
+    """Validate order-sensitive and policy-facing joints before native indices exist."""
+    joint_names = tuple(spec.robot.joint_names)
+    for term_key, term in spec.mdp.terms().items():
+        parameter_sets = (term.params, *term.engine_params.values())
+        values = (value for params in parameter_sets for value in params.values())
+        refs = [value for value in walk_parameter_values(values) if isinstance(value, EntityRef)]
+        if term.target is not None:
+            refs.append(term.target)
+        for ref in refs:
+            _validate_canonical_joint_ref(
+                label=f"Term {term_key!r}",
+                ref=ref,
+                joint_names=joint_names,
+            )
+
+    for action_name, term in spec.mdp.actions.items():
+        if term.kind == "joint_position" and term.target is not None:
+            _validate_canonical_joint_ref(
+                label=f"Action {action_name!r}",
+                ref=term.target,
+                joint_names=joint_names,
+                require_ordered=True,
+            )
+
+    for group_name, group in spec.mdp.observations.items():
+        for term_name, term in group.terms.items():
+            parameter_sets = (term.params, *term.engine_params.values())
+            values = (value for params in parameter_sets for value in params.values())
+            refs = [value for value in walk_parameter_values(values) if isinstance(value, EntityRef)]
+            if term.target is not None:
+                refs.append(term.target)
+            for ref in refs:
+                _validate_canonical_joint_ref(
+                    label=f"Observation {group_name!r}/{term_name!r}",
+                    ref=ref,
+                    joint_names=joint_names,
+                    require_ordered=True,
+                )
+
+
 def validate_task(spec: TaskSpec) -> None:
     """Validate relationships that span a complete task declaration."""
     spec.robot.validate()
     _validate_engine_keys(spec)
     _validate_scene_bindings(spec)
+    _validate_mdp_joint_axes(spec)
     _validate_mdp_references(spec)
 
 
