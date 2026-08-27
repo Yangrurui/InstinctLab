@@ -8,14 +8,13 @@ term bodies below are the Isaac Lab ones, with the attribute names moved onto th
 Two of those moves change a number, and both are recorded here rather than in a commit message,
 because a reader comparing against the Isaac Lab original will otherwise assume a typo:
 
-**Angular velocity moved to the link spelling for free.** Isaac Lab's ``root_ang_vel_b`` is a legacy
+**Angular velocity is the same at the link and COM.** Isaac Lab's ``root_ang_vel_b`` is a legacy
 alias for ``root_com_ang_vel_b``, and mjlab has only ``root_link_ang_vel_b``. Reading Isaac Lab's
 ``ArticulationData``, ``root_link_vel_w`` is a clone of ``root_com_vel_w`` whose *linear* rows alone
-receive the centre-of-mass offset correction; the angular rows are copied untouched. So the two
-angular quantities are bitwise identical, and using the hub spelling costs nothing against the
-golden. This is what one expects physically -- a rigid body's angular velocity does not depend on
-the point it is measured about -- but it is asserted here because it was checked, not because it
-was assumed.
+receive the centre-of-mass offset correction; the angular rows are copied untouched. The values
+are therefore bitwise identical. On Isaac, however, asking for the link spelling needlessly fetches
+COM offsets and computes the linear correction too. The term prefers the COM spelling when the
+native data exposes it and falls back to the link spelling used by mjlab.
 
 **Linear velocity does not.** The same code path adds ``ω × R(−com_pos_b)`` to the linear rows, so
 ``root_link_lin_vel_b`` and Isaac Lab's ``root_lin_vel_b`` differ by exactly that term whenever the
@@ -55,11 +54,12 @@ __all__ = [
 def base_ang_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     """Root angular velocity in the body frame.
 
-    Identical to Isaac Lab's ``base_ang_vel`` value for value; see the module docstring for why the
-    link spelling costs nothing here.
+    Identical to Isaac Lab's ``base_ang_vel`` value for value. Prefer its direct COM property to
+    avoid constructing the unused link linear velocity; mjlab exposes the equivalent link value.
     """
     asset = env.scene[_name(asset_cfg)]
-    return asset.data.root_link_ang_vel_b
+    com_ang_vel = getattr(asset.data, "root_com_ang_vel_b", None)
+    return asset.data.root_link_ang_vel_b if com_ang_vel is None else com_ang_vel
 
 
 def base_lin_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:

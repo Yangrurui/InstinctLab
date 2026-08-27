@@ -222,16 +222,24 @@ class _Sensor:
         self.data = _Data(current_air_time=current_air_time, current_contact_time=current_contact_time)
 
 
-def test_observations_read_the_link_quantities():
+def test_observations_prefer_direct_com_angular_velocity_and_read_link_linear_velocity():
+    com_ang_vel = torch.tensor([[1.0, 2.0, 3.0]])
     robot = _Entity(
-        root_link_ang_vel_b=torch.tensor([[1.0, 2.0, 3.0]]),
+        root_com_ang_vel_b=com_ang_vel,
+        root_link_ang_vel_b=torch.tensor([[10.0, 20.0, 30.0]]),
         root_link_lin_vel_b=torch.tensor([[4.0, 5.0, 6.0]]),
         projected_gravity_b=torch.tensor([[0.0, 0.1, -1.0]]),
     )
     env = _Env(entities={"robot": robot})
-    assert torch.equal(mdp.base_ang_vel(env), robot.data.root_link_ang_vel_b)
+    assert torch.equal(mdp.base_ang_vel(env), com_ang_vel)
     assert torch.equal(mdp.base_lin_vel(env), robot.data.root_link_lin_vel_b)
     assert torch.equal(mdp.projected_gravity(env), robot.data.projected_gravity_b)
+
+
+def test_base_ang_vel_falls_back_to_the_link_quantity():
+    link_ang_vel = torch.tensor([[1.0, 2.0, 3.0]])
+    env = _Env(entities={"robot": _Entity(root_link_ang_vel_b=link_ang_vel)})
+    assert torch.equal(mdp.base_ang_vel(env), link_ang_vel)
 
 
 def test_joint_observations_subtract_the_defaults_and_honour_the_selection():
