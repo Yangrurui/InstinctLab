@@ -16,7 +16,14 @@ from instinctlab.sim.backend import CanonicalIndexMap
 from instinctlab.tasks import registry
 from instinctlab.utils.name_order import copy_named_columns_
 
-SHADOWING_IDS = tuple(task_id for task_id in registry.ids() if "Shadowing" in task_id or "BeyondMimic" in task_id)
+SHADOWING_IDS = tuple(
+    task_id
+    for task_id in registry.ids()
+    if any(
+        term.kind == "shadow_joint_position_reference"
+        for term in registry.spec(task_id).mdp.commands.values()
+    )
+)
 
 
 class _ResetAsset:
