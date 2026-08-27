@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 05:16 UTC
+Updated: 2026-08-27 06:22 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -261,13 +261,57 @@ Warp ray kernel for the synthetic near-hit case; both implementations agree on
 the production CUDA path. The live parity test therefore marks that one case
 CUDA-only rather than treating CPU behavior as production evidence.
 
+The AMP and Shadow motion-reference follow-up audit at `7ccb704` also checked
+the shared clip runtime, the two native sensor lifecycles, and the active task
+consumers against main and InstinctMJ. AMP policy/reference terms retain one
+ordered schema and one numerical builder; policy history reads live robot state,
+the dedicated reference buffer samples current time `t`, and Parkour command/
+termination look-ahead remains separate at `t + dt`. Shadow rewards consume the
+current reference, commands and failure terminations consume look-ahead data,
+and reset keeps its separately floor-indexed initial sample.
+
+Two silent reset-coordinate differences were fixed:
+
+- InstinctMJ/main gate the zero-ground correction once for the selected reset
+  batch. If any selected pose penetrates zero, `-minimum_link_height` is applied
+  to every selected pose, including airborne poses. The shared runtime now
+  preserves that effective behavior without a host scalar poll. On the released
+  Perceptive dataset, 4,844 of 4,896 retained frames have positive minimum link
+  height and 52 have negative height, so the old per-environment clamp was not
+  equivalent for mixed batches. Isaac Perceptive remains intentionally exempt
+  through its engine override.
+- Late binding of live environment origins translated robot root/link buffers
+  but omitted HOI object positions. All three buffers (look-ahead, reset, and
+  current-reference) now translate valid object slots through the same world-
+  position path; absent object slots remain neutral.
+
+The object-free multi-clip packed sampler was checked against the retained
+per-clip path as an oracle. With identical reset RNG, all fields in the reset,
+current-reference, and look-ahead buffers matched, including motion selection,
+floor/rounded frame indices, velocities, validity, and exhaustion bookkeeping.
+
+Evidence for this follow-up:
+
+```text
+1230 passed, 2 skipped, 31 deselected (full default suite)
+155 passed (focused AMP, motion-reference, and Shadow runtime/contract suite)
+155 passed, 1 deselected (main/MJ source readers and Parkour/Shadow declarations)
+1 passed per engine (native motion-reference lifecycle and AMP write-state probe)
+1 passed per engine (full Shadow reset plus four-step rollout)
+```
+
+The OMOMO motion files are not installed on this server, so HOI object-origin
+coverage is fixed-state rather than a full simulator rollout. Production HOI
+reproduction remains open below.
+
 The Perceptive long runs already active on Isaac GPU 6 and MJLab GPU 7 were
 started before this audit and were not stopped or restarted. The MJLab process
 therefore still has the old Parkour-default camera settings in memory and must
-not be used as post-fix Perceptive camera evidence. The Isaac process likewise
-predates the 10 N main contact-clock resolution, although current Perceptive MDP
-terms do not consume that timer. A future post-fix Perceptive comparison must
-start new log directories; do not relabel either active run.
+not be used as post-fix Perceptive camera or reset-height evidence. The Isaac
+process likewise predates the 10 N main contact-clock resolution, although
+current Perceptive MDP terms do not consume that timer. A future post-fix
+Perceptive comparison must start new log directories; do not relabel either
+active run.
 
 ## Perceptive Isaac performance audit (2026-08-27)
 
