@@ -21,6 +21,7 @@ from instinctlab.engines.isaacsim.terms import merge_friction_params as isaac_me
 from instinctlab.engines.mjlab.events import reset_joints_by_offset, reset_joints_by_scale
 from instinctlab.engines.mjlab.rewards import (
     CONTACT_FORCE_THRESHOLD_N,
+    _effort_limits,
     applied_torque_limits_by_ratio,
     illegal_contact,
     joint_torques_l2,
@@ -110,7 +111,7 @@ def test_mjlab_motors_power_square_uses_qfrc_times_joint_vel() -> None:
     assert torch.equal(out, torch.tensor([9.0 + 64.0]))
 
 
-def test_mjlab_motors_power_square_ignores_auxiliary_velocity_limiter() -> None:
+def test_mjlab_motors_power_square_ignores_auxiliary_actuators_without_stiffness() -> None:
     pd = SimpleNamespace(
         transmission_type="joint",
         target_ids=torch.tensor([0, 1]),
@@ -135,6 +136,31 @@ def test_mjlab_motors_power_square_ignores_auxiliary_velocity_limiter() -> None:
     assert torch.equal(out, torch.tensor([(2.0 * 3.0 / 2.0) ** 2 + (4.0 * 2.0 / 2.0) ** 2]))
 
 
+def test_mjlab_motors_power_square_maps_stiffness_by_native_joint_ids() -> None:
+    first = SimpleNamespace(
+        transmission_type="joint",
+        target_ids=torch.tensor([2, 0]),
+        cfg=SimpleNamespace(stiffness=2.0),
+    )
+    second = SimpleNamespace(
+        transmission_type="joint",
+        target_ids=torch.tensor([1]),
+        cfg=SimpleNamespace(stiffness=4.0),
+    )
+    robot = SimpleNamespace(
+        actuators=(first, second),
+        data=SimpleNamespace(
+            qfrc_actuator=torch.tensor([[2.0, 8.0, 6.0]]),
+            joint_vel=torch.tensor([[3.0, 1.0, 2.0]]),
+        ),
+    )
+    env = SimpleNamespace(scene={"robot": robot})
+
+    out = motors_power_square(env, asset_cfg=SimpleNamespace(name="robot", joint_ids=[1, 2]))
+
+    assert torch.equal(out, torch.tensor([(8.0 * 1.0 / 4.0) ** 2 + (6.0 * 2.0 / 2.0) ** 2]))
+
+
 def test_mjlab_applied_torque_limits_by_ratio_reads_joint_effort_limits_when_present() -> None:
     env = SimpleNamespace(
         scene={
@@ -150,6 +176,38 @@ def test_mjlab_applied_torque_limits_by_ratio_reads_joint_effort_limits_when_pre
         env, asset_cfg=SimpleNamespace(name="robot", joint_ids=slice(None)), limit_ratio=0.8
     )
     assert torch.equal(out, torch.tensor([4.0]))
+
+
+def test_mjlab_model_effort_limits_map_global_ranges_to_selected_local_joints(monkeypatch) -> None:
+    class BuiltinPdActuator:
+        transmission_type = "joint"
+        target_names = ("hip", "ankle")
+        target_ids = torch.tensor([0, 1])
+
+    monkeypatch.setattr("mjlab.actuator.BuiltinPdActuator", BuiltinPdActuator)
+    ranges = torch.zeros(2, 6, 2)
+    ranges[:, 2] = torch.tensor([[-11.0, 11.0], [-13.0, 13.0]])
+    ranges[:, 5] = torch.tensor([[-7.0, 7.0], [-9.0, 9.0]])
+    robot = SimpleNamespace(
+        num_joints=2,
+        joint_names=("hip", "ankle"),
+        indexing=SimpleNamespace(joint_ids=torch.tensor([2, 5])),
+        actuators=(BuiltinPdActuator(),),
+        data=SimpleNamespace(qfrc_actuator=torch.zeros(2, 2)),
+    )
+    env = SimpleNamespace(
+        scene={"robot": robot},
+        sim=SimpleNamespace(
+            model=SimpleNamespace(
+                jnt_actfrcrange=ranges,
+                actuator_forcerange=torch.zeros(2, 0, 2),
+            )
+        ),
+    )
+
+    limits = _effort_limits(env, robot, SimpleNamespace(name="robot", joint_ids=[1, 0]))
+
+    torch.testing.assert_close(limits, torch.tensor([[7.0, 11.0], [9.0, 13.0]]))
 
 
 """

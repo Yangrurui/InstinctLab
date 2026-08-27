@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,6 +20,8 @@ from instinctlab.assets.unitree_g1.catalog import (
 _RESOURCE_ROOT = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/assets/resources/unitree_g1"
 _URDF_PATH = _RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"
 _MJCF_PATH = _RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"
+_MAIN_ASSET_CFG = Path("/root/InstinctLab-main/source/instinctlab/instinctlab/assets/unitree_g1.py")
+_MJLAB_ASSET_CFG = Path("/root/InstinctMJ/src/instinct_mj/assets/unitree_g1.py")
 
 
 def _floats(text: str | None) -> tuple[float, ...]:
@@ -251,6 +254,163 @@ def test_robot_spec_limits_match_urdf() -> None:
         del lower, upper
         assert properties.effort_limit == pytest.approx(effort)
         assert properties.velocity_limit == pytest.approx(velocity)
+
+
+def _module_assignments(tree: ast.Module) -> dict[str, ast.AST]:
+    assignments: dict[str, ast.AST] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            assignments[node.targets[0].id] = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            assignments[node.target.id] = node.value
+    return assignments
+
+
+def _numeric_symbols(assignments: dict[str, ast.AST]) -> dict[str, float]:
+    """Resolve the arithmetic constants used by both reference actuator tables."""
+    symbols: dict[str, float] = {}
+    pending = dict(assignments)
+    changed = True
+    while changed:
+        changed = False
+        for name, node in tuple(pending.items()):
+            try:
+                value = eval(compile(ast.Expression(node), "<actuator-reference>", "eval"), {"__builtins__": {}}, symbols)
+            except (NameError, TypeError, ValueError):
+                continue
+            if not isinstance(value, (int, float)):
+                continue
+            symbols[name] = float(value)
+            pending.pop(name)
+            changed = True
+    return symbols
+
+
+def _reference_actuator_parameters(
+    path: Path,
+    table_name: str,
+    *,
+    target_field: str,
+    effort_field: str,
+    include_velocity: bool,
+) -> dict[str, dict[str, float]]:
+    """Expand a reference actuator table into exact per-joint numeric values."""
+    tree = ast.parse(path.read_text())
+    assignments = _module_assignments(tree)
+    symbols = _numeric_symbols(assignments)
+    table = assignments.get(table_name)
+    if isinstance(table, ast.Dict):
+        calls = list(table.values)
+    elif isinstance(table, (ast.Tuple, ast.List)):
+        calls = [assignments.get(item.id) if isinstance(item, ast.Name) else item for item in table.elts]
+    else:
+        raise LookupError(f"{path} has no actuator table {table_name!r}")
+
+    field_names = (effort_field, "stiffness", "damping", "armature")
+    if include_velocity:
+        field_names = (*field_names, "velocity_limit_sim")
+    expanded: dict[str, dict[str, float]] = {}
+    for call in calls:
+        if not isinstance(call, ast.Call):
+            raise LookupError(f"{table_name} contains a non-call entry")
+        kwargs = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg is not None}
+        patterns = ast.literal_eval(kwargs[target_field])
+        matched = [name for pattern in patterns for name in G1_29DOF_DFS_JOINT_NAMES if re.fullmatch(pattern, name)]
+        if not matched:
+            raise LookupError(f"{table_name} entry {patterns!r} matches no canonical joint")
+        for joint_name in matched:
+            if joint_name in expanded:
+                raise LookupError(f"{table_name} assigns {joint_name!r} more than once")
+            values: dict[str, float] = {}
+            for field_name in field_names:
+                field = kwargs.get(field_name)
+                if field is None:
+                    raise LookupError(f"{table_name} entry {patterns!r} has no {field_name}")
+                if isinstance(field, ast.Dict):
+                    candidates = [
+                        value
+                        for pattern, value in zip(field.keys, field.values, strict=True)
+                        if pattern is not None and re.fullmatch(ast.literal_eval(pattern), joint_name)
+                    ]
+                    if len(candidates) != 1:
+                        raise LookupError(
+                            f"{table_name} field {field_name} matches {joint_name!r} {len(candidates)} times"
+                        )
+                    field = candidates[0]
+                try:
+                    value = eval(
+                        compile(ast.Expression(field), "<actuator-reference>", "eval"),
+                        {"__builtins__": {}},
+                        symbols,
+                    )
+                except (NameError, TypeError, ValueError) as exc:
+                    raise LookupError(f"cannot evaluate {table_name}.{field_name} for {joint_name!r}") from exc
+                if not isinstance(value, (int, float)):
+                    raise LookupError(f"{table_name}.{field_name} for {joint_name!r} is not numeric")
+                values[field_name] = float(value)
+            expanded[joint_name] = values
+    missing = set(G1_29DOF_DFS_JOINT_NAMES) - set(expanded)
+    if missing:
+        raise LookupError(f"{table_name} leaves canonical joints unassigned: {sorted(missing)}")
+    return expanded
+
+
+def test_robot_spec_actuation_matches_both_reference_repositories() -> None:
+    """The catalog is the bridge; compare its numbers to both sources, not to itself."""
+    if not _MAIN_ASSET_CFG.is_file() or not _MJLAB_ASSET_CFG.is_file():
+        pytest.skip("reference repositories are not checked out")
+
+    main = _reference_actuator_parameters(
+        _MAIN_ASSET_CFG,
+        "beyondmimic_g1_29dof_actuators",
+        target_field="joint_names_expr",
+        effort_field="effort_limit_sim",
+        include_velocity=True,
+    )
+    mjlab = _reference_actuator_parameters(
+        _MJLAB_ASSET_CFG,
+        "beyondmimic_g1_29dof_actuator_cfgs",
+        target_field="target_names_expr",
+        effort_field="effort_limit",
+        include_velocity=False,
+    )
+    for joint in make_g1_29dof_robot_spec().joint_properties:
+        main_values = main[joint.name]
+        mjlab_values = mjlab[joint.name]
+        for field_name in ("stiffness", "damping", "armature"):
+            expected = getattr(joint, field_name)
+            assert main_values[field_name] == pytest.approx(expected), (joint.name, field_name, "main")
+            assert mjlab_values[field_name] == pytest.approx(expected), (joint.name, field_name, "InstinctMJ")
+        assert main_values["effort_limit_sim"] == pytest.approx(joint.effort_limit), joint.name
+        assert mjlab_values["effort_limit"] == pytest.approx(joint.effort_limit), joint.name
+        assert main_values["velocity_limit_sim"] == pytest.approx(joint.velocity_limit), joint.name
+        assert joint.action_scale == pytest.approx(0.25 * main_values["effort_limit_sim"] / main_values["stiffness"])
+        assert joint.action_scale == pytest.approx(0.25 * mjlab_values["effort_limit"] / mjlab_values["stiffness"])
+
+
+def test_reference_actuator_reader_observes_a_source_gain_mutation(tmp_path: Path) -> None:
+    if not _MJLAB_ASSET_CFG.is_file():
+        pytest.skip("InstinctMJ is not checked out")
+    source = _MJLAB_ASSET_CFG.read_text()
+    needle = "stiffness=STIFFNESS_7520_14,"
+    assert source.count(needle) >= 1
+    mutated_path = tmp_path / "unitree_g1.py"
+    mutated_path.write_text(source.replace(needle, "stiffness=1.5 * STIFFNESS_7520_14,", 1))
+
+    mutated = _reference_actuator_parameters(
+        mutated_path,
+        "beyondmimic_g1_29dof_actuator_cfgs",
+        target_field="target_names_expr",
+        effort_field="effort_limit",
+        include_velocity=False,
+    )
+
+    nominal = next(
+        joint.stiffness
+        for joint in make_g1_29dof_robot_spec().joint_properties
+        if joint.name == "left_hip_pitch_joint"
+    )
+    assert mutated["left_hip_pitch_joint"]["stiffness"] == pytest.approx(1.5 * nominal)
 
 
 def test_beyondmimic_groups_cover_the_robot_spec() -> None:

@@ -83,6 +83,8 @@ def test_delayed_actuators_copies_pd_numbers_and_hub_bounds(monkeypatch) -> None
             stiffness=40.0,
             damping=1.0,
             effort_limit_sim=88.0,
+            velocity_limit_sim=32.0,
+            armature=0.01,
             extra_field="must_not_copy",
         )
     }
@@ -94,6 +96,8 @@ def test_delayed_actuators_copies_pd_numbers_and_hub_bounds(monkeypatch) -> None
     assert wrapped.stiffness == 40.0
     assert wrapped.damping == 1.0
     assert wrapped.effort_limit_sim == 88.0
+    assert wrapped.velocity_limit_sim == 32.0
+    assert wrapped.armature == 0.01
     assert not hasattr(wrapped, "extra_field")
 
 

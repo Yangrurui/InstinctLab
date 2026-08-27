@@ -79,15 +79,6 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
     # certainly not the closure the hypothesis predicted. The alignment is kept because the
     # partition is a physical fact both references declare and we were the odd one out on it,
     # not because it bought anything measurable. Our higher fall rate remains unexplained.
-    "actuation/velocity_limit": (
-        "InstinctMJ BuiltinPd has no motor-side joint-speed limiter",
-        "BuiltinPd plus a braking motor at each catalog velocity limit",
-        (
-            "Requested plant constraint: MuJoCo has no PhysX velocity_limit_sim equivalent, so the "
-            "native implicit PD is retained and an auxiliary motor applies reverse effort only when "
-            "a joint reaches its declared 20/22/32/37 rad/s limit."
-        ),
-    ),
     "reward/dof_vel_limits": (
         "InstinctMJ has no dof_vel_limits reward",
         "weight=-1.0, soft_ratio=0.9, using the shared per-joint motor limits",
@@ -505,10 +496,11 @@ def test_instinct_rl_normalizer_cfg_default_is_a_running_zscore_not_identity() -
 
 
 def test_known_drifts_and_deliberate_tables_are_not_empty() -> None:
-    assert len(KNOWN_DRIFTS) == 4
+    assert len(KNOWN_DRIFTS) == 3
     assert len(DELIBERATE) == 2
     assert len(REFERENCE_DIVERGENCE) == 1
     assert "agent/normalizers" not in KNOWN_DRIFTS
+    assert "actuation/velocity_limit" not in KNOWN_DRIFTS
     assert "scene/height_scanner/offset" not in KNOWN_DRIFTS
     assert "reward/dof_vel_limits" in KNOWN_DRIFTS
     assert "camera/hit_targets" not in KNOWN_DRIFTS
@@ -849,4 +841,4 @@ def test_the_prose_counts_the_drift_table() -> None:
 
     source = Path(__file__).read_text()
     counts = {int(match) for match in re.findall(r"len\(KNOWN_DRIFTS\) == (\d+)", source)}
-    assert counts == {len(KNOWN_DRIFTS)} == {4}
+    assert counts == {len(KNOWN_DRIFTS)} == {3}

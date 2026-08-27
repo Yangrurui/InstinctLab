@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 08:19 UTC
+Updated: 2026-08-27 09:03 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -11,9 +11,9 @@ narratives are in Git history rather than duplicated here.
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
 - Current task cleanup: `a9e3805`
-- Remote: `git@github.com:Yangrurui/InstinctLab.git`
-- Remote was at `a1e86b8` before this cleanup; push the local commits before
-  decommissioning this server.
+- Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
+- Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
+  through `348a73d`. Later local audit commits still need an explicit push.
 
 Every active task is registered once in
 `source/instinctlab/instinctlab/tasks/registry.py` and compiled by the selected
@@ -511,6 +511,57 @@ not claim a new Isaac live pass. The existing Parkour live test still contains
 the accepted runtime guard that checks native BFS names, DFS observation/action
 names, semantic state values, and action-history columns. The three production
 training processes were not signaled or restarted during this audit.
+
+## Actuator and control-path audit (2026-08-27)
+
+Isaac's 0--2 physics-step actuator delay is explicitly operator-intended and
+was excluded from defect classification. Outside that boundary, the complete
+position-control path is aligned: all 15 registered tasks expose one 29-joint
+DFS action, use the same per-joint `0.25 * effort / stiffness` scale and
+randomized default-position offset, process one action per policy step, and
+write the held target on every decimation substep. No task applies an action
+clip.
+
+The shared G1 catalog was compared per joint against both reference source
+tables. Effort, stiffness, damping, armature, and action scale match main and
+InstinctMJ; Isaac's native `velocity_limit_sim` also matches main. MJLab uses
+only InstinctMJ's seven `BuiltinPdActuator` groups and has no auxiliary
+motor-speed limiter. A stale `KNOWN_DRIFTS` row still claimed that such a
+braking actuator existed after it was removed in `611f9be`; the row was
+deleted. This was an audit-record defect, not a production behavior change.
+
+Runtime MJLab probes confirmed that compiled `jnt_actfrcrange`, `dof_armature`,
+action scale, and action offset match the catalog (maximum scale/offset error
+below `3e-8`). A three-environment Whole Body startup probe produced distinct
+randomized defaults and exactly matching action offsets. An isolated
+Perceptive startup probe confirmed Kp factors in `[0.8, 1.2]`, Kd factors in
+`[0.9, 1.1]`, and consistent MuJoCo gain/bias pairs for all seven actuator
+groups. The motion-to-terrain matching event was disabled only for that
+diagnostic because three environments cannot host every referenced terrain;
+production configuration was not changed.
+
+Torque and energy terms retain the documented engine-native sources: Isaac
+uses `applied_torque`, while MJLab uses joint-space `qfrc_actuator`. New
+fixed-state regressions pin stiffness normalization by actuator target IDs and
+the mapping from MuJoCo global `jnt_actfrcrange` rows back to an arbitrary
+selected local joint order. Joint acceleration remains an intentional native
+difference (Isaac finite difference, MJLab solver `qacc`).
+
+Evidence:
+
+```text
+68 passed (asset/action/actuator/reference/reward focus)
+1253 passed, 2 skipped, 31 deselected (full default suite)
+scripts/check_mjlab.py resolved all 39 Locomotion terms,
+  constructed 16 environments in DFS action order, and stepped 5 times
+```
+
+The full Parkour live snapshot was stopped before environment construction
+completed because MuJoCo Warp's 0.05 m height-field BVH cold build remained in
+CPU preprocessing; it produced no rollout evidence. The flat and Shadow probes
+cover the same catalog control plant without that terrain cost. HOI remains
+blocked by the already-recorded missing OMOMO object assets. Existing training
+processes on GPUs 5, 6, and 7 were not signaled or restarted.
 
 ## Live experiments
 
