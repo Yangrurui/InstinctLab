@@ -300,6 +300,29 @@ def test_reset_state_uses_floor_index_and_height_adjustment_separate_from_histor
     assert runtime.init_buffers.base_pos_w[0, 0, 2] == pytest.approx(0.3)
 
 
+def test_reset_height_adjustment_preserves_reference_batch_gate() -> None:
+    """Both sources correct the whole selected batch when any reset pose penetrates."""
+    ref = _ref(
+        "unused",
+        ensure_link_below_zero_ground=True,
+        motion_start_height_offset=0.1,
+    )
+    clip = _clip("only", 0.0)
+    clip.link_pos_w[0, 0, 2] = -0.2
+    clip.link_pos_w[1, 0, 2] = 0.3
+    runtime = MotionReferenceRuntime.from_clip(ref, clip, 2)
+    runtime.buffers.start_s[:] = torch.tensor([0.0, 1.0 / clip.framerate])
+
+    runtime.refresh_initial(torch.arange(2))
+
+    # The penetrating pose is raised by 0.2; the airborne pose is lowered by 0.3.
+    # Both then receive the configured 0.1 start offset, exactly like main/InstinctMJ.
+    torch.testing.assert_close(
+        runtime.init_buffers.base_pos_w[:, 0, 2],
+        torch.tensor([0.3, -0.2]),
+    )
+
+
 def test_shadowing_motion_effective_contract_matches_both_references() -> None:
     expected = {
         "WholeBody": (0.02, 10, "frontbackward", (0.0, 0.8), "independent", 1.0),

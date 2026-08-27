@@ -443,7 +443,12 @@ class MotionReferenceRuntime:
                 )
         if self.ref.ensure_link_below_zero_ground:
             minimum = self.init_buffers.link_pos_w[env_ids, 0, :, 2].amin(dim=-1)
-            self.init_buffers.base_pos_w[env_ids, 0, 2] += torch.clamp(-minimum, min=0.0)
+            # Both source managers gate this correction once for the selected batch.  When any
+            # selected pose penetrates zero, they apply ``-minimum`` to every selected pose,
+            # including lowering poses whose minimum link is already above zero.  Preserve that
+            # reset-time behavior without polling the device through a Python ``if``.
+            correction = torch.where((minimum < 0.0).any(), -minimum, torch.zeros_like(minimum))
+            self.init_buffers.base_pos_w[env_ids, 0, 2] += correction
         self.init_buffers.base_pos_w[env_ids, 0, 2] += self.ref.motion_start_height_offset
         if self.resolved is not None:
             apply_symmetric_augmentation(self.init_buffers, env_ids, self.mask, self.resolved)
