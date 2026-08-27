@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 03:48 UTC
+Updated: 2026-08-27 05:16 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -125,16 +125,13 @@ These are sibling checkouts, not submodules:
 | `/root/InstinctMJ` | `4ed2b32f8719ff9fc138708341031e935afda0d2` | MJLab reference |
 | `/root/IsaacLab` | `f73c33173801f5f8afea4142482e47b7710c2b75` | Isaac Lab dependency |
 | `/root/mjlab` | `08090e8a77228e733373f3b5c54f8b5a68d19d9d` | MJLab dependency |
-| `/root/instinct_rl` | `ba45ed231ebbf0a4099cd31d607e2886814fd165` | RL runner |
+| `/root/instinct_rl` | `64d7e01` (detached HEAD) | RL runner; batched rollout logging transfers |
 
 Uncommitted external changes that cloning upstream will lose:
 
 - `/root/InstinctMJ`: terrain debug visualization is conditional on
   `debug_vis`; play maps the selected CUDA device to EGL and Warp before
   construction.
-- `/root/instinct_rl`: WASABI reports discriminator sign accuracy for actor
-  target `-1` and reference target `+1`. This is diagnostic only.
-
 Commit, export, or reapply those diffs before leaving this server.
 
 ## Python and simulator stack
@@ -250,7 +247,7 @@ than reproducing either reference's known subtree/COM-origin bug.
 Evidence after the fixes:
 
 ```text
-1225 passed, 2 skipped, 31 deselected (full default suite)
+1227 passed, 2 skipped, 31 deselected (full default suite)
 6 passed (MJLab CUDA synthetic camera ray-kernel comparison, including Perceptive group filtering)
 2 passed (MJLab live contact and motion-reference lifecycle)
 1 passed (Isaac live motion-reference lifecycle)
@@ -272,19 +269,66 @@ predates the 10 N main contact-clock resolution, although current Perceptive MDP
 terms do not consume that timer. A future post-fix Perceptive comparison must
 start new log directories; do not relabel either active run.
 
+## Perceptive Isaac performance audit (2026-08-27)
+
+The remaining Isaac/main training-time gap was not in PhysX, camera ray casts,
+or Warp synchronization. Matched 4096-environment profiles showed two unified
+hot-path costs:
+
+- Ten object-free motion clips were sampled independently every step, producing
+  1,500 `fill_buffers` and 21,000 field-gather calls over a 30-step profile.
+  The runtime now concatenates compatible clips once and samples them with one
+  device gather; the same profile now makes 150 and 2,100 calls respectively.
+  HOI/object-bearing clips retain the scene-object-aware fallback.
+- `base_ang_vel` requested Isaac's link velocity, which fetched COM offsets and
+  constructed an unused link linear velocity. Link and COM angular velocity are
+  bitwise identical in Isaac Lab; the portable term now prefers the direct COM
+  property on Isaac and retains the link fallback on MJLab. `get_coms` fell from
+  two calls per environment step to the one required by link-velocity imitation.
+
+The environment-only probe improved from about 15,600 to 18,266 env-step/s;
+the matched main probe was 17,671 env-step/s. In short PPO runs, steady samples
+at iterations 10/20/30 were:
+
+| Run | Collection seconds | Median collection | Median total FPS |
+|---|---|---:|---:|
+| unified before | 6.740 / 6.922 / 6.488 | 6.740 | 11,543 |
+| main reference | 5.677 / 5.550 / 5.766 | 5.677 | 13,293 |
+| unified current | 7.930 / 5.810 / 5.619 | 5.810 | 12,926 |
+
+Iteration 10 is a noisy warm-up point; the current median is about 2.3% slower
+than main rather than the previous 18.7%. The first current rollout reproduced
+the same reward, episode length, reward-term, and termination summaries before
+and after the logging change.
+
+The Tensor-to-Python audit also removed per-step scalar polling from depth miss
+handling, delayed depth generation tracking, AMP current-frame refresh, and
+adaptive sampling. `/root/instinct_rl` commit `64d7e01` batches the runner's
+reward/done/episode-length host logging once per rollout, reducing one-reward
+rollouts from 72 GPU-to-CPU transfers to three.
+
+Remaining conversions are either explicit output/debug boundaries or outside
+plain Perceptive's hot path. The notable unresolved cases are MJLab camera
+min-distance continuation (`still.any()` once per hop; a fused Warp traversal
+is needed to remove it without launching every hop for every ray), HOI invalid
+object routing, and independent-motion-bin reset sampling. Isaac Lab itself
+also calls `Tensor.item()` from observation-history `CircularBuffer.max_length`
+about 20 times per Perceptive step; both unified and main use that dependency.
+
+The active GPU 6 Perceptive process loaded code before these fixes. Its timings
+must not be treated as post-fix performance evidence; start a new log directory
+for the next production comparison.
+
 ## Live experiments
 
-Snapshot at 2026-08-27 02:19 UTC. These processes were inspected only; none was
+Snapshot at 2026-08-27 05:16 UTC. These processes were inspected only; none was
 stopped, restarted, or signaled.
 
 | GPU | Run | Iteration | Reward | Episode length | Status |
 |---:|---|---:|---:|---:|---|
-| 1 | old unified Isaac Perceptive `perceptive_repro_4096_gpu1` | 5040 | 2.53 | 46.08 | live; predates final parity fixes, do not promote |
-| 3 | main Isaac Whole Body reference | 16390 | 17.98 | 257.82 | live |
-| 4 | main Isaac Perceptive reference | 7670 | 8.62 | 171.42 | live |
-| 5 | unified Isaac Whole Body `final_long_4096_gpu5_20260826` | 13010 | 17.91 | 264.61 | live |
-| 6 | unified Isaac Perceptive `final_long_4096_gpu6_20260826` | 5520 | 2.53 | 56.29 | live |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 6600 | 13.23 | 252.07 | live |
+| 5 | unified Isaac Whole Body `final_long_4096_gpu5_20260826` | 15900 | 5.84 | 77.12 | live; reward regressed from its earlier peak, inspect before promotion |
+| 6 | unified Isaac Perceptive `final_long_4096_gpu6_20260826` | 6750 | 2.71 | 58.73 | live; predates performance and sensor fixes |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 8460 | 12.62 | 223.37 | live; predates camera reference fixes |
 
 Do not stop or restart these runs without an explicit operator request. Review
 reward, episode length, termination mix, and action noise together before
