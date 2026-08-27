@@ -502,6 +502,108 @@ class MotionSample:
     object_ang_vel_w: torch.Tensor | None = None
 
 
+_PACKED_SAMPLE_FIELDS = (
+    "joint_pos",
+    "joint_vel",
+    "base_pos_w",
+    "base_quat_w",
+    "base_lin_vel_w",
+    "base_ang_vel_w",
+    "link_pos_b",
+    "link_quat_b",
+    "link_pos_w",
+    "link_quat_w",
+    "link_lin_vel_b",
+    "link_ang_vel_b",
+    "link_lin_vel_w",
+    "link_ang_vel_w",
+)
+
+
+@dataclass(frozen=True)
+class PackedMotionClips:
+    """Several compatible clips concatenated for one device-side gather."""
+
+    framerate: float
+    frame_offsets: torch.Tensor
+    frame_counts: torch.Tensor
+    fields: dict[str, torch.Tensor]
+
+
+def pack_motion_clips_for_sampling(clips: Sequence[MotionClip]) -> PackedMotionClips:
+    """Pack object-free clips that share one sampling rate.
+
+    The reference dataset manager indexes all trajectories in one batched call. Keeping one
+    :class:`MotionClip` per inventory entry is useful for validation and adaptive sampling, but
+    looping over those entries on every environment step launches the same small gather once per
+    clip and once per field. Concatenated frame storage preserves clip-local indices while making
+    the hot-path gather independent of the number of trajectories.
+    """
+    if not clips:
+        raise ValueError("at least one motion clip is required")
+    framerate = float(clips[0].framerate)
+    if any(not math.isclose(float(clip.framerate), framerate) for clip in clips):
+        raise ValueError("packed motion clips must share one framerate")
+    if any(clip.object_name is not None for clip in clips):
+        raise ValueError("object motion clips need scene-object-aware sampling")
+    device = clips[0].joint_pos.device
+    counts = tuple(clip.nframes for clip in clips)
+    offsets = [0]
+    for count in counts[:-1]:
+        offsets.append(offsets[-1] + count)
+    return PackedMotionClips(
+        framerate=framerate,
+        frame_offsets=torch.tensor(offsets, dtype=torch.long, device=device),
+        frame_counts=torch.tensor(counts, dtype=torch.long, device=device),
+        fields={
+            name: torch.cat(tuple(getattr(clip, name) for clip in clips), dim=0)
+            for name in _PACKED_SAMPLE_FIELDS
+        },
+    )
+
+
+def sample_packed_motion_clips(
+    packed: PackedMotionClips,
+    motion_ids: torch.Tensor,
+    time_s: torch.Tensor,
+) -> MotionSample:
+    """Gather per-environment times from concatenated clips without host polling."""
+    if time_s.shape[0] != motion_ids.shape[0]:
+        raise ValueError("motion_ids must select the first dimension of time_s")
+    frames = torch.round(time_s * packed.framerate)
+    counts = packed.frame_counts[motion_ids]
+    while counts.ndim < frames.ndim:
+        counts = counts.unsqueeze(-1)
+    valid = frames < counts
+    clamped = torch.where(valid, frames, counts - 1).to(torch.long)
+    offsets = packed.frame_offsets[motion_ids]
+    while offsets.ndim < clamped.ndim:
+        offsets = offsets.unsqueeze(-1)
+    flat = offsets + clamped
+
+    def _take(name: str) -> torch.Tensor:
+        return packed.fields[name][flat]
+
+    return MotionSample(
+        frame_index=clamped,
+        validity=valid.to(torch.bool),
+        joint_pos=_take("joint_pos"),
+        joint_vel=_take("joint_vel"),
+        base_pos_w=_take("base_pos_w"),
+        base_quat_w=_take("base_quat_w"),
+        base_lin_vel_w=_take("base_lin_vel_w"),
+        base_ang_vel_w=_take("base_ang_vel_w"),
+        link_pos_b=_take("link_pos_b"),
+        link_quat_b=_take("link_quat_b"),
+        link_pos_w=_take("link_pos_w"),
+        link_quat_w=_take("link_quat_w"),
+        link_lin_vel_b=_take("link_lin_vel_b"),
+        link_ang_vel_b=_take("link_ang_vel_b"),
+        link_lin_vel_w=_take("link_lin_vel_w"),
+        link_ang_vel_w=_take("link_ang_vel_w"),
+    )
+
+
 def index_at_time(
     time_s: torch.Tensor,
     framerate: float,

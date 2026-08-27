@@ -134,6 +134,30 @@ def test_multiclip_reset_is_seed_stable_and_refreshes_the_selected_clip() -> Non
     ]
 
 
+def test_multiclip_refresh_uses_one_packed_device_gather(monkeypatch) -> None:
+    ref = _ref("unused", num_frames=3, frame_interval_s=0.02, data_start_from="current_time")
+    clips = (_clip("short", 0.0, nframes=3), _clip("long", 1000.0, nframes=5))
+    runtime = MotionReferenceRuntime.from_clips(
+        ref,
+        clips,
+        (MotionInventoryEntry("short"), MotionInventoryEntry("long")),
+        2,
+    )
+    runtime.buffers.motion_id[:] = torch.tensor([0, 1])
+    runtime.buffers.start_s.zero_()
+    runtime.buffers.timestamp[:] = torch.tensor([0.04, 0.08])
+
+    def refuse_per_clip_sampling(*_args, **_kwargs):
+        raise AssertionError("object-free multi-clip refresh fell back to per-clip sampling")
+
+    monkeypatch.setattr("instinctlab.engines.motion_reference.runtime.sample_clip", refuse_per_clip_sampling)
+    runtime.refresh(torch.arange(2))
+
+    assert runtime.buffers.frame_index.tolist() == [[2, 2, 2], [4, 4, 4]]
+    assert runtime.buffers.validity.tolist() == [[True, False, False], [True, False, False]]
+    assert runtime.buffers.joint_pos[:, 0, 0].tolist() == pytest.approx([2.0, 1004.0])
+
+
 def test_terrain_motion_reset_uses_only_origins_matching_the_sampled_motion() -> None:
     ref = _ref("unused", dataset_kind="terrain", metadata_yaml="unused")
     runtime = MotionReferenceRuntime.from_clips(

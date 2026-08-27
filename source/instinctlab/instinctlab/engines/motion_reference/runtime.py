@@ -14,7 +14,14 @@ from .buffers import (
     make_buffers,
     translate_world_positions,
 )
-from .clip import MotionClip, load_retargetted_clip, pack_motion_clip, sample_clip
+from .clip import (
+    MotionClip,
+    load_retargetted_clip,
+    pack_motion_clip,
+    pack_motion_clips_for_sampling,
+    sample_clip,
+    sample_packed_motion_clips,
+)
 from .inventory import MotionFrameInventory, MotionInventoryEntry, discover_motion_inventory
 from .symmetry import (
     ResolvedSymmetricAugmentation,
@@ -62,6 +69,9 @@ class MotionReferenceRuntime:
         self._reference_timestamp = reference_timestamp
         self.mask = mask
         self.resolved = resolved
+        self._packed_clips = None
+        if not buffers.scene_object_names and all(clip.object_name is None for clip in clips):
+            self._packed_clips = pack_motion_clips_for_sampling(clips)
         self._bin_counts_host = tuple(self._num_bins(clip) for clip in clips)
         bin_offsets = [0]
         for count in self._bin_counts_host:
@@ -408,22 +418,33 @@ class MotionReferenceRuntime:
         """Build the floor-indexed reset state separately from rounded look-ahead data."""
         self.init_buffers.motion_id[env_ids] = self.buffers.motion_id[env_ids]
         self.init_buffers.start_s[env_ids] = self.buffers.start_s[env_ids]
-        for motion_id, clip in enumerate(self.clips):
-            selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
-            if selected.numel() == 0:
-                continue
-            frame = torch.floor(self.buffers.start_s[selected] * clip.framerate)
-            times = frame.unsqueeze(-1) / clip.framerate
+        if self._packed_clips is not None:
+            motion_ids = self.buffers.motion_id[env_ids]
+            frame = torch.floor(self.buffers.start_s[env_ids] * self._packed_clips.framerate)
+            times = frame.unsqueeze(-1) / self._packed_clips.framerate
             fill_buffers(
                 self.init_buffers,
-                selected,
-                sample_clip(clip, times),
+                env_ids,
+                sample_packed_motion_clips(self._packed_clips, motion_ids, times),
                 torch.zeros_like(times),
             )
-            if self.ref.ensure_link_below_zero_ground:
-                minimum = self.init_buffers.link_pos_w[selected, 0, :, 2].amin(dim=-1)
-                self.init_buffers.base_pos_w[selected, 0, 2] += torch.clamp(-minimum, min=0.0)
-            self.init_buffers.base_pos_w[selected, 0, 2] += self.ref.motion_start_height_offset
+        else:
+            for motion_id, clip in enumerate(self.clips):
+                selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
+                if selected.numel() == 0:
+                    continue
+                frame = torch.floor(self.buffers.start_s[selected] * clip.framerate)
+                times = frame.unsqueeze(-1) / clip.framerate
+                fill_buffers(
+                    self.init_buffers,
+                    selected,
+                    sample_clip(clip, times),
+                    torch.zeros_like(times),
+                )
+        if self.ref.ensure_link_below_zero_ground:
+            minimum = self.init_buffers.link_pos_w[env_ids, 0, :, 2].amin(dim=-1)
+            self.init_buffers.base_pos_w[env_ids, 0, 2] += torch.clamp(-minimum, min=0.0)
+        self.init_buffers.base_pos_w[env_ids, 0, 2] += self.ref.motion_start_height_offset
         if self.resolved is not None:
             apply_symmetric_augmentation(self.init_buffers, env_ids, self.mask, self.resolved)
         translate_world_positions(self.init_buffers, env_ids, self.env_origins)
@@ -433,17 +454,26 @@ class MotionReferenceRuntime:
         self.reference_buffers.motion_id[env_ids] = self.buffers.motion_id[env_ids]
         self.reference_buffers.start_s[env_ids] = self.buffers.start_s[env_ids]
         self.reference_buffers.timestamp[env_ids] = self.buffers.timestamp[env_ids]
-        for motion_id, clip in enumerate(self.clips):
-            selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
-            if selected.numel() == 0:
-                continue
-            times = self.buffers.start_s[selected].unsqueeze(-1) + self.buffers.timestamp[selected].unsqueeze(-1)
+        if self._packed_clips is not None:
+            times = self.buffers.start_s[env_ids].unsqueeze(-1) + self.buffers.timestamp[env_ids].unsqueeze(-1)
             fill_buffers(
                 self.reference_buffers,
-                selected,
-                sample_clip(clip, times),
+                env_ids,
+                sample_packed_motion_clips(self._packed_clips, self.buffers.motion_id[env_ids], times),
                 torch.zeros_like(times),
             )
+        else:
+            for motion_id, clip in enumerate(self.clips):
+                selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
+                if selected.numel() == 0:
+                    continue
+                times = self.buffers.start_s[selected].unsqueeze(-1) + self.buffers.timestamp[selected].unsqueeze(-1)
+                fill_buffers(
+                    self.reference_buffers,
+                    selected,
+                    sample_clip(clip, times),
+                    torch.zeros_like(times),
+                )
         if self.resolved is not None:
             apply_symmetric_augmentation(self.reference_buffers, env_ids, self.mask, self.resolved)
         translate_world_positions(self.reference_buffers, env_ids, self.env_origins)
@@ -451,18 +481,33 @@ class MotionReferenceRuntime:
 
     def refresh(self, env_ids: torch.Tensor) -> None:
         """Rebuild selected buffers without changing their clock bookkeeping."""
-        for motion_id, clip in enumerate(self.clips):
-            selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
-            if selected.numel() == 0:
-                continue
+        if self._packed_clips is not None:
             times, time_to = lookahead_times(
-                self.buffers.timestamp[selected],
-                self.buffers.start_s[selected],
+                self.buffers.timestamp[env_ids],
+                self.buffers.start_s[env_ids],
                 self.ref.num_frames,
                 self.ref.frame_interval_s,
                 self.ref.data_start_from,
             )
-            fill_buffers(self.buffers, selected, sample_clip(clip, times), time_to)
+            fill_buffers(
+                self.buffers,
+                env_ids,
+                sample_packed_motion_clips(self._packed_clips, self.buffers.motion_id[env_ids], times),
+                time_to,
+            )
+        else:
+            for motion_id, clip in enumerate(self.clips):
+                selected = env_ids[self.buffers.motion_id[env_ids] == motion_id]
+                if selected.numel() == 0:
+                    continue
+                times, time_to = lookahead_times(
+                    self.buffers.timestamp[selected],
+                    self.buffers.start_s[selected],
+                    self.ref.num_frames,
+                    self.ref.frame_interval_s,
+                    self.ref.data_start_from,
+                )
+                fill_buffers(self.buffers, selected, sample_clip(clip, times), time_to)
         if self.resolved is not None:
             apply_symmetric_augmentation(self.buffers, env_ids, self.mask, self.resolved)
         translate_world_positions(self.buffers, env_ids, self.env_origins)
