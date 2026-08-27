@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 06:22 UTC
+Updated: 2026-08-27 07:01 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -207,9 +207,11 @@ logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_
   environments, unified/main rewards at iterations 0, 10, 20, 40, and 100 were
   `-1.63/-1.65`, `-0.96/-0.98`, `-0.48/-0.49`, `-0.23/-0.19`, and
   `0.06/0.09`. Final-commit long-horizon convergence is still in progress.
-- **Perceptive Shadowing: startup distribution aligned.** The terrain-matched
-  Isaac/main comparison agreed closely at iteration 0, including termination
-  mix. Long-horizon convergence remains open.
+- **Perceptive Shadowing: the active Isaac run is invalid convergence
+  evidence.** Startup summaries agreed with main, but the shared joint-position
+  reference command subtracted Isaac-native BFS defaults positionally from DFS
+  reference tensors. This silent observation error is fixed in the current
+  tree; a fresh post-fix run is required.
 - **Perceptive VAE, HOI, and BeyondMimic: declarations exist, but no accepted
   production reproduction on both engines.**
 - Play variants use the corresponding train checkpoint; they do not need an
@@ -218,10 +220,10 @@ logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_
   item.
 
 Known silent faults already fixed include canonical DFS/native BFS action
-offset mapping, current-time AMP references, link-origin velocity semantics,
-critic history/width, Perceptive depth preprocessing, motion-terrain matching,
-reset sampling order, contact sensor hot-path caching, and engine-native
-capacity profiles.
+offset mapping, name-ordered joint-reference defaults, current-time AMP
+references, link-origin velocity semantics, critic history/width, Perceptive
+depth preprocessing, motion-terrain matching, reset sampling order, contact
+sensor hot-path caching, and engine-native capacity profiles.
 
 ## Sensor module audit (2026-08-27)
 
@@ -363,16 +365,45 @@ The active GPU 6 Perceptive process loaded code before these fixes. Its timings
 must not be treated as post-fix performance evidence; start a new log directory
 for the next production comparison.
 
+## Perceptive joint-reference audit (2026-08-27)
+
+The active Isaac Perceptive run remained near 64-step episodes at iteration
+7,510, with `base_pos_too_far` causing about 56% of resets. Checkpoint
+normalizer statistics exposed a shape-compatible joint-order bug in
+`JointPositionReference`: motion data is canonical DFS, but the command had
+subtracted `default_joint_pos` directly in Isaac's native BFS order. It also
+held a live view of defaults modified by the later startup randomization,
+whereas main snapshots nominal defaults when the command is constructed.
+
+The command now resolves default columns by joint name, gathers them into the
+motion-reference order, and clones the pre-randomization tensor. Applying that
+exact order correction to the iteration-6,000 checkpoint reduced the
+semantic `joint_pos_ref` normalizer-mean MAE against main from `0.32020` to
+`0.00854` (maximum absolute difference `0.04765`). This is direct retained-run
+evidence for the fault, not only a static source inference.
+
+Verification:
+
+```text
+52 passed (joint/action, Shadow MDP, and training-flow focus)
+1231 passed, 2 skipped, 31 deselected (full default suite)
+scripts/check_mjlab.py resolved all 39 Locomotion terms and stepped 16 envs 5x
+```
+
+The live GPU 6 process has the faulty command object in memory and cannot
+become post-fix convergence evidence. It was not stopped or restarted. A new
+Isaac Perceptive run must use a new log directory after operator approval.
+
 ## Live experiments
 
-Snapshot at 2026-08-27 05:16 UTC. These processes were inspected only; none was
+Snapshot at 2026-08-27 07:01 UTC. These processes were inspected only; none was
 stopped, restarted, or signaled.
 
 | GPU | Run | Iteration | Reward | Episode length | Status |
 |---:|---|---:|---:|---:|---|
-| 5 | unified Isaac Whole Body `final_long_4096_gpu5_20260826` | 15900 | 5.84 | 77.12 | live; reward regressed from its earlier peak, inspect before promotion |
-| 6 | unified Isaac Perceptive `final_long_4096_gpu6_20260826` | 6750 | 2.71 | 58.73 | live; predates performance and sensor fixes |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 8460 | 12.62 | 223.37 | live; predates camera reference fixes |
+| 5 | unified Isaac Whole Body `final_long_4096_gpu5_20260826` | 17790 | 5.21 | 68.40 | live; also has the faulty joint-position reference command |
+| 6 | unified Isaac Perceptive `final_long_4096_gpu6_20260826` | 7510 | 3.02 | 63.95 | live; faulty joint-position reference command, invalid convergence evidence |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 9560 | 13.84 | 234.02 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera reference fixes |
 
 Do not stop or restart these runs without an explicit operator request. Review
 reward, episode length, termination mix, and action noise together before

@@ -10,6 +10,7 @@ import pytest
 
 from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
 from instinctlab.checkpoint import add_task_contract, validate_checkpoint_contract
+from instinctlab.engines.shadowing_commands import make_shadowing_command_classes
 from instinctlab.engines.shadowing_events import reset_robot_from_reference
 from instinctlab.sim.backend import CanonicalIndexMap
 from instinctlab.tasks import registry
@@ -154,6 +155,49 @@ def test_default_randomization_scatter_maps_native_columns_into_action_order() -
     )
 
     torch.testing.assert_close(offsets, torch.tensor([[30.0, 10.0, 20.0], [31.0, 11.0, 21.0]]))
+
+
+def test_joint_position_reference_subtracts_frozen_defaults_by_joint_name() -> None:
+    """A canonical reference must not subtract Isaac's native BFS defaults positionally."""
+
+    class CommandTerm:
+        def __init__(self, cfg, env):
+            self.num_envs = env.num_envs
+            self.device = env.device
+
+    native_names = ("left_hip", "right_hip", "waist")
+    canonical_names = ("waist", "left_hip", "right_hip")
+    default_native = torch.tensor([[10.0, 20.0, 30.0], [11.0, 21.0, 31.0]])
+    reference = SimpleNamespace(
+        joint_pos=torch.tensor(
+            [
+                [[100.0, 200.0, 300.0], [101.0, 201.0, 301.0]],
+                [[110.0, 210.0, 310.0], [111.0, 211.0, 311.0]],
+            ]
+        ),
+        validity=torch.ones(2, 2),
+    )
+    motion = SimpleNamespace(data=reference, joint_names=canonical_names)
+    asset = SimpleNamespace(
+        joint_names=native_names,
+        data=SimpleNamespace(default_joint_pos=default_native),
+    )
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        scene={"motion_reference": motion, "robot": asset},
+    )
+    cfg = SimpleNamespace(motion_reference="motion_reference", entity_name="robot")
+    command_cls = make_shadowing_command_classes(CommandTerm)["joint_position"]
+    command = command_cls(cfg, env)
+
+    expected_default = torch.tensor([[30.0, 10.0, 20.0], [31.0, 11.0, 21.0]])
+    torch.testing.assert_close(command.command, reference.joint_pos - expected_default.unsqueeze(1))
+
+    # Main snapshots the nominal defaults before the startup randomization event changes them.
+    asset.data.default_joint_pos.add_(1000.0)
+    command.reset(torch.tensor([0, 1]))
+    torch.testing.assert_close(command.command, reference.joint_pos - expected_default.unsqueeze(1))
 
 
 def test_mjcf_natural_joint_order_is_the_policy_dfs_order() -> None:

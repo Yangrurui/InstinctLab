@@ -12,6 +12,7 @@ from typing import Any
 
 from instinctlab.compat import math as math_utils
 from instinctlab.utils.math import quat_to_tan_norm
+from instinctlab.utils.name_order import resolve_name_indices
 
 
 def _root(data: Any, name: str) -> torch.Tensor:
@@ -109,7 +110,20 @@ def make_shadowing_command_classes(command_term_base: type) -> dict[str, type]:
             super().__init__(cfg, env)
             reference = self._motion.data
             self._command = torch.zeros_like(reference.joint_pos)
-            self._default = self._env.scene[cfg.entity_name].data.default_joint_pos
+            asset = self._env.scene[cfg.entity_name]
+            joint_ids = torch.tensor(
+                resolve_name_indices(
+                    asset.joint_names,
+                    self._motion.joint_names,
+                    require_exact=True,
+                ),
+                dtype=torch.long,
+                device=self.device,
+            )
+            # Reference tensors use the declared canonical order, while an Isaac articulation's
+            # native default tensor is BFS. Keep main's pre-randomization snapshot semantics, but
+            # gather it by joint name before subtracting it from the canonical reference.
+            self._default = asset.data.default_joint_pos.index_select(1, joint_ids).clone()
             self._update_command_by_env_ids(torch.arange(self.num_envs, device=self.device))
 
         def _update_command_by_env_ids(self, env_ids):
