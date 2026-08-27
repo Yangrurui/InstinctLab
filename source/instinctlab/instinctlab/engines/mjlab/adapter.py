@@ -76,7 +76,7 @@ def _record_pinhole_camera_semantics(profile: dict[str, Any], spec: TaskSpec) ->
     from .camera import pinhole_camera_effective_semantics
 
     semantics = {
-        sensor.name: pinhole_camera_effective_semantics(sensor)
+        sensor.name: pinhole_camera_effective_semantics(sensor, profile)
         for sensor in spec.scene.ray_casters
         if sensor.pattern.kind == "pinhole"
     }

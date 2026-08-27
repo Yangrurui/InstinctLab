@@ -35,6 +35,12 @@ NON_SUPPORT_CONTACTS = (
     r"^(?!left_ankle_roll_link$)(?!right_ankle_roll_link$)"
     r"(?!left_wrist_yaw_link$)(?!right_wrist_yaw_link$).+$"
 )
+MJLAB_CAMERA_NATIVE = {
+    "include_geom_groups": (0, 2),
+    "exclude_parent_body": False,
+    "mesh_filter_max_hops": 24,
+    "update_period": 1.0 / 60.0,
+}
 
 
 def make_contact_sensor(elements: str = ".*") -> ContactSensorRef:
@@ -43,6 +49,7 @@ def make_contact_sensor(elements: str = ".*") -> ContactSensorRef:
         elements=elements,
         track_air_time=True,
         air_time_force_threshold=1.0,
+        engine_air_time_force_thresholds={"isaacsim": 10.0},
         history_length=3,
     )
 
@@ -602,6 +609,7 @@ class PerceptiveHoiShadowingEnvCfg:
                     "contact_sensor_maxmatch": 256,
                     "ccd_iterations": 128,
                     "jacobian": "sparse",
+                    "pinhole_cameras": {"camera": MJLAB_CAMERA_NATIVE},
                 },
             },
         )

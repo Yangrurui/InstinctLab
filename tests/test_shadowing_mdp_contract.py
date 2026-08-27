@@ -344,6 +344,8 @@ def test_camera_height_and_contact_sensor_contract() -> None:
     assert contact.history_length == 3
     assert contact.track_air_time is True
     assert contact.air_time_force_threshold == 1.0
+    assert contact.for_engine("isaacsim").air_time_force_threshold == 10.0
+    assert contact.for_engine("mjlab").air_time_force_threshold == 1.0
 
     hoi = registry.spec("Instinct-Perceptive-HOI-Shadowing-G1-v0")
     hoi_camera = hoi.scene.ray_caster("camera")

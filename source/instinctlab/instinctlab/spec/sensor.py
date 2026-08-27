@@ -59,12 +59,13 @@ class ContactSensorRef:
             this behind a config flag because it costs per-step bookkeeping, and both return
             ``None`` for the corresponding tensors when it is off.
         air_time_force_threshold: Newtons of net contact force a body must carry before the clock
-            calls it touchdown. Declared here rather than left to the engines because their
-            defaults are what disagree: Isaac Lab thresholds at 1 N, mjlab counts any contact the
-            solver reports at any force. Both produce same-named, same-shaped, plausible-looking
-            duration tensors, so a task that leaves this to the engine is scoring two different
-            gaits without saying so. Only air and contact timing use it; the force tensors terms
-            read are untouched.
+            calls it touchdown. Declared here rather than left to engine defaults, because stock
+            mjlab counts any solver contact while Isaac Lab thresholds force. Only air and contact
+            timing use it; the force tensors terms read are untouched.
+        engine_air_time_force_thresholds: Reference-specific threshold overrides. Most tasks use
+            one threshold on both engines. Shadowing is the exception: main explicitly uses 10 N
+            while InstinctMJ explicitly uses 1 N. Keeping that difference here makes it visible in
+            the task declaration instead of hiding a task check in either engine builder.
         history_length: Number of past substeps of force data to retain. ``0`` disables it. Both
             engines order the history newest-first.
         preserve_order: Whether the element order follows the patterns rather than the entity's.
@@ -84,11 +85,20 @@ class ContactSensorRef:
     against: str | None = None
     track_air_time: bool = False
     air_time_force_threshold: float = 1.0
+    engine_air_time_force_thresholds: Mapping[str, float] = field(
+        default_factory=dict,
+        metadata={"contract_omit_if_default": True},
+    )
     history_length: int = 0
     preserve_order: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "elements", _normalise(self.elements))
+        object.__setattr__(
+            self,
+            "engine_air_time_force_thresholds",
+            dict(self.engine_air_time_force_thresholds),
+        )
         if not self.name or not self.entity:
             raise ValueError("Contact sensor name and entity must be non-empty.")
         if not self.elements:
@@ -97,8 +107,25 @@ class ContactSensorRef:
             raise ValueError(f"Contact sensor {self.name!r} has an empty against pattern.")
         if not math.isfinite(self.air_time_force_threshold) or self.air_time_force_threshold < 0.0:
             raise ValueError(f"Contact sensor {self.name!r} has an invalid air_time_force_threshold.")
+        for engine, threshold in self.engine_air_time_force_thresholds.items():
+            if not engine or not math.isfinite(threshold) or threshold < 0.0:
+                raise ValueError(
+                    f"Contact sensor {self.name!r} has an invalid air-time threshold "
+                    f"override {engine!r}: {threshold!r}."
+                )
         if self.history_length < 0:
             raise ValueError(f"Contact sensor {self.name!r} has a negative history_length.")
+
+    def for_engine(self, engine: str) -> ContactSensorRef:
+        """Resolve an explicit per-reference contact-clock threshold."""
+        return replace(
+            self,
+            air_time_force_threshold=self.engine_air_time_force_thresholds.get(
+                engine,
+                self.air_time_force_threshold,
+            ),
+            engine_air_time_force_thresholds={},
+        )
 
 
 @dataclass(frozen=True)

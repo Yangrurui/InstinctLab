@@ -1,4 +1,4 @@
-"""Both engines must call touchdown at the same force.
+"""Both engines must call touchdown at the force declared for their reference.
 
 The clock that produces ``current_air_time`` is identical on Isaac Lab and mjlab;
 only the boolean feeding it differed. Isaac thresholds the net contact force at
@@ -6,10 +6,10 @@ only the boolean feeding it differed. Isaac thresholds the net contact force at
 which is set for any contact the solver reports at any force. Same tensor names,
 same shapes, both plausible -- and ``feet_air_time`` scoring two different gaits.
 
-Both references threshold at 1 N (main through Isaac Lab's default, InstinctMJ
-through its own ``ForceThresholdContactSensor``), so the mjlab side was the one
-odd behaviour of the four. The threshold now lives in the reference and each
-backend maps it onto its own field.
+Locomotion and Parkour use 1 N on both references. Shadowing main explicitly
+uses 10 N while InstinctMJ explicitly uses 1 N. The base threshold and the rare
+per-engine override both live in ``ContactSensorRef``; each backend resolves the
+same declaration onto its native field.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ def test_a_primary_is_loaded_when_any_of_its_slots_is() -> None:
 
 
 def test_the_threshold_is_declared_rather_than_inherited() -> None:
-    """1 N is Isaac Lab's default and both references' value, but it is ours to state."""
+    """1 N is the common default; Shadowing declares its main override separately."""
     assert ContactSensorRef(name="c", elements=".*").air_time_force_threshold == 1.0
 
 
@@ -86,13 +86,33 @@ def test_contact_sensor_rejects_an_invalid_force_threshold() -> None:
         ContactSensorRef(name="c", elements=".*", air_time_force_threshold=float("nan"))
     with pytest.raises(ValueError, match="invalid air_time_force_threshold"):
         ContactSensorRef(name="c", elements=".*", air_time_force_threshold=-1.0)
+    with pytest.raises(ValueError, match="invalid air-time threshold override"):
+        ContactSensorRef(name="c", elements=".*", engine_air_time_force_thresholds={"isaacsim": -1.0})
+
+
+def test_contact_sensor_resolves_a_reference_specific_threshold() -> None:
+    ref = ContactSensorRef(
+        name="contact_forces",
+        elements=".*",
+        air_time_force_threshold=1.0,
+        engine_air_time_force_thresholds={"isaacsim": 10.0},
+    )
+    assert ref.for_engine("isaacsim").air_time_force_threshold == 10.0
+    assert ref.for_engine("mjlab").air_time_force_threshold == 1.0
+    assert ref.for_engine("isaacsim").engine_air_time_force_thresholds == {}
 
 
 def test_mjlab_builds_a_sensor_that_clocks_off_force() -> None:
     pytest.importorskip("mjlab")
     from instinctlab.engines.mjlab.scene import _build_contact_sensor
 
-    ref = ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True, air_time_force_threshold=2.5)
+    ref = ContactSensorRef(
+        name="contact_forces",
+        elements=".*",
+        track_air_time=True,
+        air_time_force_threshold=10.0,
+        engine_air_time_force_thresholds={"mjlab": 2.5},
+    )
     cfg = _build_contact_sensor(ref)
 
     assert (
@@ -128,7 +148,7 @@ def test_the_mjlab_sensor_refuses_to_clock_without_the_force_field() -> None:
 
 @pytest.mark.isaacsim
 def test_isaac_carries_the_declared_threshold_onto_its_own_field() -> None:
-    """Isaac already defaulted to 1 N; passing it explicitly is what keeps the two tied.
+    """Isaac already defaults to 1 N; passing the resolved value keeps reference choices explicit.
 
     Starts Kit itself. It did not, and since it is the only ``isaacsim`` test in this file
     there was nothing else to start one: importing ``isaaclab.sensors`` without a running
@@ -143,5 +163,11 @@ def test_isaac_carries_the_declared_threshold_onto_its_own_field() -> None:
 
     from instinctlab.engines.isaacsim.scene import _build_contact_sensor
 
-    ref = ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True, air_time_force_threshold=2.5)
+    ref = ContactSensorRef(
+        name="contact_forces",
+        elements=".*",
+        track_air_time=True,
+        air_time_force_threshold=1.0,
+        engine_air_time_force_thresholds={"isaacsim": 2.5},
+    )
     assert _build_contact_sensor(ref).force_threshold == 2.5

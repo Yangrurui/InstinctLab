@@ -1,18 +1,18 @@
-"""A contact sensor whose air-time clock agrees with the other engine.
+"""A contact sensor whose air-time clock follows the declared engine reference.
 
 mjlab decides touchdown from ``found``: any geometric contact the solver reports,
 at any force. Isaac Lab decides it from ``‖net_forces_w‖ > force_threshold`` and
-defaults that to 1 N. Both engines then hand the resulting durations to the same
-portable terms, so ``feet_air_time`` was scoring two different gaits -- a graze
-carrying no load ends the flight phase on mjlab and does not on Isaac.
+defaults that to 1 N. Without an explicit threshold, the portable terms can therefore
+score a different gait on mjlab -- a graze carrying no load ends the flight phase there
+and does not on Isaac.
 
 Nothing announces this. The tensors have the same names and shapes on both sides,
 the numbers are plausible on both sides, and the reward stays in range.
 
 The threshold is hub state (``ContactSensorRef.air_time_force_threshold``), not an
-engine default, because the engine defaults are exactly what disagree. Isaac maps
-it onto its own field; this module gives mjlab the same rule. InstinctMJ reached
-the same place from the other direction -- its ``ForceThresholdContactSensor``
+engine default, because the engine defaults are exactly what disagree. Each builder
+first resolves the task's reference-specific value, then maps it onto its native field.
+InstinctMJ reached the same place from the other direction -- its ``ForceThresholdContactSensor``
 docstring calls the behaviour "InstinctLab force-threshold air-time semantics".
 
 The clock itself is a free function so it can be tested without mjlab installed;

@@ -1,21 +1,25 @@
 """mjlab pinhole camera aligned with InstinctMJ, not Isaac's grouped mesh targets.
 
 Stock ``RayCastSensorCfg`` filters geom groups at the BVH kernel (default ``(0, 1, 2)``).
-InstinctMJ's parkour ``NoisyGroupedRayCasterCameraCfg`` inherits that with empty
-``mesh_prim_paths``, so there is no body-name mesh filter. When ``min_distance > 0``,
-``GroupedRayCaster._apply_hit_filter_and_continue`` re-raycasts past hits at or inside
-``min_distance`` (up to ``mesh_filter_max_hops``). That min-distance hop is kept here.
+InstinctMJ's Parkour camera inherits that mask, parent exclusion, zero update period, and six
+min-distance hops. Perceptive and HOI explicitly change those native settings to ``(0, 2)``, no
+parent exclusion, a 1/60 s update period, and 24 hops. The task's mjlab profile carries only these
+native settings; this module resolves them without knowing which task requested the camera.
+
+InstinctMJ keeps ``mesh_prim_paths`` empty for these cameras, so there is no body-name mesh
+filter. When ``min_distance > 0``, ``GroupedRayCaster._apply_hit_filter_and_continue`` re-raycasts
+past hits at or inside ``min_distance``. That min-distance hop is kept here.
 Isaac's parkour camera instead lists ``/World/ground`` plus G1 link visual prims.
 """
 
 from __future__ import annotations
 
-import ast
-import os
-import torch
-from dataclasses import dataclass
-from pathlib import Path
+import math
+from collections.abc import Mapping
+from dataclasses import MISSING, dataclass
 from typing import Any
+
+import torch
 
 from instinctlab.compat.math import quat_apply, quat_from_euler_xyz, quat_inv, quat_mul
 from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
@@ -25,13 +29,13 @@ __all__ = [
     "pinhole_camera_effective_semantics",
     "pinhole_camera_geom_groups",
     "pinhole_camera_hop_params",
+    "pinhole_camera_native_settings",
     "pinhole_ray_caster",
 ]
 
-_INSTINCTMJ_GROUPED_RAY_CFG = (
-    Path(os.environ.get("INSTINCTMJ_ROOT", "/root/InstinctMJ"))
-    / "src/instinct_mj/sensors/grouped_ray_caster/grouped_ray_caster_cfg.py"
-)
+_DEFAULT_FILTER_MAX_HOPS = 6
+_DEFAULT_FILTER_EPSILON = 1.0e-4
+_DEFAULT_UPDATE_PERIOD = 0.0
 
 
 def pinhole_camera_geom_groups() -> tuple[int, ...]:
@@ -48,44 +52,98 @@ def pinhole_camera_geom_groups() -> tuple[int, ...]:
     return tuple(default)
 
 
-def pinhole_camera_hop_params() -> dict[str, int | float | str]:
-    """Hop limits InstinctMJ ``GroupedRayCasterCfg`` uses for min_distance continuation."""
-    path = _INSTINCTMJ_GROUPED_RAY_CFG
-    if not path.is_file():
-        raise RuntimeError(f"InstinctMJ GroupedRayCasterCfg not found at {path}")
-    max_hops: int | None = None
-    epsilon: float | None = None
-    for node in ast.parse(path.read_text(encoding="utf-8")).body:
-        if not isinstance(node, ast.ClassDef) or node.name != "GroupedRayCasterCfg":
-            continue
-        for item in node.body:
-            if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
-                continue
-            if item.value is None:
-                continue
-            if item.target.id == "mesh_filter_max_hops" and isinstance(item.value, ast.Constant):
-                max_hops = int(item.value.value)
-            if item.target.id == "mesh_filter_epsilon" and isinstance(item.value, ast.Constant):
-                epsilon = float(item.value.value)
-    if max_hops is None or epsilon is None:
-        raise RuntimeError(f"{path} missing mesh_filter_max_hops or mesh_filter_epsilon defaults")
+def pinhole_camera_hop_params() -> dict[str, Any]:
+    """Local defaults matching InstinctMJ; source-parity tests protect the copied values."""
     return {
         "filter": "geom_groups_min_distance_hop",
-        "hop_max": max_hops,
-        "hop_epsilon_m": epsilon,
+        "hop_max": _DEFAULT_FILTER_MAX_HOPS,
+        "hop_epsilon_m": _DEFAULT_FILTER_EPSILON,
         "hop_triggers": ("distance <= min_distance",),
         "mesh_prim_paths_enabled": False,
     }
 
 
-def pinhole_camera_effective_semantics(sensor: RayCasterRef) -> dict[str, Any]:
-    """Effective mjlab hit semantics for manifest metadata (Isaac uses ``hit_bodies()``)."""
-    groups = pinhole_camera_geom_groups()
+def _ray_cast_sensor_default(field_name: str) -> Any:
+    from mjlab.sensor.raycast_sensor import RayCastSensorCfg
+
+    field = RayCastSensorCfg.__dataclass_fields__[field_name]
+    if field.default is MISSING:
+        raise RuntimeError(f"mjlab RayCastSensorCfg.{field_name} has no scalar default")
+    return field.default
+
+
+def pinhole_camera_native_settings(
+    sensor: RayCasterRef,
+    profile: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve InstinctMJ's native camera fields from a generic engine profile entry."""
     hop = pinhole_camera_hop_params()
+    settings: dict[str, Any] = {
+        "include_geom_groups": pinhole_camera_geom_groups(),
+        "exclude_parent_body": bool(_ray_cast_sensor_default("exclude_parent_body")),
+        "mesh_filter_max_hops": int(hop["hop_max"]),
+        "mesh_filter_epsilon": float(hop["hop_epsilon_m"]),
+        "update_period": _DEFAULT_UPDATE_PERIOD,
+    }
+    camera_profiles = {} if profile is None else profile.get("pinhole_cameras", {})
+    if not isinstance(camera_profiles, Mapping):
+        raise TypeError("mjlab profile 'pinhole_cameras' must map sensor names to settings")
+    overrides = camera_profiles.get(sensor.name, {})
+    if not isinstance(overrides, Mapping):
+        raise TypeError(f"mjlab pinhole camera profile for {sensor.name!r} must be a mapping")
+    unknown = set(overrides) - set(settings)
+    if unknown:
+        raise ValueError(f"mjlab pinhole camera {sensor.name!r} has unknown profile settings: {sorted(unknown)}")
+    settings.update(overrides)
+
+    groups = settings["include_geom_groups"]
+    if groups is not None:
+        groups = tuple(groups)
+        if not groups or any(isinstance(group, bool) or not isinstance(group, int) for group in groups):
+            raise ValueError(f"mjlab pinhole camera {sensor.name!r} has invalid geom groups {groups!r}")
+        settings["include_geom_groups"] = groups
+    if not isinstance(settings["exclude_parent_body"], bool):
+        raise TypeError(f"mjlab pinhole camera {sensor.name!r} exclude_parent_body must be bool")
+    max_hops = settings["mesh_filter_max_hops"]
+    if isinstance(max_hops, bool) or not isinstance(max_hops, int) or max_hops < 1:
+        raise ValueError(f"mjlab pinhole camera {sensor.name!r} has invalid mesh_filter_max_hops={max_hops!r}")
+    epsilon = settings["mesh_filter_epsilon"]
+    if (
+        not isinstance(epsilon, (int, float))
+        or isinstance(epsilon, bool)
+        or not math.isfinite(epsilon)
+        or epsilon <= 0.0
+    ):
+        raise ValueError(f"mjlab pinhole camera {sensor.name!r} has invalid mesh_filter_epsilon={epsilon!r}")
+    period = settings["update_period"]
+    if (
+        not isinstance(period, (int, float))
+        or isinstance(period, bool)
+        or not math.isfinite(period)
+        or period < 0.0
+    ):
+        raise ValueError(f"mjlab pinhole camera {sensor.name!r} has invalid update_period={period!r}")
+    settings["mesh_filter_epsilon"] = float(epsilon)
+    settings["update_period"] = float(period)
+    return settings
+
+
+def pinhole_camera_effective_semantics(
+    sensor: RayCasterRef,
+    profile: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Effective mjlab hit semantics for manifest metadata (Isaac uses ``hit_bodies()``)."""
+    native = pinhole_camera_native_settings(sensor, profile)
     declared_bodies = sensor.hit_bodies()
     return {
-        **hop,
-        "include_geom_groups": groups,
+        "filter": "geom_groups_min_distance_hop",
+        "hop_max": native["mesh_filter_max_hops"],
+        "hop_epsilon_m": native["mesh_filter_epsilon"],
+        "hop_triggers": ("distance <= min_distance",),
+        "mesh_prim_paths_enabled": False,
+        "include_geom_groups": native["include_geom_groups"],
+        "exclude_parent_body": native["exclude_parent_body"],
+        "update_period_s": native["update_period"],
         "min_distance_m": float(sensor.min_distance),
         "declared_hit_bodies_for_isaac": declared_bodies,
         "declared_hit_bodies_ignored_on_mjlab": bool(declared_bodies),
@@ -94,7 +152,7 @@ def pinhole_camera_effective_semantics(sensor: RayCasterRef) -> dict[str, Any]:
     }
 
 
-def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
+def pinhole_ray_caster(sensor: RayCasterRef, profile: Mapping[str, Any] | None = None) -> Any:
     """A mjlab sensor cfg that implements a pinhole :class:`RayCasterRef` under InstinctMJ semantics."""
     from mjlab.sensor import ObjRef, PinholeCameraPatternCfg
     from mjlab.sensor.raycast_sensor import RayCastSensor, RayCastSensorCfg
@@ -105,8 +163,7 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
     if sensor.miss != "infinity":
         raise ValueError(f"mjlab camera {sensor.name!r} has miss={sensor.miss!r}; the portable contract is +inf.")
 
-    geom_groups = pinhole_camera_geom_groups()
-    hop = pinhole_camera_hop_params()
+    native = pinhole_camera_native_settings(sensor, profile)
 
     @dataclass
     class PinholeRayCastSensorCfg(RayCastSensorCfg):
@@ -117,6 +174,9 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
         image_height: int = 36
         image_width: int = 64
         include_geom_groups: tuple[int, ...] | None = None
+        mesh_filter_max_hops: int = 6
+        mesh_filter_epsilon: float = 1.0e-4
+        update_period: float = 0.0
 
         def build(self) -> PinholeRayCastSensor:
             return PinholeRayCastSensor(self)
@@ -148,20 +208,54 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             }
             self._cam_pos = torch.zeros(data.nworld, 3, device=device)
             self._cam_quat = torch.zeros(data.nworld, 4, device=device)
+            self._reported_cam_pos = torch.zeros_like(self._cam_pos)
+            self._reported_cam_quat = torch.zeros_like(self._cam_quat)
             self._min_distance = float(self.cfg.min_distance)
             self._image_plane_max = float(self.cfg.image_plane_max)
-            self._hop_epsilon = float(hop["hop_epsilon_m"])
-            self._hop_max = int(hop["hop_max"])
+            self._hop_epsilon = float(self.cfg.mesh_filter_epsilon)
+            self._hop_max = int(self.cfg.mesh_filter_max_hops)
+            self._update_period_s = max(float(self.cfg.update_period), 0.0)
+            self._elapsed_since_refresh = torch.zeros(data.nworld, device=device)
+            self._refresh_mask = torch.ones(data.nworld, dtype=torch.bool, device=device)
+            if self._update_period_s > 0.0:
+                self._elapsed_since_refresh.fill_(self._update_period_s)
             self._calibration_noise = torch.zeros(data.nworld, 6, device=device)
             self.frame_sequence = 0
 
         def update(self, dt: float) -> None:
             super().update(dt)
+            if self._update_period_s > 0.0:
+                self._elapsed_since_refresh += float(dt)
             self.frame_sequence += 1
+
+        def reset(self, env_ids=None) -> None:
+            super().reset(env_ids)
+            if env_ids is None:
+                env_ids = slice(None)
+            if self._update_period_s > 0.0:
+                self._elapsed_since_refresh[env_ids] = self._update_period_s
+            self._refresh_mask[env_ids] = True
 
         def set_offset_noise(self, env_ids, pose_delta: torch.Tensor) -> None:
             """Set persistent per-environment xyz/rpy calibration error."""
             self._calibration_noise[env_ids] = pose_delta
+
+        def _refresh_reported_pose(self, cam_pos: torch.Tensor, cam_quat: torch.Tensor) -> None:
+            """Advance InstinctMJ's per-environment camera refresh clock."""
+            if self._update_period_s > 0.0:
+                self._refresh_mask = self._elapsed_since_refresh >= (self._update_period_s - 1.0e-8)
+                refresh_ids = self._refresh_mask.nonzero(as_tuple=False).squeeze(-1)
+                if refresh_ids.numel() > 0:
+                    self._elapsed_since_refresh[refresh_ids] = torch.remainder(
+                        self._elapsed_since_refresh[refresh_ids],
+                        self._update_period_s,
+                    )
+                    self._reported_cam_pos[refresh_ids] = cam_pos[refresh_ids]
+                    self._reported_cam_quat[refresh_ids] = cam_quat[refresh_ids]
+                return
+            self._refresh_mask.fill_(True)
+            self._reported_cam_pos.copy_(cam_pos)
+            self._reported_cam_quat.copy_(cam_quat)
 
         def prepare_rays(self) -> None:
             """Full attach-body rotation plus the world-convention offset."""
@@ -188,6 +282,7 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             cam_quat = quat_mul(frame_quat, quat_mul(delta_quat, offset_quat.expand_as(frame_quat)))
             self._cam_pos = cam_pos
             self._cam_quat = cam_quat
+            self._refresh_reported_pose(cam_pos, cam_quat)
 
             batch = cam_pos.shape[0]
             num_rays = self._num_rays
@@ -215,9 +310,17 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             self._cached_frame_mat = matrix_from_quat(cam_quat).unsqueeze(1)
 
         def postprocess_rays(self) -> None:
+            stale_ids = None
+            stale_depth = None
+            if self._update_period_s > 0.0:
+                stale_ids = (~self._refresh_mask).nonzero(as_tuple=False).squeeze(-1)
+                if stale_ids.numel() > 0:
+                    stale_depth = self._output["distance_to_image_plane"][stale_ids].clone()
             super().postprocess_rays()
             self._apply_min_distance_hop()
             self._write_image_plane()
+            if stale_depth is not None:
+                self._output["distance_to_image_plane"][stale_ids] = stale_depth
 
         def _apply_min_distance_hop(self) -> None:
             """InstinctMJ GroupedRayCaster with empty mesh_prim_paths: BVH groups + min_distance hop."""
@@ -304,8 +407,8 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
             data.output = self._output
             data.image_shape = (self.cfg.image_height, self.cfg.image_width)
             data.ray_hits_w = data.hit_pos_w
-            data.pos_w = self._cam_pos
-            data.quat_w_world = self._cam_quat
+            data.pos_w = self._reported_cam_pos
+            data.quat_w_world = self._reported_cam_quat
             return data
 
     return PinholeRayCastSensorCfg(
@@ -321,8 +424,9 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
         # projecting the hit onto the image plane. Extending this to 2x lets
         # oblique rays see geometry that the reference camera cannot see.
         max_distance=sensor.max_distance,
-        exclude_parent_body=True,
-        include_geom_groups=geom_groups,
+        exclude_parent_body=native["exclude_parent_body"],
+        include_geom_groups=native["include_geom_groups"],
+        update_period=native["update_period"],
         debug_vis=False,
         origin_offset=sensor.offset,
         origin_offset_rot=sensor.offset_rot,
@@ -330,6 +434,8 @@ def pinhole_ray_caster(sensor: RayCasterRef) -> Any:
         image_plane_max=sensor.max_distance,
         image_height=sensor.pattern.height,
         image_width=sensor.pattern.width,
+        mesh_filter_max_hops=native["mesh_filter_max_hops"],
+        mesh_filter_epsilon=native["mesh_filter_epsilon"],
     )
 
 

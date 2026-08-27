@@ -244,6 +244,7 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
     ``illegal_contact``, no ``feet_air_time`` payout, training proceeding on an episode that can
     only time out. Keeping the field means a sensor that falls back to the stock class still ticks.
     """
+    sensor = sensor.for_engine("mjlab")
     from mjlab.sensor import ContactMatch
 
     from .contact_sensor import thresholded_contact_sensor_cfg
@@ -261,14 +262,14 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
     )
 
 
-def _build_ray_caster(sensor: RayCasterRef) -> Any:
+def _build_ray_caster(sensor: RayCasterRef, profile: Mapping[str, Any] | None = None) -> Any:
     """mjlab does not ship Isaac's sky-origin scanner or world-convention camera."""
     sensor = sensor.for_engine("mjlab")
     refuse_unhonored_ray_alignment(sensor)
     if sensor.pattern.kind == "pinhole":
         from .camera import pinhole_ray_caster
 
-        return pinhole_ray_caster(sensor)
+        return pinhole_ray_caster(sensor, profile)
     if sensor.mode == "terrain_height":
         from .raycast import terrain_height_scanner
 
@@ -284,7 +285,7 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
 
     sensors = (
         tuple(_build_contact_sensor(sensor) for sensor in spec.contact_sensors)
-        + tuple(_build_ray_caster(sensor) for sensor in spec.ray_casters)
+        + tuple(_build_ray_caster(sensor, profile) for sensor in spec.ray_casters)
         + tuple(_build_motion_reference(sensor, robot) for sensor in spec.motion_references)
         + tuple(_build_volume_points(sensor) for sensor in spec.volume_points)
     )

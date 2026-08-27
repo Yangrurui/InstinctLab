@@ -261,6 +261,7 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
     mjlab's ``secondary`` actually filters; a task that sets ``against`` therefore cannot
     compile for Isaac until there is an implementation that changes the tensors terms read.
     """
+    sensor = sensor.for_engine("isaacsim")
     if sensor.against is not None:
         raise ValueError(
             f"Isaac Lab cannot honor ContactSensorRef.against={sensor.against!r} on "
@@ -276,9 +277,9 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
         prim_path=f"{_ROBOT_PRIM}/{elements}",
         history_length=sensor.history_length,
         track_air_time=sensor.track_air_time,
-        # Isaac Lab defaults this to 1 N, which is what the reference runs on. Passed
-        # explicitly anyway: the reference declares the threshold, and inheriting it
-        # silently is how the two engines ended up clocking air time differently.
+        # Passed explicitly after per-engine resolution: main uses the 1 N default for
+        # Locomotion/Parkour and writes 10 N for Shadowing. Inheriting the SDK default is how
+        # reference-specific clocks otherwise disappear from an apparently valid config.
         force_threshold=sensor.air_time_force_threshold,
     )
 

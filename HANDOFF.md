@@ -226,6 +226,52 @@ critic history/width, Perceptive depth preprocessing, motion-terrain matching,
 reset sampling order, contact sensor hot-path caching, and engine-native
 capacity profiles.
 
+## Sensor module audit (2026-08-27)
+
+The active contact, ray-caster/depth, motion-reference, and volume-point paths
+were audited separately against `/root/InstinctLab-main` for Isaac and
+`/root/InstinctMJ` for MJLab. Two silent Shadowing mismatches were fixed:
+
+- Perceptive and HOI contact clocks now resolve main's explicit 10 N threshold
+  on Isaac and InstinctMJ's explicit 1 N threshold on MJLab. The difference is
+  declared on `ContactSensorRef`; neither builder contains a task-name branch.
+- MJLab Perceptive/VAE/HOI cameras now use InstinctMJ's `(0, 2)` geom groups,
+  `exclude_parent_body=False`, 24 min-distance hops, and 1/60 s refresh clock.
+  The refresh implementation retains the last frame and reported pose until an
+  environment's clock is due. Parkour continues to inherit InstinctMJ's native
+  `(0, 1, 2)`, parent exclusion, six hops, and every-sense refresh.
+
+The audit retained the already documented intentional boundaries: normalized
+contact timing/selection is portable but raw solver force is not; Isaac camera
+targets are explicit main mesh targets while MJLab cameras use InstinctMJ geom
+groups; and volume-point velocity is the declared attach-link quantity rather
+than reproducing either reference's known subtree/COM-origin bug.
+
+Evidence after the fixes:
+
+```text
+1225 passed, 2 skipped, 31 deselected (full default suite)
+6 passed (MJLab CUDA synthetic camera ray-kernel comparison, including Perceptive group filtering)
+2 passed (MJLab live contact and motion-reference lifecycle)
+1 passed (Isaac live motion-reference lifecycle)
+1 passed (Isaac native contact-threshold construction)
+python scripts/check_mjlab.py resolved all 39 Locomotion terms,
+constructed 16 MJLab environments, and stepped 5 times
+```
+
+InstinctMJ's min-distance continuation returns a different result on the CPU
+Warp ray kernel for the synthetic near-hit case; both implementations agree on
+the production CUDA path. The live parity test therefore marks that one case
+CUDA-only rather than treating CPU behavior as production evidence.
+
+The Perceptive long runs already active on Isaac GPU 6 and MJLab GPU 7 were
+started before this audit and were not stopped or restarted. The MJLab process
+therefore still has the old Parkour-default camera settings in memory and must
+not be used as post-fix Perceptive camera evidence. The Isaac process likewise
+predates the 10 N main contact-clock resolution, although current Perceptive MDP
+terms do not consume that timer. A future post-fix Perceptive comparison must
+start new log directories; do not relabel either active run.
+
 ## Live experiments
 
 Snapshot at 2026-08-27 02:19 UTC. These processes were inspected only; none was

@@ -4,15 +4,23 @@ from __future__ import annotations
 
 import os
 import sys
-import torch
 from pathlib import Path
 
 import mujoco
 import pytest
-
-from instinctlab.engines.mjlab.camera import pinhole_camera_geom_groups, pinhole_camera_hop_params
+import torch
+from instinctlab.engines.mjlab.camera import (
+    pinhole_camera_geom_groups,
+    pinhole_camera_hop_params,
+)
 from instinctlab.spec.sensor import RayCasterRef, RayPatternRef
-from tests.camera_ray_kernel_harness import assert_hit_match, cast_rays, geom_name, make_ray_test_scene
+
+from tests.camera_ray_kernel_harness import (
+    assert_hit_match,
+    cast_rays,
+    geom_name,
+    make_ray_test_scene,
+)
 
 pytest.importorskip("mjlab")
 pytestmark = pytest.mark.mjlab
@@ -32,7 +40,7 @@ def _require_instinctmj() -> None:
         sys.path.insert(0, str(INSTINCTMJ_SRC))
 
 
-def _ours_sensor_cfg(name: str = "ours"):
+def _ours_sensor_cfg(name: str = "ours", *, perceptive: bool = False):
     from instinctlab.engines.mjlab.camera import pinhole_ray_caster
 
     ref = RayCasterRef(
@@ -44,14 +52,32 @@ def _ours_sensor_cfg(name: str = "ours"):
         max_distance=MAX_DIST,
         min_distance=MIN_DIST,
     )
-    return pinhole_ray_caster(ref)
+    profile = None
+    if perceptive:
+        profile = {
+            "pinhole_cameras": {
+                name: {
+                    "include_geom_groups": (0, 2),
+                    "exclude_parent_body": False,
+                    "mesh_filter_max_hops": 24,
+                    "update_period": 1.0 / 60.0,
+                }
+            }
+        }
+    return pinhole_ray_caster(ref, profile)
 
 
-def _instinctmj_sensor_cfg(name: str = "ref"):
+def _instinctmj_sensor_cfg(name: str = "ref", *, perceptive: bool = False):
     _require_instinctmj()
     from instinct_mj.sensors.grouped_ray_caster import GroupedRayCasterCfg
     from mjlab.sensor import GridPatternCfg, ObjRef
 
+    kwargs = {}
+    if perceptive:
+        kwargs = {
+            "exclude_parent_body": False,
+            "mesh_filter_max_hops": 24,
+        }
     return GroupedRayCasterCfg(
         name=name,
         frame=ObjRef(type="body", name="cam", entity="robot"),
@@ -59,14 +85,20 @@ def _instinctmj_sensor_cfg(name: str = "ref"):
         ray_alignment="base",
         max_distance=MAX_DIST,
         min_distance=MIN_DIST,
-        include_geom_groups=GROUPS,
+        include_geom_groups=(0, 2) if perceptive else GROUPS,
         mesh_prim_paths=[],
+        **kwargs,
     )
 
 
-def _run_pair(xml: str, device: str) -> tuple[tuple[int, float], tuple[int, float], mujoco.MjModel]:
-    ours_cfg = _ours_sensor_cfg()
-    ref_cfg = _instinctmj_sensor_cfg()
+def _run_pair(
+    xml: str,
+    device: str,
+    *,
+    perceptive: bool = False,
+) -> tuple[tuple[int, float], tuple[int, float], mujoco.MjModel]:
+    ours_cfg = _ours_sensor_cfg(perceptive=perceptive)
+    ref_cfg = _instinctmj_sensor_cfg(perceptive=perceptive)
     scene, sim = make_ray_test_scene(device, xml, sensors=(ours_cfg, ref_cfg))
     try:
         ours = cast_rays(scene, sim, "ours")
@@ -92,12 +124,14 @@ def test_hop_params_read_from_instinctmj_source() -> None:
 
 def test_min_distance_hop_skips_near_allowed_geom(device) -> None:
     """First allowed hit at ~0.05 m; second at ~0.59 m. min_distance=0.1 → take far."""
+    if device == "cpu":
+        pytest.skip("InstinctMJ's continuation kernel returns miss on CPU; production parity is CUDA")
     xml = """
     <mujoco>
       <worldbody>
         <body name="cam" pos="0 0 0">
           <freejoint name="free"/>
-          <geom name="probe" type="sphere" size="0.005" contype="0" conaffinity="0" group="2"/>
+          <geom name="probe" type="sphere" size="0.005" contype="0" conaffinity="0" group="3"/>
         </body>
         <geom name="near" type="box" size="0.01 0.05 0.05" pos="0.06 0 0" group="0"/>
         <geom name="far" type="box" size="0.01 0.05 0.05" pos="0.6 0 0" group="0"/>
@@ -126,6 +160,26 @@ def test_disallowed_group_is_bvh_filtered(device) -> None:
     """
     ours, ref, model = _run_pair(xml, device)
     assert_hit_match(model, ours, ref, dist_tol=0.02)
+    assert ours[1] == pytest.approx(0.59, abs=0.03)
+
+
+def test_perceptive_group_one_occluder_is_ignored(device) -> None:
+    """Perceptive explicitly narrows Parkour's (0,1,2) mask to (0,2)."""
+    xml = """
+    <mujoco>
+      <worldbody>
+        <body name="cam" pos="0 0 0">
+          <freejoint name="free"/>
+          <geom name="probe" type="sphere" size="0.005" contype="0" conaffinity="0" group="3"/>
+        </body>
+        <geom name="group_one_occluder" type="box" size="0.01 0.05 0.05" pos="0.3 0 0" group="1"/>
+        <geom name="far" type="box" size="0.01 0.05 0.05" pos="0.6 0 0" group="0"/>
+      </worldbody>
+    </mujoco>
+    """
+    ours, ref, model = _run_pair(xml, device, perceptive=True)
+    assert_hit_match(model, ours, ref, dist_tol=0.02)
+    assert geom_name(model, ours[0]).endswith("far")
     assert ours[1] == pytest.approx(0.59, abs=0.03)
 
 
@@ -160,6 +214,6 @@ def test_mutation_no_hop_would_miss_far_geom(device) -> None:
       </worldbody>
     </mujoco>
     """
-    ours, _, model = _run_pair(xml, device)
+    ours, _, _model = _run_pair(xml, device)
     assert ours[1] == pytest.approx(0.59, abs=0.03)
     assert ours[1] > MIN_DIST

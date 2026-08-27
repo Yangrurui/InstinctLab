@@ -67,12 +67,6 @@ EXPECTED_DIFFERENCES = {
         "them at all, which is how a missing field left every contact timer at zero for a whole "
         "training run; see tests/test_mjlab_contact_wiring.py for the live check."
     ),
-    "scene.sensors.force_threshold": (
-        "The reference's foot sensor is a ForceThresholdContactSensorCfg with a 1 N threshold, "
-        "which is how it reproduces Isaac Lab's force-thresholded air time. The portable terms "
-        "take contact from the sensor's own contact duration instead, so no threshold is imposed "
-        "at the sensor. Air time therefore starts marginally earlier here."
-    ),
     "rewards.groups": (
         "The reference groups rewards for MultiRewardManager; both backends flatten the groups the "
         "declaration states, since each engine's stock manager takes a flat namespace."
@@ -313,9 +307,9 @@ def test_the_declared_sensor_keeps_the_references_timing(spec):
     """History depth and air-time tracking, which survive the regrouping and have to carry over.
 
     ``track_air_time`` is what makes mjlab accumulate contact and air duration at all, and the
-    portable terms take contact from that duration rather than from a force threshold. Getting it
-    from the reference rather than from a constant here means an upstream that stops asking for it
-    shows up as a failure instead of as a foot that is never in contact.
+    portable terms take contact from that duration. Getting it from the reference rather than from
+    a constant here means an upstream that stops asking for it shows up as a failure instead of as
+    a foot that is never in contact.
     """
     sensors = reference.scene_sensors()
     declared = {sensor.name: sensor for sensor in spec.scene.contact_sensors}
@@ -327,10 +321,9 @@ def test_the_declared_sensor_keeps_the_references_timing(spec):
     assert sensor.track_air_time is sensors["feet_contact_forces"]["track_air_time"] is True
     assert sensor.history_length == sensors["feet_contact_forces"]["history_length"]
 
-    # The one property that deliberately does not carry over, asserted so that it stays deliberate.
-    # The reference's subclass rederives contact from a newton threshold; a plain ContactSensorCfg
-    # has no such threshold and must request the "found" field instead, which is exactly the field
-    # whose absence once left every contact timer at zero for a whole training run.
+    assert sensor.air_time_force_threshold == sensors["feet_contact_forces"]["force_threshold"] == 1.0
+    # The production builder keeps ``found`` as a fallback for mjlab's stock clock, but its custom
+    # sensor clocks from the reference's force field and threshold.
     assert sensors["feet_contact_forces"]["cfg_class"] == "ForceThresholdContactSensorCfg"
     assert "found" not in sensors["feet_contact_forces"]["fields"]
 
