@@ -371,22 +371,29 @@ def test_delayed_depth_image_accepts_all_configured_processing_params() -> None:
         resize_shape=(18, 32),
         normalization_range=(0.0, 2.0),
     )
-    raw.fill_(1.0)
+    result = None
+    for frame in range(1, 11):
+        raw.fill_(0.1 * frame)
+        result = term(
+            env,
+            sensor,
+            history_skip_frames=3,
+            num_output_frames=4,
+            delayed_frame_ranges=(0, 0),
+            history_length=10,
+            blur_kernel_size=1,
+            blur_sigma=0.0,
+            resize_shape=(18, 32),
+            normalization_range=(0.0, 2.0),
+        )
 
-    result = term(
-        env,
-        sensor,
-        history_skip_frames=3,
-        num_output_frames=4,
-        delayed_frame_ranges=(0, 0),
-        history_length=10,
-        blur_kernel_size=1,
-        blur_sigma=0.0,
-        resize_shape=(18, 32),
-        normalization_range=(0.0, 2.0),
-    )
-
+    assert result is not None
     assert result.shape == (2, 4, 18, 32)
+    assert torch.allclose(
+        result[:, :, 0, 0],
+        torch.tensor([[0.05, 0.2, 0.35, 0.5], [0.05, 0.2, 0.35, 0.5]]),
+        atol=1.0e-6,
+    )
 
 
 def _delayed_depth_term(num_envs: int = 3, history_length: int = 37, **param_overrides):
