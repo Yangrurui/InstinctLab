@@ -168,6 +168,10 @@ EDITED = {
         "body_order mismatch raises so the two engines cannot sum different clouds; "
         "velocity='attach_link' converts PhysX COM linear to link origin"
     ),
+    "source/instinctlab/instinctlab/sensors/grouped_ray_caster/grouped_ray_caster_camera.py": (
+        "exposes a host-side frame generation so delayed depth does not copy all CUDA sensor "
+        "timestamps to Python on every observation"
+    ),
     "source/instinctlab/instinctlab/utils/warp/kernels.py": (
         "on-axis cylinder hit used to divide by zero and write NaN into the reward; "
         "depth is now the radius along a stable perpendicular"
