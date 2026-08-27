@@ -19,6 +19,7 @@ def test_isaacsim_shadowing_short_rollout() -> None:
 
     from instinctlab.engines.isaacsim import IsaacSimAdapter
     from instinctlab.shadowing_probe import collect_shadowing_rollout, shadowing_task_with_motion
+    from tests.parkour_live_expect import assert_policy_joint_dfs_runtime_semantics
     from tests.shadowing_live import resolve_shadowing_motion
 
     task = shadowing_task_with_motion("Instinct-Shadowing-WholeBody-Plane-G1-v0", resolve_shadowing_motion())
@@ -33,5 +34,6 @@ def test_isaacsim_shadowing_short_rollout() -> None:
             torch.from_numpy(state["joint_pos"][0]),
             torch.from_numpy(state["motion_joint_pos"][0]),
         )
+        assert_policy_joint_dfs_runtime_semantics(env, task, device=device)
     finally:
         env.close()

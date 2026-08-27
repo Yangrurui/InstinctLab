@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 10:36 UTC
+Updated: 2026-08-27 10:56 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -502,17 +502,20 @@ Evidence:
 python scripts/check_mjlab.py resolved all 39 Locomotion terms,
   constructed 16 environments, exposed a 29-joint catalog-order action,
   and stepped 5 times
+1 passed (fresh Isaac Whole Body reset/four-step rollout plus native BFS to
+  policy DFS observation/action semantics)
+1 passed (fresh full Isaac Parkour construction, eight-frame DFS policy
+  history, AMP, sensors, terrain, volume points, and eight reward steps)
 ```
 
-Two attempted fresh Isaac live probes did not reach the joint assertions, so
-this audit does not claim a new Isaac live pass. Their missing `libGLU.so.1`
-message was initially misidentified as the cause. The active Isaac headless
-training logs contain the same optional Iray/Neuray extension-load error, then
-construct the environment and continue training without mapping `libGLU`; it
-is therefore not an Isaac startup blocker for this path. The actual early-probe
-exit was not established. The existing Parkour live test still contains the
-accepted runtime guard that checks native BFS names, DFS observation/action
-names, semantic state values, and action-history columns. The three production
+Fresh Isaac live probes now close the runtime gap. The lightweight Whole Body
+probe verified reference reset writes and four steps while directly asserting
+native BFS names and name-resolved DFS policy/action axes. The full Parkour
+probe additionally filled and checked all eight frames of the DFS joint
+position, joint velocity, and action histories before completing its sensor,
+terrain, AMP, volume-point, and reward checks. Both probes emitted the optional
+Iray/Neuray missing `libGLU.so.1` extension-load message and continued normally,
+confirming that it is not a headless startup blocker. The three production
 training processes were not signaled or restarted during this audit.
 
 ## Actuator and control-path audit (2026-08-27)
@@ -816,11 +819,6 @@ finite.
 6. Continue reducing engine-specific parameter overlays by translating shared
    semantic values in builders. Do not move task policy into an engine package
    to achieve this.
-7. Rerun the fresh Isaac live joint-order probe and preserve its final exit
-   status and traceback. Do not classify the optional Iray/Neuray
-   `libGLU.so.1` extension-load message as fatal by itself: the current headless
-   training processes emit it and continue normally.
-
 ## Bring-up and verification
 
 Before starting a training run, inspect `pgrep -af scripts/train.py` and

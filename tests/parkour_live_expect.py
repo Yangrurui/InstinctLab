@@ -576,7 +576,6 @@ def canonical_joint_ids(robot, spec) -> list[int]:
     return [native.index(name) for name in spec.robot.joint_names]
 
 
-POLICY_JOINT_HISTORY_LENGTH = 8
 POLICY_JOINT_COUNT = 29
 JOINT_DFS_SEMANTICS_ATOL = 1e-5
 JOINT_DFS_SEMANTICS_RTOL = 1e-5
@@ -619,8 +618,10 @@ def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None
 
     Cross-checks ``tests/test_parkour_main_reference.py::test_main_leaves_policy_and_action_joints_in_entity_order``
     (static cfg) without constructing main's env. Matches the /tmp joint-semantics probe:
-    reset observation/action history, fill eight identical frames, then compare each history
-    slice to the scaled instantaneous ``joint_pos_rel`` / ``joint_vel_rel`` / ``last_action``.
+    reset observation/action history, fill each configured history with identical frames, then
+    compare every stored slice to the scaled instantaneous ``joint_pos_rel`` / ``joint_vel_rel`` /
+    ``last_action``. Tasks without term history still exercise the native-axis and instantaneous
+    semantic checks.
     """
     import torch
 
@@ -639,7 +640,14 @@ def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None
     assert len(expected_ids) == POLICY_JOINT_COUNT
 
     joint_terms = ("joint_pos", "joint_vel")
-    term_cfgs = {name: _policy_obs_term_cfg(env, name) for name in (*joint_terms, "actions")}
+    policy_term_names = env.observation_manager._group_obs_term_names["policy"]
+    action_term_names = [name for name in ("actions", "last_action") if name in policy_term_names]
+    assert len(action_term_names) == 1, (
+        "policy observations must expose exactly one action-history term named "
+        f"'actions' or 'last_action', got {action_term_names} from {policy_term_names}"
+    )
+    action_term_name = action_term_names[0]
+    term_cfgs = {name: _policy_obs_term_cfg(env, name) for name in (*joint_terms, action_term_name)}
     for name in joint_terms:
         ids = _resolved_joint_ids(term_cfgs[name])
         axis_names = [native[i] for i in ids]
@@ -660,7 +668,7 @@ def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None
 
     for name in joint_terms:
         term_cfgs[name].noise = None
-    term_cfgs["actions"].noise = None
+    term_cfgs[action_term_name].noise = None
 
     instant_pos = _scaled_instant_obs(env, term_cfgs["joint_pos"])[env_idx]
     instant_vel = _scaled_instant_obs(env, term_cfgs["joint_vel"])[env_idx]
@@ -686,7 +694,15 @@ def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None
     env_ids = torch.arange(env.num_envs, device=device)
     env.observation_manager.reset(env_ids)
     env.action_manager.reset(env_ids)
-    for _ in range(POLICY_JOINT_HISTORY_LENGTH):
+    expected_by_term = {
+        "joint_pos": instant_pos,
+        "joint_vel": expected_vel,
+        action_term_name: torch.zeros(POLICY_JOINT_COUNT, device=device),
+    }
+    history_lengths = {
+        name: int(getattr(term_cfgs[name], "history_length", 0) or 0) for name in expected_by_term
+    }
+    for _ in range(max(history_lengths.values(), default=0)):
         env.scene.write_data_to_sim()
         if hasattr(env.sim, "forward"):
             env.sim.forward()
@@ -695,16 +711,16 @@ def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None
         env.observation_manager.compute(update_history=True)
 
     obs_mgr = env.observation_manager
-    expected_by_term = {
-        "joint_pos": instant_pos,
-        "joint_vel": expected_vel,
-        "actions": torch.zeros(POLICY_JOINT_COUNT, device=device),
-    }
+    history_buffers = obs_mgr._group_obs_term_history_buffer["policy"]
     for term_name, expected in expected_by_term.items():
-        history = obs_mgr._group_obs_term_history_buffer["policy"][term_name].buffer
-        assert history.shape[1] == POLICY_JOINT_HISTORY_LENGTH, term_name
+        history_length = history_lengths[term_name]
+        if history_length == 0:
+            assert term_name not in history_buffers, term_name
+            continue
+        history = history_buffers[term_name].buffer
+        assert history.shape[1] == history_length, term_name
         assert history.shape[2] == POLICY_JOINT_COUNT, term_name
-        for frame in range(POLICY_JOINT_HISTORY_LENGTH):
+        for frame in range(history_length):
             torch.testing.assert_close(
                 history[env_idx, frame],
                 expected,
