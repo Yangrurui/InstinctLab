@@ -55,6 +55,20 @@ python scripts/check_mjlab.py:
   constructed 16 MJLab environments and stepped 5 times
 ```
 
+Post-refactor training-equivalence audit against `f7fef17`:
+
+```text
+15/15 registered TaskSpec declarations were structurally identical
+12/12 compiled MJLab Shadowing/Mimic/VAE env, agent, and resolution configs were identical
+137/137 training-entry, Shadowing-contract, joint-order, registry, and isolation tests passed
+```
+
+The active agent configuration files did not change. The only change in
+`scripts/train.py` was removal of the obsolete `scripts/instinct_rl` path
+workaround after that shadowing directory was deleted. On Isaac, the Shadowing
+term builders now read the same ordered link tuple from the task's motion
+reference instead of importing the task-level constant directly.
+
 These checks prove declaration, contract, and construction integrity. They do
 not replace fixed-state, temporal, or production convergence evidence.
 
