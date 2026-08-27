@@ -6,7 +6,7 @@ import inspect
 import torch
 from types import SimpleNamespace
 
-from instinctlab.assets.unitree_g1.isaacsim import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import make_g1_29dof_robot_spec
 from instinctlab.play import viser as play_viser
 from instinctlab.play.viser import _pin_velocity_command, visual_asset_path, visual_meshes_from_mjcf
 

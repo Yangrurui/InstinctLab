@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.assets.unitree_g1.isaacsim import (
+from instinctlab.assets.unitree_g1.catalog import (
     G1_29DOF_DEFAULT_JOINT_POS,
     G1_29DOF_DFS_JOINT_NAMES,
     G1_29DOF_ISAAC_BFS_JOINT_NAMES,
@@ -255,7 +255,8 @@ def test_robot_spec_limits_match_urdf() -> None:
 
 def test_beyondmimic_groups_cover_the_robot_spec() -> None:
     """Isaac actuator tables are filled from ``RobotSpec``; every joint must have a group."""
-    from instinctlab.assets.unitree_g1.isaacsim import _BEYONDMIMIC_JOINT_GROUPS, _pattern_fields
+    from instinctlab.assets.unitree_g1.catalog import _BEYONDMIMIC_JOINT_GROUPS
+    from instinctlab.assets.unitree_g1.isaacsim import _pattern_fields
 
     robot = make_g1_29dof_robot_spec()
     covered: set[str] = set()

@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 import types
 
-from instinctlab.assets.unitree_g1.isaacsim import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import make_g1_29dof_robot_spec
 from instinctlab.engines.isaacsim.assets import apply_robot_spec, delayed_actuators
 
 

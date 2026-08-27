@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from instinctlab.assets.unitree_g1.isaacsim import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import make_g1_29dof_robot_spec
 from instinctlab.sim.backend import JOINT_ACC_SOURCES, RuntimeRequirements
 from instinctlab.sim.capabilities import (
     BATCHED_SIMULATION,

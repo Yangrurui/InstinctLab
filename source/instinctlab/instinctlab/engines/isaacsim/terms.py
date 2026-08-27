@@ -475,9 +475,9 @@ for _kind in _SHADOW_COMMAND_KINDS:
 
 def _shadow_entity(ctx):
     from instinctlab.spec import EntityRef
-    from instinctlab.tasks.shadowing.task_spec import MOTION_LINKS
 
-    return ctx.entity(EntityRef("robot", bodies=MOTION_LINKS, preserve_order=True))
+    motion = ctx.spec.scene.motion_reference("motion_reference")
+    return ctx.entity(EntityRef("robot", bodies=motion.links, preserve_order=True))
 
 
 def _shadow_obs(spec, ctx):
@@ -588,12 +588,12 @@ _SHADOW_DONES = {
 
 def _shadow_done(spec, ctx):
     from instinctlab.mdp import shadowing
-    from instinctlab.tasks.shadowing.task_spec import MOTION_LINKS
 
     params = ctx.params(spec)
     params.update(reference_cfg="motion_reference", asset_cfg=_shadow_entity(ctx))
     if spec.kind == "shadow_link_position_too_far":
-        params["link_ids"] = tuple(MOTION_LINKS.index(name) for name in spec.target.bodies)
+        motion_links = ctx.spec.scene.motion_reference("motion_reference").links
+        params["link_ids"] = tuple(motion_links.index(name) for name in spec.target.bodies)
     return _import_cfgs()["done"](
         func=getattr(shadowing, _SHADOW_DONES[spec.kind]),
         time_out=spec.time_out,

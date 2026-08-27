@@ -24,10 +24,6 @@ import sys
 from contextlib import ExitStack
 from pathlib import Path
 
-if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
-    sys.path.pop(0)
-
-
 def _parse() -> argparse.Namespace:
     from instinctlab.engines import names
 

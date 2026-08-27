@@ -459,36 +459,3 @@ def test_mjlab_bootstrap_actually_turns_tf32_matmul_on() -> None:
             torch.backends.cudnn.allow_tf32,
             torch.backends.cudnn.benchmark,
         ) = before
-
-
-_ROOT = pathlib.Path(__file__).resolve().parents[1]
-
-
-def _legacy_isaac_entry_points() -> list[pathlib.Path]:
-    """Scripts that look up a legacy Gym id, wherever they live."""
-    candidates = [*(_ROOT / "scripts").rglob("*.py"), *(_ROOT / "source").rglob("*/play.py")]
-    return [p for p in candidates if "gym.make(" in (text := p.read_text()) or "gym.registry" in text]
-
-
-def test_every_entry_point_that_uses_a_gym_id_registers_them() -> None:
-    """Registration is an explicit call, and nothing reminds a new entry point to make it.
-
-    ``tasks/__init__.py`` has to stay engine-free so the cross-engine launcher can read the task
-    table before an engine is chosen, so registering the legacy Isaac Gym ids stopped being an
-    import side effect. Every script that had been relying on that side effect kept importing the
-    package and looking correct -- ``import instinctlab.tasks  # noqa: F401`` is exactly what a
-    working registration used to look like -- while resolving its own task id to NameNotFound.
-    Finding the next one by running it is the expensive way.
-    """
-    # Resolving a Gym id is the condition, not importing the package. One script reached the ids
-    # without naming ``instinctlab.tasks`` at all, riding on whatever a transitive import happened
-    # to pull in, and a guard keyed on the import would have kept walking past it.
-    delinquent = [
-        str(path.relative_to(_ROOT))
-        for path in _legacy_isaac_entry_points()
-        if "register_legacy_isaac_tasks()" not in path.read_text()
-    ]
-    assert not delinquent, (
-        f"{delinquent} resolve a Gym id but never call register_legacy_isaac_tasks(); importing "
-        "instinctlab.tasks no longer registers anything"
-    )

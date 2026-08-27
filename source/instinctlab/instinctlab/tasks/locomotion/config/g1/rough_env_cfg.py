@@ -13,7 +13,7 @@ and therefore on world width. The declaration names the intent and does not pick
 from __future__ import annotations
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1.isaacsim import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import make_g1_29dof_robot_spec
 from instinctlab.spec import (
     ActionTermSpec,
     AgentSpec,

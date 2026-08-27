@@ -23,7 +23,7 @@ from instinctlab.engines.motion_reference.clip import MotionSample
 from instinctlab.engines.shadowing_commands import _root
 from instinctlab.mdp import shadowing as shadowing_mdp
 from instinctlab.tasks import registry
-from instinctlab.tasks.shadowing.task_spec import MOTION_LINKS
+from instinctlab.tasks.shadowing.config import MOTION_LINKS
 
 SHADOW_IDS = tuple(
     task_id for task_id in registry.ids() if any(token in task_id for token in ("Shadowing", "Mimic", "Vae"))

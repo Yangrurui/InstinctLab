@@ -1,4 +1,4 @@
-"""Shared declarations for every G1 shadowing task.
+"""Concrete configuration for every G1 shadowing task.
 
 The reference projects express the four shadowing families as native environment classes.  This
 module instead describes their common contract once.  A variant only selects observations,
@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS, make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import G1_29DOF_LINKS, make_g1_29dof_robot_spec
 from instinctlab.spec import (
     ActionTermSpec,
     AgentSpec,
@@ -44,6 +44,19 @@ from instinctlab.spec import (
 from instinctlab.spec.capability import Requirement
 
 Family = Literal["whole_body", "perceptive", "perceptive_vae", "perceptive_hoi", "beyondmimic"]
+
+WHOLE_BODY_TASK_ID = "Instinct-Shadowing-WholeBody-Plane-G1-v0"
+WHOLE_BODY_PLAY_TASK_ID = "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0"
+PERCEPTIVE_TASK_ID = "Instinct-Perceptive-Shadowing-G1-v0"
+PERCEPTIVE_PLAY_TASK_ID = "Instinct-Perceptive-Shadowing-G1-Play-v0"
+PERCEPTIVE_ONE_MOTION_TASK_ID = "Instinct-Perceptive-Shadowing-G1-OneMotion-v0"
+PERCEPTIVE_ONE_MOTION_PLAY_TASK_ID = "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0"
+PERCEPTIVE_VAE_TASK_ID = "Instinct-Perceptive-Vae-G1-v0"
+PERCEPTIVE_VAE_PLAY_TASK_ID = "Instinct-Perceptive-Vae-G1-Play-v0"
+PERCEPTIVE_HOI_TASK_ID = "Instinct-Perceptive-HOI-Shadowing-G1-v0"
+PERCEPTIVE_HOI_PLAY_TASK_ID = "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0"
+BEYONDMIMIC_TASK_ID = "Instinct-BeyondMimic-Plane-G1-v0"
+BEYONDMIMIC_PLAY_TASK_ID = "Instinct-BeyondMimic-Plane-G1-Play-v0"
 
 MOTION_LINKS = (
     "pelvis",
@@ -134,14 +147,14 @@ RUNNERS = {
 
 
 @dataclass(frozen=True)
-class ShadowingVariant:
+class _ShadowingConfig:
     task_id: str
     family: Family
     play: bool = False
     one_motion: bool = False
 
 
-def _motion_reference(variant: ShadowingVariant, joints: tuple[str, ...]) -> MotionReferenceRef:
+def _motion_reference(variant: _ShadowingConfig, joints: tuple[str, ...]) -> MotionReferenceRef:
     current_only = variant.family == "beyondmimic"
     frame_interval = 0.0 if current_only else (0.02 if variant.family == "whole_body" else 0.1)
     start_range = (0.0, 0.8) if variant.family in {"whole_body", "beyondmimic"} else (0.0, 0.0)
@@ -258,7 +271,7 @@ _NON_SUPPORT_CONTACTS = (
 )
 
 
-def _contact_sensor(variant: ShadowingVariant, *, undesired_subset: bool = False) -> ContactSensorRef:
+def _contact_sensor(variant: _ShadowingConfig, *, undesired_subset: bool = False) -> ContactSensorRef:
     perceptive = variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
     return ContactSensorRef(
         name="contact_forces" if perceptive else "undesired_contact_forces",
@@ -269,7 +282,7 @@ def _contact_sensor(variant: ShadowingVariant, *, undesired_subset: bool = False
     )
 
 
-def _scene(variant: ShadowingVariant, motion: MotionReferenceRef) -> SceneSpec:
+def _scene(variant: _ShadowingConfig, motion: MotionReferenceRef) -> SceneSpec:
     perceptive = variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
     rays: list[RayCasterRef] = []
     if perceptive:
@@ -296,7 +309,7 @@ def _scene(variant: ShadowingVariant, motion: MotionReferenceRef) -> SceneSpec:
     )
 
 
-def _commands(variant: ShadowingVariant) -> dict[str, CommandTermSpec]:
+def _commands(variant: _ShadowingConfig) -> dict[str, CommandTermSpec]:
     names = ["position_ref_command"]
     if variant.family != "beyondmimic":
         names.append("position_b_ref_command")
@@ -382,7 +395,7 @@ def _proprioception(
     return terms
 
 
-def _observations(variant: ShadowingVariant, joints: EntityRef, motion: MotionReferenceRef) -> dict[str, ObsGroupSpec]:
+def _observations(variant: _ShadowingConfig, joints: EntityRef, motion: MotionReferenceRef) -> dict[str, ObsGroupSpec]:
     policy_refs = _reference_observations(policy=True, has_anchor_command=variant.family != "beyondmimic")
     critic_refs = _reference_observations(policy=False)
     history_length = 8 if variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"} else 0
@@ -460,7 +473,7 @@ def _observations(variant: ShadowingVariant, joints: EntityRef, motion: MotionRe
     }
 
 
-def _rewards(variant: ShadowingVariant) -> dict[str, dict[str, RewardTermSpec]]:
+def _rewards(variant: _ShadowingConfig) -> dict[str, dict[str, RewardTermSpec]]:
     terms = {
         "base_position_imitation_gauss": RewardTermSpec(
             kind="shadow_base_position_gauss",
@@ -527,7 +540,7 @@ def _rewards(variant: ShadowingVariant) -> dict[str, dict[str, RewardTermSpec]]:
     return {"rewards": terms}
 
 
-def _events(variant: ShadowingVariant) -> dict[str, EventTermSpec]:
+def _events(variant: _ShadowingConfig) -> dict[str, EventTermSpec]:
     perceptive = variant.family in {"perceptive", "perceptive_vae", "perceptive_hoi"}
     isaac_material = {
         "static_friction_range": (1.25, 2.0) if perceptive else (0.3, 1.6),
@@ -698,7 +711,7 @@ def _events(variant: ShadowingVariant) -> dict[str, EventTermSpec]:
     return events
 
 
-def _terminations(variant: ShadowingVariant, motion: MotionReferenceRef) -> dict[str, DoneTermSpec]:
+def _terminations(variant: _ShadowingConfig, motion: MotionReferenceRef) -> dict[str, DoneTermSpec]:
     terms = {
         "time_out": DoneTermSpec(func=mdp.time_out, time_out=True),
         "base_pos_too_far": DoneTermSpec(
@@ -771,7 +784,7 @@ def _terminations(variant: ShadowingVariant, motion: MotionReferenceRef) -> dict
     return terms
 
 
-def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
+def _build_shadowing_task(variant: _ShadowingConfig) -> TaskSpec:
     # Both final G1 references replace their base robot with the BeyondMimic plant. On Isaac this
     # is ImplicitPD; on MJLab it is BuiltinPD. Neither final override uses the delayed tables.
     # main's effective shadowing ArticulationCfg leaves UrdfFileCfg's
@@ -882,4 +895,87 @@ def build_shadowing_task(variant: ShadowingVariant) -> TaskSpec:
     )
 
 
-__all__ = ["MOTION_LINKS", "ShadowingVariant", "build_shadowing_task"]
+def g1_plane_shadowing() -> TaskSpec:
+    return _build_shadowing_task(_ShadowingConfig(task_id=WHOLE_BODY_TASK_ID, family="whole_body"))
+
+
+def g1_plane_shadowing_play() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(task_id=WHOLE_BODY_PLAY_TASK_ID, family="whole_body", play=True)
+    )
+
+
+def g1_perceptive_shadowing() -> TaskSpec:
+    return _build_shadowing_task(_ShadowingConfig(task_id=PERCEPTIVE_TASK_ID, family="perceptive"))
+
+
+def g1_perceptive_shadowing_play() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(task_id=PERCEPTIVE_PLAY_TASK_ID, family="perceptive", play=True)
+    )
+
+
+def g1_perceptive_shadowing_one_motion() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(task_id=PERCEPTIVE_ONE_MOTION_TASK_ID, family="perceptive", one_motion=True)
+    )
+
+
+def g1_perceptive_shadowing_one_motion_play() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(
+            task_id=PERCEPTIVE_ONE_MOTION_PLAY_TASK_ID,
+            family="perceptive",
+            play=True,
+            one_motion=True,
+        )
+    )
+
+
+def g1_perceptive_vae() -> TaskSpec:
+    return _build_shadowing_task(_ShadowingConfig(task_id=PERCEPTIVE_VAE_TASK_ID, family="perceptive_vae"))
+
+
+def g1_perceptive_vae_play() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(task_id=PERCEPTIVE_VAE_PLAY_TASK_ID, family="perceptive_vae", play=True)
+    )
+
+
+def g1_perceptive_hoi_shadowing() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(task_id=PERCEPTIVE_HOI_TASK_ID, family="perceptive_hoi")
+    )
+
+
+def g1_perceptive_hoi_shadowing_play() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(task_id=PERCEPTIVE_HOI_PLAY_TASK_ID, family="perceptive_hoi", play=True)
+    )
+
+
+def g1_beyondmimic_plane() -> TaskSpec:
+    return _build_shadowing_task(_ShadowingConfig(task_id=BEYONDMIMIC_TASK_ID, family="beyondmimic"))
+
+
+def g1_beyondmimic_plane_play() -> TaskSpec:
+    return _build_shadowing_task(
+        _ShadowingConfig(task_id=BEYONDMIMIC_PLAY_TASK_ID, family="beyondmimic", play=True)
+    )
+
+
+__all__ = [
+    "MOTION_LINKS",
+    "g1_beyondmimic_plane",
+    "g1_beyondmimic_plane_play",
+    "g1_perceptive_hoi_shadowing",
+    "g1_perceptive_hoi_shadowing_play",
+    "g1_perceptive_shadowing",
+    "g1_perceptive_shadowing_one_motion",
+    "g1_perceptive_shadowing_one_motion_play",
+    "g1_perceptive_shadowing_play",
+    "g1_perceptive_vae",
+    "g1_perceptive_vae_play",
+    "g1_plane_shadowing",
+    "g1_plane_shadowing_play",
+]

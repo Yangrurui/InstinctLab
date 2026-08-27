@@ -27,17 +27,10 @@ quantity and a negligible one in the objective.
 from __future__ import annotations
 
 import argparse
-import os
 import statistics
 import sys
 import torch
 from pathlib import Path
-
-# ``scripts/instinct_rl`` would otherwise shadow the installed library as a namespace
-# package, and the runner import fails on a name that does exist. Same guard as train.py.
-if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
-    sys.path.pop(0)
-
 
 def _parse() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)

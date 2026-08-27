@@ -21,7 +21,7 @@ import math
 from pathlib import Path
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS, make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import G1_29DOF_LINKS, make_g1_29dof_robot_spec
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,

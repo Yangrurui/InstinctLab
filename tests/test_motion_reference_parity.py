@@ -27,7 +27,7 @@ import torch
 
 import pytest
 
-from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES, make_g1_29dof_robot_spec
 from instinctlab.compat.math import quat_error_magnitude
 from instinctlab.engines.motion_reference import (
     build_kinematics_chain,

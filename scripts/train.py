@@ -28,15 +28,6 @@ from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
-# Python puts this script's directory first on the path, and this directory contains a folder named
-# ``instinct_rl`` holding the legacy per-engine entry points. That folder has no ``__init__.py``, so
-# it becomes a namespace package that shadows the installed ``instinct_rl`` library, and importing
-# the runner fails with a name that does exist. Drop the entry rather than rename the folder, which
-# would break the paths people already invoke.
-if sys.path and os.path.isdir(os.path.join(sys.path[0], "instinct_rl")):
-    sys.path.pop(0)
-
-
 def _parse() -> argparse.Namespace:
     """Choose the engine first, then let it add its own flags.
 

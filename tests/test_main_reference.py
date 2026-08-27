@@ -75,7 +75,7 @@ EDITED = {
     "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py": (
         "Isaac-only runner config replaced by the engine-neutral runner shared by both engines"
     ),
-    "source/instinctlab/instinctlab/assets/__init__.py": "each robot is a package; G1 numbers live in isaacsim.py",
+    "source/instinctlab/instinctlab/assets/__init__.py": "each robot is an engine-neutral catalog package",
     # The training path, which the parity argument covers just as much as the env config does.
     "source/instinctlab/instinctlab/utils/wrappers/instinct_rl/vecenv_wrapper.py": (
         "num_rewards falls back to 1, because a task whose rewards are one flat container runs on a "
@@ -97,9 +97,7 @@ EDITED = {
     "source/instinctlab/instinctlab/__init__.py": (
         "stops registering Gym ids on import, so the package is engine-neutral"
     ),
-    "source/instinctlab/instinctlab/tasks/__init__.py": (
-        "the same registration moved into register_legacy_isaac_tasks()"
-    ),
+    "source/instinctlab/instinctlab/tasks/__init__.py": "exports only the engine-neutral registry",
     "source/instinctlab/instinctlab/envs/__init__.py": "exports lazily",
     "source/instinctlab/instinctlab/managers/__init__.py": "exports lazily",
     "source/instinctlab/instinctlab/sim/__init__.py": (
@@ -117,21 +115,6 @@ EDITED = {
     ),
     "source/instinctlab/instinctlab/tasks/locomotion/config/g1/agents/instinct_rl_ppo_cfg.py": (
         "same hyperparameters; configclass is vendored so reading them does not start Isaac Sim"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/beyondmimic_plane_cfg.py": (
-        "Isaac EnvCfg replaced by an engine-neutral TaskSpec factory"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_shadowing_cfg.py": (
-        "Isaac EnvCfg replaced by normal and OneMotion TaskSpec factories"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_vae_cfg.py": (
-        "Isaac VAE EnvCfg replaced by an engine-neutral TaskSpec factory"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/perceptive_shadowing_cfg.py": (
-        "Isaac HOI EnvCfg replaced by an engine-neutral TaskSpec factory"
-    ),
-    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py": (
-        "Isaac EnvCfg replaced by an engine-neutral TaskSpec factory"
     ),
     "source/instinctlab/instinctlab/tasks/shadowing/__init__.py": "exports engine-neutral task factories",
     "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/__init__.py": (
@@ -163,6 +146,26 @@ EDITED = {
 """Main's, with a deliberate edit. The text says which one."""
 
 REMOVED = {
+    "scripts/amass_visualize.py": "stale Isaac-only tool imported task symbols removed by the unified config",
+    "scripts/instinct_rl/cli_args.py": "the unified train/play entry points own argument parsing",
+    "scripts/instinct_rl/play.py": "replaced by scripts/play.py for both engines",
+    "scripts/instinct_rl/plotter.py": "only the removed legacy player imported it",
+    "scripts/instinct_rl/train.py": "replaced by scripts/train.py for both engines",
+    "source/instinctlab/instinctlab/tasks/shadowing/beyondmimic/config/g1/beyondmimic_plane_cfg.py": (
+        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_shadowing_cfg.py": (
+        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive/config/g1/perceptive_vae_cfg.py": (
+        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/perceptive_hoi/config/g1/perceptive_shadowing_cfg.py": (
+        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
+    ),
+    "source/instinctlab/instinctlab/tasks/shadowing/whole_body/config/g1/plane_shadowing_cfg.py": (
+        "concrete Shadowing configuration is centralized in tasks/shadowing/config.py"
+    ),
     "source/instinctlab/instinctlab/tasks/shadowing/play.py": "generic scripts/play.py serves both engines",
     "source/instinctlab/instinctlab/tasks/shadowing/cli_args.py": (
         "generic train/play argument parsing owns the unified tasks"

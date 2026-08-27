@@ -122,31 +122,27 @@ To make the `pre-commit` run automatically on every commit, you can use the foll
 pre-commit install
 ```
 
-## Train your own projects
+## Add a task
 
-***To preserve your code development and progress. PLEASE create your own repository as an individual project by referring to https://isaac-sim.github.io/IsaacLab/main/source/overview/own-project/index.html***
-
-And copy `scripts/instinct_rl` to your own repository.
-
-### Or you are just to stubborn and want to fork and directly modify the code in this repo.
-
-- Please create a new folder in the `source/instinctlab/instinctlab/tasks` directory. The name of the folder should be your project name. Inside the folder, DO add `__init__.py` in each level of the subfolders. (Many people tend to forget this step and could not find the supposely registered tasks.)
-
-- We inherit the manager based RL env from IsaacLab to add new features. DO use `instinctlab.envs:InstinctRlEnv` as the entry_point in the `gym.register` call. For example, if you want to add a new task, you can use the following code:
+Define one engine-neutral task factory under `source/instinctlab/instinctlab/tasks/`. Keep the
+concrete environment values together in that task's config file and return a `TaskSpec`. Register
+the factory path once in `tasks/registry.py`; do not add a Gym registration or an engine-specific
+entry point.
 
 ```python
-import gymnasium as gym
-from . import agents
-task_entry = "instinctlab.tasks.shadowing.perceptive.config.g1"
-gym.register(
-    id="Instinct-Perceptive-Shadowing-G1-Play-v0",
-    entry_point="instinctlab.envs:InstinctRlEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.perceptive_shadowing_cfg:G1PerceptiveShadowingEnvCfg_PLAY",
-        "instinct_rl_cfg_entry_point": f"{agents.__name__}.instinct_rl_ppo_cfg:G1PerceptiveShadowingPPORunnerCfg",
-    },
-)
+# source/instinctlab/instinctlab/tasks/my_task/config.py
+def my_task() -> TaskSpec:
+    return TaskSpec(...)
+
+# source/instinctlab/instinctlab/tasks/registry.py
+TASKS["Instinct-My-Task"] = "instinctlab.tasks.my_task.config:my_task"
+```
+
+Both engines then use the same commands:
+
+```bash
+python scripts/train.py --engine isaacsim --task Instinct-My-Task
+python scripts/train.py --engine mjlab --task Instinct-My-Task
 ```
 
 ## Troubleshooting

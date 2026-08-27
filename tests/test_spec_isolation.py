@@ -35,6 +35,16 @@ def _spec_modules() -> list[pathlib.Path]:
     return sorted(root.rglob("*.py"))
 
 
+def _imports(source: pathlib.Path) -> set[str]:
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(source.read_text())):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            imported.add(node.module)
+    return imported
+
+
 def test_spec_package_is_not_empty() -> None:
     """Otherwise the checks below would pass by having nothing to check."""
     assert len(_spec_modules()) >= 2
@@ -43,12 +53,7 @@ def test_spec_package_is_not_empty() -> None:
 @pytest.mark.parametrize("source", _spec_modules(), ids=lambda p: p.name)
 def test_no_engine_appears_in_spec_imports(source: pathlib.Path) -> None:
     """Static read of every import statement, including ones inside functions."""
-    imported: set[str] = set()
-    for node in ast.walk(ast.parse(source.read_text())):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            imported.add(node.module.split(".")[0])
+    imported = {name.split(".")[0] for name in _imports(source)}
     leaked = imported & _ENGINE_ROOTS
     assert not leaked, f"{source.name} imports {sorted(leaked)}; spec/ must compile without an engine"
 
@@ -91,8 +96,8 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
     would pass here and fail on a machine that has only mjlab -- the worst place to find out. The
     import is therefore done with both engines cut off, the same way ``instinctlab.spec`` is above.
 
-    Shadowing is part of the shared declarations too. The negative control is the legacy Isaac
-    registration loader, which must remain unreachable with engine packages blocked.
+    Shadowing is part of the shared declarations too. There is no engine-specific registration
+    fallback: every active task must pass through this same import-safe registry.
     """
 
     class _Blocker:
@@ -104,13 +109,12 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
 
     blocker = _Blocker()
     reloaded = "instinctlab.tasks.locomotion.config"
-    shadowing_decl = "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg"
-    isaac_only = "instinctlab.tasks"
+    shadowing_decl = "instinctlab.tasks.shadowing.config"
     parkour_decl = "instinctlab.tasks.parkour.config.g1"
     evicted = {
         name: module
         for name, module in sys.modules.items()
-        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith((reloaded, shadowing_decl, isaac_only, parkour_decl))
+        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith((reloaded, shadowing_decl, parkour_decl))
     }
     for name in evicted:
         del sys.modules[name]
@@ -128,11 +132,6 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
         assert parkour_agent.G1ParkourTargetPPORunnerCfg().num_steps_per_env == 24
         shadowing = importlib.import_module(shadowing_decl)
         shadowing.g1_plane_shadowing().validate()
-
-        # The other side of the boundary. Calling the explicit legacy registration loader remains Isaac-only.
-        legacy = importlib.import_module(isaac_only)
-        with pytest.raises(ImportError):
-            legacy.register_legacy_isaac_tasks()
     finally:
         sys.meta_path.remove(blocker)
         sys.modules.update(evicted)
@@ -153,14 +152,39 @@ def test_engine_machinery_is_not_empty() -> None:
 @pytest.mark.parametrize("source", _engine_machinery(), ids=lambda p: p.name)
 def test_no_engine_appears_in_the_shared_machinery(source: pathlib.Path) -> None:
     """``compile.py`` reaches an engine only through ``compat``, which imports it inside a call."""
-    imported: set[str] = set()
-    for node in ast.walk(ast.parse(source.read_text())):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            imported.add(node.module.split(".")[0])
+    imported = {name.split(".")[0] for name in _imports(source)}
     leaked = imported & _ENGINE_ROOTS
     assert not leaked, f"{source.name} imports {sorted(leaked)}; engines/ machinery must stay engine-free"
+
+
+def test_tasks_do_not_import_engine_implementations() -> None:
+    root = pathlib.Path(instinctlab.__file__).parent / "tasks"
+    violations = {
+        str(path.relative_to(root)): sorted(
+            name for name in _imports(path) if name == "instinctlab.engines" or name.startswith("instinctlab.engines.")
+        )
+        for path in root.rglob("*.py")
+    }
+    violations = {path: imports for path, imports in violations.items() if imports}
+    assert violations == {}
+
+
+def test_engine_implementations_do_not_import_tasks_or_each_other() -> None:
+    root = pathlib.Path(instinctlab.__file__).parent / "engines"
+    violations: dict[str, list[str]] = {}
+    for engine, other in (("isaacsim", "mjlab"), ("mjlab", "isaacsim")):
+        for path in (root / engine).rglob("*.py"):
+            forbidden = [
+                name
+                for name in _imports(path)
+                if name == "instinctlab.tasks"
+                or name.startswith("instinctlab.tasks.")
+                or name == f"instinctlab.engines.{other}"
+                or name.startswith(f"instinctlab.engines.{other}.")
+            ]
+            if forbidden:
+                violations[str(path.relative_to(root))] = sorted(forbidden)
+    assert violations == {}
 
 
 def _shared_layer() -> list[pathlib.Path]:

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.assets.unitree_g1.isaacsim import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import make_g1_29dof_robot_spec
 from instinctlab.tasks.locomotion.config.g1 import flat_g1
 from instinctlab.tasks.locomotion.config.g1.rough_env_cfg import rough_g1
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1

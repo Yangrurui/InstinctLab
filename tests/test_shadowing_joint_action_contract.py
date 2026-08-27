@@ -8,7 +8,7 @@ from xml.etree import ElementTree
 
 import pytest
 
-from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
+from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
 from instinctlab.checkpoint import add_task_contract, validate_checkpoint_contract
 from instinctlab.engines.shadowing_events import reset_robot_from_reference
 from instinctlab.sim.backend import CanonicalIndexMap

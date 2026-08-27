@@ -1,54 +1,57 @@
-import os
+"""Play several recent runs through the unified player."""
+
+from __future__ import annotations
+
+import argparse
 import subprocess
+import sys
 from datetime import datetime
+from pathlib import Path
 
 
-def main(args):
-    """Automatically play the last n runs of the specified task."""
-    # specify directory for logging experiments
-    expdir = os.path.join("logs", "instinct_rl", args.expdir)
-    expdir = os.path.abspath(expdir)
+def _timestamp(name: str) -> datetime:
+    return datetime.strptime("_".join(name.split("_")[:2]), "%Y%m%d_%H%M%S")
 
-    # get the last n runs
-    if args.n_runs:
-        all_runs = os.listdir(expdir)
-        all_runs.sort(key=lambda x: datetime.strptime("_".join(x.split("_")[:2]), "%Y%m%d_%H%M%S"))
-        runs_to_play = all_runs[-args.n_runs :]
-        runs_to_play = ["_".join(x.split("_")[:2]) + ".*" for x in runs_to_play]
-        print(f"No run specified, getting the latest {args.n_runs} runs")
-    else:
-        runs_to_play = args.log_runs
 
-    for run_name in runs_to_play:
-        print(f"Playing run: {run_name}")
-        # play the run
+def _runs(log_root: Path, requested: list[str], count: int) -> list[str]:
+    if count == 0:
+        return requested
+    candidates = sorted(
+        (path for path in log_root.iterdir() if path.is_dir()),
+        key=lambda path: _timestamp(path.name),
+    )
+    return [path.name for path in candidates[-count:]]
+
+
+def main(args: argparse.Namespace, extra_args: list[str]) -> None:
+    log_root = Path(args.logroot or Path("logs") / args.engine / args.experiment).resolve()
+    for run_name in _runs(log_root, args.runs, args.num_runs):
+        print(f"Playing run: {run_name}", flush=True)
         subprocess.run(
             [
-                "python",
-                "scripts/instinct_rl/play.py",
+                sys.executable,
+                "scripts/play.py",
+                "--engine",
+                args.engine,
                 "--task",
                 args.task,
+                "--logroot",
+                str(log_root),
                 "--load_run",
                 run_name,
             ]
-            + extra_args
+            + extra_args,
+            check=True,
         )
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--expdir", type=str, default="g1_shadowing")
-    parser.add_argument("--task", type=str, default="Instinct-Shadowing-Plane-PartBody-MultiReward-G1-Play-v0")
-    parser.add_argument("-n", "--n_runs", type=int, default=0, help="number of last runs to play")
-    parser.add_argument(
-        "-l",
-        "--log_runs",
-        type=str,
-        nargs="+",
-        default=[],
-    )
-
-    args, extra_args = parser.parse_known_args()
-    main(args)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--engine", required=True, choices=("isaacsim", "mjlab"))
+    parser.add_argument("--experiment", default="g1_shadowing")
+    parser.add_argument("--task", default="Instinct-Shadowing-WholeBody-Plane-G1-v0")
+    parser.add_argument("--logroot", default=None)
+    parser.add_argument("-n", "--num-runs", type=int, default=0)
+    parser.add_argument("--runs", nargs="*", default=[])
+    parsed, remaining = parser.parse_known_args()
+    main(parsed, remaining)

@@ -366,7 +366,7 @@ def test_known_drifts_table_is_non_empty_and_stable() -> None:
 
 def test_documented_drifts_are_still_present(task) -> None:
     """Each KNOWN_DRIFTS entry must remain true — the table is not a graveyard."""
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
+    from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
     from instinctlab.mdp.observations import base_lin_vel
 
     rewards = task.mdp.rewards["rewards"]
@@ -435,7 +435,7 @@ def test_dof_vel_limits_match_mains_actuator_table(task) -> None:
     plausible mechanism until these were compared and found equal, which leaves that ratio
     as noise on a term worth about -0.001.
     """
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
+    from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES
 
     term = task.mdp.rewards["rewards"]["dof_vel_limits"]
     ours = dict(zip(term.params["asset_cfg"].joints, term.params["limits"], strict=True))
@@ -450,7 +450,7 @@ def test_the_actuator_limit_reader_refuses_a_table_it_cannot_expand() -> None:
     Both ways it can go blind are made loud: a joint no actuator group claims, and a group
     that claims nothing at all (which is what a renamed joint on their side looks like).
     """
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
+    from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES
 
     with pytest.raises(LookupError, match="without a velocity limit"):
         main_ref.actuator_joint_velocity_limits([*G1_29DOF_DFS_JOINT_NAMES, "no_such_joint"])
@@ -480,7 +480,7 @@ def test_the_velocity_frame_reader_refuses_what_it_cannot_resolve() -> None:
 
 def test_main_leaves_policy_and_action_joints_in_entity_order(task) -> None:
     """Main's implicit `.*` is PhysX BFS; we name DFS. This is KNOWN_DRIFTS['obs/joint_axis']."""
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
+    from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
 
     assert G1_29DOF_DFS_JOINT_NAMES != G1_29DOF_ISAAC_BFS_JOINT_NAMES
     assert G1_29DOF_DFS_JOINT_NAMES[0] == "waist_pitch_joint"

@@ -1,8 +1,8 @@
-"""Launch mjlab's ``ViserPlayViewer``.
+"""Build and launch a Viser playback environment.
 
-That is the viewer mjlab training already uses. Both adapters call this function; an engine
-that has no MuJoCo ``Simulation`` is responsible for handing this a play env that does.
-The mesh helpers below are catalog checks, not a second viewer.
+Viser is backed by MJLab, but that implementation choice belongs to the playback layer rather
+than to either simulator adapter. An adapter can request a Viser environment without importing or
+selecting another engine. The mesh helpers below are catalog checks, not a second viewer.
 """
 
 from __future__ import annotations
@@ -15,6 +15,21 @@ from pathlib import Path
 from typing import Any, Callable
 
 from instinctlab.sim.robot_spec import RobotSpec
+
+
+def build_viser_env(spec: Any, *, num_envs: int, device: str, strict: bool) -> Any:
+    """Compile ``spec`` for the simulator used by the Viser viewer."""
+    from instinctlab.engines import adapter
+    from instinctlab.play.env import PlayEnv
+
+    viewer_engine = adapter("mjlab")
+    compiled = viewer_engine.compile(spec, num_envs=num_envs, device=device, strict=strict)
+    groups = compiled.env_cfg.observations
+    items = groups.values() if isinstance(groups, dict) else vars(groups).values()
+    for group in items:
+        if hasattr(group, "enable_corruption"):
+            group.enable_corruption = False
+    return PlayEnv(viewer_engine.wrap_for_rl(compiled.make_env()))
 
 
 def _checkpoint_step(name: str) -> int:

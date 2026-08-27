@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
+from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES, G1_29DOF_ISAAC_BFS_JOINT_NAMES
 from instinctlab.engines.motion_reference import (
     ChainInventory,
     MotionClip,

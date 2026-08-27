@@ -597,7 +597,7 @@ def test_isaac_and_mjlab_agree_on_the_motor_buses() -> None:
     stops one from being edited alone, and the result would be two engines with different lag
     correlation and no failing test.
     """
-    from instinctlab.assets.unitree_g1.isaacsim import _BEYONDMIMIC_JOINT_GROUPS, make_g1_29dof_robot_spec
+    from instinctlab.assets.unitree_g1.catalog import _BEYONDMIMIC_JOINT_GROUPS, make_g1_29dof_robot_spec
 
     robot = make_g1_29dof_robot_spec()
     isaac = {
@@ -773,7 +773,7 @@ def test_mjlab_camera_hit_semantics_match_instinctmj(task, compiled) -> None:
 
 def test_isaac_camera_hit_semantics_track_main(task) -> None:
     """Isaac keeps main's terrain + G1 link mesh targets; mjlab does not."""
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
+    from instinctlab.assets.unitree_g1.catalog import G1_29DOF_LINKS
 
     assert task.scene.ray_caster("camera").hit_bodies() == tuple(G1_29DOF_LINKS)
     assert "include_geom_groups" not in mj_ref.sensor_cfgs()["camera"]

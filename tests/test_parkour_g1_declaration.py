@@ -268,7 +268,7 @@ def test_volume_points_and_edge_cylinders_are_declared_and_required(task) -> Non
 
 def test_the_depth_camera_is_declared_and_required(task) -> None:
     """Absence of this observation silently drops the policy's exteroception."""
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
+    from instinctlab.assets.unitree_g1.catalog import G1_29DOF_LINKS
     from instinctlab.spec.capability import Requirement
 
     camera = task.scene.ray_caster("camera")

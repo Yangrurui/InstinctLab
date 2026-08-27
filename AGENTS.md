@@ -10,6 +10,17 @@ use Git history when their provenance is needed.
 
 - Every active task is a single engine-neutral `TaskSpec` registered in
   `source/instinctlab/instinctlab/tasks/registry.py`.
+- Keep dependency directions explicit. Engines must not import or depend on one
+  another. Task declarations must not import engine implementations, and engine
+  implementations must not contain task-specific policy. Connect both sides
+  through small, engine-neutral interfaces in the shared layer.
+- Keep each task's concrete configuration together in one obvious task config
+  file whenever practical. Avoid inheritance chains and repeated overrides that
+  make the final value of a parameter difficult to find.
+- Use `TaskSpec` only to describe the stable, engine-neutral task contract and
+  component selection. Do not put concrete reward weights, training settings,
+  physics values, or engine-specific parameters in `TaskSpec`; those belong in
+  the task config or the relevant engine builder.
 - `scripts/train.py` and `scripts/play.py` select `isaacsim` or `mjlab` before
   importing an engine SDK. Do not add engine branches to these shared entry
   points.
@@ -32,6 +43,13 @@ use Git history when their provenance is needed.
 ## Working rules
 
 - Preserve unrelated user changes and inspect `git status` before editing.
+- Write for algorithm engineers who may not have extensive software-engineering
+  training. Prefer direct control flow, familiar Python, descriptive names, and
+  small single-purpose functions over clever abstractions or advanced syntax.
+- Fix problems at the responsible interface or implementation. Do not use monkey
+  patches, scattered special cases, temporary branches, or task-specific checks
+  in shared code to bypass an architectural problem. Put unavoidable
+  compatibility behavior in `compat/` with its reason and scope made explicit.
 - Do not stop, restart, or signal a training process unless the user explicitly
   asks. Before starting a run, inspect `pgrep -af scripts/train.py` and
   `nvidia-smi`; never overwrite an active run's log directory.

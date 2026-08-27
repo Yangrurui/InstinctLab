@@ -111,21 +111,6 @@ def _play_native(env: Any, policy: Any) -> None:
         return
 
 
-def _mjlab_play_env(spec: Any, *, num_envs: int, device: str, strict: bool) -> Any:
-    """Compile the same task on mjlab so ``ViserPlayViewer`` has a MuJoCo ``Simulation``."""
-    from instinctlab.engines import adapter as engine_adapter
-    from instinctlab.play.env import PlayEnv
-
-    other = engine_adapter("mjlab")
-    compiled = other.compile(spec, num_envs=num_envs, device=device, strict=strict)
-    groups = compiled.env_cfg.observations
-    items = groups.values() if isinstance(groups, dict) else vars(groups).values()
-    for group in items:
-        if hasattr(group, "enable_corruption"):
-            group.enable_corruption = False
-    return PlayEnv(other.wrap_for_rl(compiled.make_env()))
-
-
 class IsaacSimCompileCtx(CompileCtx):
     """Compilation context carrying Isaac Lab's noise classes."""
 
@@ -346,9 +331,9 @@ class IsaacSimAdapter:
         if viewer == "viser":
             if spec is None:
                 raise ValueError("viser playback needs the task spec")
-            from instinctlab.play.viser import play_with_viser
+            from instinctlab.play.viser import build_viser_env, play_with_viser
 
-            play_env = _mjlab_play_env(spec, num_envs=env.num_envs, device=str(env.device), strict=strict)
+            play_env = build_viser_env(spec, num_envs=env.num_envs, device=str(env.device), strict=strict)
             print(
                 "[INFO] Isaac Sim has no Viser backend; playing this checkpoint in mjlab's ViserPlayViewer",
                 flush=True,

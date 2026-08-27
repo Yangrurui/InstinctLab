@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS, make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.catalog import G1_29DOF_LINKS, make_g1_29dof_robot_spec
 from instinctlab.engines.mjlab.assets import DELAY_RESET_ONLY_PERIOD
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import (
@@ -309,7 +309,7 @@ def test_shoe_geometry_hangs_off_a_camera_hit_body() -> None:
 def test_mjlab_camera_uses_geom_groups_not_body_mask() -> None:
     """Production mjlab camera hits geom groups (0,1,2), not the Isaac G1 link list."""
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
+    from instinctlab.assets.unitree_g1.catalog import G1_29DOF_LINKS
     from instinctlab.engines.mjlab.camera import geom_groups_camera_mask, pinhole_camera_geom_groups
 
     shoe_xml = REPO / "source/instinctlab/instinctlab/tasks/parkour/mjcf" / SHOE_MJCF

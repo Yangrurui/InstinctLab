@@ -6,8 +6,7 @@ demands Isaac Sim -- which is exactly wrong for a task that is supposed to be en
 
 So task ids live here, mapped to factories rather than to specs. A factory is imported only when
 its task is asked for, which keeps ``instinctlab.tasks.registry`` importable in a bare interpreter
-and keeps listing cheap. The Isaac-only tasks still register with Gym, in
-``register_legacy_isaac_tasks()``, which is where anything needing those ids has to ask for them.
+and keeps listing cheap. There is no second Gym registry to keep synchronized.
 """
 
 from __future__ import annotations
@@ -23,31 +22,31 @@ TASKS: dict[str, str] = {
     "Instinct-Velocity-Flat-G1": "instinctlab.tasks.locomotion.config.g1:flat_g1",
     "Instinct-Velocity-Rough-G1": "instinctlab.tasks.locomotion.config.g1:rough_g1",
     "Instinct-Parkour-Target-G1": "instinctlab.tasks.parkour.config.g1:parkour_target_g1",
-    "Instinct-Shadowing-WholeBody-Plane-G1-v0": "instinctlab.tasks.shadowing.whole_body.config.g1:g1_plane_shadowing",
+    "Instinct-Shadowing-WholeBody-Plane-G1-v0": "instinctlab.tasks.shadowing.config:g1_plane_shadowing",
     "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.whole_body.config.g1:g1_plane_shadowing_play"
+        "instinctlab.tasks.shadowing.config:g1_plane_shadowing_play"
     ),
-    "Instinct-Perceptive-Shadowing-G1-v0": "instinctlab.tasks.shadowing.perceptive.config.g1:g1_perceptive_shadowing",
+    "Instinct-Perceptive-Shadowing-G1-v0": "instinctlab.tasks.shadowing.config:g1_perceptive_shadowing",
     "Instinct-Perceptive-Shadowing-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1:g1_perceptive_shadowing_play"
+        "instinctlab.tasks.shadowing.config:g1_perceptive_shadowing_play"
     ),
     "Instinct-Perceptive-Shadowing-G1-OneMotion-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1:g1_perceptive_shadowing_one_motion"
+        "instinctlab.tasks.shadowing.config:g1_perceptive_shadowing_one_motion"
     ),
     "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1:g1_perceptive_shadowing_one_motion_play"
+        "instinctlab.tasks.shadowing.config:g1_perceptive_shadowing_one_motion_play"
     ),
-    "Instinct-Perceptive-Vae-G1-v0": "instinctlab.tasks.shadowing.perceptive.config.g1:g1_perceptive_vae",
-    "Instinct-Perceptive-Vae-G1-Play-v0": "instinctlab.tasks.shadowing.perceptive.config.g1:g1_perceptive_vae_play",
+    "Instinct-Perceptive-Vae-G1-v0": "instinctlab.tasks.shadowing.config:g1_perceptive_vae",
+    "Instinct-Perceptive-Vae-G1-Play-v0": "instinctlab.tasks.shadowing.config:g1_perceptive_vae_play",
     "Instinct-Perceptive-HOI-Shadowing-G1-v0": (
-        "instinctlab.tasks.shadowing.perceptive_hoi.config.g1:g1_perceptive_hoi_shadowing"
+        "instinctlab.tasks.shadowing.config:g1_perceptive_hoi_shadowing"
     ),
     "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.perceptive_hoi.config.g1:g1_perceptive_hoi_shadowing_play"
+        "instinctlab.tasks.shadowing.config:g1_perceptive_hoi_shadowing_play"
     ),
-    "Instinct-BeyondMimic-Plane-G1-v0": "instinctlab.tasks.shadowing.beyondmimic.config.g1:g1_beyondmimic_plane",
+    "Instinct-BeyondMimic-Plane-G1-v0": "instinctlab.tasks.shadowing.config:g1_beyondmimic_plane",
     "Instinct-BeyondMimic-Plane-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.beyondmimic.config.g1:g1_beyondmimic_plane_play"
+        "instinctlab.tasks.shadowing.config:g1_beyondmimic_plane_play"
     ),
 }
 """Task id -> dotted path of the factory returning its :class:`TaskSpec`.
