@@ -62,18 +62,22 @@ class MotionReferenceRuntime:
         self._reference_timestamp = reference_timestamp
         self.mask = mask
         self.resolved = resolved
+        self._bin_counts_host = tuple(self._num_bins(clip) for clip in clips)
+        bin_offsets = [0]
+        for count in self._bin_counts_host:
+            bin_offsets.append(bin_offsets[-1] + count)
+        self._bin_offsets_host = tuple(bin_offsets)
         self._bin_counts = torch.tensor(
-            [self._num_bins(clip) for clip in clips],
+            self._bin_counts_host,
             dtype=torch.long,
             device=buffers.timestamp.device,
         )
-        self._bin_offsets = torch.cat(
-            (
-                torch.zeros(1, dtype=torch.long, device=buffers.timestamp.device),
-                self._bin_counts.cumsum(0),
-            )
+        self._bin_offsets = torch.tensor(
+            self._bin_offsets_host,
+            dtype=torch.long,
+            device=buffers.timestamp.device,
         )
-        total_bins = int(self._bin_counts.sum())
+        total_bins = self._bin_offsets_host[-1]
         self.motion_bin_weights = torch.ones(total_bins, device=buffers.timestamp.device)
         self.motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
         self.current_motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
@@ -286,8 +290,8 @@ class MotionReferenceRuntime:
                 if not count:
                     continue
                 lo_bin, hi_bin = (
-                    int(self._bin_offsets[motion_id]),
-                    int(self._bin_offsets[motion_id + 1]),
+                    self._bin_offsets_host[motion_id],
+                    self._bin_offsets_host[motion_id + 1],
                 )
                 sampled_bins[selected] = torch.multinomial(
                     self.motion_bin_weights[lo_bin:hi_bin],
@@ -327,7 +331,7 @@ class MotionReferenceRuntime:
 
     def record_failures(self, env_ids: torch.Tensor, failed: torch.Tensor, elapsed_s: torch.Tensor) -> None:
         """Accumulate the failed endpoint bin, matching BeyondMimic's reset-time update."""
-        if self.ref.motion_bin_length_s is None or env_ids.numel() == 0 or not failed.any():
+        if self.ref.motion_bin_length_s is None or env_ids.numel() == 0:
             return
         failed_envs = env_ids[failed]
         motion_ids = self.buffers.motion_id[failed_envs]
@@ -357,11 +361,10 @@ class MotionReferenceRuntime:
         )
         kernel /= kernel.sum()
         probabilities = torch.empty_like(self.motion_bin_weights)
-        for motion_id, count_tensor in enumerate(self._bin_counts):
-            count = int(count_tensor)
+        for motion_id, count in enumerate(self._bin_counts_host):
             lo, hi = (
-                int(self._bin_offsets[motion_id]),
-                int(self._bin_offsets[motion_id + 1]),
+                self._bin_offsets_host[motion_id],
+                self._bin_offsets_host[motion_id + 1],
             )
             source = self.motion_bin_fail_counter[lo:hi] + uniform_ratio / count
             indexes = torch.arange(count, device=source.device).unsqueeze(1) + torch.arange(
@@ -373,24 +376,32 @@ class MotionReferenceRuntime:
         else:
             for motion_id in range(len(self.clips)):
                 lo, hi = (
-                    int(self._bin_offsets[motion_id]),
-                    int(self._bin_offsets[motion_id + 1]),
+                    self._bin_offsets_host[motion_id],
+                    self._bin_offsets_host[motion_id + 1],
                 )
                 probabilities[lo:hi] /= probabilities[lo:hi].sum().clamp_min(1e-10)
         self.motion_bin_weights.copy_(probabilities)
         weights = (
             probabilities
             if self.ref.sampling_strategy == "concat_motion_bins"
-            else probabilities[: self._bin_counts[0]]
+            else probabilities[: self._bin_counts_host[0]]
         )
         entropy_denominator = torch.log(torch.tensor(float(weights.numel()), device=weights.device))
-        entropy = (
-            0.0 if weights.numel() == 1 else float(-(weights * torch.log(weights + 1e-12)).sum() / entropy_denominator)
+        entropy = weights.new_zeros(()) if weights.numel() == 1 else (
+            -(weights * torch.log(weights + 1e-12)).sum() / entropy_denominator
         )
+        metrics = torch.stack(
+            (
+                entropy,
+                weights.max(),
+                weights.argmax().to(weights.dtype) / max(weights.numel(), 1),
+            )
+        )
+        sampling_entropy, sampling_top1_prob, sampling_top1_bin = metrics.detach().cpu().tolist()
         return {
-            "sampling_entropy": entropy,
-            "sampling_top1_prob": float(weights.max()),
-            "sampling_top1_bin": float(weights.argmax() / max(weights.numel(), 1)),
+            "sampling_entropy": sampling_entropy,
+            "sampling_top1_prob": sampling_top1_prob,
+            "sampling_top1_bin": sampling_top1_bin,
         }
 
     def refresh_initial(self, env_ids: torch.Tensor) -> None:

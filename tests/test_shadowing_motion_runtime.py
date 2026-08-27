@@ -180,6 +180,24 @@ def test_adaptive_sampling_records_smooths_and_reweights_failed_bins() -> None:
     assert runtime.motion_bin_weights[second_offset + 1] > runtime.motion_bin_weights[second_offset]
 
 
+def test_adaptive_sampling_avoids_implicit_tensor_scalar_conversions(monkeypatch) -> None:
+    ref = _ref("unused", motion_bin_length_s=1.0, sampling_strategy="concat_motion_bins")
+    runtime = MotionReferenceRuntime.from_clip(ref, _clip("only", 0.0), 2)
+
+    def refuse_scalar_conversion(_tensor):
+        raise AssertionError("adaptive sampling used an implicit Tensor-to-Python conversion")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(torch.Tensor, "__bool__", refuse_scalar_conversion)
+        patch.setattr(torch.Tensor, "__float__", refuse_scalar_conversion)
+        patch.setattr(torch.Tensor, "__int__", refuse_scalar_conversion)
+        runtime.record_failures(torch.arange(2), torch.tensor([False, False]), torch.zeros(2))
+        metrics = runtime.update_adaptive_weights()
+
+    assert metrics is not None
+    assert set(metrics) == {"sampling_entropy", "sampling_top1_prob", "sampling_top1_bin"}
+
+
 def test_reset_rebuilds_history_and_last_update_without_carrying_old_frames() -> None:
     ref = _ref("unused", num_frames=3, frame_interval_s=0.02, data_start_from="current_time")
     runtime = MotionReferenceRuntime.from_clip(ref, _clip("only", 0.0), 2)
