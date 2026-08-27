@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 03:04 UTC
+Updated: 2026-08-27 03:37 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current task-layout cleanup: `c3310b8`
+- Current task-style cleanup: `efeaa9d`
 - Remote: `git@github.com:Yangrurui/InstinctLab.git`
 - Remote was at `a1e86b8` before this cleanup; push the local commits before
   decommissioning this server.
@@ -28,9 +28,11 @@ task config -> engine-neutral TaskSpec
 
 Current code organization:
 
-- Shadowing follows the task layout shared by main and InstinctMJ. Each family
-  owns its `*_env_cfg.py`; G1 datasets and public factories remain in the
-  corresponding `config/g1/*_cfg.py`. There is no central family dispatcher.
+- Locomotion, Parkour, and Shadowing use named `EnvCfg`, reward, and observation
+  config classes. Each family owns its shared `*_env_cfg.py`; concrete G1
+  datasets, robots, and public factories remain in the corresponding
+  `config/g1/*_cfg.py`. There is no central family dispatcher or `make_task`
+  function.
 - `spec/` defines schemas and validation. It does not contain task values or
   import an engine SDK.
 - Task modules do not import engine implementations. Engine packages do not
@@ -72,6 +74,20 @@ Task-local Shadowing layout audit against `9eb4bc0`:
 1199 passed, 2 skipped, 30 deselected
 python scripts/check_mjlab.py constructed 16 environments and stepped 5 times
 ```
+
+Unified task-style audit at `efeaa9d`:
+
+```text
+15/15 registered TaskSpec contract hashes matched the pre-refactor baseline
+1203 passed, 2 skipped, 30 deselected
+python scripts/check_mjlab.py resolved all 39 Locomotion terms,
+constructed 16 MJLab environments, and stepped 5 times
+```
+
+Concrete task classes can now replace one reward or observation term directly;
+the registry factories only instantiate the class and convert it to `TaskSpec`.
+Parkour's shared declarations were restored to
+`tasks/parkour/config/parkour_env_cfg.py`, matching the main repository layout.
 
 The active agent configuration files did not change. The only change in
 `scripts/train.py` was removal of the obsolete `scripts/instinct_rl` path
