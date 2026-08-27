@@ -13,7 +13,6 @@ syntax tree, so these tests state what its source says.
 
 from __future__ import annotations
 
-import ast
 import sys
 from pathlib import Path
 
@@ -24,7 +23,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 import reference_mjlab as reference
 
 from instinctlab.spec.capability import Requirement
-from instinctlab.tasks.locomotion.config.g1 import FEET_CONTACT, UPPER_BODY_CONTACT, flat_g1
+from instinctlab.tasks.locomotion.config.g1 import flat_g1
+from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import (
+    FEET_CONTACT,
+    UPPER_BODY_CONTACT,
+)
 
 pytestmark = pytest.mark.skipif(not reference.available(), reason="InstinctMJ is not checked out")
 
@@ -247,8 +250,6 @@ def test_the_friction_range_is_the_collapse_the_reference_performs():
     """
     from instinctlab.engines.mjlab.scene import PROFILE_DEFAULTS
 
-    source = reference.REFERENCE.read_text()
-    module = ast.parse(source)
     material = reference.events()["physics_material"]["params"]
     expected = (
         min(material["static_friction_range"][0], material["dynamic_friction_range"][0]),

@@ -2,7 +2,6 @@ import os
 
 from instinctlab.utils.configclass import configclass
 from instinctlab.utils.wrappers.instinct_rl import (
-    InstinctRlActorCriticCfg,
     InstinctRlConv2dHeadCfg,
     InstinctRlEncoderActorCriticCfg,
     InstinctRlNormalizerCfg,

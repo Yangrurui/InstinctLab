@@ -112,20 +112,22 @@ def test_shadowing_isaac_merges_fixed_joints_like_effective_main() -> None:
 
 def test_shadowing_mjlab_budgets_match_reference_or_validated_safe_configs() -> None:
     expected = {
-        "whole_body": (None, 1200, None, 500, None),
-        # InstinctMJ's smaller fixed caps became numerically unstable in the
-        # 4096-environment production run; retain the previously stable auto-capacity profile.
-        "perceptive": (None, 1200, None, 500, None),
-        "perceptive_vae": (128, 512, 128, 128, "sparse"),
-        "perceptive_hoi": (256, 700, 256, 128, "sparse"),
-        "beyondmimic": (100, 350, 100, 80, None),
+        "Instinct-Shadowing-WholeBody-Plane-G1-v0": (None, 1200, None, 500, None),
+        "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": (None, 1200, None, 500, None),
+        "Instinct-Perceptive-Shadowing-G1-v0": (None, 1200, None, 500, None),
+        "Instinct-Perceptive-Shadowing-G1-Play-v0": (None, 1200, None, 500, None),
+        "Instinct-Perceptive-Shadowing-G1-OneMotion-v0": (None, 1200, None, 500, None),
+        "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": (None, 1200, None, 500, None),
+        "Instinct-Perceptive-Vae-G1-v0": (128, 512, 128, 128, "sparse"),
+        "Instinct-Perceptive-Vae-G1-Play-v0": (128, 512, 128, 128, "sparse"),
+        "Instinct-Perceptive-HOI-Shadowing-G1-v0": (256, 700, 256, 128, "sparse"),
+        "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": (256, 700, 256, 128, "sparse"),
+        "Instinct-BeyondMimic-Plane-G1-v0": (100, 350, 100, 80, None),
+        "Instinct-BeyondMimic-Plane-G1-Play-v0": (None, None, 500, 80, None),
     }
     for task_id in sorted(SHADOW_IDS):
         task = registry.spec(task_id)
-        family = task.engine_extras["mjlab"]["shadowing_family"]
-        nconmax, njmax, maxmatch, ccd, jacobian = expected[family]
-        if family == "beyondmimic" and task.engine_extras["mjlab"]["play"]:
-            nconmax, njmax, maxmatch = None, None, 500
+        nconmax, njmax, maxmatch, ccd, jacobian = expected[task_id]
         profile = task.sim.profiles["mjlab"]
         assert profile["nconmax"] == nconmax
         assert profile["njmax"] == njmax
@@ -163,8 +165,6 @@ def test_play_specs_are_explicit_contracts_not_gym_aliases() -> None:
     for task_id in sorted(SHADOW_IDS):
         task = registry.spec(task_id)
         play = "-Play-v0" in task_id
-        assert task.engine_extras["isaacsim"]["play"] is play
-        assert task.engine_extras["mjlab"]["play"] is play
         assert task.scene.env_spacing == (2.5 if play else 4.0)
         assert ("beyond_adaptive_sampling" in task.mdp.curriculum) is not play
 

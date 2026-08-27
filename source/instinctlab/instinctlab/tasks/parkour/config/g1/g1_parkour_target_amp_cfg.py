@@ -7,13 +7,6 @@ from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, SymmetricAugmentationSpec, TaskSpec
 from instinctlab.tasks.parkour.config.parkour_env_cfg import (
     AMP_HISTORY,
-    DEPTH_CAMERA,
-    FEET_CONTACT,
-    LEFT_HEIGHT_SCANNER,
-    LEG_VOLUME_POINTS,
-    RIGHT_HEIGHT_SCANNER,
-    TORSO_CONTACT,
-    UNDESIRED_CONTACT,
     ParkourEnvCfg,
 )
 
@@ -84,15 +77,6 @@ def parkour_target_g1() -> TaskSpec:
 
 
 __all__ = [
-    "DEPTH_CAMERA",
-    "FEET_CONTACT",
-    "LEFT_HEIGHT_SCANNER",
-    "LEG_VOLUME_POINTS",
-    "PARKOUR_MOTION_CLIP",
-    "PARKOUR_MOTION_LINKS",
-    "RIGHT_HEIGHT_SCANNER",
-    "TORSO_CONTACT",
-    "UNDESIRED_CONTACT",
     "G1ParkourEnvCfg",
     "parkour_target_g1",
 ]

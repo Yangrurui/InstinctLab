@@ -640,8 +640,6 @@ class PerceptiveShadowingEnvCfg:
         self.events = make_events(play)
         self.curriculum = make_curriculum(play)
         self.terminations = make_terminations(motion_reference, vae)
-        self.play = play
-        self.vae = vae
         self.agent_overrides: dict[str, object] = {}
 
     def to_task_spec(self, task_id: str, runner: str) -> TaskSpec:
@@ -661,18 +659,6 @@ class PerceptiveShadowingEnvCfg:
             ),
             agent=AgentSpec(runner=runner, overrides=self.agent_overrides),
             engines=("isaacsim", "mjlab"),
-            engine_extras={
-                "isaacsim": {
-                    "shadowing_family": "perceptive_vae" if self.vae else "perceptive",
-                    "play": self.play,
-                    "reference_num_envs": 4096 if self.vae else 1024,
-                },
-                "mjlab": {
-                    "shadowing_family": "perceptive_vae" if self.vae else "perceptive",
-                    "play": self.play,
-                    "reference_num_envs": 4096 if self.vae else 1024,
-                },
-            },
         )
 
 

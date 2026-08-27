@@ -475,7 +475,6 @@ class ShadowingEnvCfg:
         self.events = make_events(play)
         self.curriculum = make_curriculum(play)
         self.terminations = make_terminations(motion_reference)
-        self.play = play
 
     def to_task_spec(
         self,
@@ -498,18 +497,6 @@ class ShadowingEnvCfg:
             ),
             agent=AgentSpec(runner=runner),
             engines=("isaacsim", "mjlab"),
-            engine_extras={
-                "isaacsim": {
-                    "shadowing_family": "whole_body",
-                    "play": self.play,
-                    "reference_num_envs": 4096,
-                },
-                "mjlab": {
-                    "shadowing_family": "whole_body",
-                    "play": self.play,
-                    "reference_num_envs": 2048,
-                },
-            },
         )
 
 

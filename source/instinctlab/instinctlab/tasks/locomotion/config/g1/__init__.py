@@ -6,14 +6,7 @@ env config. Those Gym ids are gone: the tasks are compiled from :func:`flat_g1` 
 running either engine can import it -- which is also why it does not import ``agents``.
 """
 
-from .flat_env_cfg import FEET_CONTACT, UPPER_BODY_CONTACT, G1FlatEnvCfg, flat_g1
-from .rough_env_cfg import G1RoughEnvCfg, rough_g1
+from .flat_env_cfg import flat_g1
+from .rough_env_cfg import rough_g1
 
-__all__ = [
-    "FEET_CONTACT",
-    "UPPER_BODY_CONTACT",
-    "G1FlatEnvCfg",
-    "G1RoughEnvCfg",
-    "flat_g1",
-    "rough_g1",
-]
+__all__ = ["flat_g1", "rough_g1"]

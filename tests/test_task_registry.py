@@ -21,6 +21,11 @@ def test_every_registered_factory_returns_its_own_task_id() -> None:
         assert registry.spec(task_id).task_id == task_id
 
 
+def test_registered_tasks_do_not_use_engine_extras() -> None:
+    for task_id in registry.ids():
+        assert not registry.spec(task_id).engine_extras
+
+
 def test_shadowing_tasks_use_the_reference_file_layout() -> None:
     shadowing_root = TASK_ROOT / "shadowing"
     assert not (shadowing_root / "config.py").exists()

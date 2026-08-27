@@ -841,7 +841,7 @@ def assert_volume_points_shape(env) -> None:
     assert tuple(offset.shape) == (env.num_envs, 2, VOLUME_POINTS_PER_BODY, 3), tuple(offset.shape)
     pattern = getattr(sensor, "_volume_points_pattern", None)
     if pattern is not None:
-        from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import LEG_VOLUME_POINTS
+        from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
 
         declared = list(LEG_VOLUME_POINTS.grid.points())
         assert pattern.shape[0] == VOLUME_POINTS_PER_BODY
@@ -985,7 +985,7 @@ def _left_foot_points_fk(env, robot, *, device: str):
     import torch
 
     from instinctlab.compat.math import quat_apply
-    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import LEG_VOLUME_POINTS
+    from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
 
     bodies = list(robot.body_names)
     left = bodies.index("left_ankle_roll_link")
@@ -1010,7 +1010,7 @@ def assert_terrain_generated_cylinder_penetration(env, *, device: str) -> dict[s
     import instinctlab.mdp as mdp
     from instinctlab.compat.sensors import volume_points_penetration_offset, volume_points_vel_w
     from instinctlab.engines.volume_points import penetration_reward
-    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import LEG_VOLUME_POINTS
+    from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
 
     obstacle = env.scene.terrain.virtual_obstacles["edges"]
     edges = obstacle.edges_pyt
@@ -1141,7 +1141,7 @@ def assert_known_volume_penetration(env, *, device: str) -> dict[str, float]:
     import instinctlab.mdp as mdp
     from instinctlab.compat.sensors import volume_points_penetration_offset, volume_points_vel_w
     from instinctlab.engines.volume_points import penetration_reward
-    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import LEG_VOLUME_POINTS
+    from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
 
     robot, _env_ids = _pose_robot_standing(env, device=device, vel_x=VOLUME_KNOWN_SPEED)
     expected_points = _left_foot_points_fk(env, robot, device=device)

@@ -612,7 +612,6 @@ class PerceptiveHoiShadowingEnvCfg:
         self.events = make_events(play)
         self.curriculum = make_curriculum(play)
         self.terminations = make_terminations(motion_reference)
-        self.play = play
 
     def to_task_spec(self, task_id: str, runner: str) -> TaskSpec:
         return TaskSpec(
@@ -631,18 +630,6 @@ class PerceptiveHoiShadowingEnvCfg:
             ),
             agent=AgentSpec(runner=runner),
             engines=("isaacsim", "mjlab"),
-            engine_extras={
-                "isaacsim": {
-                    "shadowing_family": "perceptive_hoi",
-                    "play": self.play,
-                    "reference_num_envs": 4096,
-                },
-                "mjlab": {
-                    "shadowing_family": "perceptive_hoi",
-                    "play": self.play,
-                    "reference_num_envs": 4096,
-                },
-            },
         )
 
 

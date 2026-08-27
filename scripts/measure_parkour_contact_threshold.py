@@ -59,7 +59,10 @@ def main() -> int:
 
     from instinctlab.compat import sensors as compat_sensors
     from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
-    from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import TORSO_CONTACT, UNDESIRED_CONTACT
+    from instinctlab.tasks.parkour.config.parkour_env_cfg import (
+        TORSO_CONTACT,
+        UNDESIRED_CONTACT,
+    )
 
     if args.engine == "isaacsim":
         from instinctlab.engines.isaacsim import IsaacSimAdapter as Adapter
