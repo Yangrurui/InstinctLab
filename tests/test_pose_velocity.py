@@ -285,16 +285,16 @@ def test_mjlab_curriculum_columns_follow_proportion() -> None:
     assert column_sub_terrain_names(terrain) == ["a", "a", "b", "b"]
 
 
-def test_mjlab_parkour_curriculum_table_is_one_column_per_type() -> None:
+def test_mjlab_parkour_curriculum_table_uses_shared_proportion_columns() -> None:
     from instinctlab.engines.mjlab.pose_velocity import column_sub_terrain_names
     from tests.parkour_live_expect import MJLAB_CURRICULUM_COLUMNS, PARKOUR_DECLARED_PROPORTIONS
 
     terrain = SimpleNamespace(
-        flat_patches={"target": torch.zeros(10, 10, 50, 3)},
+        flat_patches={"target": torch.zeros(10, 20, 50, 3)},
         cfg=SimpleNamespace(
             terrain_generator=SimpleNamespace(
                 curriculum=True,
-                num_cols=10,
+                num_cols=20,
                 sub_terrains={name: SimpleNamespace(proportion=value) for name, value in PARKOUR_DECLARED_PROPORTIONS},
             )
         ),

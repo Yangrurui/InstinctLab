@@ -21,25 +21,34 @@ PARKOUR_DECLARED_PROPORTIONS: tuple[tuple[str, float], ...] = (
     ("pyramid_stairs_inv", 0.15),
     ("pyramid_stairs_inv_high", 0.10),
     ("boxes", 0.10),
-    ("dense_boxes", 0.10),
+    ("mesh_boxes", 0.10),
     ("hf_pyramid_slope_inv", 0.10),
 )
 ISAAC_NINTH_NAME = "mesh_boxes"
-MJLAB_NINTH_NAME = "dense_boxes"
+MJLAB_NINTH_NAME = "mesh_boxes"
 
-# InstinctMJ builds one column per declared type. Isaac uses 20 columns and its
-# cumulative-proportion formula (j / 20 + 0.001). The ninth type is
-# ``dense_boxes`` on MJLab and ``mesh_boxes`` on Isaac.
+# Both bridges use 20 columns and Isaac's cumulative-proportion formula
+# (j / 20 + 0.001) over the same named tile list.
 MJLAB_CURRICULUM_COLUMNS: tuple[str, ...] = (
     "perlin_rough",
     "perlin_rough_stand",
     "square_gaps",
+    "square_gaps",
+    "pyramid_stairs",
+    "pyramid_stairs",
     "pyramid_stairs",
     "pyramid_stairs_high",
+    "pyramid_stairs_high",
+    "pyramid_stairs_inv",
+    "pyramid_stairs_inv",
     "pyramid_stairs_inv",
     "pyramid_stairs_inv_high",
+    "pyramid_stairs_inv_high",
     "boxes",
-    "dense_boxes",
+    "boxes",
+    "mesh_boxes",
+    "mesh_boxes",
+    "hf_pyramid_slope_inv",
     "hf_pyramid_slope_inv",
 )
 
@@ -117,8 +126,8 @@ def assert_parkour_live_invariants(env, spec, compiled, *, expected_columns: tup
     assert names == list(expected_columns), names
 
 
-def parkour_declared_shares(*, ninth_name: str) -> dict[str, float]:
-    """Declared type shares with the engine's name for the ninth tile.
+def parkour_declared_shares(*, ninth_name: str = "mesh_boxes") -> dict[str, float]:
+    """Declared type shares; ``ninth_name`` remains for historical probe fixtures.
 
     Order is the declaration order. The formula assigns columns from that
     order; moving the ninth name to the end of a dict would reallocate later

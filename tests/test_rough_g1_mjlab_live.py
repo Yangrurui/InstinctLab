@@ -31,6 +31,7 @@ def test_mjlab_rough_constructs_the_filed_generator_and_steps() -> None:
 
     compiled = MjlabAdapter().compile(rough_g1(), num_envs=4, device=resolve_live_device())
     generator = compiled.env_cfg.scene.terrain.terrain_generator
+    assert generator.horizontal_scale == 0.05
     names = list(generator.sub_terrains)
     generator.sub_terrains = {name: generator.sub_terrains[name] for name in names[:2]}
     generator.num_rows = 2
@@ -42,6 +43,13 @@ def test_mjlab_rough_constructs_the_filed_generator_and_steps() -> None:
         assert type(terrain) is TerrainImporter
         assert getattr(terrain, "_hacked_terrain_type", None) == "hacked_generator"
         assert type(terrain.terrain_generator) is FiledTerrainGenerator
+        assert terrain.terrain_generator.cfg.horizontal_scale == 0.05
+        hfield_scales = {
+            tile.horizontal_scale
+            for tile in terrain.terrain_generator.cfg.sub_terrains.values()
+            if hasattr(tile, "horizontal_scale")
+        }
+        assert hfield_scales == {0.05}
         env.reset()
         actions = torch.zeros((env.num_envs, env.action_manager.total_action_dim), device=env.device)
         for _ in range(5):

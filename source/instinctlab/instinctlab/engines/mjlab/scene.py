@@ -101,6 +101,9 @@ def _generator(spec: TerrainGeneratorSpec) -> Any:
         border_width=spec.border_width,
         num_rows=spec.num_rows,
         num_cols=spec.num_cols,
+        horizontal_scale=spec.horizontal_scale,
+        vertical_scale=spec.vertical_scale,
+        slope_threshold=spec.slope_threshold,
         add_lights=True,
         sub_terrains={
             name: _sub_terrain(tile.kind, tile.proportion, tile.params, spec)
@@ -134,8 +137,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     if spec.kind == "rough":
         from .rough import rough_importer_cfg
 
-        num_cols = int(profile.get("num_cols", 20))
-        return _attach_virtual_obstacles(rough_importer_cfg(spec, num_cols=num_cols), spec)
+        return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
     if spec.kind == "shadow_motion_matched":
         import os
         from dataclasses import dataclass
@@ -193,10 +195,12 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
 
 
 def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
-    """Parkour's edge cylinders. Terrain constants stay in rough.py.
+    """Parkour's edge cylinders.
 
-    The generated set will not match Isaac's — that divergence is recorded
-    next to the stairs 6-vs-5 in :mod:`instinctlab.engines.mjlab.rough`.
+    The ground recipe is shared, but the native edge extraction still differs:
+    MJLab repairs a height-field surface and merges short collinear gaps while
+    Isaac reads the generated mesh. The penetration penalty is therefore not
+    comparable as a cross-engine parity signal.
     """
     if not spec.virtual_obstacles:
         return cfg

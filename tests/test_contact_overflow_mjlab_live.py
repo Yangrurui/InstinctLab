@@ -91,16 +91,16 @@ def test_step_phase_reads_a_real_overflow_bit_after_physics() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="stepping mjlab needs a GPU")
-def test_parkour_shipped_budget_stays_clean_over_150_zero_action_steps() -> None:
-    """Exercise InstinctMJ's shipped parkour budget for 150 zero-action steps."""
+def test_parkour_shared_terrain_budget_stays_clean_over_150_zero_action_steps() -> None:
+    """Exercise the unified 0.05 terrain budget for 150 zero-action steps."""
     from instinctlab.engines.mjlab import MjlabAdapter
     from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
     from instinctlab.utils.contact_overflow import contact_budget_snapshot, overflow_bits_set
 
     device = resolve_live_device()
     compiled = MjlabAdapter().compile(parkour_target_g1(), num_envs=16, device=device)
-    assert compiled.env_cfg.sim.nconmax == 128
-    assert compiled.env_cfg.sim.njmax == 700
+    assert compiled.env_cfg.sim.nconmax == 512
+    assert compiled.env_cfg.sim.njmax == 1536
     env = compiled.make_env()
     try:
         construction = contact_budget_snapshot(env)

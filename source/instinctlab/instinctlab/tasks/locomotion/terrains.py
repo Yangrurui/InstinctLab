@@ -1,23 +1,7 @@
-"""Engine-free terrain intent shared by the locomotion tasks.
-
-``rough`` is a name, not a recipe. Isaac Sim fills it from main's parkour grid; mjlab fills it
-from InstinctMJ's. The two already disagree on scale and on which extra tile they carry, so the
-numbers do not live here.
-"""
+"""Compatibility import for locomotion terrain declarations."""
 
 from __future__ import annotations
 
-from instinctlab.spec import TerrainSpec
+from instinctlab.tasks.terrain import rough_terrain
 
 __all__ = ["rough_terrain"]
-
-
-def rough_terrain() -> TerrainSpec:
-    """Reference rough ground for ``Instinct-Velocity-Rough-G1``.
-
-    The declaration stops at the kind. Each adapter's default *is* that engine's reference.
-    Both now honor ``num_cols=20`` (160 m world). Tile recipes and the per-cell
-    difficulty formula still differ: mjlab duplicates of one type at one row are
-    identical, Isaac jitters them.
-    """
-    return TerrainSpec(kind="rough")

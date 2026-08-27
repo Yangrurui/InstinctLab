@@ -142,12 +142,8 @@ class MjlabAdapter:
         return TERMS.capabilities()
 
     def profile(self, spec: TaskSpec) -> dict[str, Any]:
-        import os
-
         merged = dict(PROFILE_DEFAULTS)
         merged.update(spec.sim.profiles.get(self.name, {}))
-        if cols := os.environ.get("INSTINCTLAB_MJLAB_NUM_COLS"):
-            merged["num_cols"] = int(cols)
         return merged
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
@@ -198,11 +194,11 @@ class MjlabAdapter:
         elif spec.scene.terrain.kind == "rough":
             # Per-world allocations, multiplied by the environment count.
             # ``d.nacon`` is one global counter; per-world is nacon/nworld.
-            # InstinctMJ parkour writes nconmax=128 / njmax=700; rough locomotion
-            # without task overrides uses 256 / 768 (measured headroom at 256 envs).
-            # Tasks that need the reference caps declare them in ``sim.profiles["mjlab"]``.
-            sim_kwargs["nconmax"] = mj_overrides.get("nconmax", 256)
-            sim_kwargs["njmax"] = mj_overrides.get("njmax", 768)
+            # The shared 0.05 / mesh-box recipe has 271 host contacts at rest;
+            # 512 / 1536 leaves construction and step headroom without putting
+            # a MuJoCo capacity into the engine-neutral terrain declaration.
+            sim_kwargs["nconmax"] = mj_overrides.get("nconmax", 512)
+            sim_kwargs["njmax"] = mj_overrides.get("njmax", 1536)
             sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get("contact_sensor_maxmatch", 128)
         else:
             sim_kwargs["njmax"] = mj_overrides.get("njmax", profile["njmax"])

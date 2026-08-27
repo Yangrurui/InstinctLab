@@ -410,10 +410,11 @@ def test_a_generator_must_carry_a_recipe():
         TerrainSpec(kind="generator")
 
 
-def test_a_reference_rough_cannot_carry_a_recipe():
+def test_a_rough_terrain_must_carry_a_recipe():
     generator = TerrainGeneratorSpec(sub_terrains={"flat": SubTerrainSpec(kind="random_rough")})
-    with pytest.raises(ValueError, match="cannot carry a generator"):
-        TerrainSpec(kind="rough", generator=generator)
+    assert TerrainSpec(kind="rough", generator=generator).generator is generator
+    with pytest.raises(ValueError, match="needs a TerrainGeneratorSpec"):
+        TerrainSpec(kind="rough")
 
 
 def test_a_generator_with_no_tiles_is_rejected():

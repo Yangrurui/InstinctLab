@@ -247,7 +247,7 @@ def test_observation_order_noise_and_scale_match(task) -> None:
                 assert ours == scale, f"{group}.{name}"
 
 
-def test_command_velocity_boxes_match_including_dense_boxes(task) -> None:
+def test_command_velocity_boxes_keep_reference_values_under_the_shared_mesh_box_name(task) -> None:
     reference = mj_ref.command_params()
     resolved = task.mdp.commands["base_velocity"].resolved_params("mjlab")
     assert resolved["resampling_time_range"] == reference["resampling_time_range"]
@@ -258,9 +258,9 @@ def test_command_velocity_boxes_match_including_dense_boxes(task) -> None:
     assert resolved["lin_vel_threshold"] == 0.0
     assert resolved["ang_vel_threshold"] == 0.0
     assert resolved["target_dis_threshold"] == 0.4
-    assert set(resolved["velocity_ranges"]) == set(reference["velocity_ranges"])
-    for name, box in reference["velocity_ranges"].items():
-        assert resolved["velocity_ranges"][name] == box, name
+    expected = dict(reference["velocity_ranges"])
+    expected["mesh_boxes"] = expected.pop("dense_boxes")
+    assert resolved["velocity_ranges"] == expected
 
 
 def test_sim_timings_match_and_solver_diffs_are_the_documented_ones(task, compiled) -> None:
@@ -268,11 +268,13 @@ def test_sim_timings_match_and_solver_diffs_are_the_documented_ones(task, compil
     assert task.sim.physics_dt == 0.005
     assert task.sim.decimation == 4
     assert task.sim.episode_length_s == overrides["episode_length_s"] == 20.0
-    assert compiled.env_cfg.sim.njmax == overrides["njmax"] == 700
+    assert overrides["njmax"] == 700
+    assert compiled.env_cfg.sim.njmax == 1536
     assert compiled.env_cfg.sim.contact_sensor_maxmatch == overrides["contact_sensor_maxmatch"] == 128
     assert compiled.env_cfg.sim.mujoco.iterations == overrides["iterations"] == 10
     assert compiled.env_cfg.sim.mujoco.ls_iterations == overrides["ls_iterations"] == 20
-    assert compiled.env_cfg.sim.nconmax == overrides["nconmax"] == mj_ref.NCONMAX
+    assert overrides["nconmax"] == mj_ref.NCONMAX == 128
+    assert compiled.env_cfg.sim.nconmax == 512
     assert compiled.env_cfg.sim.mujoco.ccd_iterations == overrides["ccd_iterations"] == mj_ref.CCD_ITERATIONS
     assert overrides["init_pos"][2] == mj_ref.SPAWN_Z
 
@@ -343,35 +345,25 @@ def test_compiled_action_scale_matches_beyondmimic_formula(task, compiled) -> No
     assert hip == pytest.approx(0.25 * 88.0 / task.robot.joint_properties[3].stiffness)
 
 
-def test_terrain_recipe_constants_match_instinctmj(compiled) -> None:
-    """Read from their file, not transcribed from it.
-
-    This asserted hand-copied literals until 2026-08-20, which meant a change on the InstinctMJ
-    side could not fail it: the test would keep agreeing with a number nobody had rechecked while
-    its name went on claiming a match.
-    """
+def test_mjlab_compiles_the_shared_isaac_aligned_terrain_recipe(task, compiled) -> None:
+    """MJLab now intentionally differs from InstinctMJ at the shared terrain bridge."""
     theirs = mj_ref.terrain_recipe()
     gen = compiled.env_cfg.scene.terrain.terrain_generator
 
-    assert gen.horizontal_scale == theirs["horizontal_scale"] == 0.07
+    declared = task.scene.terrain.generator
+    assert declared is not None
+    assert theirs["horizontal_scale"] == 0.07
+    assert gen.horizontal_scale == declared.horizontal_scale == 0.05
     assert theirs["num_cols"] == 20
-    assert gen.num_cols == len(theirs["sub_terrains"]) == 10
-    assert gen.num_rows == theirs["num_rows"] == 10
-    assert gen.curriculum is theirs["curriculum"] is True
-    assert tuple(gen.size) == tuple(theirs["size"])
-    assert gen.border_width == theirs["border_width"]
-    assert gen.vertical_scale == theirs["vertical_scale"]
-
-    # Every sub-terrain they declare must exist here, with the same proportion -- the column
-    # allocation is derived from those, so a silent change reshuffles which terrain a velocity
-    # box lands on.
-    assert set(gen.sub_terrains) == set(theirs["sub_terrains"])
-    for name, params in theirs["sub_terrains"].items():
-        ours = gen.sub_terrains[name]
-        assert ours.proportion == params["proportion"], name
-        for field in ("step_width", "border_width", "platform_width", "step_height_range"):
-            if field in params:
-                assert getattr(ours, field) == params[field], f"{name}.{field}"
+    assert gen.num_cols == declared.num_cols == 20
+    assert gen.num_rows == declared.num_rows == 10
+    assert gen.curriculum is declared.curriculum is True
+    assert tuple(gen.size) == declared.size
+    assert gen.border_width == declared.border_width
+    assert gen.vertical_scale == declared.vertical_scale
+    assert tuple(gen.sub_terrains) == tuple(declared.sub_terrains)
+    assert "mesh_boxes" in gen.sub_terrains
+    assert "dense_boxes" not in gen.sub_terrains
 
 
 def test_the_terrain_reader_would_notice_a_change_on_their_side() -> None:
@@ -829,10 +821,10 @@ def test_deliberate_rows_are_still_present(task, compiled) -> None:
     # sensor, which is why this is a code drift rather than a config one.
     assert "velocity" not in theirs_sensors["leg_volume_points"]
 
-    # Both effective generators build one column per sub-terrain type. Their declaration still
-    # says 20, but upstream curriculum ignores it; our mjlab profile requests the effective 10.
+    # InstinctMJ still builds one column per type. Our shared bridge honors the declared 20,
+    # so the effective grids intentionally differ at this audited boundary.
     assert theirs_terrain["num_cols"] == 20
-    assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == 10
+    assert compiled.env_cfg.scene.terrain.terrain_generator.num_cols == 20
     column_maps = mj_ref.terrain_column_maps()
     assert column_maps["declared_num_cols"] == 20
     assert column_maps["instinctmj_built_num_cols"] == len(column_maps["sub_terrain_names"])

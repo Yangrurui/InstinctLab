@@ -1,10 +1,9 @@
 """Per-terrain episode stats, opt-in from the training entry.
 
-The parkour mix is not one task on both engines. Stairs geometry and the
-virtual-obstacle sets diverge on purpose; an aggregate episode-length curve
-therefore mixes comparable and non-comparable ground. This wrapper logs
-length and reward per sub-terrain name so a comparison can sit on the
-aligned subset.
+Both engines now lower the same declared rough-terrain recipe. Native terrain
+generation and physics still differ, so the per-type curves remain useful for
+diagnosing engine behavior; ``aligned`` here means that the declared tile and
+parameters are shared, not that the resulting meshes or returns must match.
 
 Attach only when asked: the per-step cost is the Python bookkeeping over
 named types (measured ~2.7 ms / ~9% of a wrapped step at 16 envs), not the
@@ -20,25 +19,15 @@ from collections.abc import Sequence
 from typing import Any
 
 from instinctlab.engines.pose_velocity import column_sub_terrain_names
+from instinctlab.tasks.terrain import rough_terrain
 
-# Stairs step-count and the tenth slot (dense_boxes vs mesh_boxes) are the
-# documented geometry mismatches. Everything else is the comparison set.
-# ``volume_points_penetration`` is excluded at the term level, not here.
-ALIGNED_TERRAINS = (
-    "perlin_rough",
-    "perlin_rough_stand",
-    "square_gaps",
-    "pyramid_stairs_high",
-    "pyramid_stairs_inv_high",
-    "boxes",
-    "hf_pyramid_slope_inv",
-)
-EXCLUDED_TERRAINS = (
-    "pyramid_stairs",
-    "pyramid_stairs_inv",
-    "dense_boxes",
-    "mesh_boxes",
-)
+_ROUGH_GENERATOR = rough_terrain().generator
+assert _ROUGH_GENERATOR is not None
+ALIGNED_TERRAINS = tuple(_ROUGH_GENERATOR.sub_terrains)
+# Retained for log-schema compatibility. There are no longer task-level terrain
+# exclusions; term-level differences such as virtual-obstacle extraction are
+# audited separately.
+EXCLUDED_TERRAINS: tuple[str, ...] = ()
 
 
 def attach_terrain_split(env: Any) -> Any:
@@ -54,7 +43,7 @@ def attach_terrain_split(env: Any) -> Any:
     print(
         "[INFO] Per-terrain episode logging on "
         f"{len(set(n for n in column_names if n))} named types; "
-        f"parity signal uses {list(ALIGNED_TERRAINS)}"
+        f"shared recipe uses {list(ALIGNED_TERRAINS)}"
     )
     return TerrainSplitVecEnv(env, column_names, types)
 

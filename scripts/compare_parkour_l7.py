@@ -1,8 +1,8 @@
 """Parse the two Instinct-Parkour-Target-G1 TensorBoard runs and print an L7 report.
 
-Parity sits on ``Episode_Terrain/aligned_*`` (the documented-aligned sub-terrains),
-not on the aggregate episode-length curve. ``volume_points_penetration`` is printed
-but not used as a parity signal.
+Terrain breakdowns follow the shared task recipe. Native generation and physics
+may still produce different curves; ``volume_points_penetration`` is printed but
+not used as a parity signal.
 """
 
 from __future__ import annotations
@@ -15,17 +15,10 @@ from collections import defaultdict
 from pathlib import Path
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+from instinctlab.utils.terrain_split_log import ALIGNED_TERRAINS, EXCLUDED_TERRAINS
 
-ALIGNED = (
-    "perlin_rough",
-    "perlin_rough_stand",
-    "square_gaps",
-    "pyramid_stairs_high",
-    "pyramid_stairs_inv_high",
-    "boxes",
-    "hf_pyramid_slope_inv",
-)
-EXCLUDED = ("pyramid_stairs", "pyramid_stairs_inv", "dense_boxes", "mesh_boxes")
+ALIGNED = ALIGNED_TERRAINS
+EXCLUDED = EXCLUDED_TERRAINS
 SKIP_TERMS = {"volume_points_penetration"}
 
 

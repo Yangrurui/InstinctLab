@@ -572,6 +572,11 @@ class TerrainImporter(TerrainImporterBase):
             hfield_name = geom.hfieldname
             if not isinstance(hfield_name, str) or hfield_name == "":
                 continue
+            if generator is not None and hasattr(generator, "get_hfield_cfg"):
+                mapped_cfg = generator.get_hfield_cfg(hfield_name)
+                if mapped_cfg is not None:
+                    yield geom, mapped_cfg
+                    continue
             subterrain_cfg = cells[hfield_geom_index] if hfield_geom_index < len(cells) else None
             hfield_geom_index += 1
             yield geom, subterrain_cfg

@@ -5,11 +5,9 @@ environment is assembled: robot and scene, commands, observations, actions,
 rewards, curriculum, terminations, and events. Engine adapters only lower these
 declarations; task policy does not live in an adapter.
 
-The declaration keeps the two established reference choices explicit:
-
-* MJLab follows InstinctMJ's effective ten-column terrain and ankle-origin
-  height scanners. It additionally uses the shared joint-speed safety penalty.
-* Isaac retains the main task's sky-origin scanners.
+The terrain recipe is shared and follows main on both engines: 0.05 m height-
+field resolution, 20 proportion-allocated columns, and the same named tiles.
+Native sensor and solver behavior remains in the corresponding engine bridge.
 
 Both engines share the same motion-reference exhaustion behavior: resample the
 reference silently and continue the robot episode.
@@ -43,11 +41,11 @@ from instinctlab.spec import (
     SceneSpec,
     SimSpec,
     TaskSpec,
-    TerrainSpec,
     VirtualObstacleRef,
     VolumePointsRef,
 )
 from instinctlab.spec.capability import Requirement
+from instinctlab.tasks.terrain import rough_terrain
 
 # -----------------------------------------------------------------------------
 # Assets and shared names
@@ -150,7 +148,7 @@ LEG_VOLUME_POINTS = VolumePointsRef(
 
 def _scene(motion_reference: MotionReferenceRef) -> SceneSpec:
     return SceneSpec(
-        terrain=TerrainSpec(kind="rough", virtual_obstacles=(PARKOUR_EDGE_CYLINDERS,)),
+        terrain=rough_terrain(virtual_obstacles=(PARKOUR_EDGE_CYLINDERS,)),
         contact_sensors=(
             ContactSensorRef(
                 name="contact_forces",
@@ -192,6 +190,7 @@ SHARED_VELOCITY_RANGES = {
     "pyramid_stairs_inv": dict(_OBSTACLE_VELOCITY),
     "pyramid_stairs_inv_high": dict(_OBSTACLE_VELOCITY),
     "boxes": dict(_OBSTACLE_VELOCITY),
+    "mesh_boxes": dict(_OBSTACLE_VELOCITY),
     "hf_pyramid_slope_inv": dict(_OBSTACLE_VELOCITY),
 }
 
@@ -218,10 +217,6 @@ def _commands() -> dict[str, CommandTermSpec]:
                 "lin_vel_metrics_std": 0.5,
                 "ang_vel_metrics_std": 0.5,
                 "target_dis_threshold": 0.4,
-            },
-            engine_params={
-                "isaacsim": {"velocity_ranges": {"mesh_boxes": dict(_OBSTACLE_VELOCITY)}},
-                "mjlab": {"velocity_ranges": {"dense_boxes": dict(_OBSTACLE_VELOCITY)}},
             },
         )
     }
@@ -651,11 +646,8 @@ class ParkourEnvCfg:
             episode_length_s=20.0,
             profiles={
                 "mjlab": {
-                    "nconmax": 128,
-                    "njmax": 700,
                     "contact_sensor_maxmatch": 128,
                     "ccd_iterations": 128,
-                    "num_cols": 10,
                 }
             },
         )

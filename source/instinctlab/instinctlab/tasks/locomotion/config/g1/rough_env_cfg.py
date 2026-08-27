@@ -1,13 +1,9 @@
-"""Rough-ground G1 velocity tracking, the same MDP as the flat task on reference rough ground.
+"""Rough-ground G1 velocity tracking on the shared engine-neutral terrain recipe.
 
-The robot, observations, rewards, events and commands are the flat task's. What changes is the
-ground -- ``kind="rough"``, which each adapter fills from its own parkour reference -- and a
-``terrain_levels`` curriculum that walks robots up and down that grid. Height scanning is not
-here: that is a sensor, not a terrain, and belongs with the raycaster work.
-
-Nothing here imports an engine. The two reference grids already disagree (scale, extra tile,
-mjlab's deterministic row difficulty vs Isaac's jitter); they now agree on ``num_cols=20``
-and therefore on world width. The declaration names the intent and does not pick a winner.
+The robot, observations, rewards, events and commands are the flat task's. What
+changes is the shared rough grid and a ``terrain_levels`` curriculum that walks
+robots through it. Each adapter lowers the same recipe to native terrain
+primitives; height scanning remains a separate sensor concern.
 """
 
 from __future__ import annotations
@@ -24,7 +20,7 @@ from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import (
     COMMAND,
     G1FlatEnvCfg,
 )
-from instinctlab.tasks.locomotion.terrains import rough_terrain
+from instinctlab.tasks.terrain import rough_terrain
 
 
 class G1RoughEnvCfg(G1FlatEnvCfg):

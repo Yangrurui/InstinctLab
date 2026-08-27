@@ -1,144 +1,29 @@
-"""mjlab's parkour/rough terrain recipe.
-
-The numbers live here, not in the task. The generator and importer classes are the
-vendored copy under :mod:`.terrains`.
-
-The whole recipe now deliberately follows InstinctMJ
-(``/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/parkour_env_cfg.py``):
-``horizontal_scale=0.07``, stair ``step_width`` 0.35 / 1.54, ``perlin_rough`` /
-``perlin_rough_stand`` set ``border_width=1.0``, and ``boxes.border_width=1.0``.
-Isaac's parkour (``engines/isaacsim/rough.py``) keeps 0.05 / 0.3 / 1.5, omits
-the plane ``border_width`` kwargs (both engines' ``HfTerrainBaseCfg`` default is
-0.0 — verified in the class bodies, not assumed), and uses
-``boxes.border_width=0.0``. Terrain-constant parity is not being pursued.
-``tests/test_rough_recipe_parity.py`` compares the two recipes by AST and fails
-if they drift outside a table of those known differences.
-
-This copy honors ``num_cols=20`` (Isaac's cumulative-proportion allocation).
-Upstream mjlab / InstinctMJ ignore that field in curriculum mode and build one
-column per type.
-
-With ``border_width=1.0`` deducted, ``pyramid_stairs`` builds **6** in-field
-steps on Isaac against **5** on mjlab, with central platform heights of
-0.30 / 0.84 / 1.38 m against 0.25 / 0.70 / 1.15 m at difficulty 0.0 / 0.5 / 1.0.
-``pyramid_stairs`` and ``pyramid_stairs_inv`` are 0.15 each, so roughly a third
-of environments climb a different staircase depending on the engine.
-``pyramid_stairs_high`` is unaffected — 1.50 and 1.54 round to the same pixel
-geometry. Cross-engine episode-length or terrain-level curves are therefore not
-comparable on the stairs terrains.
-
-The 0.07-vs-0.05 grid does not shift difficulty uniformly, it **reorders** it, and
-in opposite directions by terrain family. Measured on two mjlab seeds against the
-Isaac run, taking each sub-terrain's episode length relative to its own run's
-aligned mean: the continuous surfaces are relatively harder on the coarse grid
-(``hf_pyramid_slope_inv`` 0.72, ``perlin_rough`` 0.76, ``perlin_rough_stand``
-0.83) while the axis-aligned ones are relatively easier (``pyramid_stairs_high``
-1.27, ``pyramid_stairs_inv_high`` 1.31, ``boxes`` 1.16), with ``square_gaps``
-neutral at 1.07. That is the expected sign on both counts — a coarse grid blocks
-a perlin surface into steeper local steps, and rounds a staircase into fewer,
-cleaner ones — but the 1.8x spread is worth knowing before reading any
-per-terrain curve across engines.
-
-Note what this does to ``Episode_Terrain/aligned_*``: averaging a 0.72 against a
-1.31 yields something that looks like a uniform offset, so the aggregate we built
-for cross-engine comparison is exactly the statistic that hides this. Read the
-per-terrain rows.
-
-Both engines match their own reference here (InstinctMJ 0.07, main 0.05), so this
-is inherited from the two upstreams disagreeing, not introduced by the port.
-
-What remains unaligned, by decision:
-
-* Slot 9 is ``dense_boxes`` (``PerlinDiscreteObstaclesTerrainCfg``) here and
-  ``mesh_boxes`` (``PerlinMeshRandomMultiBoxTerrainCfg``) on Isaac. The mesh-box
-  type exists only under ``instinctlab/terrains/trimesh/``; mjlab has no
-  equivalent. Porting it is separate work.
-* Difficulty is still mjlab's ``row / (num_rows - 1)``. Isaac uses jittered
-  ``(row + U[0,1)) / num_rows`` and never hits 1.0. Duplicate columns of one
-  type at the same row are therefore identical here.
-* Virtual-obstacle edge cylinders are a second accepted divergence of the
-  same character as the stairs step count. Isaac's Greedyconcat has no
-  collinear post-merge and splits at a hardcoded 0.05 m; this recipe
-  (InstinctMJ parkour) merges gaps up to 0.09 m. Isaac reads true meshes,
-  including the 5 m walls; mjlab reads a repaired height-field surface.
-  On the same closed box both detectors emit 12 edges — the primitive
-  matches, the terrain representation does not. Measured on
-  ``Instinct-Parkour-Target-G1``: about 35k vs 43k cylinders overall, 208
-  vs 518 on the row-0 ``pyramid_stairs`` tile. The volume-points
-  penetration penalty is therefore not comparable across engines and must
-  not be read as a parity signal in a two-engine training comparison.
-
-Measured cost of following InstinctMJ here, and an open question. A two-engine
-run of ``Instinct-Parkour-Target-G1`` (256 envs, seed 42, matched at iterations
-574-593) puts mjlab at **0.54x** Isaac's episode length and 0.54x its reward on
-the *aligned* terrain subset, while the *known-diverged* subset comes out at
-0.62x / 0.74x. The gap is therefore not explained by anything documented above:
-it is worst where the two engines are supposed to agree. It concentrates on the
-continuous height-field terrains -- ``hf_pyramid_slope_inv`` 0.43x,
-``perlin_rough`` 0.45x, ``perlin_rough_stand`` 0.46x -- and is mild on the
-discretely stepped ones (stairs, ``boxes``, ``square_gaps``: 0.56-0.67x). That
-pattern fits ``horizontal_scale``: a slope on a 0.07 grid is discretised into
-treads 40% taller than on Isaac's 0.05.
-
-Two readings of that run narrow what the gap can be. Per-timestep reward runs
-**1.15x** on mjlab: it is not earning less per step, its episodes just end
-sooner, so the difference sits in termination and not in policy quality.
-And the terminations do not spread evenly -- ``root_height`` fires 2.3x as
-often on mjlab (2.16 vs 0.93) while ``bad_orientation`` (0.004 vs 0.023) and
-``base_contact`` (0.006 vs 0.045) fire *less*. mjlab robots are not falling
-over more; they are dropping below the height floor measured against the env
-origin, which is exactly the quantity a coarser terrain grid moves.
-
-Three candidate causes have since been ruled out by construction, because
-aligning them did not move the number: the AMP left-right mirror (now on both
-engines), TF32 (mjlab was running with it off against a reference that has it
-on), and the PhysX collision stack (Isaac now at main's ``2**29``). The run
-above is post-alignment.
-
-Contact overflow was ruled out too (``d.overflow`` clear at construction and
-mid-training; ``nacon`` 164/world against ``nconmax=256``). The grid-resolution
-reading stays a hypothesis, and the obvious test for it -- a short mjlab run at
-``horizontal_scale=0.05``, nothing else changed -- cannot be run on this engine.
-Measured: 16 envs at 0.05 construct clean, then raise ``HFIELD`` overflow on the
-very first step, with ``nacon`` at 111 against a budget of 4096 (2.7%). It is
-not a budget. ``mjMAXCONPAIR`` caps contacts per geom pair at 50 at compile
-time, and a finer height field puts more than 50 contacts on the one
-foot-terrain pair, so raising ``nconmax`` cannot clear it. The same probe at
-0.07 is clean over 150 steps (peak ``nacon`` 379, ``nefc`` 195/768). mjlab is
-structurally held at the coarser grid here; if the hypothesis is worth
-settling, it has to be tested inside Isaac by running *it* at 0.07 instead.
-
-This measurement postdates the parkour robot override (``b668964``), which
-added a further accepted incomparability: Isaac parkour uses explicit Ideal PD
-with delay (``DelayedPDActuator``) while mjlab uses implicit-integration PD with
-delay (``BuiltinPdActuator``, matching InstinctMJ). Before that change both
-engines integrated implicitly and were symmetric. Cross-engine episode-length
-and reward curves therefore carry one more reason they are not a parity signal.
-
-The Isaac half of that override was made on a false reading: main assigns a
-delayed actuator table and then replaces ``self.scene.robot`` wholesale, so the
-registered task trains on implicit PD without delay. The delay is kept anyway --
-measured, see ``KNOWN_DRIFTS["actuation/delay"]`` -- but it is our choice, not
-main's behaviour.
-"""
+"""Lower the shared rough-terrain contract to MJLab terrain configs."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.spec.task import TerrainSpec
+from instinctlab.spec.task import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
 
 __all__ = ["rough_generator_cfg", "rough_importer_cfg"]
 
 
-def _walls() -> dict[str, Any]:
-    return {"wall_prob": [0.3, 0.3, 0.3, 0.3], "wall_height": 5.0, "wall_thickness": 0.05}
-
-
-def rough_generator_cfg(*, num_cols: int = 20) -> Any:
-    """InstinctMJ parkour's Perlin grid. Imports stay here so the module stays engine-free at rest."""
+def _flat_patches(value: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     from mjlab.terrains import FlatPatchSamplingCfg
 
+    return {name: FlatPatchSamplingCfg(**dict(params)) for name, params in value.items()}
+
+
+def _perlin(value: Mapping[str, Any]) -> Any:
+    from .terrains.height_field.hf_terrains_cfg import PerlinPlaneTerrainCfg
+
+    return PerlinPlaneTerrainCfg(**dict(value))
+
+
+def _sub_terrain(tile: SubTerrainSpec) -> Any:
+    """Translate one engine-neutral rough tile to its MJLab implementation."""
     from .terrains.height_field.hf_terrains_cfg import (
         PerlinDiscreteObstaclesTerrainCfg,
         PerlinInvertedPyramidSlopedTerrainCfg,
@@ -147,177 +32,61 @@ def rough_generator_cfg(*, num_cols: int = 20) -> Any:
         PerlinPyramidStairsTerrainCfg,
         PerlinSquareGapTerrainCfg,
     )
+    from .terrains.mesh_terrains_cfg import PerlinMeshRandomMultiBoxTerrainCfg
+
+    fields = dict(tile.params)
+    if flat_patches := fields.get("flat_patch_sampling"):
+        fields["flat_patch_sampling"] = _flat_patches(flat_patches)
+    if perlin_cfg := fields.get("perlin_cfg"):
+        fields["perlin_cfg"] = _perlin(perlin_cfg)
+
+    classes = {
+        "perlin_plane": PerlinPlaneTerrainCfg,
+        "perlin_square_gap": PerlinSquareGapTerrainCfg,
+        "perlin_pyramid_stairs": PerlinPyramidStairsTerrainCfg,
+        "perlin_pyramid_stairs_inv": PerlinInvertedPyramidStairsTerrainCfg,
+        "perlin_discrete_obstacles": PerlinDiscreteObstaclesTerrainCfg,
+        "perlin_random_multi_box": PerlinMeshRandomMultiBoxTerrainCfg,
+        "perlin_pyramid_slope_inv": PerlinInvertedPyramidSlopedTerrainCfg,
+    }
+    try:
+        cls = classes[tile.kind]
+    except KeyError:
+        raise NotImplementedError(
+            f"The MJLab rough-terrain bridge has no tile {tile.kind!r}; it builds {sorted(classes)}."
+        ) from None
+    return cls(proportion=tile.proportion, **fields)
+
+
+def rough_generator_cfg(spec: TerrainGeneratorSpec) -> Any:
+    """Compile the shared recipe to the native filed generator config."""
     from .terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
 
-    def target() -> dict[str, Any]:
-        return {
-            "target": FlatPatchSamplingCfg(num_patches=50, patch_radius=[0.05, 0.10, 0.15, 0.20], max_height_diff=0.05)
-        }
-
-    def target_center() -> dict[str, Any]:
-        return {
-            "target": FlatPatchSamplingCfg(
-                num_patches=50,
-                patch_radius=[0.05, 0.10, 0.15, 0.20],
-                max_height_diff=0.05,
-                x_range=(3.7, 3.7),
-                y_range=(-0.0, 0.0),
-            )
-        }
-
-    def perlin() -> Any:
-        return PerlinPlaneTerrainCfg(
-            noise_scale=0.05,
-            noise_frequency=20,
-            fractal_octaves=2,
-            fractal_lacunarity=2.0,
-            fractal_gain=0.25,
-            centering=True,
-        )
-
     return FiledTerrainGeneratorCfg(
-        seed=0,
-        size=(8.0, 8.0),
-        border_width=3.0,
-        num_rows=10,
-        num_cols=num_cols,
-        horizontal_scale=0.07,
-        vertical_scale=0.005,
-        slope_threshold=1.0,
-        curriculum=True,
+        seed=spec.seed,
+        size=spec.size,
+        border_width=spec.border_width,
+        num_rows=spec.num_rows,
+        num_cols=spec.num_cols,
+        horizontal_scale=spec.horizontal_scale,
+        vertical_scale=spec.vertical_scale,
+        slope_threshold=spec.slope_threshold,
+        curriculum=spec.curriculum,
         add_lights=True,
-        sub_terrains={
-            "perlin_rough": PerlinPlaneTerrainCfg(
-                proportion=0.05,
-                noise_scale=[0.0, 0.1],
-                noise_frequency=20,
-                fractal_octaves=2,
-                fractal_lacunarity=2.0,
-                fractal_gain=0.25,
-                centering=True,
-                border_width=1.0,
-                flat_patch_sampling=target(),
-                **_walls(),
-            ),
-            "perlin_rough_stand": PerlinPlaneTerrainCfg(
-                proportion=0.05,
-                noise_scale=[0.0, 0.1],
-                noise_frequency=20,
-                fractal_octaves=2,
-                fractal_lacunarity=2.0,
-                fractal_gain=0.25,
-                centering=True,
-                border_width=1.0,
-                flat_patch_sampling=target(),
-                **_walls(),
-            ),
-            "square_gaps": PerlinSquareGapTerrainCfg(
-                proportion=0.10,
-                gap_distance_range=(0.1, 0.7),
-                gap_depth=(0.4, 0.6),
-                platform_width=2.5,
-                border_width=1.0,
-                flat_patch_sampling=target_center(),
-                **_walls(),
-            ),
-            "pyramid_stairs": PerlinPyramidStairsTerrainCfg(
-                proportion=0.15,
-                step_height_range=(0.05, 0.23),
-                step_width=0.35,
-                platform_width=2.5,
-                border_width=1.0,
-                perlin_cfg=perlin(),
-                flat_patch_sampling=target_center(),
-                **_walls(),
-            ),
-            "pyramid_stairs_high": PerlinPyramidStairsTerrainCfg(
-                proportion=0.10,
-                step_height_range=(0.05, 0.45),
-                step_width=1.54,
-                platform_width=4.0,
-                border_width=1.0,
-                perlin_cfg=perlin(),
-                flat_patch_sampling=target_center(),
-                **_walls(),
-            ),
-            "pyramid_stairs_inv": PerlinInvertedPyramidStairsTerrainCfg(
-                proportion=0.15,
-                step_height_range=(0.05, 0.23),
-                step_width=0.35,
-                platform_width=2.5,
-                border_width=1.0,
-                perlin_cfg=perlin(),
-                flat_patch_sampling=target_center(),
-                **_walls(),
-            ),
-            "pyramid_stairs_inv_high": PerlinInvertedPyramidStairsTerrainCfg(
-                proportion=0.10,
-                step_height_range=(0.05, 0.45),
-                step_width=1.54,
-                platform_width=4.0,
-                border_width=1.0,
-                perlin_cfg=perlin(),
-                flat_patch_sampling=target_center(),
-                **_walls(),
-            ),
-            "boxes": PerlinDiscreteObstaclesTerrainCfg(
-                proportion=0.10,
-                num_obstacles=20,
-                obstacle_height_mode="fixed",
-                obstacle_width_range=(0.8, 1.5),
-                obstacle_height_range=(0.05, 0.45),
-                platform_width=1.5,
-                border_width=1.0,
-                perlin_cfg=perlin(),
-                flat_patch_sampling=target(),
-                **_walls(),
-            ),
-            "dense_boxes": PerlinDiscreteObstaclesTerrainCfg(
-                proportion=0.10,
-                num_obstacles=120,
-                obstacle_height_mode="fixed",
-                obstacle_width_range=(0.30, 0.50),
-                obstacle_height_range=(0.05, 0.45),
-                platform_width=1.5,
-                border_width=1.0,
-                perlin_cfg=perlin(),
-                flat_patch_sampling={
-                    "target": FlatPatchSamplingCfg(
-                        num_patches=50, patch_radius=[0.05, 0.10, 0.15], max_height_diff=0.05
-                    )
-                },
-                **_walls(),
-            ),
-            "hf_pyramid_slope_inv": PerlinInvertedPyramidSlopedTerrainCfg(
-                proportion=0.10,
-                slope_range=(0.0, 0.7),
-                platform_width=1.5,
-                border_width=1.0,
-                perlin_cfg=PerlinPlaneTerrainCfg(
-                    noise_scale=0.00,
-                    noise_frequency=20,
-                    fractal_octaves=2,
-                    fractal_lacunarity=2.0,
-                    fractal_gain=0.25,
-                    centering=True,
-                ),
-                flat_patch_sampling=target(),
-                **_walls(),
-            ),
-        },
+        sub_terrains={name: _sub_terrain(tile) for name, tile in spec.sub_terrains.items()},
     )
 
 
-def rough_importer_cfg(spec: TerrainSpec, *, num_cols: int = 20) -> Any:
-    """InstinctMJ parkour's importer: ``hacked_generator`` plus ``FiledTerrainGenerator``.
+def rough_importer_cfg(spec: TerrainSpec) -> Any:
+    """Build the MJLab rough importer from the shared semantic recipe."""
+    if spec.generator is None:
+        raise ValueError("kind='rough' needs a TerrainGeneratorSpec.")
 
-    Virtual obstacles stay off. They are a parkour sensor, not the ground.
-    """
     from .terrains.terrain_importer_cfg import TerrainImporterCfg
 
     return TerrainImporterCfg(
         terrain_type="hacked_generator",
-        terrain_generator=rough_generator_cfg(num_cols=num_cols),
-        max_init_terrain_level=5,
+        terrain_generator=rough_generator_cfg(spec.generator),
+        max_init_terrain_level=spec.generator.max_init_level,
         sliding_friction=spec.dynamic_friction,
     )

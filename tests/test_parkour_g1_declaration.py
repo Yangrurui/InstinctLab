@@ -2,7 +2,7 @@
 
 Modelled on ``test_rough_g1_declaration.py``. The reward set is a snapshot, not a claim about
 any other implementation: changing the objective takes two edits and a sentence in the commit
-message. ``engine_params`` is pinned to exactly two divergences -- a silently growing map is how
+message. ``engine_params`` is pinned to the remaining native divergence -- a silently growing map is how
 a task stops being portable.
 """
 
@@ -88,7 +88,6 @@ JOINT_TERMS = {
     "amp_reference": ("joint_pos_rel", "joint_vel"),
 }
 
-TENTH_TERRAIN = {"isaacsim": "mesh_boxes", "mjlab": "dense_boxes"}
 ISAAC_RESTITUTION = {
     "restitution_range": (0.05, 0.5),
     "num_buckets": 64,
@@ -160,35 +159,10 @@ def test_the_command_is_pose_velocity_and_required(task) -> None:
     assert "debug_vis" not in term.params
 
 
-def test_engine_params_carry_exactly_the_two_intended_divergences(task) -> None:
-    """A tenth terrain name the engines spell differently, and Isaac-only restitution.
-
-    Any other ``engine_params`` entry is a silent per-engine fork. Growing this map is how a
-    task stops being portable.
-    """
+def test_engine_params_only_carry_the_native_material_divergence(task) -> None:
+    """Terrain names and velocity boxes are shared; only Isaac restitution is native."""
     found = {key: dict(term.engine_params) for key, term in task.mdp.terms().items() if term.engine_params}
-    assert set(found) == {"command/base_velocity", "event/physics_material"}
-
-    command = found["command/base_velocity"]
-    assert set(command) == {"isaacsim", "mjlab"}
-    assert command["isaacsim"] == {
-        "velocity_ranges": {
-            TENTH_TERRAIN["isaacsim"]: {
-                "lin_vel_x": (0.45, 0.8),
-                "lin_vel_y": (0.0, 0.0),
-                "ang_vel_z": (-1.0, 1.0),
-            }
-        }
-    }
-    assert command["mjlab"] == {
-        "velocity_ranges": {
-            TENTH_TERRAIN["mjlab"]: {
-                "lin_vel_x": (0.45, 0.8),
-                "lin_vel_y": (0.0, 0.0),
-                "ang_vel_z": (-1.0, 1.0),
-            }
-        }
-    }
+    assert set(found) == {"event/physics_material"}
 
     material = found["event/physics_material"]
     assert set(material) == {"isaacsim"}
@@ -198,10 +172,9 @@ def test_engine_params_carry_exactly_the_two_intended_divergences(task) -> None:
     command_term = task.mdp.commands["base_velocity"]
     isaac_ranges = command_term.resolved_params("isaacsim")["velocity_ranges"]
     mjlab_ranges = command_term.resolved_params("mjlab")["velocity_ranges"]
-    assert TENTH_TERRAIN["isaacsim"] in isaac_ranges
-    assert TENTH_TERRAIN["mjlab"] not in isaac_ranges
-    assert TENTH_TERRAIN["mjlab"] in mjlab_ranges
-    assert TENTH_TERRAIN["isaacsim"] not in mjlab_ranges
+    assert isaac_ranges == mjlab_ranges
+    assert "mesh_boxes" in isaac_ranges
+    assert "dense_boxes" not in isaac_ranges
     assert len(isaac_ranges) == 10
     assert len(mjlab_ranges) == 10
 
@@ -210,7 +183,9 @@ def test_the_task_declares_no_engine_specific_escape_hatch(task) -> None:
     assert not task.engine_extras
     assert set(task.engines) == {"isaacsim", "mjlab"}
     assert task.scene.terrain.kind == "rough"
-    assert task.scene.terrain.generator is None
+    assert task.scene.terrain.generator is not None
+    assert task.scene.terrain.generator.horizontal_scale == 0.05
+    assert task.scene.terrain.generator.num_cols == 20
     assert task.task_id == "Instinct-Parkour-Target-G1"
 
 
@@ -548,11 +523,11 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
         "pyramid_stairs_inv",
         "pyramid_stairs_inv_high",
         "boxes",
-        "dense_boxes",
+        "mesh_boxes",
         "hf_pyramid_slope_inv",
     }
-    assert "mesh_boxes" not in command.velocity_ranges
-    assert command.velocity_ranges["dense_boxes"]["lin_vel_x"] == (0.45, 0.8)
+    assert "dense_boxes" not in command.velocity_ranges
+    assert command.velocity_ranges["mesh_boxes"]["lin_vel_x"] == (0.45, 0.8)
 
     action = compiled.env_cfg.actions["joint_pos"]
     assert tuple(action.actuator_names) == tuple(task.robot.joint_names)
@@ -627,7 +602,8 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
         assert tuple(asset_cfg.joint_names) == tuple(task.robot.joint_names)
         assert asset_cfg.preserve_order is True
     generator = compiled.env_cfg.scene.terrain.terrain_generator
-    assert generator.num_cols == 10
+    assert generator.num_cols == 20
+    assert generator.horizontal_scale == 0.05
     assert generator.curriculum is True
     assert list(generator.sub_terrains) == [
         "perlin_rough",
@@ -638,6 +614,6 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
         "pyramid_stairs_inv",
         "pyramid_stairs_inv_high",
         "boxes",
-        "dense_boxes",
+        "mesh_boxes",
         "hf_pyramid_slope_inv",
     ]

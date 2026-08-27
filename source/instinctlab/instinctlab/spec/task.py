@@ -121,11 +121,8 @@ class TerrainGeneratorSpec:
     """A grid of sub-terrains. The layout is portable; how each tile is built is not.
 
     ``num_rows`` is difficulty under curriculum on both engines. ``num_cols`` is the grid
-    width both engines now honor on the parkour/rough path: columns are assigned by Isaac
-    Lab's cumulative-proportion formula. Upstream mjlab still ignores ``num_cols`` (one
-    column per type); our ``FiledTerrainGenerator`` does not. ``kind="generator"`` still
-    compiles to that upstream generator, so a curriculum task on that kind still silently
-    shrinks to one column per type. Difficulty along a row is still not the same number
+    width both adapters honor: columns are assigned by Isaac Lab's cumulative-proportion
+    formula. Difficulty along a row is still not the same number
     — Isaac jitters ``(row + U) / num_rows`` and never hits 1.0; mjlab uses
     ``row / (num_rows - 1)`` and hits both endpoints. Once a type occupies several columns,
     every mjlab duplicate at a given row therefore has identical difficulty.
@@ -149,6 +146,15 @@ class TerrainGeneratorSpec:
             raise ValueError(f"Terrain patch size must be positive, got {self.size}.")
         if self.num_rows < 1 or self.num_cols < 1:
             raise ValueError(f"Terrain grid must be at least 1x1, got {self.num_rows}x{self.num_cols}.")
+        if self.border_width < 0.0:
+            raise ValueError(f"Terrain border width must be non-negative, got {self.border_width}.")
+        if self.horizontal_scale <= 0.0 or self.vertical_scale <= 0.0:
+            raise ValueError(
+                "Terrain horizontal_scale and vertical_scale must be positive, "
+                f"got {self.horizontal_scale} and {self.vertical_scale}."
+            )
+        if self.slope_threshold <= 0.0:
+            raise ValueError(f"Terrain slope_threshold must be positive, got {self.slope_threshold}.")
         if not self.sub_terrains:
             raise ValueError("A generator with no sub-terrains produces an empty world.")
 
@@ -157,11 +163,10 @@ class TerrainGeneratorSpec:
 class TerrainSpec:
     """The ground. Flat unless a task says otherwise.
 
-    ``kind`` is open. ``"plane"`` and ``"generator"`` are portable recipes this module can
-    describe; ``"rough"`` is not -- it means "this engine's own reference rough", and each
-    adapter fills that from its own parkour grid. An unknown value fails in the adapter rather
-    than here, so a third engine can add a kind without editing this module. ``generator``
-    requires :attr:`generator`; a plane or a reference rough must not carry one.
+    ``kind`` is open. ``"generator"`` and ``"rough"`` both carry the engine-neutral
+    :attr:`generator` recipe. ``"rough"`` additionally selects the rough importer and its
+    production contact-capacity profile. An unknown value fails in the adapter rather than
+    here, so a third engine can add a kind without editing this module.
     """
 
     kind: str = "plane"
@@ -183,10 +188,10 @@ class TerrainSpec:
             raise ValueError("Terrain friction coefficients must be non-negative")
         if not 0.0 <= self.restitution <= 1.0:
             raise ValueError("Terrain restitution must be in [0, 1]")
-        if self.kind in {"plane", "rough"} and self.generator is not None:
+        if self.kind == "plane" and self.generator is not None:
             raise ValueError(f"kind={self.kind!r} cannot carry a generator.")
-        if self.kind == "generator" and self.generator is None:
-            raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
+        if self.kind in {"generator", "rough"} and self.generator is None:
+            raise ValueError(f"kind={self.kind!r} needs a TerrainGeneratorSpec.")
         names = [obstacle.name for obstacle in self.virtual_obstacles]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:

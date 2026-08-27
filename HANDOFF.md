@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 07:16 UTC
+Updated: 2026-08-27 07:34 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -197,12 +197,16 @@ logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_
 
 ## Reproduction status
 
-- **Locomotion flat/rough: accepted on both engines.** The archived original
+- **Locomotion flat: accepted on both engines. Rough construction and stepping
+  are accepted; post-unification convergence is pending.** The archived original
   logs are not present on this replacement server; recover them only if exact
   numerical provenance is needed.
-- **Parkour: accepted on both engines.** Task and agent declarations, AMP
-  schema, motion loading, depth pipeline, contact behavior, and production
-  training were checked against both references.
+- **Parkour declarations and the pre-terrain-change reproduction are accepted
+  on both engines; post-unification terrain convergence is pending.** Task and
+  agent declarations, AMP schema, motion loading, depth pipeline, and contact
+  behavior were checked against both references. Retained MJLab Parkour runs
+  used the old 0.07 m / dense-box recipe and are not evidence for the shared
+  terrain below.
 - **Whole Body plane Shadowing: short-horizon parity accepted.** At 4096
   environments, unified/main rewards at iterations 0, 10, 20, 40, and 100 were
   `-1.63/-1.65`, `-0.96/-0.98`, `-0.48/-0.49`, `-0.23/-0.19`, and
@@ -225,6 +229,51 @@ offset mapping, name-ordered joint-reference defaults, current-time AMP
 references, link-origin velocity semantics, critic history/width, Perceptive
 depth preprocessing, motion-terrain matching, reset sampling order, contact
 sensor hot-path caching, and engine-native capacity profiles.
+
+## Terrain module audit (2026-08-27)
+
+Locomotion rough and Parkour now use one engine-neutral recipe from
+`tasks/terrain.py`. `TerrainSpec(kind="rough")` must carry that
+`TerrainGeneratorSpec`; the kind selects native importer/capacity behavior but
+no longer selects a hidden per-engine recipe. The shared training contract
+follows `/root/InstinctLab-main`: 8 m patches, 10×20 grid, 0.05 m horizontal
+scale, 0.005 m vertical scale, main's stair widths/borders, cumulative-
+proportion columns, and one common tile order ending in `mesh_boxes` then
+`hf_pyramid_slope_inv`. Parkour command ranges now use the same `mesh_boxes`
+name on both engines and no longer carry a terrain-name engine override.
+
+Isaac lowers the semantic tiles to its existing height-field/trimesh configs.
+MJLab lowers them to the vendored filed height fields and a native MuJoCo
+random-multi-box implementation. Generator-level scale propagation is wired
+for both generic and rough MJLab generators. Hfield repair metadata is keyed by
+the generated MuJoCo hfield name, so a pure-mesh cell cannot shift the config
+associated with later height fields. Virtual edge extraction remains native:
+MJLab repairs hfield surfaces and merges short collinear gaps while Isaac reads
+the generated mesh, so volume-point penetration is not a raw cross-engine
+parity metric.
+
+The complete 0.05 m MJLab grid needs larger native import buffers than the old
+recipe: host construction measured 271 contacts and 1,119 constraints. Rough
+defaults are therefore `nconmax=512`, `njmax=1536` in the MJLab adapter; they
+are not task terrain parameters. A 16-environment full 10×20 locomotion probe
+constructed and stepped ten times without Warp/HFIELD warnings; observed step
+peaks were `nacon=432` and `nefc=191`. The Parkour full-grid probe resolved all
+20 named columns, passed foot-scanner checks, generated and registered 15,216
+edge cylinders, then hit the independent existing first-depth-history-all-zero
+camera assertion. Do not call that run a full Parkour live pass or weaken the
+camera assertion as a terrain workaround.
+
+Evidence:
+
+```text
+1236 passed, 2 skipped, 31 deselected (full default suite)
+172 passed (focused terrain/spec/Parkour declaration and native bridge suite)
+1 passed (shrunk MJLab rough construction plus five steps at 0.05 m)
+full MJLab rough 10x20 / 16-env probe: 10 steps, no HFIELD warning,
+  peak nacon=432, peak nefc=191
+python scripts/check_mjlab.py resolved all 39 Locomotion terms,
+  constructed 16 MJLab environments and stepped 5 times
+```
 
 ## Sensor module audit (2026-08-27)
 

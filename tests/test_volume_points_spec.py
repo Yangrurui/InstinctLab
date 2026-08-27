@@ -388,14 +388,13 @@ def test_a_box_mesh_yields_the_same_raw_edge_count_before_merge() -> None:
     assert isaac.shape[0] == 12
 
 
-def test_rough_py_records_that_the_penetration_penalty_is_not_a_parity_signal() -> None:
-    """Same place as the stairs 6-vs-5. A reader comparing training curves must see this."""
+def test_mjlab_obstacle_bridge_records_that_penetration_is_not_a_parity_signal() -> None:
+    """A reader comparing training curves must see the remaining native extraction drift."""
     from pathlib import Path
 
-    text = (Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/mjlab/rough.py").read_text()
-    assert "penetration penalty is therefore not comparable" in text
-    assert "35k vs 43k" in text
-    assert "208" in text and "518" in text
+    text = (Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/mjlab/scene.py").read_text()
+    assert "penetration penalty is therefore not" in text
+    assert "repairs a height-field surface" in text
 
 
 def test_warp_kernel_on_axis_is_finite_and_has_depth_radius() -> None:

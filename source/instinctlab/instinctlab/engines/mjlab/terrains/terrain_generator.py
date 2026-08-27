@@ -163,6 +163,7 @@ class FiledTerrainGenerator(TerrainGenerator):
         # ``self._num_cols`` (the allocated grid width), not ``cfg.num_cols``, so random
         # mode stays correct if those two ever diverge.
         self._subterrain_specific_cfgs: list[SubTerrainBaseCfg | None] = []
+        self._hfield_cfg_by_name: dict[str, SubTerrainBaseCfg] = {}
         self._terrain_meshes: list[trimesh.Trimesh] = []
         self.terrain_mesh: trimesh.Trimesh | None = None
         # Keep original patch radii (including list-style radii) for
@@ -405,6 +406,7 @@ class FiledTerrainGenerator(TerrainGenerator):
 
     def compile(self, spec: mujoco.MjSpec) -> None:
         self._terrain_meshes = []
+        self._hfield_cfg_by_name = {}
         self.terrain_mesh = None
         self._reset_subterrain_records()
         super().compile(spec)
@@ -513,6 +515,7 @@ class FiledTerrainGenerator(TerrainGenerator):
         # Inline mjlab.TerrainGenerator._create_terrain_geom so we can keep
         # direct access to sub-terrain output for mesh-based virtual obstacles.
         output = cfg.function(difficulty, spec, self.np_rng)
+        created_hfield_names = {h.name for h in spec.hfields} - hfield_names_before
         for terrain_geom in output.geometries:
             if terrain_geom.geom is not None:
                 terrain_geom.geom.pos = np.array(terrain_geom.geom.pos) + world_position
@@ -617,6 +620,8 @@ class FiledTerrainGenerator(TerrainGenerator):
         cfg.seed = self.cfg.seed
         # <<< NOTE
         self._subterrain_specific_cfgs[self._cell_index(sub_row, sub_col)] = cfg
+        for hfield_name in created_hfield_names:
+            self._hfield_cfg_by_name[hfield_name] = cfg
 
         return spawn_origin
 
@@ -624,6 +629,10 @@ class FiledTerrainGenerator(TerrainGenerator):
     def subterrain_specific_cfgs(self) -> list[SubTerrainBaseCfg | None]:
         """Row-major cell configs: ``configs[row * built_cols + col]``."""
         return self._subterrain_specific_cfgs.copy()
+
+    def get_hfield_cfg(self, hfield_name: str) -> SubTerrainBaseCfg | None:
+        """Generated cell config for one named MuJoCo height field."""
+        return self._hfield_cfg_by_name.get(hfield_name)
 
     def get_subterrain_cfg(
         self, row_ids: int | torch.Tensor, col_ids: int | torch.Tensor
