@@ -57,6 +57,16 @@ def test_train_and_play_compile_the_same_shadowing_contract() -> None:
                 assert compiled.agent_cfg.to_dict()["policy"] == expected_agent["policy"]
 
 
+def test_registered_play_checkpoint_pairs_keep_the_runner_architecture() -> None:
+    for play_id, train_id in registry.PLAY_CHECKPOINT_TASKS.items():
+        play = registry.spec(play_id)
+        train = registry.spec(train_id)
+        for adapter in (IsaacSimAdapter(), MjlabAdapter()):
+            play_agent = play.agent.resolve()(**play.agent.resolved_overrides(adapter.name)).to_dict()
+            train_agent = train.agent.resolve()(**train.agent.resolved_overrides(adapter.name)).to_dict()
+            assert play_agent == train_agent, (adapter.name, play_id, train_id)
+
+
 def test_distributed_rank_device_and_seed_streams_are_stable(monkeypatch) -> None:
     monkeypatch.setenv("RANK", "2")
     monkeypatch.setenv("LOCAL_RANK", "1")
@@ -141,6 +151,7 @@ def test_distributed_resume_restores_optimizer_noise_normalizer_and_iteration(
 
 def test_shadowing_play_and_export_validate_checkpoint_contract_before_loading() -> None:
     text = (Path(__file__).resolve().parents[1] / "scripts" / "play.py").read_text()
-    assert text.index("validate_checkpoint_contract(checkpoint, spec)") < text.index("runner.load(str(checkpoint))")
+    validation = "validate_checkpoint_contract(\n            checkpoint, spec, checkpoint_task_id=checkpoint_task_id(args.task)\n        )"
+    assert text.index(validation) < text.index("runner.load(str(checkpoint))")
     assert text.index("runner.load(str(checkpoint))") < text.index("runner.export_as_onnx")
     assert '"task_contract": task_contract(spec)' in text

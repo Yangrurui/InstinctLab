@@ -69,10 +69,29 @@ TASKS: dict[str, str] = {
 The id is the one the spec declares. Keep the two in step; :func:`spec` checks.
 """
 
+PLAY_CHECKPOINT_TASKS: dict[str, str] = {
+    "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": "Instinct-Shadowing-WholeBody-Plane-G1-v0",
+    "Instinct-Perceptive-Shadowing-G1-Play-v0": "Instinct-Perceptive-Shadowing-G1-v0",
+    "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": (
+        "Instinct-Perceptive-Shadowing-G1-OneMotion-v0"
+    ),
+    "Instinct-Perceptive-Vae-G1-Play-v0": "Instinct-Perceptive-Vae-G1-v0",
+    "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": "Instinct-Perceptive-HOI-Shadowing-G1-v0",
+    "Instinct-BeyondMimic-Plane-G1-Play-v0": "Instinct-BeyondMimic-Plane-G1-v0",
+}
+"""Play task id -> training task id whose policy checkpoint it consumes."""
+
 
 def ids() -> tuple[str, ...]:
     """Every declared task id, without importing any of them."""
     return tuple(sorted(TASKS))
+
+
+def checkpoint_task_id(task_id: str) -> str:
+    """Return the task identity expected in a checkpoint used by ``task_id``."""
+    if task_id not in TASKS:
+        raise KeyError(f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}")
+    return PLAY_CHECKPOINT_TASKS.get(task_id, task_id)
 
 
 def factory(task_id: str) -> Callable[[], TaskSpec]:

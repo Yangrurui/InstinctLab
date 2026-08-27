@@ -12,6 +12,7 @@ from instinctlab.checkpoint import (
     task_contract,
     validate_checkpoint_contract,
 )
+from instinctlab.tasks import registry
 from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import parkour_target_g1
 
 
@@ -55,6 +56,33 @@ def test_checkpoint_contract_rejects_a_different_task(tmp_path) -> None:
     changed = replace(spec, task_id="different-task")
     with pytest.raises(ValueError, match="Checkpoint task contract mismatch"):
         validate_checkpoint_contract(checkpoint, changed)
+
+
+def test_checkpoint_contract_accepts_an_explicit_play_training_pair(tmp_path) -> None:
+    train_id = "Instinct-Perceptive-Shadowing-G1-v0"
+    play_id = "Instinct-Perceptive-Shadowing-G1-Play-v0"
+    train_spec = registry.spec(train_id)
+    play_spec = registry.spec(play_id)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, train_spec)))
+
+    validate_checkpoint_contract(checkpoint, play_spec, checkpoint_task_id=train_id)
+
+
+def test_checkpoint_contract_keeps_unpaired_tasks_strict(tmp_path) -> None:
+    train_spec = registry.spec("Instinct-Perceptive-Shadowing-G1-v0")
+    wrong_play = registry.spec("Instinct-BeyondMimic-Plane-G1-Play-v0")
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, train_spec)))
+
+    with pytest.raises(ValueError, match="Checkpoint task contract mismatch"):
+        validate_checkpoint_contract(
+            checkpoint,
+            wrong_play,
+            checkpoint_task_id=registry.checkpoint_task_id(wrong_play.task_id),
+        )
 
 
 def test_checkpoint_contract_does_not_reject_hash_drift(tmp_path) -> None:

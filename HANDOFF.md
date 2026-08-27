@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 09:27 UTC
+Updated: 2026-08-27 09:32 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -612,6 +612,36 @@ The live GPU 5--7 training processes were not signaled or restarted. The
 configuration fixes affect currently inactive VAE/HOI/BeyondMimic or Play
 variants; the active Perceptive timeout behavior was already equivalent in the
 native builders.
+
+## Train/play checkpoint contract audit (2026-08-27)
+
+Manifest-backed Shadowing checkpoints trained under a normal task id could
+not be loaded through the corresponding `*-Play-v0` task: playback validated
+the Play id literally even though the retained checkpoint correctly recorded
+the Train id. This was reproduced with the active MJLab Perceptive run before
+changing the validator.
+
+The task registry now owns six explicit Play-to-Train checkpoint pairs. The
+play entry point validates the checkpoint's recorded identity against that
+registered Train id while still checking the Play runtime's canonical DFS
+joint order and robot schema. Training resume and every unpaired task omit the
+override and remain strict about their own task id. There is no suffix-based
+guessing and no engine branch. ONNX export records both the runtime Play
+contract and the source checkpoint task id.
+
+All six pairs are guarded for identical asset/schema/joint axes, action
+contract, ordered policy observations and history widths, runner architecture,
+and experiment directory on both engines. A retained Perceptive training
+checkpoint now passes its registered Perceptive Play validation; presenting
+that checkpoint as BeyondMimic Play is still rejected before tensor loading.
+
+Evidence:
+
+```text
+4 passed (new pairing, strict mismatch, registry, and load-order regressions)
+80 passed (checkpoint/registry/train-play/joint/task focus)
+1261 passed, 2 skipped, 31 deselected (full default suite)
+```
 
 ## Live experiments
 

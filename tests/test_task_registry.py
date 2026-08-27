@@ -8,6 +8,17 @@ from instinctlab.tasks import registry
 
 TASK_ROOT = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/tasks"
 
+PLAY_CHECKPOINT_PAIRS = {
+    "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": "Instinct-Shadowing-WholeBody-Plane-G1-v0",
+    "Instinct-Perceptive-Shadowing-G1-Play-v0": "Instinct-Perceptive-Shadowing-G1-v0",
+    "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": (
+        "Instinct-Perceptive-Shadowing-G1-OneMotion-v0"
+    ),
+    "Instinct-Perceptive-Vae-G1-Play-v0": "Instinct-Perceptive-Vae-G1-v0",
+    "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": "Instinct-Perceptive-HOI-Shadowing-G1-v0",
+    "Instinct-BeyondMimic-Plane-G1-Play-v0": "Instinct-BeyondMimic-Plane-G1-v0",
+}
+
 
 def test_task_sources_do_not_register_gym_environments() -> None:
     registrations = [
@@ -21,6 +32,43 @@ def test_task_sources_do_not_register_gym_environments() -> None:
 def test_every_registered_factory_returns_its_own_task_id() -> None:
     for task_id in registry.ids():
         assert registry.spec(task_id).task_id == task_id
+
+
+def test_play_checkpoint_pairs_are_explicit_and_policy_compatible() -> None:
+    assert registry.PLAY_CHECKPOINT_TASKS == PLAY_CHECKPOINT_PAIRS
+    for play_id, train_id in PLAY_CHECKPOINT_PAIRS.items():
+        assert registry.checkpoint_task_id(play_id) == train_id
+        assert registry.checkpoint_task_id(train_id) == train_id
+
+        train = registry.spec(train_id)
+        play = registry.spec(play_id)
+        assert train.robot.asset_id == play.robot.asset_id
+        assert train.robot.schema_version == play.robot.schema_version
+        assert train.robot.joint_names == play.robot.joint_names
+        assert train.mdp.actions == play.mdp.actions
+
+        train_policy = train.mdp.observations["policy"]
+        play_policy = play.mdp.observations["policy"]
+        assert tuple(train_policy.terms) == tuple(play_policy.terms)
+        assert train_policy.history_length == play_policy.history_length
+        for term_name in train_policy.terms:
+            train_term = train_policy.terms[term_name]
+            play_term = play_policy.terms[term_name]
+            assert (
+                train_term.func,
+                train_term.kind,
+                train_term.target,
+                train_term.scale,
+                train_term.clip,
+                train_term.history_length,
+            ) == (
+                play_term.func,
+                play_term.kind,
+                play_term.target,
+                play_term.scale,
+                play_term.clip,
+                play_term.history_length,
+            )
 
 
 def test_registered_tasks_do_not_use_engine_extras() -> None:

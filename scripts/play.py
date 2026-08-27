@@ -108,7 +108,7 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 def _play(args, engine, resources: ExitStack) -> None:
     from instinctlab.play.env import PlayEnv
-    from instinctlab.tasks.registry import spec as task_spec
+    from instinctlab.tasks.registry import checkpoint_task_id, spec as task_spec
 
     spec = task_spec(args.task)
     compiled = engine.compile(spec, num_envs=args.num_envs, device=args.device, strict=args.strict)
@@ -144,7 +144,9 @@ def _play(args, engine, resources: ExitStack) -> None:
         checkpoint = _resolve_checkpoint(args, compiled.agent_cfg.experiment_name)
         from instinctlab.checkpoint import validate_checkpoint_contract
 
-        validate_checkpoint_contract(checkpoint, spec)
+        validate_checkpoint_contract(
+            checkpoint, spec, checkpoint_task_id=checkpoint_task_id(args.task)
+        )
         print(f"[INFO] Loading {checkpoint}", flush=True)
         from instinct_rl.runners import OnPolicyRunner
 
@@ -174,6 +176,7 @@ def _play(args, engine, resources: ExitStack) -> None:
                 json.dump(
                     {
                         "checkpoint": str(checkpoint),
+                        "checkpoint_task_id": checkpoint_task_id(args.task),
                         "task_contract": task_contract(spec),
                     },
                     handle,

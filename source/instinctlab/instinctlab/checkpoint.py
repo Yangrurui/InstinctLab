@@ -158,7 +158,12 @@ def latest_run_checkpoint(
     raise FileNotFoundError(f"no checkpoint matching {checkpoint_pattern!r} in runs under {root}")
 
 
-def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None:
+def validate_checkpoint_contract(
+    checkpoint: str | Path,
+    spec: TaskSpec,
+    *,
+    checkpoint_task_id: str | None = None,
+) -> None:
     """Validate the manifest next to a checkpoint before loading its tensors.
 
     Legacy runs have no contract and remain loadable because existing Isaac and InstinctMJ
@@ -166,7 +171,9 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
     but does not block load: the same task keeps training and playback across declaration
     edits. A different ``task_id``, contract version, or ordered joint axis still fails: policy
     inputs and outputs are shape-compatible when BFS and DFS contain the same names, so checking
-    the hash alone (or only the set of names) is not enough.
+    the hash alone (or only the set of names) is not enough. A Play task may pass
+    the explicitly registered training task id whose policy it consumes; training
+    and resume callers omit it and remain strict about their own task identity.
     """
     checkpoint_path = Path(checkpoint).expanduser().resolve()
     manifest_path = checkpoint_path.parent / "manifest.json"
@@ -190,11 +197,13 @@ def validate_checkpoint_contract(checkpoint: str | Path, spec: TaskSpec) -> None
         )
         return
     current = task_contract(spec)
-    if stored.get("version") != current["version"] or stored.get("task_id") != current["task_id"]:
+    expected_task_id = checkpoint_task_id or current["task_id"]
+    if stored.get("version") != current["version"] or stored.get("task_id") != expected_task_id:
         raise ValueError(
             f"Checkpoint task contract mismatch for {checkpoint_path}: "
             f"checkpoint task={stored.get('task_id')!r}, version={stored.get('version')!r}; "
-            f"runtime task={current['task_id']!r}, version={current['version']!r}."
+            f"runtime task={current['task_id']!r}, expected checkpoint task={expected_task_id!r}, "
+            f"version={current['version']!r}."
         )
     stored_joint_names = stored.get("joint_names")
     if stored_joint_names != current["joint_names"]:
