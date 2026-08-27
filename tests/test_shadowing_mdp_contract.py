@@ -134,6 +134,33 @@ def test_shadowing_depth_clamps_before_resizing_like_both_references(monkeypatch
     torch.testing.assert_close(processed, torch.full((1, 1, 1, 2), 0.5))
 
 
+def test_shadowing_depth_image_accepts_play_debug_vis(monkeypatch) -> None:
+    from instinctlab.compat import sensors as compat_sensors
+    from instinctlab.mdp.observations import set_debug_image_sink
+
+    raw = torch.tensor([[[[0.0], [2.0], [0.0], [2.0]]]])
+    sensor_ref = SimpleNamespace(name="camera", crop=None)
+    env = SimpleNamespace(scene=SimpleNamespace(sensors={"camera": object()}))
+    monkeypatch.setattr(compat_sensors, "depth_image", lambda _sensor: raw)
+    captured: dict[str, object] = {}
+
+    def sink(window_name: str, frames) -> None:
+        captured["window"] = window_name
+        captured["frames"] = frames
+
+    set_debug_image_sink(sink)
+    try:
+        processed = shadowing_mdp.depth_image(
+            env, sensor_ref, resize_shape=(1, 2), normalization_range=(0.0, 2.0), debug_vis=True
+        )
+    finally:
+        set_debug_image_sink(None)
+
+    torch.testing.assert_close(processed, torch.full((1, 1, 1, 2), 0.5))
+    assert captured["window"] == "depth_image"
+    assert captured["frames"].shape == (1, 1, 2)
+
+
 def test_shadowing_imitation_rewards_use_current_reference_frame_not_lookahead_data() -> None:
     """main evaluates imitation at t; sensor data starts at t + dt for commands."""
     zeros3 = torch.zeros(1, 2, 3)

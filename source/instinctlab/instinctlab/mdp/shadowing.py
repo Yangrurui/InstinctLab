@@ -15,8 +15,12 @@ from instinctlab.compat import math as math_utils
 from instinctlab.utils.math import quat_to_tan_norm
 
 
-def depth_image(env, sensor, resize_shape=(18, 32), normalization_range=(0.0, 2.0)):
-    """Reference camera pipeline: clamp/normalize first, then crop and resize."""
+def depth_image(env, sensor, resize_shape=(18, 32), normalization_range=(0.0, 2.0), debug_vis=False):
+    """Reference camera pipeline: clamp/normalize first, then crop and resize.
+
+    ``debug_vis`` is training-off and play-on. Viser patches it onto the live observation
+    params; without this keyword MJLab's ``**term_cfg.params`` call crashes on step.
+    """
     from instinctlab.compat.sensors import depth_image as read_depth
 
     raw = read_depth(env.scene.sensors[sensor.name]).squeeze(-1)
@@ -25,7 +29,12 @@ def depth_image(env, sensor, resize_shape=(18, 32), normalization_range=(0.0, 2.
     if sensor.crop is not None:
         top, bottom, left, right = sensor.crop
         normalized = normalized[:, top : normalized.shape[1] - bottom, left : normalized.shape[2] - right]
-    return F.interpolate(normalized.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False)
+    processed = F.interpolate(normalized.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False)
+    if debug_vis:
+        from instinctlab.mdp.observations import _maybe_debug_visualize_depth
+
+        _maybe_debug_visualize_depth(processed, window_name="depth_image", debug_vis=True)
+    return processed
 
 
 def _field(data: Any, isaac: str, mjlab: str | None = None):
