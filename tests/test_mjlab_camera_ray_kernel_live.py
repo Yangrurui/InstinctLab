@@ -122,6 +122,68 @@ def test_hop_params_read_from_instinctmj_source() -> None:
     assert HOP["mesh_prim_paths_enabled"] is False
 
 
+def test_calibration_noise_mutates_local_rays_like_instinctmj(device) -> None:
+    from instinctlab.compat.math import quat_apply, quat_from_euler_xyz, quat_mul
+    from instinctlab.engines.mjlab.camera import pinhole_ray_caster
+
+    offset = (0.2, -0.1, 0.3)
+    offset_rot = (0.9393727, 0.0, 0.3428978, 0.0)
+    ref = RayCasterRef(
+        name="camera",
+        attach="cam",
+        pattern=RayPatternRef(kind="pinhole", width=1, height=1),
+        hit=("terrain",),
+        ray_alignment="base",
+        max_distance=MAX_DIST,
+        min_distance=0.0,
+        offset=offset,
+        offset_rot=offset_rot,
+        offset_convention="world",
+    )
+    xml = """
+    <mujoco>
+      <worldbody>
+        <body name="cam" pos="0.4 -0.2 0.7" quat="0.9659258 0.0 0.0 0.2588190">
+          <freejoint name="free"/>
+          <geom name="probe" type="sphere" size="0.005" contype="0" conaffinity="0" group="3"/>
+        </body>
+        <geom name="bvh_anchor" type="box" size="0.1 0.1 0.1" pos="10 0 0" group="0"/>
+      </worldbody>
+    </mujoco>
+    """
+    scene, sim = make_ray_test_scene(device, xml, sensors=(pinhole_ray_caster(ref),))
+    try:
+        sensor = scene["camera"]
+        calibration = torch.tensor([[0.11, -0.07, 0.05, 0.2, -0.1, 0.3]], device=device)
+        sensor.set_offset_noise(torch.tensor([0], device=device), calibration)
+        sim.forward()
+        sensor.prepare_rays()
+
+        body_id = sensor._frame_infos[0][1]
+        frame_pos = sim.data.xpos[:, body_id]
+        frame_quat = sim.data.xquat[:, body_id]
+        offset_pos = torch.tensor(offset, device=device).expand_as(frame_pos)
+        offset_quat = torch.tensor(offset_rot, device=device).expand_as(frame_quat)
+        camera_pos = frame_pos + quat_apply(frame_quat, offset_pos)
+        camera_quat = quat_mul(frame_quat, offset_quat)
+        delta_quat = quat_from_euler_xyz(*calibration[:, 3:].T)
+        expected_origins = camera_pos.unsqueeze(1) + quat_apply(
+            camera_quat,
+            sensor._local_offsets.unsqueeze(0) + calibration[:, None, :3],
+        )
+        expected_directions = quat_apply(
+            quat_mul(camera_quat, delta_quat),
+            sensor._local_directions.unsqueeze(0),
+        )
+
+        torch.testing.assert_close(sensor._cached_world_origins, expected_origins)
+        torch.testing.assert_close(sensor._cached_world_rays, expected_directions)
+        torch.testing.assert_close(sensor._reported_cam_pos, camera_pos)
+        torch.testing.assert_close(sensor._reported_cam_quat, camera_quat)
+    finally:
+        del sim, scene
+
+
 def test_min_distance_hop_skips_near_allowed_geom(device) -> None:
     """First allowed hit at ~0.05 m; second at ~0.59 m. min_distance=0.1 → take far."""
     if device == "cpu":

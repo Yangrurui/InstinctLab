@@ -272,30 +272,35 @@ def pinhole_ray_caster(sensor: RayCasterRef, profile: Mapping[str, Any] | None =
                 device=frame_pos.device,
                 dtype=frame_pos.dtype,
             )
-            noisy_pos = offset_pos.expand_as(frame_pos) + self._calibration_noise[:, :3]
+            cam_pos = frame_pos + quat_apply(frame_quat, offset_pos.expand_as(frame_pos))
+            cam_quat = quat_mul(frame_quat, offset_quat.expand_as(frame_quat))
             delta_quat = quat_from_euler_xyz(
                 self._calibration_noise[:, 3],
                 self._calibration_noise[:, 4],
                 self._calibration_noise[:, 5],
             )
-            cam_pos = frame_pos + quat_apply(frame_quat, noisy_pos)
-            cam_quat = quat_mul(frame_quat, quat_mul(delta_quat, offset_quat.expand_as(frame_quat)))
-            self._cam_pos = cam_pos
+            ray_origin_pos = cam_pos + quat_apply(cam_quat, self._calibration_noise[:, :3])
+            ray_quat = quat_mul(cam_quat, delta_quat)
+            # InstinctMJ randomizes the camera-local ray arrays, not the camera's
+            # reported pose. Keep the base pose for reporting/projection while
+            # applying xyz/rpy calibration error to ray origins and directions.
+            self._cam_pos = ray_origin_pos
             self._cam_quat = cam_quat
             self._refresh_reported_pose(cam_pos, cam_quat)
 
             batch = cam_pos.shape[0]
             num_rays = self._num_rays
-            quat_exp = cam_quat.unsqueeze(1).expand(batch, num_rays, 4).reshape(batch * num_rays, 4)
+            cam_quat_exp = cam_quat.unsqueeze(1).expand(batch, num_rays, 4).reshape(batch * num_rays, 4)
+            ray_quat_exp = ray_quat.unsqueeze(1).expand(batch, num_rays, 4).reshape(batch * num_rays, 4)
             starts = quat_apply(
-                quat_exp,
+                cam_quat_exp,
                 self._local_offsets.unsqueeze(0).expand(batch, -1, -1).reshape(batch * num_rays, 3),
             ).view(batch, num_rays, 3)
             dirs = quat_apply(
-                quat_exp,
+                ray_quat_exp,
                 self._local_directions.unsqueeze(0).expand(batch, -1, -1).reshape(batch * num_rays, 3),
             ).view(batch, num_rays, 3)
-            starts = starts + cam_pos.unsqueeze(1)
+            starts = starts + ray_origin_pos.unsqueeze(1)
 
             assert self._ray_pnt is not None and self._ray_vec is not None
             import warp as wp
