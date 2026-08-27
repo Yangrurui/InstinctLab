@@ -350,7 +350,32 @@ class ObservationsCfg:
         }
 
 
-def make_events(play: bool) -> dict[str, EventTermSpec]:
+def make_events(play: bool, adaptive_sampling: bool) -> dict[str, EventTermSpec]:
+    reset_params = {
+        "position_offset": (0.0, 0.0, 0.0),
+        "dof_vel_ratio": 1.0,
+        "base_lin_vel_ratio": 1.0,
+        "base_ang_vel_ratio": 1.0,
+        "randomize_joint_pos_range": (-0.1, 0.1),
+        "randomize_pose_range": {
+            "x": (-0.15, 0.15),
+            "y": (-0.15, 0.15),
+            "z": (0.0, 0.0),
+        },
+        "randomize_velocity_range": {},
+    }
+    if play:
+        zero_spatial_range = {
+            "x": (0.0, 0.0),
+            "y": (0.0, 0.0),
+            "z": (0.0, 0.0),
+            "roll": (0.0, 0.0),
+            "pitch": (0.0, 0.0),
+            "yaw": (0.0, 0.0),
+        }
+        reset_params["randomize_joint_pos_range"] = (0.0, 0.0)
+        reset_params["randomize_pose_range"] = dict(zero_spatial_range)
+        reset_params["randomize_velocity_range"] = dict(zero_spatial_range)
     events = {
         "physics_material": EventTermSpec(
             kind="randomize_friction",
@@ -424,23 +449,14 @@ def make_events(play: bool) -> dict[str, EventTermSpec]:
         "reset_robot": EventTermSpec(
             kind="shadow_reset_robot_from_reference",
             mode="reset",
-            params={
-                "position_offset": (0.0, 0.0, 0.0),
-                "dof_vel_ratio": 1.0,
-                "base_lin_vel_ratio": 1.0,
-                "base_ang_vel_ratio": 1.0,
-                "randomize_joint_pos_range": (-0.1, 0.1),
-                "randomize_pose_range": {
-                    "x": (-0.15, 0.15),
-                    "y": (-0.15, 0.15),
-                    "z": (0.0, 0.0),
-                },
-                "randomize_velocity_range": {},
-            },
+            params=reset_params,
             engine_params={"isaacsim": {"root_velocity_frame": "com"}},
         ),
     }
-    if not play:
+    if play:
+        for name in ("physics_material", "add_joint_default_pos", "base_com"):
+            events.pop(name)
+    if adaptive_sampling:
         events["bin_fail_counter_smoothing"] = EventTermSpec(
             kind="shadow_smooth_bin_failures",
             mode="interval",
@@ -595,8 +611,8 @@ def make_terminations(
     }
 
 
-def make_curriculum(play: bool) -> dict[str, CurriculumTermSpec]:
-    if play:
+def make_curriculum(adaptive_sampling: bool) -> dict[str, CurriculumTermSpec]:
+    if not adaptive_sampling:
         return {}
     return {"beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")}
 
@@ -646,8 +662,9 @@ class PerceptiveShadowingEnvCfg:
         self.actions = make_actions(robot)
         self.commands = make_commands()
         self.rewards = RewardsCfg()
-        self.events = make_events(play)
-        self.curriculum = make_curriculum(play)
+        adaptive_sampling = not play and motion_reference.motion_bin_length_s is not None
+        self.events = make_events(play, adaptive_sampling)
+        self.curriculum = make_curriculum(adaptive_sampling)
         self.terminations = make_terminations(motion_reference)
         self.agent_overrides: dict[str, object] = {}
 

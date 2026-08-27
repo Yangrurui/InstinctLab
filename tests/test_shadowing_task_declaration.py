@@ -166,7 +166,8 @@ def test_play_specs_are_explicit_contracts_not_gym_aliases() -> None:
         task = registry.spec(task_id)
         play = "-Play-v0" in task_id
         assert task.scene.env_spacing == (2.5 if play else 4.0)
-        assert ("beyond_adaptive_sampling" in task.mdp.curriculum) is not play
+        adaptive_sampling = not play and task.scene.motion_references[0].motion_bin_length_s is not None
+        assert ("beyond_adaptive_sampling" in task.mdp.curriculum) is adaptive_sampling
 
 
 def test_no_shadowing_module_registers_gym_or_imports_an_engine() -> None:

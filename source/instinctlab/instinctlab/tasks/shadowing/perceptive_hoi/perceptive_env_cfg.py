@@ -342,6 +342,20 @@ def make_events(play: bool) -> dict[str, EventTermSpec]:
         },
         "randomize_velocity_range": {},
     }
+    isaac_reset_params = {"root_velocity_frame": "com"}
+    if play:
+        zero_spatial_range = {
+            "x": (0.0, 0.0),
+            "y": (0.0, 0.0),
+            "z": (0.0, 0.0),
+            "roll": (0.0, 0.0),
+            "pitch": (0.0, 0.0),
+            "yaw": (0.0, 0.0),
+        }
+        reset_params["randomize_joint_pos_range"] = (0.0, 0.0)
+        reset_params["randomize_pose_range"] = dict(zero_spatial_range)
+        reset_params["randomize_velocity_range"] = dict(zero_spatial_range)
+        isaac_reset_params["position_offset"] = (0.0, 1.0, 2.0)
     events = {
         "physics_material": EventTermSpec(
             kind="randomize_friction",
@@ -412,7 +426,7 @@ def make_events(play: bool) -> dict[str, EventTermSpec]:
             kind="shadow_reset_robot_from_reference",
             mode="reset",
             params=reset_params,
-            engine_params={"isaacsim": {"root_velocity_frame": "com"}},
+            engine_params={"isaacsim": isaac_reset_params},
         ),
         "reset_rigid_objects_state_by_reference": EventTermSpec(
             kind="shadow_reset_objects_from_reference",
@@ -427,7 +441,10 @@ def make_events(play: bool) -> dict[str, EventTermSpec]:
             engine_params={"isaacsim": {"root_velocity_frame": "com"}},
         ),
     }
-    if not play:
+    if play:
+        for name in ("physics_material", "add_joint_default_pos", "base_com"):
+            events.pop(name)
+    else:
         events["bin_fail_counter_smoothing"] = EventTermSpec(
             kind="shadow_smooth_bin_failures",
             mode="interval",

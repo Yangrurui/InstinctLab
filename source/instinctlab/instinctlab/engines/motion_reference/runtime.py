@@ -388,28 +388,45 @@ class MotionReferenceRuntime:
                 )
                 probabilities[lo:hi] /= probabilities[lo:hi].sum().clamp_min(1e-10)
         self.motion_bin_weights.copy_(probabilities)
-        weights = (
-            probabilities
-            if self.ref.sampling_strategy == "concat_motion_bins"
-            else probabilities[: self._bin_counts_host[0]]
-        )
-        entropy_denominator = torch.log(torch.tensor(float(weights.numel()), device=weights.device))
-        entropy = weights.new_zeros(()) if weights.numel() == 1 else (
-            -(weights * torch.log(weights + 1e-12)).sum() / entropy_denominator
-        )
-        metrics = torch.stack(
-            (
-                entropy,
-                weights.max(),
-                weights.argmax().to(weights.dtype) / max(weights.numel(), 1),
+        metric_names: list[str] = []
+        metric_tensors: list[torch.Tensor] = []
+        if self.ref.sampling_strategy == "concat_motion_bins":
+            weight_groups = (("", probabilities),)
+        else:
+            weight_groups = tuple(
+                (
+                    f"motion_{motion_id}_",
+                    probabilities[
+                        self._bin_offsets_host[motion_id] : self._bin_offsets_host[motion_id + 1]
+                    ],
+                )
+                for motion_id in range(min(len(self.clips), 4))
             )
-        )
-        sampling_entropy, sampling_top1_prob, sampling_top1_bin = metrics.detach().cpu().tolist()
-        return {
-            "sampling_entropy": sampling_entropy,
-            "sampling_top1_prob": sampling_top1_prob,
-            "sampling_top1_bin": sampling_top1_bin,
-        }
+        for prefix, weights in weight_groups:
+            entropy_denominator = torch.log(
+                torch.tensor(float(weights.numel()), device=weights.device)
+            )
+            entropy = (
+                weights.new_zeros(())
+                if weights.numel() == 1
+                else -(weights * torch.log(weights + 1e-12)).sum() / entropy_denominator
+            )
+            metric_names.extend(
+                (
+                    f"{prefix}sampling_entropy",
+                    f"{prefix}sampling_top1_prob",
+                    f"{prefix}sampling_top1_bin",
+                )
+            )
+            metric_tensors.extend(
+                (
+                    entropy,
+                    weights.max(),
+                    weights.argmax().to(weights.dtype) / max(weights.numel(), 1),
+                )
+            )
+        metric_values = torch.stack(metric_tensors).detach().cpu().tolist()
+        return dict(zip(metric_names, metric_values, strict=True))
 
     def refresh_initial(self, env_ids: torch.Tensor) -> None:
         """Build the floor-indexed reset state separately from rounded look-ahead data."""

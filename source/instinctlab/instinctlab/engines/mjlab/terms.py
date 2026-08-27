@@ -583,6 +583,8 @@ def _shadow_actuator_gains(spec, ctx):
 def _shadow_body_inertia(spec, ctx):
     from mjlab.envs.mdp import dr
 
+    from .events import uniform_mass_scale_distribution
+
     params = ctx.params(spec)
     lo, hi = params["add_range"]
     return _event(
@@ -591,6 +593,7 @@ def _shadow_body_inertia(spec, ctx):
         {
             "asset_cfg": ctx.entity(spec.target),
             "alpha_range": (0.5 * math.log(lo), 0.5 * math.log(hi)),
+            "distribution": uniform_mass_scale_distribution(),
         },
     )
 

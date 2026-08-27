@@ -28,7 +28,12 @@ from typing import Any
 from mjlab.envs.mdp import dr as _dr
 from mjlab.managers.event_manager import requires_model_fields
 
-__all__ = ["randomize_body_mass", "reset_joints_by_offset", "reset_joints_by_scale"]
+__all__ = [
+    "randomize_body_mass",
+    "reset_joints_by_offset",
+    "reset_joints_by_scale",
+    "uniform_mass_scale_distribution",
+]
 
 
 def _rows(data: torch.Tensor, env_ids: torch.Tensor) -> torch.Tensor:
@@ -117,7 +122,7 @@ def reset_joints_by_scale(
     )
 
 
-def _uniform_in_mass_scale() -> Any:
+def uniform_mass_scale_distribution() -> Any:
     """A distribution uniform in the mass ratio rather than in its logarithm.
 
     ``dr.pseudo_inertia`` is parameterised by ``alpha``, where the mass ratio is ``exp(2*alpha)``,
@@ -129,7 +134,7 @@ def _uniform_in_mass_scale() -> Any:
     from instinctlab.compat.math import sample_uniform
 
     return dr.Distribution(
-        name="uniform_in_mass_scale",
+        name="uniform_mass_scale_to_alpha",
         sample=lambda lo, hi, shape, device: 0.5
         * torch.log(sample_uniform(torch.exp(2.0 * lo), torch.exp(2.0 * hi), shape, device=device)),
     )
@@ -165,7 +170,7 @@ def randomize_body_mass(
 
     local_ids = torch.arange(asset.indexing.body_ids.numel(), device=env.device, dtype=torch.long)
     local_ids = local_ids[asset_cfg.body_ids].reshape(-1)
-    distribution = _uniform_in_mass_scale()
+    distribution = uniform_mass_scale_distribution()
 
     for local_id, model_id in zip(local_ids.tolist(), asset.indexing.body_ids[local_ids].tolist(), strict=True):
         mass = _default_mass(env, env_ids, model_id)

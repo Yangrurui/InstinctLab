@@ -38,13 +38,15 @@ class _ResetAsset:
         return [self.joint_names.index(name) for name in resolved], list(resolved)
 
     def write_root_link_pose_to_sim(self, pose, env_ids=None):
-        pass
+        self.root_pose = pose.clone()
 
     def write_root_link_velocity_to_sim(self, velocity, env_ids=None):
         self.root_velocity_writer = "link"
+        self.root_velocity = velocity.clone()
 
     def write_root_com_velocity_to_sim(self, velocity, env_ids=None):
         self.root_velocity_writer = "com"
+        self.root_velocity = velocity.clone()
 
     def write_joint_state_to_sim(self, position, velocity, joint_ids=None, env_ids=None):
         self.joint_pos[env_ids[:, None], joint_ids[None, :]] = position
@@ -103,6 +105,49 @@ def test_shadowing_reset_uses_the_declared_root_velocity_point() -> None:
         root_velocity_frame="com",
     )
     assert asset.root_velocity_writer == "com"
+
+
+@pytest.mark.parametrize(
+    ("engine", "expected_position", "expected_velocity_writer"),
+    (
+        ("isaacsim", (1.0, 3.0, 5.0), "com"),
+        ("mjlab", (1.0, 2.0, 3.0), "link"),
+    ),
+)
+def test_hoi_play_reset_has_no_state_noise_and_applies_only_the_isaac_offset(
+    engine: str,
+    expected_position: tuple[float, float, float],
+    expected_velocity_writer: str,
+) -> None:
+    canonical = G1_29DOF_DFS_JOINT_NAMES
+    asset = _ResetAsset(canonical)
+    joint_pos = torch.arange(len(canonical), dtype=torch.float32).reshape(1, 1, -1)
+    joint_vel = joint_pos + 100.0
+    state = SimpleNamespace(
+        base_pos_w=torch.tensor([[[1.0, 2.0, 3.0]]]),
+        base_quat_w=torch.tensor([[[1.0, 0.0, 0.0, 0.0]]]),
+        base_lin_vel_w=torch.tensor([[[4.0, 5.0, 6.0]]]),
+        base_ang_vel_w=torch.tensor([[[7.0, 8.0, 9.0]]]),
+        joint_pos=joint_pos,
+        joint_vel=joint_vel,
+    )
+    sensor = SimpleNamespace(init_reference_state=state, joint_names=canonical)
+    env = SimpleNamespace(device="cpu", scene={"robot": asset, "motion_reference": sensor})
+    reset = registry.spec("Instinct-Perceptive-HOI-Shadowing-G1-Play-v0").mdp.events[
+        "reset_robot"
+    ]
+
+    reset_robot_from_reference(env, torch.tensor([0]), **reset.resolved_params(engine))
+
+    torch.testing.assert_close(asset.root_pose[0, :3], torch.tensor(expected_position))
+    torch.testing.assert_close(asset.root_pose[0, 3:], state.base_quat_w[0, 0])
+    torch.testing.assert_close(
+        asset.root_velocity[0],
+        torch.cat((state.base_lin_vel_w[0, 0], state.base_ang_vel_w[0, 0])),
+    )
+    torch.testing.assert_close(asset.joint_pos, joint_pos[:, 0])
+    torch.testing.assert_close(asset.joint_vel, joint_vel[:, 0])
+    assert asset.root_velocity_writer == expected_velocity_writer
 
 
 def test_shadowing_reset_rejects_an_incomplete_joint_mapping() -> None:

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from instinctlab.engines import shadowing_events
 from instinctlab.engines.motion_reference import (
     ChainInventory,
     MotionClip,
@@ -317,6 +318,61 @@ def test_adaptive_sampling_records_smooths_and_reweights_failed_bins() -> None:
     assert runtime.motion_bin_weights[1] > runtime.motion_bin_weights[0]
     second_offset = int(runtime._bin_offsets[1])
     assert runtime.motion_bin_weights[second_offset + 1] > runtime.motion_bin_weights[second_offset]
+
+
+def test_independent_adaptive_sampling_reports_each_motion_separately() -> None:
+    ref = _ref("unused", motion_bin_length_s=1.0, sampling_strategy="independent")
+    runtime = MotionReferenceRuntime.from_clips(
+        ref,
+        (_clip("first", 0.0), _clip("second", 1000.0)),
+        (MotionInventoryEntry("first"), MotionInventoryEntry("second")),
+        2,
+    )
+    runtime.motion_bin_fail_counter.copy_(
+        torch.arange(runtime.motion_bin_fail_counter.numel(), dtype=torch.float32)
+    )
+
+    metrics = runtime.update_adaptive_weights()
+
+    assert metrics is not None
+    assert set(metrics) == {
+        "motion_0_sampling_entropy",
+        "motion_0_sampling_top1_prob",
+        "motion_0_sampling_top1_bin",
+        "motion_1_sampling_entropy",
+        "motion_1_sampling_top1_prob",
+        "motion_1_sampling_top1_bin",
+    }
+
+
+def test_reset_curriculum_records_before_interval_smoothing() -> None:
+    ref = _ref("unused", motion_bin_length_s=1.0, sampling_strategy="concat_motion_bins")
+    runtime = MotionReferenceRuntime.from_clip(ref, _clip("only", 0.0), 1)
+    runtime.buffers.start_s[0] = 0.1
+    sensor = SimpleNamespace(_runtime=runtime, data=runtime.buffers)
+    env = SimpleNamespace(
+        device="cpu",
+        scene={"motion_reference": sensor},
+        termination_manager=SimpleNamespace(terminated=torch.tensor([True])),
+        episode_length_buf=torch.tensor([50]),
+        step_dt=0.02,
+    )
+
+    shadowing_events.adaptive_sampling(env, torch.tensor([0]))
+
+    assert runtime.current_motion_bin_fail_counter[1] == 1.0
+    assert runtime.motion_bin_fail_counter.sum() == 0.0
+    torch.testing.assert_close(
+        runtime.motion_bin_weights,
+        torch.full_like(runtime.motion_bin_weights, 1.0 / runtime.motion_bin_weights.numel()),
+    )
+
+    shadowing_events.smooth_bin_failures(env, None)
+
+    assert runtime.current_motion_bin_fail_counter.sum() == 0.0
+    assert runtime.motion_bin_fail_counter[1] == pytest.approx(0.001)
+    shadowing_events.adaptive_sampling(env, torch.empty(0, dtype=torch.long))
+    assert runtime.motion_bin_weights[1] > runtime.motion_bin_weights[0]
 
 
 def test_adaptive_sampling_avoids_implicit_tensor_scalar_conversions(monkeypatch) -> None:

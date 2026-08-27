@@ -540,6 +540,110 @@ def test_domain_randomization_and_reset_order_match_effective_sources() -> None:
     assert perceptive.mdp.events["physics_material"].resolved_params("mjlab")["ranges"][2] == (0.0, 0.5)
 
 
+def test_perceptive_play_keeps_only_reference_evaluation_randomization() -> None:
+    """Perceptive play keeps sensor/actuator/body DR but removes train-only state noise."""
+    task_ids = (
+        "Instinct-Perceptive-Shadowing-G1-Play-v0",
+        "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0",
+        "Instinct-Perceptive-Vae-G1-Play-v0",
+        "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0",
+    )
+    zero_spatial_range = {
+        "x": (0.0, 0.0),
+        "y": (0.0, 0.0),
+        "z": (0.0, 0.0),
+        "roll": (0.0, 0.0),
+        "pitch": (0.0, 0.0),
+        "yaw": (0.0, 0.0),
+    }
+
+    expected_events = {
+        task_ids[0]: {
+            "randomize_ray_offsets",
+            "randomize_actuator_gains",
+            "randomize_rigid_body_mass",
+            "match_motion_ref_with_scene",
+            "reset_robot",
+        },
+        task_ids[1]: {
+            "randomize_ray_offsets",
+            "randomize_actuator_gains",
+            "randomize_rigid_body_mass",
+            "match_motion_ref_with_scene",
+            "reset_robot",
+        },
+        task_ids[2]: {
+            "randomize_ray_offsets",
+            "randomize_actuator_gains",
+            "randomize_rigid_body_mass",
+            "match_motion_ref_with_scene",
+            "reset_robot",
+        },
+        task_ids[3]: {
+            "randomize_ray_offsets",
+            "randomize_actuator_gains",
+            "randomize_rigid_body_mass",
+            "reset_robot",
+            "reset_rigid_objects_state_by_reference",
+            "update_rigid_objects_state_by_reference",
+        },
+    }
+
+    for task_id in task_ids:
+        events = registry.spec(task_id).mdp.events
+        assert set(events) == expected_events[task_id], task_id
+        reset = events["reset_robot"].params
+        assert reset["randomize_pose_range"] == zero_spatial_range, task_id
+        assert reset["randomize_velocity_range"] == zero_spatial_range, task_id
+        assert reset["randomize_joint_pos_range"] == (0.0, 0.0), task_id
+
+    # Whole-body and BeyondMimic references intentionally retain their play-time DR.
+    for task_id in (
+        "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0",
+        "Instinct-BeyondMimic-Plane-G1-Play-v0",
+    ):
+        events = registry.spec(task_id).mdp.events
+        assert {"physics_material", "add_joint_default_pos", "base_com"} <= events.keys(), task_id
+        assert events["reset_robot"].params["randomize_joint_pos_range"] != (0.0, 0.0), task_id
+
+
+def test_one_motion_without_bins_does_not_schedule_adaptive_sampling() -> None:
+    one_motion = registry.spec("Instinct-Perceptive-Shadowing-G1-OneMotion-v0")
+    assert one_motion.scene.motion_references[0].motion_bin_length_s is None
+    assert "beyond_adaptive_sampling" not in one_motion.mdp.curriculum
+    assert "bin_fail_counter_smoothing" not in one_motion.mdp.events
+
+    binned = registry.spec("Instinct-Perceptive-Shadowing-G1-v0")
+    assert binned.scene.motion_references[0].motion_bin_length_s is not None
+    assert "beyond_adaptive_sampling" in binned.mdp.curriculum
+    assert binned.mdp.events["bin_fail_counter_smoothing"].interval_range_s == (0.02, 0.02)
+
+
+def test_hoi_play_reset_preserves_the_engine_specific_reference_offset() -> None:
+    train = registry.spec("Instinct-Perceptive-HOI-Shadowing-G1-v0").mdp.events["reset_robot"]
+    play = registry.spec("Instinct-Perceptive-HOI-Shadowing-G1-Play-v0").mdp.events["reset_robot"]
+
+    assert train.resolved_params("isaacsim")["position_offset"] == (0.0, 0.0, 0.0)
+    assert train.resolved_params("mjlab")["position_offset"] == (0.0, 0.0, 0.0)
+    assert play.resolved_params("isaacsim")["position_offset"] == (0.0, 1.0, 2.0)
+    assert play.resolved_params("mjlab")["position_offset"] == (0.0, 0.0, 0.0)
+
+
+def test_mjlab_shadow_body_inertia_is_uniform_in_mass_scale() -> None:
+    task = registry.spec("Instinct-Perceptive-Shadowing-G1-v0")
+    compiled = MjlabAdapter().compile(task, num_envs=2, device="cpu", strict=True)
+    params = compiled.env_cfg.events["randomize_rigid_body_mass"].params
+    distribution = params["distribution"]
+    lo, hi = params["alpha_range"]
+
+    assert distribution.name == "uniform_mass_scale_to_alpha"
+    torch.manual_seed(123)
+    alpha = distribution.sample(torch.tensor([lo]), torch.tensor([hi]), (32,), "cpu")
+    torch.manual_seed(123)
+    expected_mass_scale = torch.rand(32) * 0.4 + 0.8
+    torch.testing.assert_close(torch.exp(2.0 * alpha), expected_mass_scale)
+
+
 def test_whole_body_undesired_contact_reward_excludes_support_links() -> None:
     """Both main and InstinctMJ permit ankle and wrist support contacts."""
     task = registry.spec("Instinct-Shadowing-WholeBody-Plane-G1-v0")
