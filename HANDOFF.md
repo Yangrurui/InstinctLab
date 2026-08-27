@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 03:37 UTC
+Updated: 2026-08-27 03:48 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current task-style cleanup: `efeaa9d`
+- Current task cleanup: `a9e3805`
 - Remote: `git@github.com:Yangrurui/InstinctLab.git`
 - Remote was at `a1e86b8` before this cleanup; push the local commits before
   decommissioning this server.
@@ -84,16 +84,33 @@ python scripts/check_mjlab.py resolved all 39 Locomotion terms,
 constructed 16 MJLab environments, and stepped 5 times
 ```
 
+Unused task metadata cleanup at `a9e3805`:
+
+```text
+all 15 registered tasks have empty engine_extras
+15/15 previous contracts were reproduced by restoring engine_extras only
+1204 passed, 2 skipped, 30 deselected
+python scripts/check_mjlab.py resolved all 39 Locomotion terms,
+constructed 16 MJLab environments, and stepped 5 times
+```
+
+The Shadowing contract hashes changed because the unused metadata was removed;
+scene, simulation, MDP, reward, observation, and agent declarations did not
+change. Task package exports now contain factories only. Parkour sensor
+declarations are imported from their owner, `parkour_env_cfg.py`, rather than
+forwarded through the G1 file.
+
 Concrete task classes can now replace one reward or observation term directly;
 the registry factories only instantiate the class and convert it to `TaskSpec`.
 Parkour's shared declarations were restored to
 `tasks/parkour/config/parkour_env_cfg.py`, matching the main repository layout.
 
-The active agent configuration files did not change. The only change in
-`scripts/train.py` was removal of the obsolete `scripts/instinct_rl` path
-workaround after that shadowing directory was deleted. On Isaac, the Shadowing
-term builders now read the same ordered link tuple from the task's motion
-reference instead of importing the task-level constant directly.
+The active agent configuration values did not change; the latest cleanup only
+removed unused imports from those files. The only change in `scripts/train.py`
+was removal of the obsolete `scripts/instinct_rl` path workaround after that
+shadowing directory was deleted. On Isaac, the Shadowing term builders now read
+the same ordered link tuple from the task's motion reference instead of
+importing the task-level constant directly.
 
 These checks prove declaration, contract, and construction integrity. They do
 not replace fixed-state, temporal, or production convergence evidence.
