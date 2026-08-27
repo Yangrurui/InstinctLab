@@ -389,6 +389,26 @@ def test_depth_image_turns_a_past_far_plane_hit_into_infinity() -> None:
     assert math.isinf(image[0, 0, 1, 0]) and image[0, 0, 1, 0] > 0
 
 
+def test_depth_image_does_not_convert_device_state_to_a_python_bool(monkeypatch) -> None:
+    """A Python bool on a CUDA tensor synchronizes the Perceptive hot path."""
+
+    class _Data:
+        output = {"distance_to_image_plane": torch.tensor([[[[1.0], [float("nan")]]]])}
+
+    class _Sensor:
+        data = _Data()
+
+    def refuse_tensor_bool(_tensor) -> bool:
+        raise AssertionError("depth_image converted tensor state to a Python bool")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(torch.Tensor, "__bool__", refuse_tensor_bool)
+        image = compat_sensors.depth_image(_Sensor())
+
+    assert image[0, 0, 0, 0] == pytest.approx(1.0)
+    assert math.isinf(image[0, 0, 1, 0]) and image[0, 0, 1, 0] > 0
+
+
 def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
     pytest.importorskip("mjlab")
     from instinctlab.engines.mjlab.camera import pinhole_camera_geom_groups

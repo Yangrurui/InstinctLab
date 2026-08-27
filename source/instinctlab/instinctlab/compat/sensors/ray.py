@@ -49,8 +49,7 @@ def depth_image(sensor: Any) -> torch.Tensor:
     invalid = ~torch.isfinite(image)
     if far is not None:
         invalid |= image > float(far)
-    if not bool(invalid.any()):
-        return image
-    normalized = image.clone()
-    normalized[invalid] = float("inf")
-    return normalized
+    # Keep this path entirely on the sensor device. Converting ``invalid.any()``
+    # to a Python bool synchronizes CUDA once per observation, which stalls the
+    # Perceptive rollout after its asynchronous ray cast.
+    return image.masked_fill(invalid, float("inf"))
