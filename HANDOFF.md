@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 10:28 UTC
+Updated: 2026-08-27 10:36 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -504,11 +504,14 @@ python scripts/check_mjlab.py resolved all 39 Locomotion terms,
   and stepped 5 times
 ```
 
-A fresh Isaac live probe was attempted twice but Kit stopped before environment
-construction while Neuray loaded on this host; its log reports missing
-`libGLU.so.1`. The probe never reached the joint assertions, so this audit does
-not claim a new Isaac live pass. The existing Parkour live test still contains
-the accepted runtime guard that checks native BFS names, DFS observation/action
+Two attempted fresh Isaac live probes did not reach the joint assertions, so
+this audit does not claim a new Isaac live pass. Their missing `libGLU.so.1`
+message was initially misidentified as the cause. The active Isaac headless
+training logs contain the same optional Iray/Neuray extension-load error, then
+construct the environment and continue training without mapping `libGLU`; it
+is therefore not an Isaac startup blocker for this path. The actual early-probe
+exit was not established. The existing Parkour live test still contains the
+accepted runtime guard that checks native BFS names, DFS observation/action
 names, semantic state values, and action-history columns. The three production
 training processes were not signaled or restarted during this audit.
 
@@ -607,11 +610,10 @@ scripts/check_mjlab.py resolved all 39 Locomotion terms,
   constructed 16 environments and stepped 5 times
 ```
 
-No fresh Isaac rollout is claimed because the host still lacks `libGLU.so.1`.
-The live GPU 5--7 training processes were not signaled or restarted. The
-configuration fixes affect currently inactive VAE/HOI/BeyondMimic or Play
-variants; the active Perceptive timeout behavior was already equivalent in the
-native builders.
+No fresh Isaac rollout was run or claimed in this phase. The live GPU 5--7
+training processes were not signaled or restarted. The configuration fixes
+affect currently inactive VAE/HOI/BeyondMimic or Play variants; the active
+Perceptive timeout behavior was already equivalent in the native builders.
 
 ## Event, randomization, and curriculum audit (2026-08-27)
 
@@ -658,11 +660,11 @@ scripts/check_mjlab.py resolved all 39 Locomotion terms,
   constructed 16 environments in DFS action order, and stepped 5 times
 ```
 
-No fresh Isaac environment is claimed because the host still lacks
-`libGLU.so.1`. The three live training processes were inspected and not
-signaled. In particular, the GPU 7 MJLab Perceptive process loaded the old
-inertia distribution and camera calibration code before these commits; treat
-it as convergence diagnostics, not post-fix randomization evidence.
+No fresh Isaac environment was run or claimed in this phase. The three live
+training processes were inspected and not signaled. In particular, the GPU 7
+MJLab Perceptive process loaded the old inertia distribution and camera
+calibration code before these commits; treat it as convergence diagnostics,
+not post-fix randomization evidence.
 
 ## Train/play checkpoint contract audit (2026-08-27)
 
@@ -814,9 +816,10 @@ finite.
 6. Continue reducing engine-specific parameter overlays by translating shared
    semantic values in builders. Do not move task policy into an engine package
    to achieve this.
-7. Restore the host OpenGL utility dependency providing `libGLU.so.1` before
-   rerunning fresh Isaac live joint-order probes; the current failure occurs in
-   Kit/Neuray initialization before an environment is constructed.
+7. Rerun the fresh Isaac live joint-order probe and preserve its final exit
+   status and traceback. Do not classify the optional Iray/Neuray
+   `libGLU.so.1` extension-load message as fatal by itself: the current headless
+   training processes emit it and continue normally.
 
 ## Bring-up and verification
 
