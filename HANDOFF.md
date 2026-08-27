@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 07:01 UTC
+Updated: 2026-08-27 07:16 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -206,12 +206,13 @@ logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_
 - **Whole Body plane Shadowing: short-horizon parity accepted.** At 4096
   environments, unified/main rewards at iterations 0, 10, 20, 40, and 100 were
   `-1.63/-1.65`, `-0.96/-0.98`, `-0.48/-0.49`, `-0.23/-0.19`, and
-  `0.06/0.09`. Final-commit long-horizon convergence is still in progress.
-- **Perceptive Shadowing: the active Isaac run is invalid convergence
-  evidence.** Startup summaries agreed with main, but the shared joint-position
+  `0.06/0.09`. The active GPU 5 long run predates the joint-reference fix and
+  is not valid long-horizon convergence evidence.
+- **Perceptive Shadowing: fresh post-fix Isaac convergence is in progress.**
+  Startup summaries agreed with main, but the old GPU 6 run's shared joint-position
   reference command subtracted Isaac-native BFS defaults positionally from DFS
-  reference tensors. This silent observation error is fixed in the current
-  tree; a fresh post-fix run is required.
+  reference tensors. That run was stopped at operator request and replaced by
+  the fresh GPU 6 run recorded below.
 - **Perceptive VAE, HOI, and BeyondMimic: declarations exist, but no accepted
   production reproduction on both engines.**
 - Play variants use the corresponding train checkpoint; they do not need an
@@ -306,14 +307,12 @@ The OMOMO motion files are not installed on this server, so HOI object-origin
 coverage is fixed-state rather than a full simulator rollout. Production HOI
 reproduction remains open below.
 
-The Perceptive long runs already active on Isaac GPU 6 and MJLab GPU 7 were
-started before this audit and were not stopped or restarted. The MJLab process
+The Perceptive long runs active during this audit on Isaac GPU 6 and MJLab GPU 7
+were started before the audit. The MJLab process
 therefore still has the old Parkour-default camera settings in memory and must
 not be used as post-fix Perceptive camera or reset-height evidence. The Isaac
-process likewise predates the 10 N main contact-clock resolution, although
-current Perceptive MDP terms do not consume that timer. A future post-fix
-Perceptive comparison must start new log directories; do not relabel either
-active run.
+process also predated the fixes and was stopped at operator request on
+2026-08-27. Its retained logs remain diagnostic only; they were not relabeled.
 
 ## Perceptive Isaac performance audit (2026-08-27)
 
@@ -361,9 +360,10 @@ object routing, and independent-motion-bin reset sampling. Isaac Lab itself
 also calls `Tensor.item()` from observation-history `CircularBuffer.max_length`
 about 20 times per Perceptive step; both unified and main use that dependency.
 
-The active GPU 6 Perceptive process loaded code before these fixes. Its timings
-must not be treated as post-fix performance evidence; start a new log directory
-for the next production comparison.
+The old GPU 6 Perceptive process loaded code before these fixes, so its timings
+are not post-fix performance evidence. The replacement run uses InstinctLab
+`1ee8654` and instinct_rl `64d7e01`; at iteration 10 it reported 14,142 steps/s
+(5.224 s collection), versus main's 13,293 steps/s (5.677 s collection).
 
 ## Perceptive joint-reference audit (2026-08-27)
 
@@ -390,20 +390,30 @@ Verification:
 scripts/check_mjlab.py resolved all 39 Locomotion terms and stepped 16 envs 5x
 ```
 
-The live GPU 6 process has the faulty command object in memory and cannot
-become post-fix convergence evidence. It was not stopped or restarted. A new
-Isaac Perceptive run must use a new log directory after operator approval.
+Every registered task whose MDP declares `shadow_joint_position_reference`
+uses this shared implementation: Whole Body train/play, Perceptive train/play
+and OneMotion train/play, Perceptive VAE train/play, Perceptive HOI train/play,
+and BeyondMimic train/play (12 task IDs). Isaac is exposed to the BFS/DFS fault;
+MJLab's native G1 joint order is already DFS. Parkour has a motion reference but
+does not declare this command and is not affected by this fault. The per-task
+test now discovers consumers by command kind, including the two VAE IDs (21
+focused tests pass at `5c3f294`).
+
+At operator request, the old GPU 6 process was stopped and a fresh seed-42 run
+was started from the clean `1ee8654` worktree, with a new log directory. At
+iteration 20 its reward/length were `-0.52/9.08`, close to main's
+`-0.49/8.63`; this is an early sanity check, not convergence evidence.
 
 ## Live experiments
 
-Snapshot at 2026-08-27 07:01 UTC. These processes were inspected only; none was
-stopped, restarted, or signaled.
+Snapshot at 2026-08-27 07:15 UTC. The old GPU 6 run was stopped and replaced at
+explicit operator request. GPU 5 and GPU 7 were not signaled.
 
 | GPU | Run | Iteration | Reward | Episode length | Status |
 |---:|---|---:|---:|---:|---|
-| 5 | unified Isaac Whole Body `final_long_4096_gpu5_20260826` | 17790 | 5.21 | 68.40 | live; also has the faulty joint-position reference command |
-| 6 | unified Isaac Perceptive `final_long_4096_gpu6_20260826` | 7510 | 3.02 | 63.95 | live; faulty joint-position reference command, invalid convergence evidence |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 9560 | 13.84 | 234.02 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera reference fixes |
+| 5 | unified Isaac Whole Body `final_long_4096_gpu5_20260826` | 18040 | 5.71 | 75.22 | live; faulty joint-position reference command, invalid long-horizon evidence |
+| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 20 | -0.52 | 9.08 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 9700 | 14.73 | 243.73 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera reference fixes |
 
 Do not stop or restart these runs without an explicit operator request. Review
 reward, episode length, termination mix, and action noise together before
@@ -440,9 +450,10 @@ finite.
 
 ## Open risks and next work
 
-1. Let the live final Whole Body and Perceptive comparisons continue. Compare
-   matched iterations and termination distributions before declaring
-   long-horizon convergence.
+1. Let the fresh GPU 6 Perceptive run continue and compare matched iterations
+   and termination distributions before declaring long-horizon convergence.
+   GPU 5 Whole Body must eventually be replaced by a fresh post-fix run; do not
+   promote its current checkpoints.
 2. Diagnose the MJLab Whole Body CUDA 719 failure from the retained checkpoint
    and logs without disturbing live runs.
 3. Run production reproductions for Perceptive VAE, HOI, and BeyondMimic on
