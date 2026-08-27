@@ -50,8 +50,9 @@ def make_shadowing_command_classes(command_term_base: type) -> dict[str, type]:
             if self.cfg.realtime_mode:
                 env_ids = torch.arange(self.num_envs, device=self.device)
             else:
-                runtime = self._motion._runtime
-                env_ids = torch.where(runtime.buffers.timestamp - runtime.last_update < self._env.step_dt)[0]
+                env_ids = torch.where(
+                    self._motion.time_passed_from_update < (self._env.step_dt - 1.0e-6)
+                )[0]
             if env_ids.numel():
                 self._update_command_by_env_ids(env_ids)
 
@@ -64,16 +65,17 @@ def make_shadowing_command_classes(command_term_base: type) -> dict[str, type]:
     class PositionReference(ShadowingCommand):
         def __init__(self, cfg, env):
             super().__init__(cfg, env)
-            self._command = torch.zeros(self.num_envs, self._motion._runtime.ref.num_frames, 3, device=self.device)
+            self._command = torch.zeros(self.num_envs, self._motion.num_frames, 3, device=self.device)
             self._update_command_by_env_ids(torch.arange(self.num_envs, device=self.device))
 
         def _update_command_by_env_ids(self, env_ids):
-            robot = self._env.scene[self.cfg.entity_name].data
             reference = self._motion.data
             if self.cfg.anchor_frame == "reference":
-                anchor_pos = reference.base_pos_w[env_ids, 0]
-                anchor_quat = reference.base_quat_w[env_ids, 0]
+                current = self._motion.reference_frame
+                anchor_pos = current.base_pos_w[env_ids, 0]
+                anchor_quat = current.base_quat_w[env_ids, 0]
             else:
+                robot = self._env.scene[self.cfg.entity_name].data
                 anchor_pos = _root(robot, "root_pos_w")[env_ids]
                 anchor_quat = _root(robot, "root_quat_w")[env_ids]
             inv_pos, inv_quat = math_utils.subtract_frame_transforms(anchor_pos, anchor_quat)
@@ -85,7 +87,7 @@ def make_shadowing_command_classes(command_term_base: type) -> dict[str, type]:
         def __init__(self, cfg, env):
             super().__init__(cfg, env)
             dims = 6 if cfg.rotation_mode == "tannorm" else (4 if cfg.rotation_mode == "quaternion" else 3)
-            self._command = torch.zeros(self.num_envs, self._motion._runtime.ref.num_frames, dims, device=self.device)
+            self._command = torch.zeros(self.num_envs, self._motion.num_frames, dims, device=self.device)
             self._update_command_by_env_ids(torch.arange(self.num_envs, device=self.device))
 
         def _update_command_by_env_ids(self, env_ids):
@@ -137,11 +139,24 @@ def make_shadowing_command_classes(command_term_base: type) -> dict[str, type]:
             super().__init__(cfg, env)
             reference = self._motion.data
             self._command = torch.zeros_like(reference.joint_vel)
+            asset = self._env.scene[cfg.entity_name]
+            joint_ids = torch.tensor(
+                resolve_name_indices(
+                    asset.joint_names,
+                    self._motion.joint_names,
+                    require_exact=True,
+                ),
+                dtype=torch.long,
+                device=self.device,
+            )
+            self._default = asset.data.default_joint_vel.index_select(1, joint_ids).clone()
             self._update_command_by_env_ids(torch.arange(self.num_envs, device=self.device))
 
         def _update_command_by_env_ids(self, env_ids):
             reference = self._motion.data
-            self._command[env_ids] = reference.joint_vel[env_ids] * reference.validity[env_ids].unsqueeze(-1)
+            self._command[env_ids] = (
+                reference.joint_vel[env_ids] - self._default[env_ids].unsqueeze(1)
+            ) * reference.validity[env_ids].unsqueeze(-1)
 
     return {
         "position": PositionReference,

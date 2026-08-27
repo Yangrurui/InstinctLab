@@ -209,6 +209,90 @@ def test_default_randomization_scatter_maps_native_columns_into_action_order() -
     torch.testing.assert_close(offsets, torch.tensor([[30.0, 10.0, 20.0], [31.0, 11.0, 21.0]]))
 
 
+def test_position_reference_anchor_uses_the_separate_current_frame() -> None:
+    """The anchor is sampled at t even when the command window starts later."""
+
+    class CommandTerm:
+        def __init__(self, cfg, env):
+            self.num_envs = env.num_envs
+            self.device = env.device
+
+    identity = torch.tensor([[[1.0, 0.0, 0.0, 0.0]]])
+    yaw_90 = torch.tensor([[[2.0**-0.5, 0.0, 0.0, 2.0**-0.5]]])
+    data = SimpleNamespace(
+        base_pos_w=torch.tensor([[[10.0, 2.0, 0.0], [7.0, 0.0, 0.0]]]),
+        base_quat_w=identity.expand(1, 2, 4),
+        validity=torch.ones(1, 2),
+    )
+    current = SimpleNamespace(
+        base_pos_w=torch.tensor([[[10.0, 0.0, 0.0]]]),
+        base_quat_w=yaw_90,
+    )
+    motion = SimpleNamespace(
+        data=data,
+        reference_frame=current,
+        num_frames=2,
+    )
+    env = SimpleNamespace(num_envs=1, device="cpu", scene={"motion_reference": motion})
+    cfg = SimpleNamespace(
+        motion_reference="motion_reference",
+        entity_name="robot",
+        anchor_frame="reference",
+    )
+
+    command_cls = make_shadowing_command_classes(CommandTerm)["position"]
+    command = command_cls(cfg, env)
+
+    torch.testing.assert_close(
+        command.command,
+        torch.tensor([[[2.0, 0.0, 0.0], [0.0, 3.0, 0.0]]]),
+    )
+
+
+def test_rotation_reference_uses_robot_frame_and_tangent_normal_schema() -> None:
+    class CommandTerm:
+        def __init__(self, cfg, env):
+            self.num_envs = env.num_envs
+            self.device = env.device
+
+    half_sqrt = 2.0**-0.5
+    identity = torch.tensor([1.0, 0.0, 0.0, 0.0])
+    yaw_90 = torch.tensor([half_sqrt, 0.0, 0.0, half_sqrt])
+    yaw_180 = torch.tensor([0.0, 0.0, 0.0, 1.0])
+    data = SimpleNamespace(
+        base_quat_w=torch.stack((yaw_180, identity)).reshape(1, 2, 4),
+        validity=torch.ones(1, 2),
+    )
+    motion = SimpleNamespace(data=data, num_frames=2)
+    robot = SimpleNamespace(
+        data=SimpleNamespace(
+            root_link_quat_w=yaw_90.unsqueeze(0),
+            root_quat_w=identity.unsqueeze(0),
+        )
+    )
+    env = SimpleNamespace(
+        num_envs=1,
+        device="cpu",
+        scene={"motion_reference": motion, "robot": robot},
+    )
+    cfg = SimpleNamespace(
+        motion_reference="motion_reference",
+        entity_name="robot",
+        in_base_frame=True,
+        rotation_mode="tannorm",
+    )
+
+    command_cls = make_shadowing_command_classes(CommandTerm)["rotation"]
+    command = command_cls(cfg, env)
+
+    torch.testing.assert_close(
+        command.command,
+        torch.tensor([[[0.0, 1.0, 0.0, 0.0, 0.0, 1.0], [0.0, -1.0, 0.0, 0.0, 0.0, 1.0]]]),
+        atol=1.0e-6,
+        rtol=1.0e-6,
+    )
+
+
 def test_joint_position_reference_subtracts_frozen_defaults_by_joint_name() -> None:
     """A canonical reference must not subtract Isaac's native BFS defaults positionally."""
 
@@ -250,6 +334,91 @@ def test_joint_position_reference_subtracts_frozen_defaults_by_joint_name() -> N
     asset.data.default_joint_pos.add_(1000.0)
     command.reset(torch.tensor([0, 1]))
     torch.testing.assert_close(command.command, reference.joint_pos - expected_default.unsqueeze(1))
+
+
+def test_joint_velocity_reference_subtracts_frozen_defaults_by_joint_name() -> None:
+    """Velocity references follow main's relative-default semantics in canonical DFS order."""
+
+    class CommandTerm:
+        def __init__(self, cfg, env):
+            self.num_envs = env.num_envs
+            self.device = env.device
+
+    native_names = ("left_hip", "right_hip", "waist")
+    canonical_names = ("waist", "left_hip", "right_hip")
+    default_native = torch.tensor([[1.0, 2.0, 3.0], [1.5, 2.5, 3.5]])
+    reference = SimpleNamespace(
+        joint_vel=torch.tensor(
+            [
+                [[10.0, 20.0, 30.0], [11.0, 21.0, 31.0]],
+                [[12.0, 22.0, 32.0], [13.0, 23.0, 33.0]],
+            ]
+        ),
+        validity=torch.ones(2, 2),
+    )
+    motion = SimpleNamespace(data=reference, joint_names=canonical_names)
+    asset = SimpleNamespace(
+        joint_names=native_names,
+        data=SimpleNamespace(default_joint_vel=default_native),
+    )
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        scene={"motion_reference": motion, "robot": asset},
+    )
+    cfg = SimpleNamespace(motion_reference="motion_reference", entity_name="robot")
+    command_cls = make_shadowing_command_classes(CommandTerm)["joint_velocity"]
+    command = command_cls(cfg, env)
+
+    expected_default = torch.tensor([[3.0, 1.0, 2.0], [3.5, 1.5, 2.5]])
+    torch.testing.assert_close(command.command, reference.joint_vel - expected_default.unsqueeze(1))
+
+    asset.data.default_joint_vel.add_(1000.0)
+    command.reset(torch.tensor([0, 1]))
+    torch.testing.assert_close(command.command, reference.joint_vel - expected_default.unsqueeze(1))
+
+
+def test_joint_reference_refresh_uses_the_reference_update_window() -> None:
+    """Match the source command's one-microsecond boundary around a sensor refresh."""
+
+    class CommandTerm:
+        def __init__(self, cfg, env):
+            self.num_envs = env.num_envs
+            self.device = env.device
+
+    reference = SimpleNamespace(
+        joint_vel=torch.tensor([[[1.0], [2.0]], [[3.0], [4.0]]]),
+        validity=torch.ones(2, 2),
+    )
+    motion = SimpleNamespace(
+        data=reference,
+        joint_names=("joint",),
+        time_passed_from_update=torch.tensor([0.0199995, 0.0]),
+    )
+    asset = SimpleNamespace(
+        joint_names=("joint",),
+        data=SimpleNamespace(default_joint_vel=torch.zeros(2, 1)),
+    )
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        step_dt=0.02,
+        scene={"motion_reference": motion, "robot": asset},
+    )
+    cfg = SimpleNamespace(
+        motion_reference="motion_reference",
+        entity_name="robot",
+        realtime_mode=False,
+    )
+    command_cls = make_shadowing_command_classes(CommandTerm)["joint_velocity"]
+    command = command_cls(cfg, env)
+    before = command.command.clone()
+
+    reference.joint_vel.add_(10.0)
+    command._update_command()
+
+    torch.testing.assert_close(command.command[0], before[0])
+    torch.testing.assert_close(command.command[1], reference.joint_vel[1])
 
 
 def test_mjcf_natural_joint_order_is_the_policy_dfs_order() -> None:

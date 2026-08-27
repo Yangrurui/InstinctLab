@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 10:22 UTC
+Updated: 2026-08-27 10:28 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -694,12 +694,12 @@ Evidence:
 1261 passed, 2 skipped, 31 deselected (full default suite)
 ```
 
-## Reward, observation, and failure-term numerical audit (2026-08-27)
+## Reward, observation, command, and failure-term numerical audit (2026-08-27)
 
 The active shared MDP terms were checked value-for-value against
 `/root/InstinctLab-main` for Isaac and `/root/InstinctMJ` for MJLab. The
-external RL runner was outside this audit. No production-code discrepancy was
-found.
+external RL runner was outside this audit. The reward, observation, and failure
+pass found no production-code discrepancy.
 
 Shadow imitation now has fixed-state guards for the reference XY/height anchor,
 yaw-only relative-world correction, quaternion left-multiplication order,
@@ -718,13 +718,33 @@ masks are all enabled and failure terms declare
 `check_at_keyframe_threshold=-1`). Reward weights remain step-time scaled on
 both engines.
 
+The command follow-up found three interface differences whose active G1 values
+had hidden them:
+
+- The reference-anchored position command used `motion_reference.data[:, 0]`
+  instead of the separate current-time `reference_frame`. Active Shadow data
+  currently starts at `t`, so both happened to agree. The command now follows
+  both references and uses the explicit current frame as its anchor.
+- The joint-velocity command omitted the frozen default-velocity subtraction.
+  G1 defaults are zero, so the omission was numerically silent. It now snapshots
+  native defaults once and gathers them by joint name into canonical DFS order,
+  matching the already-correct joint-position command.
+- Non-realtime commands used `< step_dt` and reached through the sensor's
+  private runtime. Both references use `< step_dt - 1e-6`. The shared command
+  now reads the public `time_passed_from_update` and public `num_frames`
+  properties with the reference boundary.
+
 Evidence:
 
 ```text
 5 passed (new fixed-state and temporal Shadow probes)
+4 passed (new position-anchor, rotation-schema, DFS velocity-default, and refresh-window command probes)
 128 passed (shared MDP, AMP, Parkour, and Shadow numerical focus)
 136 passed, 1 deselected (reference declarations and native lowering focus)
-1273 passed, 2 skipped, 32 deselected (full default suite)
+115 passed (Shadow command, motion runtime, task declaration, and MDP focus)
+1277 passed, 2 skipped, 32 deselected (full default suite)
+scripts/check_mjlab.py resolved all 39 Locomotion terms,
+  constructed 16 environments in canonical joint order, and stepped 5 times
 ```
 
 ## Live experiments
