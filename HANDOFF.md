@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 07:34 UTC
+Updated: 2026-08-27 07:35 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -210,8 +210,9 @@ logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_
 - **Whole Body plane Shadowing: short-horizon parity accepted.** At 4096
   environments, unified/main rewards at iterations 0, 10, 20, 40, and 100 were
   `-1.63/-1.65`, `-0.96/-0.98`, `-0.48/-0.49`, `-0.23/-0.19`, and
-  `0.06/0.09`. The active GPU 5 long run predates the joint-reference fix and
-  is not valid long-horizon convergence evidence.
+  `0.06/0.09`. The old GPU 5 long run predates the joint-reference fix and is
+  not valid long-horizon convergence evidence. It was stopped at operator
+  request and replaced by the fresh run recorded below.
 - **Perceptive Shadowing: fresh post-fix Isaac convergence is in progress.**
   Startup summaries agreed with main, but the old GPU 6 run's shared joint-position
   reference command subtracted Isaac-native BFS defaults positionally from DFS
@@ -455,12 +456,12 @@ iteration 20 its reward/length were `-0.52/9.08`, close to main's
 
 ## Live experiments
 
-Snapshot at 2026-08-27 07:15 UTC. The old GPU 6 run was stopped and replaced at
-explicit operator request. GPU 5 and GPU 7 were not signaled.
+Snapshot at 2026-08-27 07:35 UTC. The old GPU 5 and GPU 6 runs were stopped and
+replaced at explicit operator request. GPU 7 was not signaled.
 
 | GPU | Run | Iteration | Reward | Episode length | Status |
 |---:|---|---:|---:|---:|---|
-| 5 | unified Isaac Whole Body `final_long_4096_gpu5_20260826` | 18040 | 5.71 | 75.22 | live; faulty joint-position reference command, invalid long-horizon evidence |
+| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 0 | -1.66 | 20.36 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
 | 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 20 | -0.52 | 9.08 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
 | 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 9700 | 14.73 | 243.73 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera reference fixes |
 
@@ -481,6 +482,11 @@ finite.
 
 ## Ended or failed runs that still matter
 
+- The old Isaac Whole Body `final_long_4096_gpu5_20260826` was stopped at
+  operator request at iteration 18,320 (reward 5.67, episode length 74.87).
+  It reached roughly 260-step episodes before an adaptive-sampling collapse
+  near iteration 14,700, but it contains the faulty Isaac joint-position
+  reference command. Retain it for diagnosis only; do not resume or promote it.
 - MJLab Whole Body
   `finalaligned_datafixed_4096_gpu0_20260826` reached iteration 17300
   (reward 18.02, episode length 248.04), then ended with CUDA error 719,
@@ -499,10 +505,9 @@ finite.
 
 ## Open risks and next work
 
-1. Let the fresh GPU 6 Perceptive run continue and compare matched iterations
-   and termination distributions before declaring long-horizon convergence.
-   GPU 5 Whole Body must eventually be replaced by a fresh post-fix run; do not
-   promote its current checkpoints.
+1. Let the fresh GPU 5 Whole Body and GPU 6 Perceptive runs continue and compare
+   matched iterations and termination distributions before declaring
+   long-horizon convergence. Do not promote checkpoints from either old run.
 2. Diagnose the MJLab Whole Body CUDA 719 failure from the retained checkpoint
    and logs without disturbing live runs.
 3. Run production reproductions for Perceptive VAE, HOI, and BeyondMimic on
