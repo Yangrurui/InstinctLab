@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 10:56 UTC
+Updated: 2026-08-27 11:16 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -752,16 +752,67 @@ scripts/check_mjlab.py resolved all 39 Locomotion terms,
   constructed 16 environments in canonical joint order, and stepped 5 times
 ```
 
+## VAE and BeyondMimic runtime verification (2026-08-27)
+
+The previously declaration-only VAE path was exercised through native MJLab
+and Isaac environments. The diagnostic motion override now accepts a terrain
+dataset directory and binds both the motion reference and motion-matched
+terrain to that directory (`86cc601`). Using the installed
+`deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1` data exposed
+three consecutive VAE depth defects before the rollout could start:
+
+- the shared depth term inherited Parkour's random one-frame delay even though
+  both VAE references use non-delayed `visualizable_image`; ten history slots
+  cannot hold frames `0, 3, 6, 9` plus that extra delay;
+- the callable read `resize_shape` and `normalization_range` at construction but
+  did not accept the observation manager's matching call arguments;
+- its history ring was allocated at cropped source resolution even when the
+  processed frame was resized to `18 x 32`.
+
+Commit `082c2ae` fixes those contracts. VAE now has an explicit `(0, 0)` frame
+delay and allocates its ring at the processed resolution. Commit `0a0f674`
+adds a temporal probe proving that ten successive frames produce the ordered
+policy sample `0, 3, 6, 9`, not merely the expected shape.
+
+Fresh fixed-seed rollouts then completed on both engines:
+
+```text
+Perceptive VAE: 16 environments, reset plus 4 steps per engine
+  policy depth (4, 18, 32), critic depth (1, 18, 32)
+  identical initial DFS joint state/reference/action and identical done arrays
+BeyondMimic: 16 environments, reset plus 4 steps per engine
+  identical initial DFS joint state/reference/action and identical done arrays
+1281 passed, 2 skipped, 32 deselected (full default suite)
+scripts/check_mjlab.py resolved all 39 Locomotion terms,
+  constructed 16 environments in canonical joint order, and stepped 5 times
+```
+
+Global root positions in the rollout files differ by engine terrain/environment
+origin placement (up to 57 m for the VAE terrain grid). After subtracting the
+motion-reference origin, the initial root error is exactly zero on both
+engines. Four-step plant divergence is engine-native evidence, not an equality
+requirement: VAE root-to-reference delta differs by at most `0.0321 m` and
+BeyondMimic by `0.00372 m`; all initial joint and reference deltas are zero.
+
+These are real environment construction and temporal rollouts, but not
+production reproductions. The configured VAE directories are absent on both
+engines. The configured Ubisoft LAFAN BeyondMimic directories and selected
+`sprint1_subject2_retargetted.npz` are also absent. BeyondMimic was therefore
+probed with an installed retargetted NPZ of the same runtime schema. HOI cannot
+be substituted safely: both OMOMO motion directories and all six configured
+object meshes are absent, so it remains limited to the existing fixed-state
+object-origin tests.
+
 ## Live experiments
 
-Snapshot at 2026-08-27 07:35 UTC. The old GPU 5 and GPU 6 runs were stopped and
+Snapshot at 2026-08-27 11:16 UTC. The old GPU 5 and GPU 6 runs were stopped and
 replaced at explicit operator request. GPU 7 was not signaled.
 
 | GPU | Run | Iteration | Reward | Episode length | Status |
 |---:|---|---:|---:|---:|---|
-| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 0 | -1.66 | 20.36 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 20 | -0.52 | 9.08 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 9700 | 14.73 | 243.73 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
+| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 4220 | 13.40 | 221.99 | live; recovered from the temporary 3k--3.8k curriculum branch; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
+| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 2180 | 2.70 | 57.52 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 12240 | 15.36 | 250.98 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
 
 Do not stop or restart these runs without an explicit operator request. Review
 reward, episode length, termination mix, and action noise together before
@@ -788,9 +839,14 @@ finite.
 - MJLab Whole Body
   `finalaligned_datafixed_4096_gpu0_20260826` reached iteration 17300
   (reward 18.02, episode length 248.04), then ended with CUDA error 719,
-  `unspecified launch failure`. The reported `nonzero()` frame may be an
-  asynchronous symptom rather than the failing kernel. Keep its checkpoints
-  and logs; do not describe it as a completed 50k run.
+  `unspecified launch failure`, after 170,164,224 samples and about 10.6 hours.
+  It is the only retained log with CUDA 719. Metrics immediately before the
+  failure were finite and normal, and the error surfaced at a Torch
+  `nonzero()` synchronization followed by repeated Warp free failures. No Xid
+  or kernel log was retained, so neither that line nor the motion-reference
+  code can be identified as the failing kernel. Classify it as an unreproduced
+  asynchronous Warp/MuJoCo or device failure; keep the checkpoints and logs and
+  do not describe it as a completed 50k run.
 - The older MJLab Perceptive `perceptive_repro_4096_gpu2` reached iteration
   11750 and ended with `KeyboardInterrupt`. It predates final parity fixes and
   is not a baseline.
@@ -806,10 +862,14 @@ finite.
 1. Let the fresh GPU 5 Whole Body and GPU 6 Perceptive runs continue and compare
    matched iterations and termination distributions before declaring
    long-horizon convergence. Do not promote checkpoints from either old run.
-2. Diagnose the MJLab Whole Body CUDA 719 failure from the retained checkpoint
-   and logs without disturbing live runs.
-3. Run production reproductions for Perceptive VAE, HOI, and BeyondMimic on
-   both engines.
+2. The retained MJLab Whole Body CUDA 719 has no attributable source from the
+   available log. A causal diagnosis requires an exact checkpoint/policy replay
+   with synchronous CUDA diagnostics; do not blame the reported `nonzero()`
+   synchronization point or resume the run as if it completed.
+3. Install or authoritatively remap the configured VAE, OMOMO HOI, and Ubisoft
+   LAFAN datasets, then run production reproductions. VAE and BeyondMimic native
+   environment paths have short-rollout evidence with substitute installed
+   data; HOI still lacks both motions and all object meshes.
 4. Validate real multi-node distributed training.
 5. Recover authoritative Parkour motion segment boundaries. The released NPZ
    concatenates clips without boundary metadata: 55 of 18,981 transitions
