@@ -11,9 +11,8 @@ from instinctlab.spec import MotionReferenceRef, TaskSpec
 
 TASK_ID = "Instinct-Perceptive-Vae-G1-v0"
 PLAY_TASK_ID = "Instinct-Perceptive-Vae-G1-Play-v0"
-ISAAC_MOTION_PATH = "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1"
-MJLAB_MOTION_PATH = "~/Xyk/Datasets/20260317_50cm_kneeClimbStep1_projectInstinct"
-MOTION_PATHS = {"isaacsim": ISAAC_MOTION_PATH, "mjlab": MJLAB_MOTION_PATH}
+MOTION_PATH = "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1"
+MOTION_PATHS = {"isaacsim": MOTION_PATH, "mjlab": MOTION_PATH}
 RUNNER = "instinctlab.tasks.shadowing.perceptive.config.g1.agents.instinct_rl_vae_cfg:G1PerceptiveVaePPORunnerCfg"
 MOTION_LINKS = (
     "pelvis",
@@ -37,7 +36,7 @@ def make_motion_reference(play: bool) -> MotionReferenceRef:
     robot = make_g1_29dof_robot_spec()
     return MotionReferenceRef(
         name="motion_reference",
-        clip=ISAAC_MOTION_PATH,
+        clip=MOTION_PATH,
         engine_clips=MOTION_PATHS,
         joints=tuple(robot.joint_names),
         links=MOTION_LINKS,

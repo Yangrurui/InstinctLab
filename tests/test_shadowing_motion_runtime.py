@@ -532,7 +532,7 @@ def test_shadowing_motion_effective_contract_matches_both_references() -> None:
         assert "reference_cfg" not in exhausted.params
 
 
-def test_shadowing_dataset_roots_keep_the_two_reference_bindings_explicit() -> None:
+def test_shadowing_dataset_roots_match_the_declared_shared_contract() -> None:
     expected = {
         "Instinct-Shadowing-WholeBody-Plane-G1-v0": (
             "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
@@ -543,8 +543,8 @@ def test_shadowing_dataset_roots_keep_the_two_reference_bindings_explicit() -> N
             "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
         ),
         "Instinct-Perceptive-Vae-G1-v0": (
-            "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251116_50cm_kneeClimbStep1",
-            "~/Xyk/Datasets/20260317_50cm_kneeClimbStep1_projectInstinct",
+            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
         ),
         "Instinct-Perceptive-HOI-Shadowing-G1-v0": (
             "/localhdd/Datasets/OMOMO/retargeted",
