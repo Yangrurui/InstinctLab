@@ -19,7 +19,9 @@ if TYPE_CHECKING:
     from instinctlab.spec import TaskSpec
 
 TASKS: dict[str, str] = {
+    "Instinct-Velocity-Flat-Adam-SP": "instinctlab.tasks.locomotion.config.adam_sp:flat_adam_sp",
     "Instinct-Velocity-Flat-G1": "instinctlab.tasks.locomotion.config.g1:flat_g1",
+    "Instinct-Velocity-Rough-Adam-SP": "instinctlab.tasks.locomotion.config.adam_sp:rough_adam_sp",
     "Instinct-Velocity-Rough-G1": "instinctlab.tasks.locomotion.config.g1:rough_g1",
     "Instinct-Parkour-Target-G1": "instinctlab.tasks.parkour.config.g1:parkour_target_g1",
     "Instinct-Shadowing-WholeBody-Plane-G1-v0": (
