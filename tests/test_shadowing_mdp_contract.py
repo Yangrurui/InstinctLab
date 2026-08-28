@@ -5,15 +5,14 @@ from __future__ import annotations
 import inspect
 import re
 import sys
-import torch
-import trimesh
 import types
-import yaml
 from types import SimpleNamespace
 
 import mujoco
 import pytest
-
+import torch
+import trimesh
+import yaml
 from instinctlab.compat import math as math_utils
 from instinctlab.engines.isaacsim import terms as isaac_terms
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
@@ -25,7 +24,9 @@ from instinctlab.engines.motion_reference.clip import MotionSample
 from instinctlab.engines.shadowing_commands import _root
 from instinctlab.mdp import shadowing as shadowing_mdp
 from instinctlab.tasks import registry
-from instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg import MOTION_LINKS
+from instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg import (
+    MOTION_LINKS,
+)
 
 SHADOW_IDS = tuple(
     task_id for task_id in registry.ids() if any(token in task_id for token in ("Shadowing", "Mimic", "Vae"))
@@ -490,7 +491,6 @@ def test_reference_observation_anchor_noise_and_history_match_effective_sources(
 
     for task_id in (
         "Instinct-Perceptive-Shadowing-G1-v0",
-        "Instinct-Perceptive-Vae-G1-v0",
         "Instinct-Perceptive-HOI-Shadowing-G1-v0",
     ):
         task = registry.spec(task_id)
@@ -511,6 +511,15 @@ def test_reference_observation_anchor_noise_and_history_match_effective_sources(
                 }
             }
             assert proprio and {term.history_length for term in proprio.values()} == {8}
+
+    vae = registry.spec("Instinct-Perceptive-Vae-G1-v0")
+    assert "projected_gravity" in vae.mdp.observations["policy"].terms
+    assert "projected_gravity" in vae.mdp.observations["critic"].terms
+    assert vae.mdp.observations["critic"].terms["projected_gravity"].history_length == 8
+    assert (
+        vae.mdp.observations["critic"].terms["position_ref"].params["command_name"]
+        == "position_b_ref_command"
+    )
 
 
 def test_perceptive_motion_height_preprocessing_matches_each_reference_engine() -> None:

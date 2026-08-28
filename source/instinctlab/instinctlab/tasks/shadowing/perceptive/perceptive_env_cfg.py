@@ -312,10 +312,17 @@ class ObservationsCfg:
                 )
             }
             policy_terms.update(make_policy_proprioception(joints))
-            critic_terms = make_critic_reference_observations()
+            # TPPO passes the critic group directly to the frozen teacher. Keep
+            # its ordered schema and body-relative position reference identical
+            # to the perceptive teacher's policy observations.
+            critic_terms = make_policy_reference_observations()
             critic_terms["depth_image"] = ObsTermSpec(
                 kind="shadow_depth_image",
                 params={"sensor": make_camera()},
+            )
+            critic_terms["projected_gravity"] = ObsTermSpec(
+                func=mdp.projected_gravity,
+                history_length=PROPRIO_HISTORY_LENGTH,
             )
             critic_terms.update(make_critic_proprioception(joints))
         else:

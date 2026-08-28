@@ -28,6 +28,7 @@ SHADOW_IDS = tuple(
 
 def test_vae_uses_one_frozen_teacher_bundle_on_both_engines() -> None:
     spec = registry.spec("Instinct-Perceptive-Vae-G1-v0")
+    runner_cfg = spec.agent.resolve()()
     teacher_dirs = {
         adapter.name: spec.agent.resolve()(
             **spec.agent.resolved_overrides(adapter.name)
@@ -37,6 +38,9 @@ def test_vae_uses_one_frozen_teacher_bundle_on_both_engines() -> None:
 
     assert len(set(teacher_dirs.values())) == 1
     assert os.path.basename(next(iter(teacher_dirs.values()))) == "mjlab_gpu7_iter22000"
+    assert tuple(spec.mdp.observations["critic"].terms) == tuple(
+        runner_cfg.algorithm.teacher_policy["obs_format"]["policy"]
+    )
 
 
 def test_motion_probe_override_is_explicit_and_keeps_the_registered_identity(tmp_path) -> None:
