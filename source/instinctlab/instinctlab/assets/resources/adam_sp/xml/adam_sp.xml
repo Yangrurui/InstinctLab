@@ -160,7 +160,7 @@
           <joint name="left_hip_roll_joint" range="-0.733 1.605" class="hip_roll" />
 
           <geom class="visual" mesh="hipRollLeft" />
-          <geom name="left_hip_collision" class="collision" type="capsule" size="0.06" fromto="0.04 0 0 -0.04 0 0" />
+          <geom name="left_hip_collision" class="collision" type="capsule" size="0.05" fromto="0.04 0 0 -0.04 0 0" />
           <body name="left_hip_yaw_link" pos="0.044 0 -0.0525">
             <inertial pos="0.00244052 -0.00866423 -0.134336" quat="0.711611 -0.0492483 0.0272749 0.700315" mass="6.43433" diaginertia="0.0639418 0.0583116 0.0126694" />
             <joint name="left_hip_yaw_joint" class="hip_yaw" />
@@ -217,7 +217,7 @@
           <joint name="right_hip_roll_joint" range="-1.605 0.733" class="hip_roll" />
 
           <geom class="visual" mesh="hipRollRight" />
-          <geom name="right_hip_collision" class="collision" type="capsule" size="0.06" fromto="0.04 0 0 -0.04 0 0" />
+          <geom name="right_hip_collision" class="collision" type="capsule" size="0.05" fromto="0.04 0 0 -0.04 0 0" />
           <body name="right_hip_yaw_link" pos="0.044 0 -0.0525">
             <inertial pos="0.00245598 0.00865064 -0.134332" quat="0.700408 0.0274534 -0.0491764 0.711517" mass="6.43084" diaginertia="0.0639169 0.0582708 0.0126767" />
             <joint name="right_hip_yaw_joint" class="hip_yaw" />
@@ -474,10 +474,8 @@
 
 
   <contact>
-    <exclude body1="left_elbow_link" body2="left_wrist_pitch_link"/>
-    <exclude body1="right_elbow_link" body2="right_wrist_pitch_link"/>
-    <exclude body1="pelvis" body2="right_hip_roll_link"/>
-    <exclude body1="pelvis" body2="left_hip_roll_link"/>
+    <exclude body1="left_elbow_link" body2="left_wrist_roll_link"/>
+    <exclude body1="right_elbow_link" body2="right_wrist_roll_link"/>
   </contact>
   <sensor>
     <gyro name="imu_ang_vel" site="imu_in_pelvis"/>

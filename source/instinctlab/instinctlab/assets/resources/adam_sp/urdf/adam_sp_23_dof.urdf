@@ -67,19 +67,19 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 -1.570796327 0" />
       <geometry>
-        <cylinder radius="0.06" length="0.08" />
+        <cylinder radius="0.05" length="0.08" />
       </geometry>
     </collision>
     <collision>
       <origin xyz="0.04 0 0" rpy="0 0 0" />
       <geometry>
-        <sphere radius="0.06" />
+        <sphere radius="0.05" />
       </geometry>
     </collision>
     <collision>
       <origin xyz="-0.04 0 0" rpy="0 0 0" />
       <geometry>
-        <sphere radius="0.06" />
+        <sphere radius="0.05" />
       </geometry>
     </collision>
   </link>
@@ -451,19 +451,19 @@
     <collision>
       <origin xyz="0 0 0" rpy="0 -1.570796327 0" />
       <geometry>
-        <cylinder radius="0.06" length="0.08" />
+        <cylinder radius="0.05" length="0.08" />
       </geometry>
     </collision>
     <collision>
       <origin xyz="0.04 0 0" rpy="0 0 0" />
       <geometry>
-        <sphere radius="0.06" />
+        <sphere radius="0.05" />
       </geometry>
     </collision>
     <collision>
       <origin xyz="-0.04 0 0" rpy="0 0 0" />
       <geometry>
-        <sphere radius="0.06" />
+        <sphere radius="0.05" />
       </geometry>
     </collision>
   </link>

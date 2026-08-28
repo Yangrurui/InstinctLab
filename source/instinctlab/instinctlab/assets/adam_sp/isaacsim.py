@@ -412,7 +412,7 @@ def spawn_adam_sp_23dof(
     orientation: tuple[float, float, float, float] | None = None,
     **kwargs,
 ) -> Usd.Prim:
-    """Spawn Adam SP and suppress only the four known overlapping body pairs."""
+    """Spawn Adam SP and suppress the fixed-chain forearm/hand overlaps."""
     # This function owns cloning so the authored relationships are copied to every environment.
     # Call Isaac Lab's undecorated URDF importer here; calling its public wrapper would clone first.
     robot = sim_utils.spawn_from_urdf.__wrapped__(
@@ -423,11 +423,6 @@ def spawn_adam_sp_23dof(
         **kwargs,
     )
     stage = robot.GetStage()
-
-    pelvis = stage.GetPrimAtPath(f"{prim_path}/pelvis")
-    pelvis_filtered_pairs = UsdPhysics.FilteredPairsAPI.Apply(pelvis).CreateFilteredPairsRel()
-    pelvis_filtered_pairs.AddTarget(Sdf.Path(f"{prim_path}/left_hip_roll_link"))
-    pelvis_filtered_pairs.AddTarget(Sdf.Path(f"{prim_path}/right_hip_roll_link"))
 
     left_elbow = stage.GetPrimAtPath(f"{prim_path}/left_elbow_link")
     left_elbow_filtered_pairs = UsdPhysics.FilteredPairsAPI.Apply(left_elbow).CreateFilteredPairsRel()
