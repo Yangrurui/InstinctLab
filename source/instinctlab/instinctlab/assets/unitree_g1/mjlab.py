@@ -24,7 +24,13 @@ from . import (
 )
 
 DELAY_RESET_ONLY_PERIOD = 1_000_000
-ENTITIES = frozenset({"popsicle_torsobase_v1"})
+ENTITIES = frozenset(
+    {
+        "popsicle_torsobase_v1",
+        "popsicle_torsobase_shadowing_v1",
+        "popsicle_torsobase_parkour_v1",
+    }
+)
 
 
 def _delay(delay: tuple[int, int], group_offset: int) -> dict[str, int | bool]:

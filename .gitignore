@@ -28,7 +28,9 @@ dist/
 # Tests and test-only support
 /tests/
 /pytest.ini
-/source/instinctlab/instinctlab/verify/
+/source/instinctlab/instinctlab/verify/*
+!/source/instinctlab/instinctlab/verify/__init__.py
+!/source/instinctlab/instinctlab/verify/scene.py
 /source/instinctlab/instinctlab/shadowing_probe.py
 **/.coverage
 **/.coverage.*

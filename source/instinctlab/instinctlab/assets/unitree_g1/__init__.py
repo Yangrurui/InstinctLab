@@ -266,11 +266,21 @@ def _g1_joint_properties(name: str) -> JointProperties:
     )
 
 
-def _make_g1_29dof_robot_spec(merge_fixed_joints: bool) -> RobotSpec:
+def _make_g1_29dof_robot_spec(
+    *,
+    variant: str,
+    root_height: float,
+    merge_fixed_joints: bool,
+    actuator_delay: tuple[int, int] = (0, 0),
+    isaac_path: Path | None = None,
+    mjlab_path: Path | None = None,
+) -> RobotSpec:
+    isaac_path = isaac_path or RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"
+    mjlab_path = mjlab_path or RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"
     spec = RobotSpec(
         name="unitree_g1_29dof",
         schema_version="dfs_v1",
-        asset_id="unitree_g1/popsicle_torsobase_v1",
+        asset_id=f"unitree_g1/{variant}",
         root_body="torso_link",
         joint_names=G1_29DOF_DFS_JOINT_NAMES,
         body_names=G1_29DOF_DFS_BODY_NAMES,
@@ -280,7 +290,7 @@ def _make_g1_29dof_robot_spec(merge_fixed_joints: bool) -> RobotSpec:
         assets=(
             BackendAsset(
                 backend="isaacsim",
-                path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
+                path=str(isaac_path),
                 contact_body_aliases=_G1_CONTACT_BODY_ALIASES,
                 import_options={
                     "prim_path": "{ENV_REGEX_NS}/Robot",
@@ -291,14 +301,15 @@ def _make_g1_29dof_robot_spec(merge_fixed_joints: bool) -> RobotSpec:
             ),
             BackendAsset(
                 backend="mjlab",
-                path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
+                path=str(mjlab_path),
                 contact_body_aliases=_G1_CONTACT_BODY_ALIASES,
                 load_mode="strip_visual_meshes",
             ),
         ),
-        default_root_pos=(0.0, 0.0, 0.82),
+        default_root_pos=(0.0, 0.0, root_height),
         default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
         soft_joint_pos_limit_factor=0.9,
+        actuator_delay=actuator_delay,
     )
     spec.validate()
     return spec
@@ -306,12 +317,32 @@ def _make_g1_29dof_robot_spec(merge_fixed_joints: bool) -> RobotSpec:
 
 def make_g1_29dof_robot_spec() -> RobotSpec:
     """Build the standard engine-neutral G1 interface."""
-    return _make_g1_29dof_robot_spec(merge_fixed_joints=False)
+    return _make_g1_29dof_robot_spec(
+        variant="popsicle_torsobase_v1",
+        root_height=0.82,
+        merge_fixed_joints=False,
+    )
 
 
 def make_g1_29dof_shadowing_robot_spec() -> RobotSpec:
     """Build the G1 interface used by main's Shadowing tasks."""
-    return _make_g1_29dof_robot_spec(merge_fixed_joints=True)
+    return _make_g1_29dof_robot_spec(
+        variant="popsicle_torsobase_shadowing_v1",
+        root_height=0.82,
+        merge_fixed_joints=True,
+    )
+
+
+def make_g1_29dof_parkour_robot_spec() -> RobotSpec:
+    """Build the shoe-equipped G1 interface used by Parkour."""
+    return _make_g1_29dof_robot_spec(
+        variant="popsicle_torsobase_parkour_v1",
+        root_height=0.9,
+        merge_fixed_joints=True,
+        actuator_delay=(0, 2),
+        isaac_path=RESOURCE_ROOT / "urdf" / "g1_29dof_torsoBase_popsicle_with_shoe.urdf",
+        mjlab_path=RESOURCE_ROOT / "xml" / "g1_29dof_torsoBase_popsicle_with_shoe.xml",
+    )
 
 
 _G1_DFS_JOINT_MAP, _G1_DFS_JOINT_REVERSE = g1_symmetric_joint_augmentation(G1_29DOF_DFS_JOINT_NAMES)
@@ -368,5 +399,6 @@ __all__ = [
     "beyondmimic_action_scale",
     "g1_symmetric_joint_augmentation",
     "make_g1_29dof_robot_spec",
+    "make_g1_29dof_parkour_robot_spec",
     "make_g1_29dof_shadowing_robot_spec",
 ]

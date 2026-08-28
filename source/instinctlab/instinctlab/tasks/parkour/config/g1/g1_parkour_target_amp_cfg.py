@@ -1,8 +1,6 @@
 """Engine-neutral G1 Parkour task configuration."""
 
-from pathlib import Path
-
-from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1 import make_g1_29dof_parkour_robot_spec
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, SymmetricAugmentationSpec, TaskSpec
 from instinctlab.tasks.parkour.config.parkour_env_cfg import (
@@ -31,18 +29,8 @@ PARKOUR_MOTION_LINKS = (
     "right_ankle_roll_link",
 )
 
-_PARKOUR_DIR = Path(__file__).resolve().parents[2]
-_SHOE_URDF = _PARKOUR_DIR / "urdf" / "g1_29dof_torsoBase_popsicle_with_shoe.urdf"
-_SHOE_XML = _PARKOUR_DIR / "mjcf" / "g1_29dof_torsoBase_popsicle_with_shoe.xml"
-
-
 def parkour_g1_robot() -> RobotSpec:
-    return make_g1_29dof_robot_spec().overridden(
-        default_root_pos=(0.0, 0.0, 0.9),
-        actuator_delay=(0, 2),
-        asset_paths={"isaacsim": str(_SHOE_URDF), "mjlab": str(_SHOE_XML)},
-        import_options={"isaacsim": {"merge_fixed_joints": True}},
-    )
+    return make_g1_29dof_parkour_robot_spec()
 
 
 def make_motion_reference(robot: RobotSpec) -> MotionReferenceRef:

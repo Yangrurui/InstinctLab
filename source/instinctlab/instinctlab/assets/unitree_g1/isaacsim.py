@@ -22,16 +22,24 @@ from . import (
     STIFFNESS_5020,
     STIFFNESS_7520_14,
     STIFFNESS_7520_22,
+    make_g1_29dof_parkour_robot_spec,
     make_g1_29dof_robot_spec,
+    make_g1_29dof_shadowing_robot_spec,
 )
 
-ARTICULATIONS = {"popsicle_torsobase_v1": "G1_29DOF_TORSOBASE_POPSICLE_CFG"}
+ARTICULATIONS = {
+    "popsicle_torsobase_v1": "G1_29DOF_TORSOBASE_POPSICLE_CFG",
+    "popsicle_torsobase_shadowing_v1": "G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG",
+    "popsicle_torsobase_parkour_v1": "G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG",
+}
 
 _ISAAC_EXPORTS = frozenset(
     {
         "G1_29DOF_TORSOBASE_CFG",
         "G1_29DOF_TORSOBASE_CLOG_CFG",
         "G1_29DOF_TORSOBASE_POPSICLE_CFG",
+        "G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG",
+        "G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG",
         "beyondmimic_g1_29dof_actuators",
         "beyondmimic_g1_29dof_delayed_actuators",
     }
@@ -174,6 +182,7 @@ def _load_isaac() -> None:
         return
 
     global G1_29DOF_TORSOBASE_CFG, G1_29DOF_TORSOBASE_CLOG_CFG, G1_29DOF_TORSOBASE_POPSICLE_CFG
+    global G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG, G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG
     global beyondmimic_g1_29dof_actuators, beyondmimic_g1_29dof_delayed_actuators
 
     G1_29DOF_TORSOBASE_CFG = G1_CFG.copy()
@@ -331,13 +340,12 @@ def _load_isaac() -> None:
     }
 
     robot = make_g1_29dof_robot_spec()
-    isaac_asset = robot.asset_for("isaacsim")
     G1_29DOF_TORSOBASE_POPSICLE_CFG = ArticulationCfg(
         spawn=sim_utils.UrdfFileCfg(
-            fix_base=isaac_asset.import_options["fix_base"],
-            replace_cylinders_with_capsules=isaac_asset.import_options["replace_cylinders_with_capsules"],
-            merge_fixed_joints=isaac_asset.import_options["merge_fixed_joints"],
-            asset_path=isaac_asset.path,
+            fix_base=False,
+            replace_cylinders_with_capsules=True,
+            merge_fixed_joints=False,
+            asset_path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
             activate_contact_sensors=True,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=False,
@@ -362,6 +370,27 @@ def _load_isaac() -> None:
         ),
         soft_joint_pos_limit_factor=robot.soft_joint_pos_limit_factor,
         actuators=beyondmimic_g1_29dof_actuators,
+    )
+
+    shadowing_robot = make_g1_29dof_shadowing_robot_spec()
+    shadowing_asset = shadowing_robot.asset_for("isaacsim")
+    G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG = G1_29DOF_TORSOBASE_POPSICLE_CFG.copy()
+    G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG.spawn = (
+        G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG.spawn.replace(
+            asset_path=shadowing_asset.path,
+            merge_fixed_joints=shadowing_asset.import_options["merge_fixed_joints"],
+        )
+    )
+
+    parkour_robot = make_g1_29dof_parkour_robot_spec()
+    parkour_asset = parkour_robot.asset_for("isaacsim")
+    G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG = G1_29DOF_TORSOBASE_POPSICLE_CFG.copy()
+    G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn = G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn.replace(
+        asset_path=parkour_asset.path,
+        merge_fixed_joints=parkour_asset.import_options["merge_fixed_joints"],
+    )
+    G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.init_state = (
+        G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.init_state.replace(pos=parkour_robot.default_root_pos)
     )
     _ISAAC_LOADED = True
 
@@ -424,6 +453,8 @@ __all__ = [
     "G1_29DOF_TORSOBASE_CFG",
     "G1_29DOF_TORSOBASE_CLOG_CFG",
     "G1_29DOF_TORSOBASE_POPSICLE_CFG",
+    "G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG",
+    "G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG",
     "beyondmimic_g1_29dof_actuators",
     "beyondmimic_g1_29dof_delayed_actuators",
     "articulation",
