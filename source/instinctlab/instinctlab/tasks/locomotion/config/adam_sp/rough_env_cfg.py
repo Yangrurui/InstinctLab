@@ -1,7 +1,7 @@
 """Unified rough-ground velocity tracking for Adam SP 23DOF."""
 
 from instinctlab import mdp
-from instinctlab.assets.adam_sp.robot import ADAM_SP_23DOF_ROBOT
+from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import CurriculumTermSpec, MdpSpec, SceneSpec, TaskSpec
 from instinctlab.spec.capability import Requirement
 from instinctlab.tasks.locomotion.config.adam_sp.flat_env_cfg import (
@@ -19,10 +19,10 @@ from instinctlab.tasks.locomotion.config.adam_sp.flat_env_cfg import (
 from instinctlab.tasks.terrain import rough_terrain
 
 
-def rough_adam_sp() -> TaskSpec:
+def _rough_adam_sp(robot: RobotSpec) -> TaskSpec:
     return TaskSpec(
         task_id="Instinct-Velocity-Rough-Adam-SP",
-        robot=ADAM_SP_23DOF_ROBOT,
+        robot=robot,
         scene=SceneSpec(
             terrain=rough_terrain(),
             contact_sensors=ADAM_SP_CONTACT_SENSORS,
@@ -49,4 +49,16 @@ def rough_adam_sp() -> TaskSpec:
     )
 
 
-__all__ = ["rough_adam_sp"]
+def rough_adam_sp_isaacsim() -> TaskSpec:
+    from instinctlab.assets.adam_sp.isaacsim import ADAM_SP_23DOF_ROBOT
+
+    return _rough_adam_sp(ADAM_SP_23DOF_ROBOT)
+
+
+def rough_adam_sp_mjlab() -> TaskSpec:
+    from instinctlab.assets.adam_sp.mjlab import ADAM_SP_23DOF_ROBOT
+
+    return _rough_adam_sp(ADAM_SP_23DOF_ROBOT)
+
+
+__all__ = ["rough_adam_sp_isaacsim", "rough_adam_sp_mjlab"]

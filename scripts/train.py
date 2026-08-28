@@ -142,9 +142,11 @@ def _close_runner_writer(runner: object) -> None:
 
 
 def _train(args, engine, distributed, resources: ExitStack) -> None:
+    from instinct_rl.runners import OnPolicyRunner
+
     from instinctlab.tasks.registry import spec as task_spec
 
-    spec = task_spec(args.task)
+    spec = task_spec(args.task, args.engine)
     compiled = engine.compile(spec, num_envs=args.num_envs, device=args.device, strict=args.strict)
 
     agent_cfg = compiled.agent_cfg
@@ -204,8 +206,6 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
 
         env = attach_terrain_split(env)
 
-    from instinct_rl.runners import OnPolicyRunner
-
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     resources.callback(_close_runner_writer, runner)
     runner.add_git_repo_to_log(__file__)
@@ -237,6 +237,12 @@ def main() -> None:
     from instinctlab.engines import adapter as engine_adapter
 
     engine = engine_adapter(args.engine)
+
+    # Pin the installed package before Isaac adds ``scripts/`` to Python's import paths. Otherwise
+    # that directory can be cached as an empty ``instinct_rl`` namespace package. Importing the
+    # top-level package is safe here: unlike the runner modules it does not import torch.
+    import instinct_rl  # noqa: F401
+
     with ExitStack() as resources:
         # Must precede every engine import. For mjlab this does nothing, which is the point: the
         # launcher does not need to know that only one engine has an application runtime.
@@ -248,7 +254,17 @@ def main() -> None:
 
         initialize_process_group(distributed)
         resources.callback(destroy_process_group, distributed)
-        _train(args, engine, distributed, resources)
+        try:
+            _train(args, engine, distributed, resources)
+        except BaseException:
+            # Isaac's application shutdown can terminate Python before its normal uncaught-
+            # exception hook runs. Print while the application is still alive so a failed run
+            # cannot look like a clean exit with only a manifest in its log directory.
+            import traceback
+
+            traceback.print_exc()
+            sys.stderr.flush()
+            raise
 
     # Isaac Sim's shutdown can hang on teardown after a long run; the process is done either way.
     sys.stdout.flush()

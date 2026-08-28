@@ -9,9 +9,7 @@ This directory follows the same layout as `resources/unitree_g1`:
 
 The simulator configurations are intentionally separate and explicit:
 
-- `instinctlab.assets.adam_sp.robot` is the shared `RobotSpec`; both task
-  backends rebuild their runtime actuators from its explicit `joint_properties`;
-- `instinctlab.assets.adam_sp.mjlab` contains complete 23-DOF and 29-DOF mjlab configs;
-- `instinctlab.assets.adam_sp.isaacsim` contains the complete 23-DOF Isaac Lab config.
+- `instinctlab.assets.adam_sp.mjlab` owns the MJLab robot and actuator configuration;
+- `instinctlab.assets.adam_sp.isaacsim` owns the Isaac Sim robot and actuator configuration.
 
 The current URDF fixes both wrists, so the 29-DOF model is available only through mjlab.

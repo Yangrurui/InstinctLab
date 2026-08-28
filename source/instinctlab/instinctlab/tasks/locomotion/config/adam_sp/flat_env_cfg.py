@@ -3,10 +3,7 @@
 import math
 
 from instinctlab import mdp
-from instinctlab.assets.adam_sp.robot import (
-    ADAM_SP_23DOF_JOINT_NAMES,
-    ADAM_SP_23DOF_ROBOT,
-)
+from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
     AgentSpec,
@@ -27,6 +24,32 @@ from instinctlab.spec import (
 from instinctlab.spec.capability import Requirement
 
 COMMAND = "base_velocity"
+
+ADAM_SP_23DOF_JOINT_NAMES = (
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint",
+    "waist_roll_joint",
+    "waist_pitch_joint",
+    "waist_yaw_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
+)
 
 ROBOT_ENTITY = EntityRef("robot", bodies=".*")
 ROBOT_JOINTS = EntityRef(
@@ -64,6 +87,11 @@ ADAM_SP_SIM = SimSpec(
     physics_dt=0.005,
     decimation=4,
     episode_length_s=20.0,
+    profiles={
+        "isaacsim": {
+            "gpu_max_rigid_patch_count": 20 * 2**15,
+        },
+    },
 )
 
 ADAM_SP_POLICY_OBSERVATIONS = ObsGroupSpec(
@@ -386,10 +414,10 @@ ADAM_SP_AGENT = AgentSpec(
 )
 
 
-def flat_adam_sp() -> TaskSpec:
+def _flat_adam_sp(robot: RobotSpec) -> TaskSpec:
     return TaskSpec(
         task_id="Instinct-Velocity-Flat-Adam-SP",
-        robot=ADAM_SP_23DOF_ROBOT,
+        robot=robot,
         scene=SceneSpec(
             contact_sensors=ADAM_SP_CONTACT_SENSORS,
             env_spacing=2.5,
@@ -409,6 +437,18 @@ def flat_adam_sp() -> TaskSpec:
     )
 
 
+def flat_adam_sp_isaacsim() -> TaskSpec:
+    from instinctlab.assets.adam_sp.isaacsim import ADAM_SP_23DOF_ROBOT
+
+    return _flat_adam_sp(ADAM_SP_23DOF_ROBOT)
+
+
+def flat_adam_sp_mjlab() -> TaskSpec:
+    from instinctlab.assets.adam_sp.mjlab import ADAM_SP_23DOF_ROBOT
+
+    return _flat_adam_sp(ADAM_SP_23DOF_ROBOT)
+
+
 __all__ = [
     "ADAM_SP_ACTIONS",
     "ADAM_SP_AGENT",
@@ -420,5 +460,6 @@ __all__ = [
     "ADAM_SP_SIM",
     "ADAM_SP_TERMINATIONS",
     "COMMAND",
-    "flat_adam_sp",
+    "flat_adam_sp_isaacsim",
+    "flat_adam_sp_mjlab",
 ]

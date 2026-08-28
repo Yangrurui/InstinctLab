@@ -11,17 +11,23 @@ and keeps listing cheap. There is no second Gym registry to keep synchronized.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from instinctlab.spec import TaskSpec
 
-TASKS: dict[str, str] = {
-    "Instinct-Velocity-Flat-Adam-SP": "instinctlab.tasks.locomotion.config.adam_sp:flat_adam_sp",
+TASKS: dict[str, str | Mapping[str, str]] = {
+    "Instinct-Velocity-Flat-Adam-SP": {
+        "isaacsim": "instinctlab.tasks.locomotion.config.adam_sp:flat_adam_sp_isaacsim",
+        "mjlab": "instinctlab.tasks.locomotion.config.adam_sp:flat_adam_sp_mjlab",
+    },
     "Instinct-Velocity-Flat-G1": "instinctlab.tasks.locomotion.config.g1:flat_g1",
-    "Instinct-Velocity-Rough-Adam-SP": "instinctlab.tasks.locomotion.config.adam_sp:rough_adam_sp",
+    "Instinct-Velocity-Rough-Adam-SP": {
+        "isaacsim": "instinctlab.tasks.locomotion.config.adam_sp:rough_adam_sp_isaacsim",
+        "mjlab": "instinctlab.tasks.locomotion.config.adam_sp:rough_adam_sp_mjlab",
+    },
     "Instinct-Velocity-Rough-G1": "instinctlab.tasks.locomotion.config.g1:rough_g1",
     "Instinct-Parkour-Target-G1": "instinctlab.tasks.parkour.config.g1:parkour_target_g1",
     "Instinct-Shadowing-WholeBody-Plane-G1-v0": (
@@ -96,19 +102,32 @@ def checkpoint_task_id(task_id: str) -> str:
     return PLAY_CHECKPOINT_TASKS.get(task_id, task_id)
 
 
-def factory(task_id: str) -> Callable[[], TaskSpec]:
+def factory(task_id: str, engine: str | None = None) -> Callable[[], TaskSpec]:
     """Import and return the factory for ``task_id``."""
     try:
-        path = TASKS[task_id]
+        registered = TASKS[task_id]
     except KeyError:
         raise KeyError(f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}") from None
+    if isinstance(registered, Mapping):
+        if engine is None:
+            choices = ", ".join(sorted(registered))
+            raise ValueError(f"task {task_id!r} needs an engine; available engines are {choices}")
+        try:
+            path = registered[engine]
+        except KeyError:
+            choices = ", ".join(sorted(registered))
+            raise ValueError(
+                f"task {task_id!r} is not registered for engine {engine!r}; available engines are {choices}"
+            ) from None
+    else:
+        path = registered
     module_path, _, attr = path.partition(":")
     return getattr(import_module(module_path), attr)
 
 
-def spec(task_id: str) -> TaskSpec:
+def spec(task_id: str, engine: str | None = None) -> TaskSpec:
     """Build the spec for ``task_id``, checking that it agrees about its own name."""
-    built = factory(task_id)()
+    built = factory(task_id, engine)()
     if built.task_id != task_id:
         raise ValueError(
             f"the registry calls this task {task_id!r} but the spec calls itself {built.task_id!r}; "

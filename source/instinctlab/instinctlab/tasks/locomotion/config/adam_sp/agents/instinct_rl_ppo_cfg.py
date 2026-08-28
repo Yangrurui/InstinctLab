@@ -48,7 +48,7 @@ class AdamSPFlatPPORunnerCfg(InstinctRlOnPolicyRunnerCfg):
 
     num_steps_per_env = 24
     max_iterations = 5000
-    save_interval = 1000
+    save_interval = 500
     log_interval = 10
     experiment_name = "adam_sp_locomotion"
 
