@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-28 02:03 UTC
+Updated: 2026-08-28 02:21 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current verified production code: `c68a1e6`
+- Current verified production code: `c90b24b`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -49,10 +49,10 @@ Current code organization:
   values, solver profiles, and runner selection belong to task configuration,
   not to the schema module.
 
-Current verification at `c68a1e6`:
+Current verification at `c90b24b`:
 
 ```text
-1283 passed, 2 skipped, 32 deselected
+1288 passed, 2 skipped, 32 deselected
 python scripts/check_mjlab.py:
   Instinct-Velocity-Flat-G1 resolved all 39 terms
   constructed 16 MJLab environments and stepped 5 times
@@ -904,6 +904,44 @@ zero. It contained no files and was removed with `rmdir`; no runner source was
 changed. Fresh clones do not contain an untracked empty directory, so the two
 failed launch directories are retained only as diagnostics.
 
+### Portable termination metric units
+
+Commit `c90b24b` gives every `Episode_Termination/<term>` tag one shared
+runner-level meaning: the fraction of all environments whose most recently
+completed episode ended with that term. Values are therefore in `[0, 1]` and
+independent of environment count. Terms can overlap, so their sum may exceed
+one. Environments that have not yet completed an episode contribute zero.
+
+This bridge is necessary because the native MJLab manager logs the raw number
+of firings in the current reset batch, while the native Isaac manager logs a
+last-completed-episode fraction. Both native managers remain unchanged; the two
+`instinct_rl` environment wrappers replace those tags at their common boundary.
+At matched iteration 390 of the 4,096-environment production runs, the old
+Isaac/MJLab termination sums were `1.020467/42.958333`; MJLab's expected reset
+batch size from episode length was `4096 / 95.67 = 42.81`, identifying the
+factor as a unit mismatch rather than a termination-rate mismatch.
+
+Fresh 16-environment, seed-123 BeyondMimic probes completed 30 iterations on
+both engines and wrote finite `model_30.pt` checkpoints:
+
+```text
+MJLab: logs/mjlab/g1_beyondmimic/
+  20260828_101553_termination_units_probe_16_seed123_gpu4_20260828
+Isaac: logs/isaacsim/g1_beyondmimic/
+  20260828_101716_termination_units_probe_16_seed123_gpu4_20260828
+```
+
+Every termination tag at iterations 0, 10, and 20 was within `[0, 1]` on both
+engines. The focused wrapper/entry suite passed 45 tests, the full suite passed
+1,288 tests with 2 skipped and 32 deselected, and a deliberate mean-to-sum
+mutation failed the environment-count invariance tests.
+
+The active 4,096-environment production processes were launched from
+`9531ad4`, before this bridge existed, and were not restarted. Their existing
+TensorBoard termination tags on port 6008 retain the old mixed units for the
+life of those processes. Do not use those raw tags for cross-engine magnitude
+comparison; new processes launched from `c90b24b` use the portable units.
+
 ## Live experiments
 
 Snapshot at 2026-08-28 01:46 UTC. The old GPU 5 and GPU 6 runs were stopped and
@@ -976,10 +1014,12 @@ finite.
    then run production reproductions. VAE has short-rollout evidence with
    substitute installed data; HOI still lacks both motions and all object
    meshes.
-4. BeyondMimic now has accepted official-data L7 evidence, but only for one
-   256-environment seed. Run multiple seeds and a 4096-environment capacity
-   check before using it as a production-throughput or paper-performance
-   baseline.
+4. BeyondMimic has accepted official-data L7 evidence for seed 42. The
+   multi-seed and 4,096-environment production campaign is running; wait for
+   completion and evaluate the acceptance criteria above before promoting it as
+   a production-throughput or paper-performance baseline. Its active processes
+   predate the portable termination metric bridge, so normalize or regenerate
+   those tags before comparing the termination mix.
 5. Validate real multi-node distributed training.
 6. Recover authoritative Parkour motion segment boundaries. The released NPZ
    concatenates clips without boundary metadata: 55 of 18,981 transitions
