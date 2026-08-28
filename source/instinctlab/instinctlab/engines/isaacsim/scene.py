@@ -171,6 +171,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
         generator = FiledTerrainGeneratorCfg(
             size=(9.0, 12.0),
             border_width=0.0,
+            border_height=0.0,
             num_rows=7,
             num_cols=7,
             sub_terrains={

@@ -662,6 +662,37 @@ def test_domain_randomization_and_reset_order_match_effective_sources() -> None:
     assert perceptive.mdp.events["physics_material"].resolved_params("mjlab")["ranges"][2] == (0.0, 0.5)
 
 
+def test_isaac_perceptive_terrain_matches_main_zero_border_height(monkeypatch) -> None:
+    """Do not inherit Isaac Lab's non-zero terrain border-height default."""
+    from instinctlab.engines.isaacsim import scene as isaac_scene
+
+    class Config:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    fake_isaaclab_terrains = types.ModuleType("isaaclab.terrains")
+    fake_isaaclab_terrains.TerrainImporterCfg = Config
+    fake_instinctlab_terrains = types.ModuleType("instinctlab.terrains")
+    fake_instinctlab_terrains.TerrainImporterCfg = Config
+    fake_generator_cfg = types.ModuleType("instinctlab.terrains.terrain_generator_cfg")
+    fake_generator_cfg.FiledTerrainGeneratorCfg = Config
+    fake_mesh_cfg = types.ModuleType("instinctlab.terrains.trimesh.mesh_terrains_cfg")
+    fake_mesh_cfg.MotionMatchedTerrainCfg = Config
+
+    monkeypatch.setitem(sys.modules, "isaaclab.terrains", fake_isaaclab_terrains)
+    monkeypatch.setitem(sys.modules, "instinctlab.terrains", fake_instinctlab_terrains)
+    monkeypatch.setitem(sys.modules, "instinctlab.terrains.terrain_generator_cfg", fake_generator_cfg)
+    monkeypatch.setitem(sys.modules, "instinctlab.terrains.trimesh.mesh_terrains_cfg", fake_mesh_cfg)
+    monkeypatch.setattr(isaac_scene, "_physics_material", lambda _spec: object())
+    monkeypatch.setattr(isaac_scene, "_visual_material", lambda: object())
+
+    terrain_spec = registry.spec("Instinct-Perceptive-Shadowing-G1-v0").scene.terrain
+    terrain_cfg = isaac_scene._terrain(terrain_spec, {})
+
+    assert terrain_cfg.terrain_generator.border_width == 0.0
+    assert terrain_cfg.terrain_generator.border_height == 0.0
+
+
 def test_perceptive_play_keeps_only_reference_evaluation_randomization() -> None:
     """Perceptive play keeps sensor/actuator/body DR but removes train-only state noise."""
     task_ids = (
