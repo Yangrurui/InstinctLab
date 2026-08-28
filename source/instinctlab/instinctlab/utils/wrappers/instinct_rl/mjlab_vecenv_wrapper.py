@@ -7,22 +7,27 @@ The wrapper exists because ``instinct_rl``'s ``VecEnv`` contract is not the Gym 
 flattened per-group observations, a ``(num_envs, num_rewards)`` reward matrix, a single ``dones``
 tensor, and ``extras`` whose ``log`` keys do not appear and disappear between iterations. mjlab
 returns a five-tuple with per-group observation dicts, so the translation is mechanical -- except
-for two things that are not:
+for three pieces of rollout bookkeeping:
 
 * ``_stabilize_log`` remembers every ``log`` key it has ever seen and refills missing ones with
   zeros. mjlab only reports an episode statistic on the step where an episode ends, so without
   this the logger's key set changes between iterations.
 * The runner does not reset before its first rollout, so the wrapper resets once at construction.
+* ``PortableTerminationLogger`` converts native reset-batch counts to the same per-environment
+  last-episode cause fractions exposed for Isaac training.
 
-Both are inherited from the reference rather than invented here.
+The first two behaviors are inherited from the reference. The termination conversion defines the
+shared runner interface while leaving both engines' native managers unchanged.
 """
 
 from __future__ import annotations
 
-import torch
 from typing import TYPE_CHECKING
 
+import torch
 from instinct_rl.env import VecEnv
+
+from .termination_log import PortableTerminationLogger
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
@@ -59,6 +64,7 @@ class MjlabVecEnvWrapper(VecEnv):
         self.num_rewards = int(getattr(self.unwrapped, "num_rewards", 1))
         self.num_obs = self._group_flat_dim(self.policy_group)
         self.num_critic_obs = self._group_flat_dim(self.critic_group) if self.critic_group is not None else None
+        self._termination_logger = PortableTerminationLogger(self.unwrapped)
 
         # The runner starts its first rollout without resetting, so do it here.
         self.env.reset()
@@ -126,6 +132,7 @@ class MjlabVecEnvWrapper(VecEnv):
 
     def reset(self) -> tuple[torch.Tensor, dict]:
         obs_dict, extras = self.env.reset()
+        self._termination_logger.reset()
         packed_obs = self._pack_observations(obs_dict)
         extras = dict(extras)
         self._stabilize_log(extras)
@@ -141,6 +148,9 @@ class MjlabVecEnvWrapper(VecEnv):
 
         extras = dict(extras)
         self._stabilize_log(extras)
+        # Native managers expose incompatible count/proportion metrics. Replace
+        # them at the common runner boundary with one portable cause fraction.
+        self._termination_logger.update(extras, dones)
         extras.setdefault("step", {})
         extras.setdefault("episode", {})
         extras["observations"] = packed_obs

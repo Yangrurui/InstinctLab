@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import gymnasium as gym
 import torch
-from typing import TYPE_CHECKING, Dict
-
 from isaaclab.envs import DirectRLEnv, ManagerBasedRLEnv
 
 if TYPE_CHECKING:
@@ -11,9 +11,15 @@ if TYPE_CHECKING:
 
 from instinct_rl.env import VecEnv
 
+from .termination_log import PortableTerminationLogger
+
 
 class InstinctRlVecEnvWrapper(VecEnv):
-    """Wraps around Isaac Lab environment for Instinct-RL library
+    """Wrap an Isaac Lab environment for the shared Instinct-RL contract.
+
+    Termination causes use portable per-environment last-episode fractions so
+    the same TensorBoard tag has the same dimension on both engines.
+
     Reference:
        https://github.com/project-instinct/instinct_rl/blob/master/instinct_rl/env/vec_env.py
     """
@@ -66,6 +72,7 @@ class InstinctRlVecEnvWrapper(VecEnv):
             self.num_critic_obs = gym.spaces.flatdim(self.unwrapped.single_observation_space["critic"])
         else:
             self.num_critic_obs = None
+        self._termination_logger = PortableTerminationLogger(self.unwrapped)
         # reset at the start since the Instinct-RL runner does not call reset
         self.env.reset()
 
@@ -158,6 +165,7 @@ class InstinctRlVecEnvWrapper(VecEnv):
     def reset(self) -> tuple[torch.Tensor, dict]:  # noqa: D102
         # reset the environment
         obs_pack, _ = self.env.reset()
+        self._termination_logger.reset()
         obs_pack = self._flatten_all_obs_groups(obs_pack)
         # return observations
         return obs_pack["policy"], {"observations": obs_pack}
@@ -168,6 +176,9 @@ class InstinctRlVecEnvWrapper(VecEnv):
         obs_pack = self._flatten_all_obs_groups(obs_pack)
         # compute dones for compatibility with RSL-RL
         dones = (terminated | truncated).to(dtype=torch.long)
+        # Native managers expose incompatible count/proportion metrics. Replace
+        # them at the common runner boundary with one portable cause fraction.
+        self._termination_logger.update(extras, dones)
         # move extra observations to the extras dict
 
         extras["observations"] = obs_pack
