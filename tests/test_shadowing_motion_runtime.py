@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import dataclasses
 import re
-import torch
-import yaml
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
+import torch
+import yaml
 from instinctlab.engines import shadowing_events
 from instinctlab.engines.motion_reference import (
     ChainInventory,
@@ -244,6 +243,54 @@ def test_terrain_motion_reset_uses_only_origins_matching_the_sampled_motion() ->
     torch.testing.assert_close(runtime.env_origins[:, 0], expected_x)
     torch.testing.assert_close(runtime.init_buffers.base_pos_w[:, 0, 0], expected_x)
     torch.testing.assert_close(runtime.buffers.base_pos_w[:, 0, 0], expected_x)
+
+
+def test_terrain_motion_reset_skips_motions_missing_from_a_small_scene() -> None:
+    ref = _ref(
+        "unused",
+        dataset_kind="terrain",
+        metadata_yaml="unused",
+        sampling_strategy="concat_motion_bins",
+        motion_bin_length_s=1.0,
+    )
+    clips = (_clip("available", 0.0), _clip("missing", 1000.0))
+    runtime = MotionReferenceRuntime.from_clips(
+        ref,
+        clips,
+        (
+            MotionInventoryEntry("available", terrain_id=0),
+            MotionInventoryEntry("missing", terrain_id=1),
+        ),
+        128,
+    )
+    terrain = SimpleNamespace(
+        terrain_origins=torch.tensor([[[3.0, 0.0, 0.0]]]),
+        subterrain_specific_cfgs=[SimpleNamespace(difficulty=0.1)],
+    )
+
+    runtime.match_terrain_origins(terrain)
+    runtime.reset(torch.arange(128), torch.Generator().manual_seed(7))
+
+    assert runtime.buffers.motion_id.tolist() == [0] * 128
+    assert torch.all(runtime.buffers.start_s < clips[0].sampling_length_s)
+    torch.testing.assert_close(runtime.env_origins[:, 0], torch.full((128,), 3.0))
+
+
+def test_terrain_motion_rejects_a_scene_without_any_compatible_origin() -> None:
+    ref = _ref("unused", dataset_kind="terrain", metadata_yaml="unused")
+    runtime = MotionReferenceRuntime.from_clips(
+        ref,
+        (_clip("missing", 0.0),),
+        (MotionInventoryEntry("missing", terrain_id=1),),
+        1,
+    )
+    terrain = SimpleNamespace(
+        terrain_origins=torch.tensor([[[3.0, 0.0, 0.0]]]),
+        subterrain_specific_cfgs=[SimpleNamespace(difficulty=0.1)],
+    )
+
+    with pytest.raises(ValueError, match="None of the terrain motions"):
+        runtime.match_terrain_origins(terrain)
 
 
 def test_binding_origins_translates_robot_and_valid_hoi_objects_together() -> None:

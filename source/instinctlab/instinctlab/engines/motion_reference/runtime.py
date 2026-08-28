@@ -22,7 +22,11 @@ from .clip import (
     sample_clip,
     sample_packed_motion_clips,
 )
-from .inventory import MotionFrameInventory, MotionInventoryEntry, discover_motion_inventory
+from .inventory import (
+    MotionFrameInventory,
+    MotionInventoryEntry,
+    discover_motion_inventory,
+)
 from .symmetry import (
     ResolvedSymmetricAugmentation,
     apply_symmetric_augmentation,
@@ -92,6 +96,7 @@ class MotionReferenceRuntime:
         self.motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
         self.current_motion_bin_fail_counter = torch.zeros_like(self.motion_bin_weights)
         self._motion_origins: tuple[torch.Tensor, ...] | None = None
+        self._motion_has_origins: torch.Tensor | None = None
 
     def _num_bins(self, clip: MotionClip) -> int:
         if self.ref.motion_bin_length_s is None:
@@ -248,10 +253,17 @@ class MotionReferenceRuntime:
         for terrain_id in terrain_ids:
             available = by_terrain[int(terrain_id)]
             if not available:
-                raise ValueError(f"Terrain motion {terrain_id} has no compatible scene origin.")
-            stacked = torch.stack(available)
-            motion_origins.append(stacked[:max_origins_per_motion])
+                motion_origins.append(origins.new_empty((0, 3)))
+                continue
+            motion_origins.append(torch.stack(available)[:max_origins_per_motion])
         self._motion_origins = tuple(motion_origins)
+        self._motion_has_origins = torch.tensor(
+            [motion_origin.shape[0] > 0 for motion_origin in motion_origins],
+            dtype=torch.bool,
+            device=self.buffers.timestamp.device,
+        )
+        if not torch.any(self._motion_has_origins):
+            raise ValueError("None of the terrain motions has a compatible scene origin.")
 
     def _sample_motion_origins(self, env_ids: torch.Tensor, generator: torch.Generator | None) -> None:
         if self._motion_origins is None:
@@ -274,10 +286,16 @@ class MotionReferenceRuntime:
             dtype=torch.float32,
             device=device,
         )
+        if self._motion_has_origins is not None:
+            clip_weights = clip_weights * self._motion_has_origins
         sampled_bins = torch.empty(env_ids.numel(), dtype=torch.long, device=device)
         if self.ref.sampling_strategy == "concat_motion_bins" and self.ref.motion_bin_length_s is not None:
+            bin_weights = self.motion_bin_weights
+            if self._motion_has_origins is not None:
+                has_origin_by_bin = torch.repeat_interleave(self._motion_has_origins, self._bin_counts)
+                bin_weights = bin_weights * has_origin_by_bin
             global_bin = torch.multinomial(
-                self.motion_bin_weights,
+                bin_weights,
                 int(env_ids.numel()),
                 replacement=True,
                 generator=generator,
