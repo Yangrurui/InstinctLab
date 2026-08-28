@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import torch
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
+import torch
 from instinctlab.checkpoint import task_contract
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
 from instinctlab.engines.mjlab.adapter import MjlabAdapter
@@ -24,6 +24,19 @@ from instinctlab.training import (
 SHADOW_IDS = tuple(
     task_id for task_id in registry.ids() if any(token in task_id for token in ("Shadowing", "Mimic", "Vae"))
 )
+
+
+def test_vae_uses_one_frozen_teacher_bundle_on_both_engines() -> None:
+    spec = registry.spec("Instinct-Perceptive-Vae-G1-v0")
+    teacher_dirs = {
+        adapter.name: spec.agent.resolve()(
+            **spec.agent.resolved_overrides(adapter.name)
+        ).algorithm.teacher_logdir
+        for adapter in (IsaacSimAdapter(), MjlabAdapter())
+    }
+
+    assert len(set(teacher_dirs.values())) == 1
+    assert os.path.basename(next(iter(teacher_dirs.values()))) == "mjlab_gpu7_iter22000"
 
 
 def test_motion_probe_override_is_explicit_and_keeps_the_registered_identity(tmp_path) -> None:

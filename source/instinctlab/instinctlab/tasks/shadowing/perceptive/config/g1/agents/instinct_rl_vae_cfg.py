@@ -10,6 +10,10 @@ from instinctlab.utils.wrappers.instinct_rl import (
     InstinctRlPpoAlgorithmCfg,
 )
 
+TEACHER_LOGDIR = os.path.expanduser(
+    "~/Datasets/g1_perceptive_vae_teacher/mjlab_gpu7_iter22000"
+)
+
 
 @configclass
 class Conv2dHeadEncoderCfg:
@@ -144,9 +148,9 @@ class AlgorithmCfg(InstinctRlPpoAlgorithmCfg):
         "num_actions": 29,
         "num_rewards": 1,
     }
-    teacher_logdir = os.path.expanduser(
-        "~/Data/instinctlab_logs/instinct_rl/g1_perceptive_shadowing/20260111_103654_g1Perceptive_4MotionsKneelClimbStep1_concatMotionBins__GPU0_from20260108_032900"
-    )
+    # One frozen teacher is shared by both engines. The bundle records the
+    # source checkpoint and supplies the metadata contract expected by TPPO.
+    teacher_logdir = TEACHER_LOGDIR
 
 
 @configclass
