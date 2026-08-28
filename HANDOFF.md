@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-28 01:46 UTC
+Updated: 2026-08-28 02:03 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -928,6 +928,7 @@ Current TensorBoard comparison links remain under:
 ```text
 logs/tb_compare/g1_shadowing_diveroll/
 logs/tb_compare/g1_perceptive_shadowing/
+logs/tb_compare/g1_beyondmimic_production_4096_seed42/  (live on port 6008)
 ```
 
 The main Perceptive run's position-monitor summaries can be NaN because of its
