@@ -32,7 +32,7 @@ Both engines carry the same implementation of these functions: Isaac Lab owns th
 mjlab vendored a copy. Importing either one, however, drags the engine in, which is precisely what
 a portable term cannot afford -- ``isaaclab.utils.math`` is not even importable without a USD
 runtime, since ``isaaclab.utils.__init__`` pulls in ``pxr``. So this module carries a third copy
-and ``tests/test_compat_math.py`` pins it to both originals numerically.
+that is numerically verified against both originals during maintenance.
 
 The test compares values rather than source text, because black reflows the vendored code. Every
 function here was checked to agree with both engines to exactly ``0.0`` in float64, including the
@@ -41,7 +41,7 @@ two whose sources have drifted apart cosmetically (``quat_from_matrix`` and its 
 
 Conventions
 -----------
-Quaternions are ``(w, x, y, z)`` throughout, per the canonical convention in ``AGENTS.md``. The
+Quaternions are ``(w, x, y, z)`` throughout, per the project's canonical convention. The
 ``xyzw`` layout is real but belongs at engine API boundaries only -- PhysX root transforms, warp
 mesh transforms, and external motion data. Converting between layouts is therefore an explicit,
 named operation with no default direction; see :func:`quat_wxyz_to_xyzw`. Both engines' upstream
@@ -56,7 +56,7 @@ makes the rewrite mechanical; ``instinctlab.migrate`` performs it.
 可移植 MDP term 共用的引擎无关张量数学。
 
 两引擎实现相同，但 import 任一引擎 math 会拖入 SDK（Isaac 的 ``isaaclab.utils.math`` 甚至需 USD）。
-故此处保留第三份拷贝，``tests/test_compat_math.py`` 数值对拍两引擎原版。
+故此处保留第三份拷贝，并在维护阶段与两引擎原版做数值对拍。
 
 约定：四元数一律 ``(w, x, y, z)``（决策 D8）。``xyzw`` 仅用于引擎 API 边界；用 :func:`quat_wxyz_to_xyzw` 等显式转换。
 ``quat_rotate`` / ``quat_rotate_inverse`` 已废弃/删除，请用 :func:`quat_apply` / :func:`quat_apply_inverse`。

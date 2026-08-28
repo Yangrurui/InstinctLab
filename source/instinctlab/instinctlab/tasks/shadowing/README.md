@@ -30,4 +30,4 @@ The replacement belongs in the concrete task class. Do not pass an override dict
 registry factory and do not modify a built `TaskSpec`.
 
 Native contact, actuator, solver and object semantics intentionally remain in the corresponding
-engine adapter. See the repository-root `HANDOFF.md` for the current reference boundary.
+engine adapter; the shared task layer only declares the portable boundary.

@@ -3,14 +3,12 @@
 This began as a restatement of main's ``G1FlatEnvCfg`` and is now the only description of the task:
 that config, its Gym ids and its MDP package were deleted when D3 was retired, so there is no second
 copy to agree with and no golden dump to diff against. What the two engines produce from this file
-is compared to each other instead -- ``scripts/check_mjlab.py`` against InstinctMJ's own run,
-``scripts/probe_terms.py`` term by term across both -- and ``tests/test_flat_g1_declaration.py``
-holds the properties this file has to have on its own.
+is compared to each other instead, both structurally and term by term, while declaration checks
+hold the properties this file has to have on its own.
 
 Nothing here imports an engine, names a joint index, or spells a native config class. That is what
-lets an mjlab process read it, and ``tests/test_spec_isolation.py`` imports it with both engines cut
-off to check, because Isaac Lab is installed wherever the tests run and an accidental dependency on
-it would otherwise surface only on a machine that has just the other engine.
+lets an MJLab process read it with Isaac Sim absent. Isolation is checked with both engine imports
+blocked so an accidental dependency surfaces before reaching a single-engine installation.
 
 Three of main's rewards are declared by ``kind`` rather than by function, and the distinction is
 about how they are written rather than whether the task has them. Two of them, ``dof_acc_l2`` and

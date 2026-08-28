@@ -225,8 +225,8 @@ def track_lin_vel_xy_exp(env: RlEnv, command_name: str, std: float, asset_cfg: A
     quantity both engines express. mjlab's parkour term already reads the link spelling.
 
     Measured rather than assumed, since the difference grows with ``ω`` and parkour is where ``ω``
-    is large: ``scripts/probe_velocity_frame.py`` scores both frames on the same rollout, so policy
-    quality cancels. The two velocities differ by 0.067 m/s on average (the lever is 0.185 m, not
+    is large. Matched-rollout diagnostics score both frames on the same rollout so policy quality
+    cancels. The two velocities differ by 0.067 m/s on average (the lever is 0.185 m, not
     the 0.076 m of the bare pelvis — ``merge_fixed_joints`` folds the torso into the root body) and
     the reward moves 0.2%. Mean tracking error is 0.41 m/s in both frames, and the exp kernel at
     ``std=0.5`` does not resolve a shift that small on top of it.

@@ -6,9 +6,9 @@ cases where it does not: reading them from a portable term produces numbers that
 silently wrong, and very hard to attribute later. So they are refused at import/compile time and
 have to be handled by a per-engine implementation instead.
 
-Every claim here was checked against the installed engines; ``tests/test_compat_vocab.py`` re-checks
-the mechanically verifiable parts (attribute existence, alias targets) so upstream renames surface
-as a test failure rather than a silent semantic change.
+Every claim here was checked against the installed engines. Maintainer verification re-checks the
+mechanically verifiable parts (attribute existence and alias targets) so upstream renames surface
+as an explicit compatibility failure rather than a silent semantic change.
 
 跨引擎同名但语义不同的属性清单。
 
@@ -16,8 +16,8 @@ as a test failure rather than a silent semantic change.
 下列条目不满足该条件：从可移植 term 读取会得到 plausible 但静默错误的数值，事后极难归因。
 因此在 import/编译期拒绝，须改用 per-engine 实现。
 
-每条声明均已对照已安装引擎核实；``tests/test_compat_vocab.py`` 会复检可机械验证的部分（属性存在性、别名目标），
-上游改名会以测试失败暴露，而非静默改变语义。
+每条声明均已对照已安装引擎核实；维护阶段会复检属性存在性与别名目标，
+使上游改名以明确的兼容性失败暴露，而非静默改变语义。
 
 注：``_ENTRIES`` 内字符串为运行时 ``PortabilityError`` 消息，保持英文；各条目前的 ``#`` 注释为中英对照。
 """
@@ -94,7 +94,7 @@ _ENTRIES: tuple[DenylistEntry, ...] = (
             " counterparts. Writing the same thirteen numbers through the unqualified method puts"
             " the two robots into different states -- measured at up to 0.85 m/s of link velocity"
             " for this task's G1 -- after which every velocity-reading term disagrees for a reason"
-            " that has nothing to do with the terms. scripts/probe_terms.py does it the right way."
+            " that has nothing to do with the terms. Compare terms only after frame-qualified writes."
         ),
     ),
     # default_root_state — velocity frame mismatch / 默认根状态速度参考系不一致

@@ -17,8 +17,8 @@ layers are.
 That is the D4 boundary showing its real cost. The agent configuration is engine-independent by
 nature; only its decorator was not. The functions below are copied verbatim, with the imports
 rewritten, so that a config declared with this decorator behaves identically to one declared with
-Isaac Lab's -- ``tests/test_configclass_vendor.py`` compares the two on the real agent config and
-pins the copies against upstream.
+Isaac Lab's. Maintainer verification compares the two on the real agent configuration and pins the
+copies against upstream.
 
 Do not edit the vendored bodies. Editing them is what would make the comparison meaningless.
 """

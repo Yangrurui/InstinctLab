@@ -2,7 +2,9 @@
 
 ## Multi-engine training
 
-仓库级架构约束与验证命令见 [`AGENTS.md`](AGENTS.md)，当前服务器、环境、数据集、运行中实验和未提交工作见 [`HANDOFF.md`](HANDOFF.md)。两者分别维护稳定规则与易变状态，避免让历史设计文档充当当前事实来源。
+InstinctLab 通过引擎中立的 `TaskSpec` 声明任务契约，再由 Isaac Sim 和 MJLab
+适配器分别构建原生环境。任务配置不依赖具体引擎，共享声明、张量计算与 MDP
+项位于公共层，引擎 SDK 依赖则限定在各自的构建器内。
 
 ## Monitor
 A monitor is an environment component that the user can use to store the simulation status and plot them in tensorboard.

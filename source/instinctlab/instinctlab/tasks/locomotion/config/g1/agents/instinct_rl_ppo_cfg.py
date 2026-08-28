@@ -6,9 +6,8 @@ be read without Isaac Sim on the path. ``config/g1/__init__.py`` does not import
 does not register a Gym id, which is what keeps the robot package itself engine-free.
 
 The hyperparameters are still checked against both references even though the env config no longer
-is. ``tests/test_agent_cfg.py`` reads main's copy of this file out of the branch itself, which needs
-nothing installed, and reads InstinctMJ's out of the ``agent.yaml`` its training run wrote -- better
-evidence than its source, since it is what the reference run actually trained with.
+is. Maintenance compares main's declaration with InstinctMJ's persisted ``agent.yaml`` because the
+latter records the configuration that the reference run actually trained with.
 """
 
 from instinctlab.utils.configclass import configclass

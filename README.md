@@ -89,8 +89,6 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
 
 - [Instinct-RL Documentation](https://github.com/project-instinct/instinct_rl/blob/main/README.md)
 - [InstinctLab Documentation](DOCS.md)
-- [Server migration and current-state handoff](HANDOFF.md)
-- [Repository instructions for coding agents](AGENTS.md)
 
 ### Set up IDE (Optional)
 

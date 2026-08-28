@@ -8,8 +8,45 @@
 **/__pycache__/
 **/.pytest_cache/
 **/.ruff_cache/
+**/.mypy_cache/
+**/.ipynb_checkpoints/
 **/*.pyc
 **/*.pb
+
+# Local Python environments and package builds
+.venv/
+venv/
+build/
+dist/
+*.whl
+
+# Maintainer-only context
+/.cursor/
+/AGENTS.md
+/HANDOFF.md
+
+# Tests and test-only support
+/tests/
+/pytest.ini
+/source/instinctlab/instinctlab/verify/
+/source/instinctlab/instinctlab/shadowing_probe.py
+**/.coverage
+**/.coverage.*
+**/coverage.xml
+**/htmlcov/
+**/.hypothesis/
+**/.tox/
+**/.nox/
+**/test-results/
+**/junit*.xml
+
+# Internal benchmarks, checks, comparisons, diagnostics, and probes
+/scripts/bench_*.py
+/scripts/check_*.py
+/scripts/compare_*.py
+/scripts/diagnose_*.py
+/scripts/measure_*.py
+/scripts/probe_*.py
 
 # IDE
 **/.idea/

@@ -12,8 +12,8 @@ declares its own spoke. Anything a portable term reads must appear in :data:`HUB
 ``documented`` on a spoke is deliberately separate from ``attr``. Both engines return ``wxyz``
 quaternions, but only Isaac Lab says so in its docstrings; MJLab inherits the convention from
 MuJoCo's ``qpos``/``xquat`` without restating it. That asymmetry is an implicit dependency on an
-upstream convention, so it is recorded rather than smoothed over -- see ``tests/test_compat_vocab.py``,
-which checks every claim in this table against the installed engines.
+upstream convention, so it is recorded rather than smoothed over. Maintainer verification checks
+every claim in this table against the installed engines.
 
 署名的中枢词汇表：每个物理量的含义，以及各引擎如何拼写它。
 
@@ -26,8 +26,7 @@ which checks every claim in this table against the installed engines.
 
 spoke 上的 ``documented`` 与 ``attr``  deliberately 分离：两引擎四元数均为 ``wxyz``，
 但只有 Isaac Lab 在文档中写明；MJLab 继承 MuJoCo ``qpos``/``xquat`` 约定而未重述。
-该不对称是隐式上游依赖，故记录在案而非抹平——见 ``tests/test_compat_vocab.py``，
-会对照已安装引擎检验本表每条声明。
+该不对称是隐式上游依赖，故记录在案而非抹平；维护阶段会对照已安装引擎检验本表每条声明。
 """
 
 from __future__ import annotations

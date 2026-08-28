@@ -6,9 +6,8 @@ still converges, the robot just tracks the wrong speed envelope. A third engine 
 for a thin subclass, not another 350 lines.
 
 This module lives next to ``compile.py`` rather than in ``mdp/`` because the command family is
-already per-engine (field names and visualization differ) and because ``tests/test_mdp_terms.py``
-scans that package as a portable term library. Putting the mixin there would either fail that
-scan or force a portable-looking home onto something that is not a portable term.
+already per-engine (field names and visualization differ). Putting the mixin there would give a
+portable-looking home to something that is not a portable term.
 
 Velocity boxes are keyed by sub-terrain **name**. A name maps to a *set* of columns: both
 engines' curriculum generators assign columns by Isaac Lab's cumulative-proportion formula
