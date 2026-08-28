@@ -873,6 +873,15 @@ mean episode length `6.33`. This proves full-data construction, teacher action
 generation, rollout, backpropagation, and checkpointing; it is not convergence
 or teacher-quality evidence.
 
+The same shared data and diagnostic teacher also completed the corresponding
+16-environment, seed-123, two-iteration Isaac run
+`20260828_113341_canonicaldata_mjteacher22000_smoke_isaac_16_seed123_gpu4_20260828`.
+Its finite `model_2.pt` contains model, optimizer, and normalizer state.
+Iteration 0 processed 384 transitions at 129 steps/s with
+distillation/KL/total losses `3.2535/0.0168/3.2703`, mean reward `0.36`, and
+mean episode length `7.20`. VAE therefore has a successful short training-chain
+test on both engines; neither two-iteration run is a performance comparison.
+
 HOI cannot be substituted safely: both OMOMO motion directories and all six
 configured object meshes are absent, so it remains limited to the existing
 fixed-state object-origin tests.
