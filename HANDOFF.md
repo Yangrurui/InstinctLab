@@ -251,8 +251,10 @@ logs/isaacsim/g1_perceptive_shadowing/20260826_192205_perceptive_terrainmatched_
   to `model_700.pt` under both strict builders with all 49 terms resolved.
   This is a long regression, not a 4096-environment capacity or multi-seed
   performance claim.
-- **Perceptive VAE and HOI: declarations exist, but no accepted production
-  reproduction on both engines.**
+- **Perceptive VAE: canonical data and a diagnostic MJLab teacher now complete
+  the training chain; no accepted production reproduction on both engines.**
+  HOI still has declarations only because its motions and object meshes are
+  absent.
 - Play variants use the corresponding train checkpoint; they do not need an
   independent training reproduction.
 - Real multi-node distributed training remains an infrastructure validation
@@ -827,10 +829,53 @@ engines. Four-step plant divergence is engine-native evidence, not an equality
 requirement: VAE root-to-reference delta differs by at most `0.0321 m` and
 BeyondMimic by `0.00372 m`; all initial joint and reference deltas are zero.
 
-These were real environment construction and temporal rollouts. The configured
-VAE directories are still absent on both engines. HOI cannot be substituted
-safely: both OMOMO motion directories and all six configured object meshes are
-absent, so it remains limited to the existing fixed-state object-origin tests.
+These were real environment construction and temporal rollouts. The released
+VAE data is now the canonical engine-neutral dataset at
+`/root/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1`
+(`f0a9147`). Its metadata declares ten motions and six terrain meshes; every
+declared file exists, all 8,816 declared frames load with finite tensors and
+the exact G1 joint-name set, and URDF/MJCF kinematic reconstruction agrees to
+within `5.513e-7 m` for link position, `7.451e-7` for link quaternion, and
+`5.150e-5 rad/s` for link angular velocity. Both engine resolutions now point
+to this same path.
+
+A frozen diagnostic teacher bundle is installed at
+`/root/Datasets/g1_perceptive_vae_teacher/mjlab_gpu7_iter22000`. It contains an
+independent copy of the MJLab Perceptive `model_22000.pt`, the TPPO normalizer
+metadata, source revisions, and an explicit `accepted_for_production: false`
+manifest. The checkpoint SHA-256 is
+`0c8c6a7a09cbc037e45f6bb2a36867e5400dfb325a30817932df6639a2e197da`;
+strict teacher construction/loading succeeds and all checkpoint and
+normalizer tensors are finite. The teacher predates the final Perceptive camera
+and event-randomization fixes, so it is suitable for training-chain diagnosis,
+not a promoted production teacher (`cdd5226`).
+
+The first full-dataset 16-environment MJLab construction exposed sparse terrain
+coverage: a small generated scene need not contain an origin for every motion
+terrain ID. Main and InstinctMJ avoid those motions; the shared runtime instead
+raised. Commit `979c030` now filters both independent motion weights and concat
+motion-bin weights to compatible origins, preserving a matching start time,
+while still rejecting a scene with no compatible motion at all.
+
+The next run exposed that the VAE critic group was 1,966 values while TPPO
+passes that group to the 1,990-value teacher policy. The declaration had both
+omitted the teacher's 24-value projected-gravity history and used the world
+position command instead of the teacher's body-relative position command.
+Commit `d65b55b` restores the exact ordered teacher policy schema on the VAE
+critic group; an effect-guard test fails if any ordered term is removed.
+
+The corrected MJLab run
+`20260828_111846_canonicaldata_mjteacher22000_smoke_retry2_16_seed123_gpu4_20260828`
+completed two iterations and saved finite `model_2.pt` model, optimizer, and
+normalizer state. Iteration 0 processed 384 transitions at 269 steps/s with
+distillation/KL/total losses `5.6940/0.0283/5.7224`, mean reward `0.1906`, and
+mean episode length `6.33`. This proves full-data construction, teacher action
+generation, rollout, backpropagation, and checkpointing; it is not convergence
+or teacher-quality evidence.
+
+HOI cannot be substituted safely: both OMOMO motion directories and all six
+configured object meshes are absent, so it remains limited to the existing
+fixed-state object-origin tests.
 
 BeyondMimic's formal data gap was subsequently closed at `c68a1e6`. The
 official LAFAN1 G1 CSV release was converted with a reproducible, tested
@@ -1010,10 +1055,10 @@ finite.
    available log. A causal diagnosis requires an exact checkpoint/policy replay
    with synchronous CUDA diagnostics; do not blame the reported `nonzero()`
    synchronization point or resume the run as if it completed.
-3. Install or authoritatively remap the configured VAE and OMOMO HOI datasets,
-   then run production reproductions. VAE has short-rollout evidence with
-   substitute installed data; HOI still lacks both motions and all object
-   meshes.
+3. Train or recover a current post-fix Perceptive teacher, then run long VAE
+   reproductions on both engines using the installed canonical dataset. The
+   present MJLab teacher and two-iteration VAE run are diagnostic only. HOI
+   still lacks both motions and all object meshes.
 4. BeyondMimic has accepted official-data L7 evidence for seed 42. The
    multi-seed and 4,096-environment production campaign is running; wait for
    completion and evaluate the acceptance criteria above before promoting it as
