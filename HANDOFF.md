@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-27 14:10 UTC
+Updated: 2026-08-28 01:46 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -866,6 +866,38 @@ or fatal simulator error occurred. The close return and episode curves are
 cross-engine behavioral evidence; raw plant trajectories are intentionally not
 required to match.
 
+A formal BeyondMimic performance-baseline campaign started on 2026-08-28 from
+the clean `9531ad4` worktree and runner `64d7e01`. It deliberately separates
+two questions:
+
+```text
+production performance/capacity:
+  4096 environments, seed 42, 30,000 iterations (the task's native maximum)
+  GPU 0 Isaac Sim, GPU 1 MJLab, strict mode
+seed noise at the comparable L7 scale:
+  256 environments, seeds 43 and 44, 700 iterations
+  GPU 2 Isaac Sim, GPU 3 MJLab, strict mode
+  reuse the accepted seed-42 runs above as the third sample
+```
+
+Production run directories:
+
+```text
+logs/isaacsim/g1_beyondmimic/
+  20260828_094446_official_lafan1_production_4096_seed42_30000_gpu0_20260828
+logs/mjlab/g1_beyondmimic/
+  20260828_094428_official_lafan1_production_4096_seed42_30000_gpu1_20260828
+```
+
+Both production builders resolved all 49 terms with none skipped, emulated, or
+omitted and entered iteration zero. Initial Isaac/MJLab reward was
+`-1.32/-1.31` and episode length was `16.99/17.26`. The initial throughput
+was about 25,416/51,310 environment steps/s; the first ETA was approximately
+32/16 hours. These runs are active, not yet accepted baselines. Promotion
+requires the final checkpoint, finite optimization and observations, live
+failure terms, no capacity warning, and comparison of normalized reward terms,
+episode length, termination mix, action noise, and throughput.
+
 An empty residual `/root/InstinctLab/scripts/instinct_rl/` directory initially
 shadowed the installed runner as a Python namespace and prevented iteration
 zero. It contained no files and was removed with `rmdir`; no runner source was
@@ -874,14 +906,18 @@ failed launch directories are retained only as diagnostics.
 
 ## Live experiments
 
-Snapshot at 2026-08-27 14:10 UTC. The old GPU 5 and GPU 6 runs were stopped and
+Snapshot at 2026-08-28 01:46 UTC. The old GPU 5 and GPU 6 runs were stopped and
 replaced at explicit operator request. GPU 7 was not signaled.
 
 | GPU | Run | Iteration | Reward | Episode length | Status |
 |---:|---|---:|---:|---:|---|
-| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 7720 | 12.23 | 195.10 | live; recovered from the temporary 3k--3.8k curriculum branch; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 3740 | 3.46 | 60.39 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 14100 | 15.61 | 243.01 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
+| 0 | Isaac BeyondMimic `official_lafan1_production_4096_seed42_30000_gpu0_20260828` | 0 | -1.32 | 16.99 | live; formal production baseline, InstinctLab `9531ad4`, runner `64d7e01` |
+| 1 | MJLab BeyondMimic `official_lafan1_production_4096_seed42_30000_gpu1_20260828` | 50 | 0.15 | 12.48 | live; formal production baseline, InstinctLab `9531ad4`, runner `64d7e01` |
+| 2 | Isaac BeyondMimic L7 seed 43, then seed 44 | 30 | -0.47 | 7.90 | live; two sequential 256-environment noise-floor runs |
+| 3 | MJLab BeyondMimic L7 seed 43, then seed 44 | 90 | -0.15 | 7.21 | live; two sequential 256-environment noise-floor runs |
+| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 21360 | 19.96 | 279.51 | live; recovered from the temporary 3k--3.8k curriculum branch; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
+| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 9910 | 3.92 | 74.66 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 21470 | 16.48 | 240.28 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
 
 Do not stop or restart these runs without an explicit operator request. Review
 reward, episode length, termination mix, and action noise together before
