@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-28 02:21 UTC
+Updated: 2026-08-28 03:52 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current verified production code: `c90b24b`
+- Current verified production code: `d8e8b24`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -49,10 +49,10 @@ Current code organization:
   values, solver profiles, and runner selection belong to task configuration,
   not to the schema module.
 
-Current verification at `c90b24b`:
+Current verification at `d8e8b24` plus the Perceptive diagnostic probe:
 
 ```text
-1288 passed, 2 skipped, 32 deselected
+1297 passed, 2 skipped, 32 deselected
 python scripts/check_mjlab.py:
   Instinct-Velocity-Flat-G1 resolved all 39 terms
   constructed 16 MJLab environments and stepped 5 times
@@ -1055,11 +1055,67 @@ finite.
   current-reference, history, terrain-match, or capacity fixes are diagnostic
   only. Do not resume or promote them.
 
+## Perceptive bin-12 reset-contact diagnosis
+
+The Isaac Perceptive stall is not a DFS/BFS or joint-initialization failure. A
+fixed-policy, fixed-bin probe now evaluates the same `model_6000.pt` checkpoint
+for 2,048 environments over 400 steps while holding adaptive sampling at global
+bin 12 (`roadRamp_noWall`, diveroll 4--5 s). Same-engine variants have identical
+start-time SHA-256 hashes.
+
+| Engine/variant | Mean first episode steps | First `illegal_reset_contact` | Step 1/2 force >500 N |
+|---|---:|---:|---:|
+| Isaac default | 12.58 | 1,737 / 2,048 | 90.8% / 90.8% |
+| Isaac MJ-style ground correction +0.1 m | 11.78 | 1,797 / 2,048 | not captured in this run |
+| Isaac fixed +0.1 m only | 12.76 | 1,649 / 2,048 | 89.6% / 73.0% |
+| Isaac fixed +0.2 m only | 6.60 | 1,336 / 2,048 | 88.6% / 76.2% |
+| Isaac without the early-contact termination | 52.28 | disabled | 90.8% / 90.8% |
+| Isaac with articulation self-collision off | 50.79 | 106 / 2,048 | 15.8% / 22.0% |
+| MJLab default | 48.46 | 347 / 2,048 | 36.7% / 19.8% |
+| MJLab without its reset lift | 44.13 | 419 / 2,048 | not captured in this run |
+
+Isaac's step-one non-support contact median was 5,969 N versus 209 N on
+MJLab. In Isaac, `pelvis`, `left_hip_roll_link`, and `right_hip_roll_link`
+exceeded 500 N in 88.7%, 82.2%, and 71.9% of environments. MJLab's corresponding
+rates were 7.1%, 0.5%, and below its top-six list. The MJCF explicitly excludes
+`pelvis` against both hip-roll bodies (and elbow against wrist-pitch on both
+arms); the Isaac URDF contains no pair filters while the articulation enables
+self-collision. Disabling Isaac self-collision causally removes the episode
+length gap, but is broader than an acceptable parity fix.
+
+This difference already exists between `/root/InstinctLab-main` and
+`/root/InstinctMJ`; the unified-task audit did not introduce it. Main and the
+current Isaac asset both enable articulation self-collision. The current task's
+Isaac reset values also match main (`ensure_link_below_zero_ground=False`,
+height offset 0). The MJ reset lift explains only about 10% within MJLab and
+does not fix Isaac.
+
+The live Isaac log independently shows that while curriculum top-bin 12 held
+from roughly iteration 4,900 through 10,000, its native early-contact
+termination fraction stayed around 0.32--0.33 and mean episode length around
+58--63. The raw-failure EMA then amplifies those resets into a curriculum lock;
+random sampling determines how long recovery takes. Do not compare the old
+MJLab termination tag numerically because that active run predates the portable
+termination-unit bridge.
+
+Probe reports and logs are under
+`logs/diagnostics/perceptive_reset_bin12_model6000/`. The reusable probe is
+`scripts/probe_perceptive_reset.py`; it hard-checks the fixed bin and reports
+start hashes, early force quantiles, top bodies, survival, reward, and causes.
+Commit `d8e8b24` fixes the Isaac profile interface so an explicit self-collision
+override reaches both URDF conversion and articulation properties; it does not
+change any task default. The next production experiment should reproduce the
+four MJCF pair exclusions in PhysX, verify force/contact behavior at 4,096
+environments, and only then run a fresh training A/B. Do not adopt global
+self-collision disablement as the final fix without that narrower test.
+
 ## Open risks and next work
 
-1. Let the fresh GPU 5 Whole Body and GPU 6 Perceptive runs continue and compare
-   matched iterations and termination distributions before declaring
-   long-horizon convergence. Do not promote checkpoints from either old run.
+1. Let the fresh GPU 5 Whole Body and GPU 6 Perceptive runs continue; do not
+   restart them or promote checkpoints yet. For the next Perceptive run, first
+   implement and validate the four MJCF-equivalent PhysX filtered pairs described
+   above. Global self-collision disablement is causal evidence, not the proposed
+   production configuration.
 2. The retained MJLab Whole Body CUDA 719 has no attributable source from the
    available log. A causal diagnosis requires an exact checkpoint/policy replay
    with synchronous CUDA diagnostics; do not blame the reported `nonzero()`
