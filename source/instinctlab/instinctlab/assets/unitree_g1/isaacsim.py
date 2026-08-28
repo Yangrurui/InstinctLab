@@ -1,31 +1,897 @@
-"""Isaac Lab assets and actuator configurations for Unitree G1.
+"""Complete Isaac Lab configuration for Unitree G1.
 
-Isaac Lab is imported lazily so importing the engine-neutral G1 package does
-not start Kit.  Actuator groups are explicit here; they are never inferred by
-an engine adapter from the shared robot interface.
+All portable robot values, Isaac model paths, variants, and actuator groups are
+declared in this file. Isaac Lab itself remains lazy so importing task
+declarations does not start Kit.
 """
 
 from __future__ import annotations
 
-from . import (
-    ARMATURE_4010,
-    ARMATURE_5020,
-    ARMATURE_7520_14,
-    ARMATURE_7520_22,
-    DAMPING_4010,
-    DAMPING_5020,
-    DAMPING_7520_14,
-    DAMPING_7520_22,
-    G1_29DOF_DEFAULT_JOINT_POS,
-    RESOURCE_ROOT,
-    STIFFNESS_4010,
-    STIFFNESS_5020,
-    STIFFNESS_7520_14,
-    STIFFNESS_7520_22,
-    make_g1_29dof_parkour_robot_spec,
-    make_g1_29dof_robot_spec,
-    make_g1_29dof_shadowing_robot_spec,
+from collections.abc import Sequence
+from pathlib import Path
+
+from instinctlab.sim.robot_spec import BackendAsset, JointProperties, RobotSpec
+from instinctlab.utils.name_order import resolve_name_indices
+
+RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
+
+ARMATURE_5020 = 0.003609725
+ARMATURE_7520_14 = 0.01017752
+ARMATURE_7520_22 = 0.025101925
+ARMATURE_4010 = 0.00425
+STIFFNESS_5020 = 14.25062309787429
+STIFFNESS_7520_14 = 40.17923847137318
+STIFFNESS_7520_22 = 99.09842777666113
+STIFFNESS_4010 = 16.77832748089279
+DAMPING_5020 = 0.907222843292423
+DAMPING_7520_14 = 2.5578897650279457
+DAMPING_7520_22 = 6.3088018534966395
+DAMPING_4010 = 1.06814150219
+
+G1_29DOF_DFS_JOINT_NAMES = (
+    "waist_pitch_joint",
+    "waist_roll_joint",
+    "waist_yaw_joint",
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "left_wrist_roll_joint",
+    "left_wrist_pitch_joint",
+    "left_wrist_yaw_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
+    "right_wrist_roll_joint",
+    "right_wrist_pitch_joint",
+    "right_wrist_yaw_joint",
 )
+G1_29DOF_DFS_BODY_NAMES = (
+    "torso_link",
+    "waist_roll_link",
+    "waist_yaw_link",
+    "pelvis",
+    "pelvis_contour_link",
+    "left_hip_pitch_link",
+    "left_hip_roll_link",
+    "left_hip_yaw_link",
+    "left_knee_link",
+    "left_ankle_pitch_link",
+    "left_ankle_roll_link",
+    "LL_FOOT",
+    "right_hip_pitch_link",
+    "right_hip_roll_link",
+    "right_hip_yaw_link",
+    "right_knee_link",
+    "right_ankle_pitch_link",
+    "right_ankle_roll_link",
+    "LR_FOOT",
+    "imu_in_pelvis",
+    "logo_link",
+    "head_link",
+    "imu_in_torso",
+    "mid360_link",
+    "left_shoulder_pitch_link",
+    "left_shoulder_roll_link",
+    "left_shoulder_yaw_link",
+    "left_elbow_link",
+    "left_wrist_roll_link",
+    "left_wrist_pitch_link",
+    "left_wrist_yaw_link",
+    "left_rubber_hand",
+    "right_shoulder_pitch_link",
+    "right_shoulder_roll_link",
+    "right_shoulder_yaw_link",
+    "right_elbow_link",
+    "right_wrist_roll_link",
+    "right_wrist_pitch_link",
+    "right_wrist_yaw_link",
+    "right_rubber_hand",
+)
+G1_29DOF_DFS_FRAME_NAMES = (
+    "pelvis_contour_link",
+    "LL_FOOT",
+    "LR_FOOT",
+    "imu_in_pelvis",
+    "logo_link",
+    "imu_in_torso",
+    "mid360_link",
+)
+G1_29DOF_DFS_COLLISION_BODY_NAMES = (
+    "torso_link",
+    "pelvis",
+    "left_hip_roll_link",
+    "left_knee_link",
+    "left_ankle_roll_link",
+    "right_hip_roll_link",
+    "right_knee_link",
+    "right_ankle_roll_link",
+    "left_shoulder_yaw_link",
+    "left_elbow_link",
+    "left_wrist_yaw_link",
+    "right_shoulder_yaw_link",
+    "right_elbow_link",
+    "right_wrist_yaw_link",
+)
+G1_29DOF_ISAAC_BFS_JOINT_NAMES = (
+    "left_shoulder_pitch_joint",
+    "right_shoulder_pitch_joint",
+    "waist_pitch_joint",
+    "left_shoulder_roll_joint",
+    "right_shoulder_roll_joint",
+    "waist_roll_joint",
+    "left_shoulder_yaw_joint",
+    "right_shoulder_yaw_joint",
+    "waist_yaw_joint",
+    "left_elbow_joint",
+    "right_elbow_joint",
+    "left_hip_pitch_joint",
+    "right_hip_pitch_joint",
+    "left_wrist_roll_joint",
+    "right_wrist_roll_joint",
+    "left_hip_roll_joint",
+    "right_hip_roll_joint",
+    "left_wrist_pitch_joint",
+    "right_wrist_pitch_joint",
+    "left_hip_yaw_joint",
+    "right_hip_yaw_joint",
+    "left_wrist_yaw_joint",
+    "right_wrist_yaw_joint",
+    "left_knee_joint",
+    "right_knee_joint",
+    "left_ankle_pitch_joint",
+    "right_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_ankle_roll_joint",
+)
+
+G1_29DOF_DEFAULT_JOINT_POS = {
+    "waist_pitch_joint": 0.0,
+    "waist_roll_joint": 0.0,
+    "waist_yaw_joint": 0.0,
+    "left_hip_pitch_joint": -0.312,
+    "left_hip_roll_joint": 0.0,
+    "left_hip_yaw_joint": 0.0,
+    "left_knee_joint": 0.669,
+    "left_ankle_pitch_joint": -0.363,
+    "left_ankle_roll_joint": 0.0,
+    "right_hip_pitch_joint": -0.312,
+    "right_hip_roll_joint": 0.0,
+    "right_hip_yaw_joint": 0.0,
+    "right_knee_joint": 0.669,
+    "right_ankle_pitch_joint": -0.363,
+    "right_ankle_roll_joint": 0.0,
+    "left_shoulder_pitch_joint": 0.2,
+    "left_shoulder_roll_joint": 0.2,
+    "left_shoulder_yaw_joint": 0.0,
+    "left_elbow_joint": 0.6,
+    "left_wrist_roll_joint": 0.0,
+    "left_wrist_pitch_joint": 0.0,
+    "left_wrist_yaw_joint": 0.0,
+    "right_shoulder_pitch_joint": 0.2,
+    "right_shoulder_roll_joint": -0.2,
+    "right_shoulder_yaw_joint": 0.0,
+    "right_elbow_joint": 0.6,
+    "right_wrist_roll_joint": 0.0,
+    "right_wrist_pitch_joint": 0.0,
+    "right_wrist_yaw_joint": 0.0,
+}
+
+G1_29DOF_JOINT_PROPERTIES = (
+    JointProperties(
+        name="waist_pitch_joint",
+        default_pos=0.0,
+        stiffness=28.50124619574858,
+        damping=1.814445686584846,
+        armature=0.00721945,
+        effort_limit=50.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="waist_roll_joint",
+        default_pos=0.0,
+        stiffness=28.50124619574858,
+        damping=1.814445686584846,
+        armature=0.00721945,
+        effort_limit=50.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="waist_yaw_joint",
+        default_pos=0.0,
+        stiffness=40.17923847137318,
+        damping=2.5578897650279457,
+        armature=0.01017752,
+        effort_limit=88.0,
+        velocity_limit=32.0,
+        action_scale=0.5475464652142303,
+    ),
+    JointProperties(
+        name="left_hip_pitch_joint",
+        default_pos=-0.312,
+        stiffness=40.17923847137318,
+        damping=2.5578897650279457,
+        armature=0.01017752,
+        effort_limit=88.0,
+        velocity_limit=32.0,
+        action_scale=0.5475464652142303,
+    ),
+    JointProperties(
+        name="left_hip_roll_joint",
+        default_pos=0.0,
+        stiffness=99.09842777666113,
+        damping=6.3088018534966395,
+        armature=0.025101925,
+        effort_limit=139.0,
+        velocity_limit=20.0,
+        action_scale=0.3506614663788243,
+    ),
+    JointProperties(
+        name="left_hip_yaw_joint",
+        default_pos=0.0,
+        stiffness=40.17923847137318,
+        damping=2.5578897650279457,
+        armature=0.01017752,
+        effort_limit=88.0,
+        velocity_limit=32.0,
+        action_scale=0.5475464652142303,
+    ),
+    JointProperties(
+        name="left_knee_joint",
+        default_pos=0.669,
+        stiffness=99.09842777666113,
+        damping=6.3088018534966395,
+        armature=0.025101925,
+        effort_limit=139.0,
+        velocity_limit=20.0,
+        action_scale=0.3506614663788243,
+    ),
+    JointProperties(
+        name="left_ankle_pitch_joint",
+        default_pos=-0.363,
+        stiffness=28.50124619574858,
+        damping=1.814445686584846,
+        armature=0.00721945,
+        effort_limit=50.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="left_ankle_roll_joint",
+        default_pos=0.0,
+        stiffness=28.50124619574858,
+        damping=1.814445686584846,
+        armature=0.00721945,
+        effort_limit=50.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="right_hip_pitch_joint",
+        default_pos=-0.312,
+        stiffness=40.17923847137318,
+        damping=2.5578897650279457,
+        armature=0.01017752,
+        effort_limit=88.0,
+        velocity_limit=32.0,
+        action_scale=0.5475464652142303,
+    ),
+    JointProperties(
+        name="right_hip_roll_joint",
+        default_pos=0.0,
+        stiffness=99.09842777666113,
+        damping=6.3088018534966395,
+        armature=0.025101925,
+        effort_limit=139.0,
+        velocity_limit=20.0,
+        action_scale=0.3506614663788243,
+    ),
+    JointProperties(
+        name="right_hip_yaw_joint",
+        default_pos=0.0,
+        stiffness=40.17923847137318,
+        damping=2.5578897650279457,
+        armature=0.01017752,
+        effort_limit=88.0,
+        velocity_limit=32.0,
+        action_scale=0.5475464652142303,
+    ),
+    JointProperties(
+        name="right_knee_joint",
+        default_pos=0.669,
+        stiffness=99.09842777666113,
+        damping=6.3088018534966395,
+        armature=0.025101925,
+        effort_limit=139.0,
+        velocity_limit=20.0,
+        action_scale=0.3506614663788243,
+    ),
+    JointProperties(
+        name="right_ankle_pitch_joint",
+        default_pos=-0.363,
+        stiffness=28.50124619574858,
+        damping=1.814445686584846,
+        armature=0.00721945,
+        effort_limit=50.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="right_ankle_roll_joint",
+        default_pos=0.0,
+        stiffness=28.50124619574858,
+        damping=1.814445686584846,
+        armature=0.00721945,
+        effort_limit=50.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="left_shoulder_pitch_joint",
+        default_pos=0.2,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="left_shoulder_roll_joint",
+        default_pos=0.2,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="left_shoulder_yaw_joint",
+        default_pos=0.0,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="left_elbow_joint",
+        default_pos=0.6,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="left_wrist_roll_joint",
+        default_pos=0.0,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="left_wrist_pitch_joint",
+        default_pos=0.0,
+        stiffness=16.77832748089279,
+        damping=1.06814150219,
+        armature=0.00425,
+        effort_limit=5.0,
+        velocity_limit=22.0,
+        action_scale=0.07450087032950714,
+    ),
+    JointProperties(
+        name="left_wrist_yaw_joint",
+        default_pos=0.0,
+        stiffness=16.77832748089279,
+        damping=1.06814150219,
+        armature=0.00425,
+        effort_limit=5.0,
+        velocity_limit=22.0,
+        action_scale=0.07450087032950714,
+    ),
+    JointProperties(
+        name="right_shoulder_pitch_joint",
+        default_pos=0.2,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="right_shoulder_roll_joint",
+        default_pos=-0.2,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="right_shoulder_yaw_joint",
+        default_pos=0.0,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="right_elbow_joint",
+        default_pos=0.6,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="right_wrist_roll_joint",
+        default_pos=0.0,
+        stiffness=14.25062309787429,
+        damping=0.907222843292423,
+        armature=0.003609725,
+        effort_limit=25.0,
+        velocity_limit=37.0,
+        action_scale=0.43857731392336724,
+    ),
+    JointProperties(
+        name="right_wrist_pitch_joint",
+        default_pos=0.0,
+        stiffness=16.77832748089279,
+        damping=1.06814150219,
+        armature=0.00425,
+        effort_limit=5.0,
+        velocity_limit=22.0,
+        action_scale=0.07450087032950714,
+    ),
+    JointProperties(
+        name="right_wrist_yaw_joint",
+        default_pos=0.0,
+        stiffness=16.77832748089279,
+        damping=1.06814150219,
+        armature=0.00425,
+        effort_limit=5.0,
+        velocity_limit=22.0,
+        action_scale=0.07450087032950714,
+    ),
+)
+
+_G1_MIRRORED_JOINT_NAMES = {
+    "waist_pitch_joint": "waist_pitch_joint",
+    "waist_roll_joint": "waist_roll_joint",
+    "waist_yaw_joint": "waist_yaw_joint",
+    "left_hip_pitch_joint": "right_hip_pitch_joint",
+    "left_hip_roll_joint": "right_hip_roll_joint",
+    "left_hip_yaw_joint": "right_hip_yaw_joint",
+    "left_knee_joint": "right_knee_joint",
+    "left_ankle_pitch_joint": "right_ankle_pitch_joint",
+    "left_ankle_roll_joint": "right_ankle_roll_joint",
+    "right_hip_pitch_joint": "left_hip_pitch_joint",
+    "right_hip_roll_joint": "left_hip_roll_joint",
+    "right_hip_yaw_joint": "left_hip_yaw_joint",
+    "right_knee_joint": "left_knee_joint",
+    "right_ankle_pitch_joint": "left_ankle_pitch_joint",
+    "right_ankle_roll_joint": "left_ankle_roll_joint",
+    "left_shoulder_pitch_joint": "right_shoulder_pitch_joint",
+    "left_shoulder_roll_joint": "right_shoulder_roll_joint",
+    "left_shoulder_yaw_joint": "right_shoulder_yaw_joint",
+    "left_elbow_joint": "right_elbow_joint",
+    "left_wrist_roll_joint": "right_wrist_roll_joint",
+    "left_wrist_pitch_joint": "right_wrist_pitch_joint",
+    "left_wrist_yaw_joint": "right_wrist_yaw_joint",
+    "right_shoulder_pitch_joint": "left_shoulder_pitch_joint",
+    "right_shoulder_roll_joint": "left_shoulder_roll_joint",
+    "right_shoulder_yaw_joint": "left_shoulder_yaw_joint",
+    "right_elbow_joint": "left_elbow_joint",
+    "right_wrist_roll_joint": "left_wrist_roll_joint",
+    "right_wrist_pitch_joint": "left_wrist_pitch_joint",
+    "right_wrist_yaw_joint": "left_wrist_yaw_joint",
+}
+_G1_SYMMETRY_SIGNS = {
+    "waist_pitch_joint": 1,
+    "waist_roll_joint": -1,
+    "waist_yaw_joint": -1,
+    "left_hip_pitch_joint": 1,
+    "left_hip_roll_joint": -1,
+    "left_hip_yaw_joint": -1,
+    "left_knee_joint": 1,
+    "left_ankle_pitch_joint": 1,
+    "left_ankle_roll_joint": -1,
+    "right_hip_pitch_joint": 1,
+    "right_hip_roll_joint": -1,
+    "right_hip_yaw_joint": -1,
+    "right_knee_joint": 1,
+    "right_ankle_pitch_joint": 1,
+    "right_ankle_roll_joint": -1,
+    "left_shoulder_pitch_joint": 1,
+    "left_shoulder_roll_joint": -1,
+    "left_shoulder_yaw_joint": -1,
+    "left_elbow_joint": 1,
+    "left_wrist_roll_joint": -1,
+    "left_wrist_pitch_joint": 1,
+    "left_wrist_yaw_joint": -1,
+    "right_shoulder_pitch_joint": 1,
+    "right_shoulder_roll_joint": -1,
+    "right_shoulder_yaw_joint": -1,
+    "right_elbow_joint": 1,
+    "right_wrist_roll_joint": -1,
+    "right_wrist_pitch_joint": 1,
+    "right_wrist_yaw_joint": -1,
+}
+
+
+def g1_symmetric_joint_augmentation(
+    joint_names: Sequence[str] = G1_29DOF_DFS_JOINT_NAMES,
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Return the explicit left/right mapping and sagittal sign for one joint order."""
+    names = tuple(joint_names)
+    mirrored_names = tuple(_G1_MIRRORED_JOINT_NAMES[name] for name in names)
+    mapping = resolve_name_indices(names, mirrored_names, require_exact=True)
+    reverse = tuple(_G1_SYMMETRY_SIGNS[name] for name in names)
+    return mapping, reverse
+
+
+_G1_29DOF_ROBOT_SPEC = RobotSpec(
+    name="unitree_g1_29dof",
+    schema_version="dfs_v1",
+    asset_id="unitree_g1/popsicle_torsobase_v1",
+    root_body="torso_link",
+    joint_names=G1_29DOF_DFS_JOINT_NAMES,
+    body_names=G1_29DOF_DFS_BODY_NAMES,
+    frame_names=G1_29DOF_DFS_FRAME_NAMES,
+    collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
+    joint_properties=G1_29DOF_JOINT_PROPERTIES,
+    assets=(
+        BackendAsset(
+            backend="isaacsim",
+            path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
+            contact_body_aliases={
+                "LL_FOOT": "left_ankle_roll_link",
+                "LR_FOOT": "right_ankle_roll_link",
+            },
+            import_options={
+                "prim_path": "{ENV_REGEX_NS}/Robot",
+                "fix_base": False,
+                "merge_fixed_joints": False,
+                "replace_cylinders_with_capsules": True,
+            },
+        ),
+        BackendAsset(
+            backend="mjlab",
+            path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
+            contact_body_aliases={
+                "LL_FOOT": "left_ankle_roll_link",
+                "LR_FOOT": "right_ankle_roll_link",
+            },
+            load_mode="strip_visual_meshes",
+        ),
+    ),
+    default_root_pos=(0.0, 0.0, 0.82),
+    default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    soft_joint_pos_limit_factor=0.9,
+    actuator_delay=(0, 0),
+)
+_G1_29DOF_ROBOT_SPEC.validate()
+
+
+_G1_29DOF_SHADOWING_ROBOT_SPEC = RobotSpec(
+    name="unitree_g1_29dof",
+    schema_version="dfs_v1",
+    asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+    root_body="torso_link",
+    joint_names=G1_29DOF_DFS_JOINT_NAMES,
+    body_names=G1_29DOF_DFS_BODY_NAMES,
+    frame_names=G1_29DOF_DFS_FRAME_NAMES,
+    collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
+    joint_properties=G1_29DOF_JOINT_PROPERTIES,
+    assets=(
+        BackendAsset(
+            backend="isaacsim",
+            path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
+            contact_body_aliases={
+                "LL_FOOT": "left_ankle_roll_link",
+                "LR_FOOT": "right_ankle_roll_link",
+            },
+            import_options={
+                "prim_path": "{ENV_REGEX_NS}/Robot",
+                "fix_base": False,
+                "merge_fixed_joints": True,
+                "replace_cylinders_with_capsules": True,
+            },
+        ),
+        BackendAsset(
+            backend="mjlab",
+            path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
+            contact_body_aliases={
+                "LL_FOOT": "left_ankle_roll_link",
+                "LR_FOOT": "right_ankle_roll_link",
+            },
+            load_mode="strip_visual_meshes",
+        ),
+    ),
+    default_root_pos=(0.0, 0.0, 0.82),
+    default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    soft_joint_pos_limit_factor=0.9,
+    actuator_delay=(0, 0),
+)
+_G1_29DOF_SHADOWING_ROBOT_SPEC.validate()
+
+
+_G1_29DOF_PARKOUR_ROBOT_SPEC = RobotSpec(
+    name="unitree_g1_29dof",
+    schema_version="dfs_v1",
+    asset_id="unitree_g1/popsicle_torsobase_parkour_v1",
+    root_body="torso_link",
+    joint_names=G1_29DOF_DFS_JOINT_NAMES,
+    body_names=G1_29DOF_DFS_BODY_NAMES,
+    frame_names=G1_29DOF_DFS_FRAME_NAMES,
+    collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
+    joint_properties=G1_29DOF_JOINT_PROPERTIES,
+    assets=(
+        BackendAsset(
+            backend="isaacsim",
+            path=str(
+                RESOURCE_ROOT / "urdf" / "g1_29dof_torsoBase_popsicle_with_shoe.urdf"
+            ),
+            contact_body_aliases={
+                "LL_FOOT": "left_ankle_roll_link",
+                "LR_FOOT": "right_ankle_roll_link",
+            },
+            import_options={
+                "prim_path": "{ENV_REGEX_NS}/Robot",
+                "fix_base": False,
+                "merge_fixed_joints": True,
+                "replace_cylinders_with_capsules": True,
+            },
+        ),
+        BackendAsset(
+            backend="mjlab",
+            path=str(
+                RESOURCE_ROOT / "xml" / "g1_29dof_torsoBase_popsicle_with_shoe.xml"
+            ),
+            contact_body_aliases={
+                "LL_FOOT": "left_ankle_roll_link",
+                "LR_FOOT": "right_ankle_roll_link",
+            },
+            load_mode="strip_visual_meshes",
+        ),
+    ),
+    default_root_pos=(0.0, 0.0, 0.9),
+    default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
+    soft_joint_pos_limit_factor=0.9,
+    actuator_delay=(0, 2),
+)
+_G1_29DOF_PARKOUR_ROBOT_SPEC.validate()
+
+
+def make_g1_29dof_robot_spec() -> RobotSpec:
+    return _G1_29DOF_ROBOT_SPEC
+
+
+def make_g1_29dof_shadowing_robot_spec() -> RobotSpec:
+    return _G1_29DOF_SHADOWING_ROBOT_SPEC
+
+
+def make_g1_29dof_parkour_robot_spec() -> RobotSpec:
+    return _G1_29DOF_PARKOUR_ROBOT_SPEC
+
+
+G1_29Dof_TorsoBase_symmetric_augmentation_joint_mapping = [
+    0,
+    1,
+    2,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+]
+G1_29Dof_TorsoBase_symmetric_augmentation_joint_reverse_buf = [
+    1,
+    -1,
+    -1,
+    1,
+    -1,
+    -1,
+    1,
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+    1,
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+    1,
+    -1,
+    1,
+    -1,
+    1,
+    -1,
+    -1,
+    1,
+    -1,
+    1,
+    -1,
+]
+G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_mapping = [
+    1,
+    0,
+    2,
+    4,
+    3,
+    5,
+    7,
+    6,
+    8,
+    10,
+    9,
+    12,
+    11,
+    14,
+    13,
+    16,
+    15,
+    18,
+    17,
+    20,
+    19,
+    22,
+    21,
+    24,
+    23,
+    26,
+    25,
+    28,
+    27,
+]
+G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_reverse_buf = [
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+]
+
+beyondmimic_action_scale = {
+    "waist_pitch_joint": 0.43857731392336724,
+    "waist_roll_joint": 0.43857731392336724,
+    "waist_yaw_joint": 0.5475464652142303,
+    "left_hip_pitch_joint": 0.5475464652142303,
+    "left_hip_roll_joint": 0.3506614663788243,
+    "left_hip_yaw_joint": 0.5475464652142303,
+    "left_knee_joint": 0.3506614663788243,
+    "left_ankle_pitch_joint": 0.43857731392336724,
+    "left_ankle_roll_joint": 0.43857731392336724,
+    "right_hip_pitch_joint": 0.5475464652142303,
+    "right_hip_roll_joint": 0.3506614663788243,
+    "right_hip_yaw_joint": 0.5475464652142303,
+    "right_knee_joint": 0.3506614663788243,
+    "right_ankle_pitch_joint": 0.43857731392336724,
+    "right_ankle_roll_joint": 0.43857731392336724,
+    "left_shoulder_pitch_joint": 0.43857731392336724,
+    "left_shoulder_roll_joint": 0.43857731392336724,
+    "left_shoulder_yaw_joint": 0.43857731392336724,
+    "left_elbow_joint": 0.43857731392336724,
+    "left_wrist_roll_joint": 0.43857731392336724,
+    "left_wrist_pitch_joint": 0.07450087032950714,
+    "left_wrist_yaw_joint": 0.07450087032950714,
+    "right_shoulder_pitch_joint": 0.43857731392336724,
+    "right_shoulder_roll_joint": 0.43857731392336724,
+    "right_shoulder_yaw_joint": 0.43857731392336724,
+    "right_elbow_joint": 0.43857731392336724,
+    "right_wrist_roll_joint": 0.43857731392336724,
+    "right_wrist_pitch_joint": 0.07450087032950714,
+    "right_wrist_yaw_joint": 0.07450087032950714,
+}
+
+G1_29DOF_LINKS = [
+    "torso_link",
+    "left_shoulder_pitch_link",
+    "left_shoulder_roll_link",
+    "left_shoulder_yaw_link",
+    "left_elbow_link",
+    "left_wrist_roll_link",
+    "left_wrist_pitch_link",
+    "left_wrist_yaw_link",
+    "right_shoulder_pitch_link",
+    "right_shoulder_roll_link",
+    "right_shoulder_yaw_link",
+    "right_elbow_link",
+    "right_wrist_roll_link",
+    "right_wrist_pitch_link",
+    "right_wrist_yaw_link",
+    "waist_yaw_link",
+    "waist_roll_link",
+    "pelvis",
+    "left_hip_pitch_link",
+    "left_hip_roll_link",
+    "left_hip_yaw_link",
+    "left_knee_link",
+    "left_ankle_pitch_link",
+    "left_ankle_roll_link",
+    "right_hip_pitch_link",
+    "right_hip_roll_link",
+    "right_hip_yaw_link",
+    "right_knee_link",
+    "right_ankle_pitch_link",
+    "right_ankle_roll_link",
+]
 
 ARTICULATIONS = {
     "popsicle_torsobase_v1": "G1_29DOF_TORSOBASE_POPSICLE_CFG",
@@ -181,8 +1047,13 @@ def _load_isaac() -> None:
     if _ISAAC_LOADED:
         return
 
-    global G1_29DOF_TORSOBASE_CFG, G1_29DOF_TORSOBASE_CLOG_CFG, G1_29DOF_TORSOBASE_POPSICLE_CFG
-    global G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG, G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG
+    global \
+        G1_29DOF_TORSOBASE_CFG, \
+        G1_29DOF_TORSOBASE_CLOG_CFG, \
+        G1_29DOF_TORSOBASE_POPSICLE_CFG
+    global \
+        G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG, \
+        G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG
     global beyondmimic_g1_29dof_actuators, beyondmimic_g1_29dof_delayed_actuators
 
     G1_29DOF_TORSOBASE_CFG = G1_CFG.copy()
@@ -194,7 +1065,9 @@ def _load_isaac() -> None:
         self_collision=True,
         activate_contact_sensors=True,
     )
-    G1_29DOF_TORSOBASE_CFG.spawn.joint_drive.gains.stiffness = None  # use value from the URDF file
+    G1_29DOF_TORSOBASE_CFG.spawn.joint_drive.gains.stiffness = (
+        None  # use value from the URDF file
+    )
     G1_29DOF_TORSOBASE_CFG.soft_joint_pos_limit_factor = 0.95
     G1_29DOF_TORSOBASE_CFG.actuators = {
         # NOTE: checked, delayed PD actuator has same time-lag when computing torques; and no lag when
@@ -317,7 +1190,9 @@ def _load_isaac() -> None:
         activate_contact_sensors=True,
         collider_type="convex_decomposition",
     )
-    G1_29DOF_TORSOBASE_CLOG_CFG.spawn.joint_drive.gains.stiffness = None  # use value from the URDF file
+    G1_29DOF_TORSOBASE_CLOG_CFG.spawn.joint_drive.gains.stiffness = (
+        None  # use value from the URDF file
+    )
 
     beyondmimic_g1_29dof_actuators = _beyondmimic_actuators(ImplicitActuatorCfg)
     beyondmimic_g1_29dof_delayed_actuators = {
@@ -357,10 +1232,14 @@ def _load_isaac() -> None:
                 max_depenetration_velocity=1.0,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                enabled_self_collisions=True, solver_position_iteration_count=8, solver_velocity_iteration_count=4
+                enabled_self_collisions=True,
+                solver_position_iteration_count=8,
+                solver_velocity_iteration_count=4,
             ),
             joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=0, damping=0)
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=0, damping=0
+                )
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
@@ -385,17 +1264,23 @@ def _load_isaac() -> None:
     parkour_robot = make_g1_29dof_parkour_robot_spec()
     parkour_asset = parkour_robot.asset_for("isaacsim")
     G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG = G1_29DOF_TORSOBASE_POPSICLE_CFG.copy()
-    G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn = G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn.replace(
-        asset_path=parkour_asset.path,
-        merge_fixed_joints=parkour_asset.import_options["merge_fixed_joints"],
+    G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn = (
+        G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn.replace(
+            asset_path=parkour_asset.path,
+            merge_fixed_joints=parkour_asset.import_options["merge_fixed_joints"],
+        )
     )
     G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.init_state = (
-        G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.init_state.replace(pos=parkour_robot.default_root_pos)
+        G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.init_state.replace(
+            pos=parkour_robot.default_root_pos
+        )
     )
     _ISAAC_LOADED = True
 
 
-def _with_delay(actuators: dict[str, object], delay: tuple[int, int]) -> dict[str, object]:
+def _with_delay(
+    actuators: dict[str, object], delay: tuple[int, int]
+) -> dict[str, object]:
     if delay == (0, 0):
         return actuators
     from isaaclab.actuators import DelayedPDActuatorCfg
@@ -423,7 +1308,9 @@ def articulation(variant: str, robot) -> object:
     try:
         config_name = ARTICULATIONS[variant]
     except KeyError:
-        raise KeyError(f"Unknown Isaac Unitree G1 variant {variant!r}; registered: {sorted(ARTICULATIONS)}") from None
+        raise KeyError(
+            f"Unknown Isaac Unitree G1 variant {variant!r}; registered: {sorted(ARTICULATIONS)}"
+        ) from None
     _load_isaac()
     cfg = globals()[config_name].copy()
     asset = robot.asset_for("isaacsim")
@@ -453,9 +1340,9 @@ __all__ = [
     "G1_29DOF_TORSOBASE_CFG",
     "G1_29DOF_TORSOBASE_CLOG_CFG",
     "G1_29DOF_TORSOBASE_POPSICLE_CFG",
-    "G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG",
     "G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG",
+    "G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG",
+    "articulation",
     "beyondmimic_g1_29dof_actuators",
     "beyondmimic_g1_29dof_delayed_actuators",
-    "articulation",
 ]
