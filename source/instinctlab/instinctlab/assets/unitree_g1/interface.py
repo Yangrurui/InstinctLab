@@ -6,13 +6,12 @@ explicit engine and variant to the corresponding native module.
 
 from __future__ import annotations
 
-from instinctlab.sim.native_asset import native_asset_module
-from instinctlab.sim.robot_spec import RobotSpec
+from importlib import import_module
+from types import ModuleType
 
-__all__ = ["robot_spec"]
+__all__ = ["native_module"]
 
 
-def robot_spec(engine: str, variant: str) -> RobotSpec:
-    """Return ``variant`` from the explicitly selected native G1 module."""
-    module, resolved_variant = native_asset_module(f"unitree_g1/{variant}", engine)
-    return module.robot_spec(resolved_variant)
+def native_module(engine: str, variant: str) -> tuple[ModuleType, str]:
+    """Forward one explicit engine and variant to its native G1 module."""
+    return import_module(f"{__package__}.{engine}"), variant

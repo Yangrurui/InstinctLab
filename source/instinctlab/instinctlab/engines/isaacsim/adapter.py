@@ -230,14 +230,24 @@ class IsaacSimAdapter:
         PhysX GPU overflow is checked here: construction first, then after every
         wrapped step. The log line PhysX already prints is not a failed run.
         """
-        from instinctlab.utils.contact_overflow import attach_overflow_guard, check_contact_overflow
-        from instinctlab.utils.wrappers.instinct_rl.vecenv_wrapper import InstinctRlVecEnvWrapper
+        from instinctlab.utils.contact_overflow import (
+            attach_overflow_guard,
+            check_contact_overflow,
+        )
+        from instinctlab.utils.wrappers.instinct_rl.vecenv_wrapper import (
+            InstinctRlVecEnvWrapper,
+        )
 
         check_contact_overflow(env, phase="construction")
         return InstinctRlVecEnvWrapper(attach_overflow_guard(env))
 
     def capabilities(self) -> CapabilitySet:
         return TERMS.capabilities()
+
+    def robot_spec(self, asset_id: str):
+        from .assets import robot_spec
+
+        return robot_spec(asset_id)
 
     def profile(self, spec: TaskSpec) -> dict[str, Any]:
         """This engine's solver settings, the task's overrides applied over the defaults."""
@@ -295,7 +305,9 @@ class IsaacSimAdapter:
         env_cls = InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)
 
         def make_env() -> Any:
-            from instinctlab.engines.motion_reference import bind_motion_reference_origins
+            from instinctlab.engines.motion_reference import (
+                bind_motion_reference_origins,
+            )
 
             env = env_cls(cfg=env_cfg)
             bind_motion_reference_origins(env.scene, spec.scene.motion_references)

@@ -128,16 +128,22 @@ def factory(task_id: str) -> Callable[[RobotSpec], TaskSpec]:
     return getattr(import_module(module_path), attr)
 
 
-def spec(task_id: str, engine: str) -> TaskSpec:
-    """Build ``task_id`` with the robot owned by the selected engine."""
-    from instinctlab.assets.unitree_g1.interface import robot_spec
-
+def asset_id(task_id: str) -> str:
+    """Return the engine-neutral native asset selection for ``task_id``."""
     try:
-        asset_id = TASK_ASSETS[task_id]
+        return TASK_ASSETS[task_id]
     except KeyError:
         raise KeyError(f"task {task_id!r} has no native asset declaration") from None
-    _, _, variant = asset_id.partition("/")
-    built = factory(task_id)(robot_spec(engine, variant))
+
+
+def spec(task_id: str, robot: RobotSpec) -> TaskSpec:
+    """Build ``task_id`` from a robot already normalized by the selected engine."""
+    expected_asset_id = asset_id(task_id)
+    if robot.asset_id != expected_asset_id:
+        raise ValueError(
+            f"task {task_id!r} selects {expected_asset_id!r}, got robot {robot.asset_id!r}"
+        )
+    built = factory(task_id)(robot)
     if built.task_id != task_id:
         raise ValueError(
             f"the registry calls this task {task_id!r} but the spec calls itself {built.task_id!r}; "

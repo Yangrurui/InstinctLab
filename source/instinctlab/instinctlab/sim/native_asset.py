@@ -9,11 +9,11 @@ __all__ = ["native_asset_module"]
 
 
 def native_asset_module(asset_id: str, engine: str) -> tuple[ModuleType, str]:
-    """Return ``(assets.<package>.<engine>, variant)`` for ``package/variant``.
+    """Resolve ``package/variant`` through the package's neutral interface.
 
-    The resolver knows the package convention, not any concrete robot.  This
-    keeps engine adapters generic while each asset package owns its native
-    registrations and model paths.
+    The resolver knows the package convention, not any concrete robot. Each
+    package interface only forwards to its selected native module, which keeps
+    engine adapters generic while native registrations and paths stay local.
     """
     package, separator, variant = asset_id.partition("/")
     if not separator or not package.isidentifier() or not variant:
@@ -22,4 +22,5 @@ def native_asset_module(asset_id: str, engine: str) -> tuple[ModuleType, str]:
         )
     if not engine.isidentifier():
         raise ValueError(f"engine must be a Python module name, got {engine!r}")
-    return import_module(f"instinctlab.assets.{package}.{engine}"), variant
+    interface = import_module(f"instinctlab.assets.{package}.interface")
+    return interface.native_module(engine, variant)

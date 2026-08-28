@@ -1,19 +1,52 @@
-"""Complete Isaac Lab configuration for Unitree G1.
+"""Complete main-style Isaac Lab configuration for Unitree G1.
 
-All portable robot values, Isaac model paths, variants, and actuator groups are
-declared in this file. Isaac Lab itself remains lazy so importing task
-declarations does not start Kit.
+Isaac model paths, variants, canonical metadata, and actuator groups are
+declared here in Isaac-owned types. Isaac Lab itself remains lazy so resolving
+the configuration does not start Kit. The Isaac engine adapter alone converts
+these values to the shared runtime ``RobotSpec``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
-from instinctlab.sim.robot_spec import BackendAsset, JointProperties, RobotSpec
 from instinctlab.utils.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
+
+
+@dataclass(frozen=True)
+class IsaacJointCfg:
+    name: str
+    default_pos: float
+    stiffness: float
+    damping: float
+    armature: float
+    effort_limit: float
+    velocity_limit: float
+    action_scale: float
+
+
+@dataclass(frozen=True)
+class IsaacRobotCfg:
+    name: str
+    schema_version: str
+    asset_id: str
+    root_body: str
+    joint_names: tuple[str, ...]
+    body_names: tuple[str, ...]
+    frame_names: tuple[str, ...]
+    collision_body_names: tuple[str, ...]
+    joint_properties: tuple[IsaacJointCfg, ...]
+    urdf_path: str
+    contact_body_aliases: dict[str, str]
+    import_options: dict[str, object]
+    default_root_pos: tuple[float, float, float]
+    default_root_quat_wxyz: tuple[float, float, float, float]
+    soft_joint_pos_limit_factor: float
+    actuator_delay: tuple[int, int]
 
 ARMATURE_5020 = 0.003609725
 ARMATURE_7520_14 = 0.01017752
@@ -191,7 +224,7 @@ G1_29DOF_DEFAULT_JOINT_POS = {
 }
 
 G1_29DOF_JOINT_PROPERTIES = (
-    JointProperties(
+    IsaacJointCfg(
         name="waist_pitch_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -201,7 +234,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="waist_roll_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -211,7 +244,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="waist_yaw_joint",
         default_pos=0.0,
         stiffness=40.17923847137318,
@@ -221,7 +254,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_hip_pitch_joint",
         default_pos=-0.312,
         stiffness=40.17923847137318,
@@ -231,7 +264,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_hip_roll_joint",
         default_pos=0.0,
         stiffness=99.09842777666113,
@@ -241,7 +274,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_hip_yaw_joint",
         default_pos=0.0,
         stiffness=40.17923847137318,
@@ -251,7 +284,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_knee_joint",
         default_pos=0.669,
         stiffness=99.09842777666113,
@@ -261,7 +294,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_ankle_pitch_joint",
         default_pos=-0.363,
         stiffness=28.50124619574858,
@@ -271,7 +304,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_ankle_roll_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -281,7 +314,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_hip_pitch_joint",
         default_pos=-0.312,
         stiffness=40.17923847137318,
@@ -291,7 +324,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_hip_roll_joint",
         default_pos=0.0,
         stiffness=99.09842777666113,
@@ -301,7 +334,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_hip_yaw_joint",
         default_pos=0.0,
         stiffness=40.17923847137318,
@@ -311,7 +344,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_knee_joint",
         default_pos=0.669,
         stiffness=99.09842777666113,
@@ -321,7 +354,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_ankle_pitch_joint",
         default_pos=-0.363,
         stiffness=28.50124619574858,
@@ -331,7 +364,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_ankle_roll_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -341,7 +374,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_shoulder_pitch_joint",
         default_pos=0.2,
         stiffness=14.25062309787429,
@@ -351,7 +384,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_shoulder_roll_joint",
         default_pos=0.2,
         stiffness=14.25062309787429,
@@ -361,7 +394,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_shoulder_yaw_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -371,7 +404,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_elbow_joint",
         default_pos=0.6,
         stiffness=14.25062309787429,
@@ -381,7 +414,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_wrist_roll_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -391,7 +424,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_wrist_pitch_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -401,7 +434,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=22.0,
         action_scale=0.07450087032950714,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="left_wrist_yaw_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -411,7 +444,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=22.0,
         action_scale=0.07450087032950714,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_shoulder_pitch_joint",
         default_pos=0.2,
         stiffness=14.25062309787429,
@@ -421,7 +454,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_shoulder_roll_joint",
         default_pos=-0.2,
         stiffness=14.25062309787429,
@@ -431,7 +464,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_shoulder_yaw_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -441,7 +474,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_elbow_joint",
         default_pos=0.6,
         stiffness=14.25062309787429,
@@ -451,7 +484,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_wrist_roll_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -461,7 +494,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_wrist_pitch_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -471,7 +504,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=22.0,
         action_scale=0.07450087032950714,
     ),
-    JointProperties(
+    IsaacJointCfg(
         name="right_wrist_yaw_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -558,7 +591,7 @@ def g1_symmetric_joint_augmentation(
     return mapping, reverse
 
 
-_G1_29DOF_ROBOT_SPEC = RobotSpec(
+G1_29DOF_CFG = IsaacRobotCfg(
     name="unitree_g1_29dof",
     schema_version="dfs_v1",
     asset_id="unitree_g1/popsicle_torsobase_v1",
@@ -568,31 +601,25 @@ _G1_29DOF_ROBOT_SPEC = RobotSpec(
     frame_names=G1_29DOF_DFS_FRAME_NAMES,
     collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
-    assets=(
-        BackendAsset(
-            backend="isaacsim",
-            path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            import_options={
-                "prim_path": "{ENV_REGEX_NS}/Robot",
-                "fix_base": False,
-                "merge_fixed_joints": False,
-                "replace_cylinders_with_capsules": True,
-            },
-        ),
-    ),
+    urdf_path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
+    contact_body_aliases={
+        "LL_FOOT": "left_ankle_roll_link",
+        "LR_FOOT": "right_ankle_roll_link",
+    },
+    import_options={
+        "prim_path": "{ENV_REGEX_NS}/Robot",
+        "fix_base": False,
+        "merge_fixed_joints": False,
+        "replace_cylinders_with_capsules": True,
+    },
     default_root_pos=(0.0, 0.0, 0.82),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
 )
-_G1_29DOF_ROBOT_SPEC.validate()
 
 
-_G1_29DOF_SHADOWING_ROBOT_SPEC = RobotSpec(
+G1_29DOF_SHADOWING_CFG = IsaacRobotCfg(
     name="unitree_g1_29dof",
     schema_version="dfs_v1",
     asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
@@ -602,31 +629,25 @@ _G1_29DOF_SHADOWING_ROBOT_SPEC = RobotSpec(
     frame_names=G1_29DOF_DFS_FRAME_NAMES,
     collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
-    assets=(
-        BackendAsset(
-            backend="isaacsim",
-            path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            import_options={
-                "prim_path": "{ENV_REGEX_NS}/Robot",
-                "fix_base": False,
-                "merge_fixed_joints": True,
-                "replace_cylinders_with_capsules": True,
-            },
-        ),
-    ),
+    urdf_path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
+    contact_body_aliases={
+        "LL_FOOT": "left_ankle_roll_link",
+        "LR_FOOT": "right_ankle_roll_link",
+    },
+    import_options={
+        "prim_path": "{ENV_REGEX_NS}/Robot",
+        "fix_base": False,
+        "merge_fixed_joints": True,
+        "replace_cylinders_with_capsules": True,
+    },
     default_root_pos=(0.0, 0.0, 0.82),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
 )
-_G1_29DOF_SHADOWING_ROBOT_SPEC.validate()
 
 
-_G1_29DOF_PARKOUR_ROBOT_SPEC = RobotSpec(
+G1_29DOF_PARKOUR_CFG = IsaacRobotCfg(
     name="unitree_g1_29dof",
     schema_version="dfs_v1",
     asset_id="unitree_g1/popsicle_torsobase_parkour_v1",
@@ -636,58 +657,40 @@ _G1_29DOF_PARKOUR_ROBOT_SPEC = RobotSpec(
     frame_names=G1_29DOF_DFS_FRAME_NAMES,
     collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
-    assets=(
-        BackendAsset(
-            backend="isaacsim",
-            path=str(
-                RESOURCE_ROOT / "urdf" / "g1_29dof_torsoBase_popsicle_with_shoe.urdf"
-            ),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            import_options={
-                "prim_path": "{ENV_REGEX_NS}/Robot",
-                "fix_base": False,
-                "merge_fixed_joints": True,
-                "replace_cylinders_with_capsules": True,
-            },
-        ),
+    urdf_path=str(
+        RESOURCE_ROOT / "urdf" / "g1_29dof_torsoBase_popsicle_with_shoe.urdf"
     ),
+    contact_body_aliases={
+        "LL_FOOT": "left_ankle_roll_link",
+        "LR_FOOT": "right_ankle_roll_link",
+    },
+    import_options={
+        "prim_path": "{ENV_REGEX_NS}/Robot",
+        "fix_base": False,
+        "merge_fixed_joints": True,
+        "replace_cylinders_with_capsules": True,
+    },
     default_root_pos=(0.0, 0.0, 0.9),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 2),
 )
-_G1_29DOF_PARKOUR_ROBOT_SPEC.validate()
 
 
-def make_g1_29dof_robot_spec() -> RobotSpec:
-    return _G1_29DOF_ROBOT_SPEC
-
-
-def make_g1_29dof_shadowing_robot_spec() -> RobotSpec:
-    return _G1_29DOF_SHADOWING_ROBOT_SPEC
-
-
-def make_g1_29dof_parkour_robot_spec() -> RobotSpec:
-    return _G1_29DOF_PARKOUR_ROBOT_SPEC
-
-
-ROBOT_SPECS = {
-    "popsicle_torsobase_v1": _G1_29DOF_ROBOT_SPEC,
-    "popsicle_torsobase_shadowing_v1": _G1_29DOF_SHADOWING_ROBOT_SPEC,
-    "popsicle_torsobase_parkour_v1": _G1_29DOF_PARKOUR_ROBOT_SPEC,
+NATIVE_CONFIGS = {
+    "popsicle_torsobase_v1": G1_29DOF_CFG,
+    "popsicle_torsobase_shadowing_v1": G1_29DOF_SHADOWING_CFG,
+    "popsicle_torsobase_parkour_v1": G1_29DOF_PARKOUR_CFG,
 }
 
 
-def robot_spec(variant: str) -> RobotSpec:
-    """Return the complete Isaac-owned robot configuration for ``variant``."""
+def native_config(variant: str) -> IsaacRobotCfg:
+    """Return the complete Isaac-native configuration for ``variant``."""
     try:
-        return ROBOT_SPECS[variant]
+        return NATIVE_CONFIGS[variant]
     except KeyError:
         raise KeyError(
-            f"Unknown Isaac Unitree G1 variant {variant!r}; registered: {sorted(ROBOT_SPECS)}"
+            f"Unknown Isaac Unitree G1 variant {variant!r}; registered: {sorted(NATIVE_CONFIGS)}"
         ) from None
 
 
@@ -1202,7 +1205,7 @@ def _load_isaac() -> None:
         for name, cfg in beyondmimic_g1_29dof_actuators.items()
     }
 
-    robot = make_g1_29dof_robot_spec()
+    robot = G1_29DOF_CFG
     G1_29DOF_TORSOBASE_POPSICLE_CFG = ArticulationCfg(
         spawn=sim_utils.UrdfFileCfg(
             fix_base=False,
@@ -1239,23 +1242,21 @@ def _load_isaac() -> None:
         actuators=beyondmimic_g1_29dof_actuators,
     )
 
-    shadowing_robot = make_g1_29dof_shadowing_robot_spec()
-    shadowing_asset = shadowing_robot.asset_for("isaacsim")
+    shadowing_robot = G1_29DOF_SHADOWING_CFG
     G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG = G1_29DOF_TORSOBASE_POPSICLE_CFG.copy()
     G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG.spawn = (
         G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG.spawn.replace(
-            asset_path=shadowing_asset.path,
-            merge_fixed_joints=shadowing_asset.import_options["merge_fixed_joints"],
+            asset_path=shadowing_robot.urdf_path,
+            merge_fixed_joints=shadowing_robot.import_options["merge_fixed_joints"],
         )
     )
 
-    parkour_robot = make_g1_29dof_parkour_robot_spec()
-    parkour_asset = parkour_robot.asset_for("isaacsim")
+    parkour_robot = G1_29DOF_PARKOUR_CFG
     G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG = G1_29DOF_TORSOBASE_POPSICLE_CFG.copy()
     G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn = (
         G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.spawn.replace(
-            asset_path=parkour_asset.path,
-            merge_fixed_joints=parkour_asset.import_options["merge_fixed_joints"],
+            asset_path=parkour_robot.urdf_path,
+            merge_fixed_joints=parkour_robot.import_options["merge_fixed_joints"],
         )
     )
     G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.init_state = (
@@ -1330,9 +1331,9 @@ __all__ = [
     "G1_29DOF_TORSOBASE_POPSICLE_CFG",
     "G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG",
     "G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG",
-    "ROBOT_SPECS",
+    "NATIVE_CONFIGS",
     "articulation",
     "beyondmimic_g1_29dof_actuators",
     "beyondmimic_g1_29dof_delayed_actuators",
-    "robot_spec",
+    "native_config",
 ]

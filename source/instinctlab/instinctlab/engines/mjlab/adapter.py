@@ -134,12 +134,19 @@ class MjlabAdapter:
     @staticmethod
     def wrap_for_rl(env: Any) -> Any:
         """Wrap with the wrapper ported from InstinctMJ, which is how mjlab training was run."""
-        from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import MjlabVecEnvWrapper
+        from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import (
+            MjlabVecEnvWrapper,
+        )
 
         return MjlabVecEnvWrapper(env)
 
     def capabilities(self) -> CapabilitySet:
         return TERMS.capabilities()
+
+    def robot_spec(self, asset_id: str):
+        from .assets import robot_spec
+
+        return robot_spec(asset_id)
 
     def profile(self, spec: TaskSpec) -> dict[str, Any]:
         merged = dict(PROFILE_DEFAULTS)
@@ -228,7 +235,9 @@ class MjlabAdapter:
         )
 
         def make_env() -> Any:
-            from instinctlab.engines.motion_reference import bind_motion_reference_origins
+            from instinctlab.engines.motion_reference import (
+                bind_motion_reference_origins,
+            )
 
             env = TerrainAwareRlEnv(cfg=env_cfg, device=device)
             bind_motion_reference_origins(env.scene, spec.scene.motion_references)

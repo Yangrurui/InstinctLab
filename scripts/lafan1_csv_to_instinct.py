@@ -18,9 +18,9 @@ from pathlib import Path
 import numpy as np
 import pytorch_kinematics as pk
 import torch
-from instinctlab.assets.unitree_g1 import robot_spec
+from instinctlab.engines.isaacsim.assets import robot_spec
 
-TARGET_JOINT_NAMES = robot_spec("isaacsim", "popsicle_torsobase_v1").joint_names
+TARGET_JOINT_NAMES = robot_spec("unitree_g1/popsicle_torsobase_v1").joint_names
 
 LAFAN1_G1_JOINT_NAMES = (
     "left_hip_pitch_joint",

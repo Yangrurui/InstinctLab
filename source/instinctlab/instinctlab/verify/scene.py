@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from instinctlab.assets.unitree_g1.interface import robot_spec
+from instinctlab.engines import adapter
 from instinctlab.sim.backend import JOINT_ACC_SOURCES, RuntimeRequirements
 from instinctlab.sim.capabilities import (
     BATCHED_SIMULATION,
@@ -89,7 +89,7 @@ def locomotion_flat_scene(engine: str, *, num_envs: int = 2) -> VerificationScen
         scene=SceneSpec(
             num_envs=num_envs,
             env_spacing=2.5,
-            robot=robot_spec(engine, "popsicle_torsobase_v1"),
+            robot=adapter(engine).robot_spec("unitree_g1/popsicle_torsobase_v1"),
             terrain=TerrainSpec(terrain_type="plane", sliding_friction=1.0, restitution=0.0),
             contact_sensors=(
                 ContactSensorSpec(

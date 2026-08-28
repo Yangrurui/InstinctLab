@@ -24,13 +24,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.task import TaskSpec
+
+if TYPE_CHECKING:
+    from instinctlab.sim.robot_spec import RobotSpec
 
 __all__ = [
     "CompiledTask",
@@ -229,6 +232,10 @@ class EngineAdapter(Protocol):
         Hand-maintained capability lists drift from the code that implements them -- this project
         already had a backend writing restitution while advertising that it could not.
         """
+        ...
+
+    def robot_spec(self, asset_id: str) -> RobotSpec:
+        """Convert this engine's native asset configuration to the shared runtime spec."""
         ...
 
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:

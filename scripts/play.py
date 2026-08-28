@@ -109,10 +109,11 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 def _play(args, engine, resources: ExitStack) -> None:
     from instinctlab.play.env import PlayEnv
-    from instinctlab.tasks.registry import checkpoint_task_id
+    from instinctlab.tasks.registry import asset_id, checkpoint_task_id
     from instinctlab.tasks.registry import spec as task_spec
 
-    spec = task_spec(args.task, args.engine)
+    robot = engine.robot_spec(asset_id(args.task))
+    spec = task_spec(args.task, robot)
     compiled = engine.compile(spec, num_envs=args.num_envs, device=args.device, strict=args.strict)
     _silence_observation_noise(compiled.env_cfg)
     compiled.env_cfg.seed = compiled.agent_cfg.seed

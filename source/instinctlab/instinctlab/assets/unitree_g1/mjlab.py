@@ -1,20 +1,53 @@
-"""Complete MJLab configuration for Unitree G1.
+"""Complete InstinctMJ-style MJLab configuration for Unitree G1.
 
-All portable robot values, MJCF paths, variants, and actuator groups are
-declared explicitly in this file.
+MJCF paths, variants, canonical metadata, and actuator groups are declared
+here in MJLab-owned types. The MJLab engine adapter alone converts these values
+to the shared runtime ``RobotSpec``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from instinctlab.sim.robot_spec import BackendAsset, JointProperties, RobotSpec
 from instinctlab.utils.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
+
+
+@dataclass(frozen=True)
+class MjlabJointCfg:
+    name: str
+    default_pos: float
+    stiffness: float
+    damping: float
+    armature: float
+    effort_limit: float
+    velocity_limit: float
+    action_scale: float
+
+
+@dataclass(frozen=True)
+class MjlabRobotCfg:
+    name: str
+    schema_version: str
+    asset_id: str
+    root_body: str
+    joint_names: tuple[str, ...]
+    body_names: tuple[str, ...]
+    frame_names: tuple[str, ...]
+    collision_body_names: tuple[str, ...]
+    joint_properties: tuple[MjlabJointCfg, ...]
+    mjcf_path: str
+    contact_body_aliases: dict[str, str]
+    load_mode: str
+    default_root_pos: tuple[float, float, float]
+    default_root_quat_wxyz: tuple[float, float, float, float]
+    soft_joint_pos_limit_factor: float
+    actuator_delay: tuple[int, int]
 
 ARMATURE_5020 = 0.003609725
 ARMATURE_7520_14 = 0.01017752
@@ -160,7 +193,7 @@ G1_29DOF_DEFAULT_JOINT_POS = {
 }
 
 G1_29DOF_JOINT_PROPERTIES = (
-    JointProperties(
+    MjlabJointCfg(
         name="waist_pitch_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -170,7 +203,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="waist_roll_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -180,7 +213,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="waist_yaw_joint",
         default_pos=0.0,
         stiffness=40.17923847137318,
@@ -190,7 +223,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_hip_pitch_joint",
         default_pos=-0.312,
         stiffness=40.17923847137318,
@@ -200,7 +233,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_hip_roll_joint",
         default_pos=0.0,
         stiffness=99.09842777666113,
@@ -210,7 +243,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_hip_yaw_joint",
         default_pos=0.0,
         stiffness=40.17923847137318,
@@ -220,7 +253,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_knee_joint",
         default_pos=0.669,
         stiffness=99.09842777666113,
@@ -230,7 +263,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_ankle_pitch_joint",
         default_pos=-0.363,
         stiffness=28.50124619574858,
@@ -240,7 +273,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_ankle_roll_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -250,7 +283,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_hip_pitch_joint",
         default_pos=-0.312,
         stiffness=40.17923847137318,
@@ -260,7 +293,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_hip_roll_joint",
         default_pos=0.0,
         stiffness=99.09842777666113,
@@ -270,7 +303,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_hip_yaw_joint",
         default_pos=0.0,
         stiffness=40.17923847137318,
@@ -280,7 +313,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=32.0,
         action_scale=0.5475464652142303,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_knee_joint",
         default_pos=0.669,
         stiffness=99.09842777666113,
@@ -290,7 +323,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=20.0,
         action_scale=0.3506614663788243,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_ankle_pitch_joint",
         default_pos=-0.363,
         stiffness=28.50124619574858,
@@ -300,7 +333,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_ankle_roll_joint",
         default_pos=0.0,
         stiffness=28.50124619574858,
@@ -310,7 +343,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_shoulder_pitch_joint",
         default_pos=0.2,
         stiffness=14.25062309787429,
@@ -320,7 +353,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_shoulder_roll_joint",
         default_pos=0.2,
         stiffness=14.25062309787429,
@@ -330,7 +363,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_shoulder_yaw_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -340,7 +373,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_elbow_joint",
         default_pos=0.6,
         stiffness=14.25062309787429,
@@ -350,7 +383,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_wrist_roll_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -360,7 +393,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_wrist_pitch_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -370,7 +403,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=22.0,
         action_scale=0.07450087032950714,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="left_wrist_yaw_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -380,7 +413,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=22.0,
         action_scale=0.07450087032950714,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_shoulder_pitch_joint",
         default_pos=0.2,
         stiffness=14.25062309787429,
@@ -390,7 +423,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_shoulder_roll_joint",
         default_pos=-0.2,
         stiffness=14.25062309787429,
@@ -400,7 +433,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_shoulder_yaw_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -410,7 +443,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_elbow_joint",
         default_pos=0.6,
         stiffness=14.25062309787429,
@@ -420,7 +453,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_wrist_roll_joint",
         default_pos=0.0,
         stiffness=14.25062309787429,
@@ -430,7 +463,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=37.0,
         action_scale=0.43857731392336724,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_wrist_pitch_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -440,7 +473,7 @@ G1_29DOF_JOINT_PROPERTIES = (
         velocity_limit=22.0,
         action_scale=0.07450087032950714,
     ),
-    JointProperties(
+    MjlabJointCfg(
         name="right_wrist_yaw_joint",
         default_pos=0.0,
         stiffness=16.77832748089279,
@@ -527,7 +560,7 @@ def g1_symmetric_joint_augmentation(
     return mapping, reverse
 
 
-_G1_29DOF_ROBOT_SPEC = RobotSpec(
+G1_29DOF_CFG = MjlabRobotCfg(
     name="unitree_g1_29dof",
     schema_version="dfs_v1",
     asset_id="unitree_g1/popsicle_torsobase_v1",
@@ -537,26 +570,20 @@ _G1_29DOF_ROBOT_SPEC = RobotSpec(
     frame_names=G1_29DOF_DFS_FRAME_NAMES,
     collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
-    assets=(
-        BackendAsset(
-            backend="mjlab",
-            path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            load_mode="strip_visual_meshes",
-        ),
-    ),
+    mjcf_path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
+    contact_body_aliases={
+        "LL_FOOT": "left_ankle_roll_link",
+        "LR_FOOT": "right_ankle_roll_link",
+    },
+    load_mode="strip_visual_meshes",
     default_root_pos=(0.0, 0.0, 0.82),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
 )
-_G1_29DOF_ROBOT_SPEC.validate()
 
 
-_G1_29DOF_SHADOWING_ROBOT_SPEC = RobotSpec(
+G1_29DOF_SHADOWING_CFG = MjlabRobotCfg(
     name="unitree_g1_29dof",
     schema_version="dfs_v1",
     asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
@@ -566,26 +593,20 @@ _G1_29DOF_SHADOWING_ROBOT_SPEC = RobotSpec(
     frame_names=G1_29DOF_DFS_FRAME_NAMES,
     collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
-    assets=(
-        BackendAsset(
-            backend="mjlab",
-            path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            load_mode="strip_visual_meshes",
-        ),
-    ),
+    mjcf_path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
+    contact_body_aliases={
+        "LL_FOOT": "left_ankle_roll_link",
+        "LR_FOOT": "right_ankle_roll_link",
+    },
+    load_mode="strip_visual_meshes",
     default_root_pos=(0.0, 0.0, 0.82),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
 )
-_G1_29DOF_SHADOWING_ROBOT_SPEC.validate()
 
 
-_G1_29DOF_PARKOUR_ROBOT_SPEC = RobotSpec(
+G1_29DOF_PARKOUR_CFG = MjlabRobotCfg(
     name="unitree_g1_29dof",
     schema_version="dfs_v1",
     asset_id="unitree_g1/popsicle_torsobase_parkour_v1",
@@ -595,53 +616,35 @@ _G1_29DOF_PARKOUR_ROBOT_SPEC = RobotSpec(
     frame_names=G1_29DOF_DFS_FRAME_NAMES,
     collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
-    assets=(
-        BackendAsset(
-            backend="mjlab",
-            path=str(
-                RESOURCE_ROOT / "xml" / "g1_29dof_torsoBase_popsicle_with_shoe.xml"
-            ),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            load_mode="strip_visual_meshes",
-        ),
+    mjcf_path=str(
+        RESOURCE_ROOT / "xml" / "g1_29dof_torsoBase_popsicle_with_shoe.xml"
     ),
+    contact_body_aliases={
+        "LL_FOOT": "left_ankle_roll_link",
+        "LR_FOOT": "right_ankle_roll_link",
+    },
+    load_mode="strip_visual_meshes",
     default_root_pos=(0.0, 0.0, 0.9),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 2),
 )
-_G1_29DOF_PARKOUR_ROBOT_SPEC.validate()
 
 
-def make_g1_29dof_robot_spec() -> RobotSpec:
-    return _G1_29DOF_ROBOT_SPEC
-
-
-def make_g1_29dof_shadowing_robot_spec() -> RobotSpec:
-    return _G1_29DOF_SHADOWING_ROBOT_SPEC
-
-
-def make_g1_29dof_parkour_robot_spec() -> RobotSpec:
-    return _G1_29DOF_PARKOUR_ROBOT_SPEC
-
-
-ROBOT_SPECS = {
-    "popsicle_torsobase_v1": _G1_29DOF_ROBOT_SPEC,
-    "popsicle_torsobase_shadowing_v1": _G1_29DOF_SHADOWING_ROBOT_SPEC,
-    "popsicle_torsobase_parkour_v1": _G1_29DOF_PARKOUR_ROBOT_SPEC,
+NATIVE_CONFIGS = {
+    "popsicle_torsobase_v1": G1_29DOF_CFG,
+    "popsicle_torsobase_shadowing_v1": G1_29DOF_SHADOWING_CFG,
+    "popsicle_torsobase_parkour_v1": G1_29DOF_PARKOUR_CFG,
 }
 
 
-def robot_spec(variant: str) -> RobotSpec:
-    """Return the complete MJLab-owned robot configuration for ``variant``."""
+def native_config(variant: str) -> MjlabRobotCfg:
+    """Return the complete MJLab-native configuration for ``variant``."""
     try:
-        return ROBOT_SPECS[variant]
+        return NATIVE_CONFIGS[variant]
     except KeyError:
         raise KeyError(
-            f"Unknown MJLab Unitree G1 variant {variant!r}; registered: {sorted(ROBOT_SPECS)}"
+            f"Unknown MJLab Unitree G1 variant {variant!r}; registered: {sorted(NATIVE_CONFIGS)}"
         ) from None
 
 
@@ -897,7 +900,7 @@ def _load_spec(path: Path, load_mode: str) -> Any:
     raise NotImplementedError(f"Unitree G1 has no MJLab loader for {load_mode!r}")
 
 
-def entity(variant: str, robot: RobotSpec, *, actuator_order=None) -> Any:
+def entity(variant: str, robot: Any, *, actuator_order=None) -> Any:
     """Build one registered G1 variant as an MJLab entity."""
     del actuator_order
     if variant not in ENTITIES:
@@ -936,8 +939,8 @@ def entity(variant: str, robot: RobotSpec, *, actuator_order=None) -> Any:
 __all__ = [
     "DELAY_RESET_ONLY_PERIOD",
     "ENTITIES",
-    "ROBOT_SPECS",
+    "NATIVE_CONFIGS",
     "beyondmimic_actuator_cfgs",
     "entity",
-    "robot_spec",
+    "native_config",
 ]
