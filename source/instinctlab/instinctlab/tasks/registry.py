@@ -16,6 +16,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from instinctlab.sim.robot_spec import RobotSpec
     from instinctlab.spec import TaskSpec
 
 TASKS: dict[str, str] = {
@@ -81,6 +82,25 @@ PLAY_CHECKPOINT_TASKS: dict[str, str] = {
 }
 """Play task id -> training task id whose policy checkpoint it consumes."""
 
+TASK_ASSETS: dict[str, str] = {
+    "Instinct-Velocity-Flat-G1": "unitree_g1/popsicle_torsobase_v1",
+    "Instinct-Velocity-Rough-G1": "unitree_g1/popsicle_torsobase_v1",
+    "Instinct-Parkour-Target-G1": "unitree_g1/popsicle_torsobase_parkour_v1",
+    "Instinct-Shadowing-WholeBody-Plane-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-Shadowing-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-Shadowing-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-Shadowing-G1-OneMotion-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-Vae-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-Vae-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-HOI-Shadowing-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-BeyondMimic-Plane-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+    "Instinct-BeyondMimic-Plane-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
+}
+"""Task id -> native asset package and variant, resolved only after engine selection."""
+
 
 def ids() -> tuple[str, ...]:
     """Every declared task id, without importing any of them."""
@@ -90,23 +110,34 @@ def ids() -> tuple[str, ...]:
 def checkpoint_task_id(task_id: str) -> str:
     """Return the task identity expected in a checkpoint used by ``task_id``."""
     if task_id not in TASKS:
-        raise KeyError(f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}")
+        raise KeyError(
+            f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}"
+        )
     return PLAY_CHECKPOINT_TASKS.get(task_id, task_id)
 
 
-def factory(task_id: str) -> Callable[[], TaskSpec]:
+def factory(task_id: str) -> Callable[[RobotSpec], TaskSpec]:
     """Import and return the factory for ``task_id``."""
     try:
         path = TASKS[task_id]
     except KeyError:
-        raise KeyError(f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}") from None
+        raise KeyError(
+            f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}"
+        ) from None
     module_path, _, attr = path.partition(":")
     return getattr(import_module(module_path), attr)
 
 
-def spec(task_id: str) -> TaskSpec:
-    """Build the spec for ``task_id``, checking that it agrees about its own name."""
-    built = factory(task_id)()
+def spec(task_id: str, engine: str) -> TaskSpec:
+    """Build ``task_id`` with the robot owned by the selected engine."""
+    from instinctlab.assets.unitree_g1.interface import robot_spec
+
+    try:
+        asset_id = TASK_ASSETS[task_id]
+    except KeyError:
+        raise KeyError(f"task {task_id!r} has no native asset declaration") from None
+    _, _, variant = asset_id.partition("/")
+    built = factory(task_id)(robot_spec(engine, variant))
     if built.task_id != task_id:
         raise ValueError(
             f"the registry calls this task {task_id!r} but the spec calls itself {built.task_id!r}; "

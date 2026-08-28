@@ -1,6 +1,5 @@
 """Engine-neutral G1 Parkour task configuration."""
 
-from instinctlab.assets.unitree_g1 import make_g1_29dof_parkour_robot_spec
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, SymmetricAugmentationSpec, TaskSpec
 from instinctlab.tasks.parkour.config.parkour_env_cfg import (
@@ -9,9 +8,7 @@ from instinctlab.tasks.parkour.config.parkour_env_cfg import (
 )
 
 TASK_ID = "Instinct-Parkour-Target-G1"
-PARKOUR_MOTION_CLIP = (
-    "~/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run_retargetted.npz"
-)
+PARKOUR_MOTION_CLIP = "~/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run_retargetted.npz"
 PARKOUR_MOTION_LINKS = (
     "pelvis",
     "torso_link",
@@ -28,9 +25,6 @@ PARKOUR_MOTION_LINKS = (
     "left_ankle_roll_link",
     "right_ankle_roll_link",
 )
-
-def parkour_g1_robot() -> RobotSpec:
-    return make_g1_29dof_parkour_robot_spec()
 
 
 def make_motion_reference(robot: RobotSpec) -> MotionReferenceRef:
@@ -55,13 +49,12 @@ def make_motion_reference(robot: RobotSpec) -> MotionReferenceRef:
 
 
 class G1ParkourEnvCfg(ParkourEnvCfg):
-    def __init__(self) -> None:
-        robot = parkour_g1_robot()
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(robot=robot, motion_reference=make_motion_reference(robot))
 
 
-def parkour_target_g1() -> TaskSpec:
-    return G1ParkourEnvCfg().to_task_spec(TASK_ID)
+def parkour_target_g1(robot: RobotSpec) -> TaskSpec:
+    return G1ParkourEnvCfg(robot).to_task_spec(TASK_ID)
 
 
 __all__ = [

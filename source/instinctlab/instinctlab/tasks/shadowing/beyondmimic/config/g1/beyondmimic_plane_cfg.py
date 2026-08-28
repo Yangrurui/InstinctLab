@@ -3,16 +3,17 @@
 from dataclasses import replace
 
 import instinctlab.tasks.shadowing.beyondmimic.beyondmimic_env_cfg as beyondmimic_cfg
-from instinctlab.assets.unitree_g1 import (
-    make_g1_29dof_robot_spec,
-    make_g1_29dof_shadowing_robot_spec,
-)
+from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, TaskSpec
 
 TASK_ID = "Instinct-BeyondMimic-Plane-G1-v0"
 PLAY_TASK_ID = "Instinct-BeyondMimic-Plane-G1-Play-v0"
-ISAAC_MOTION_PATH = "~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz"
-MJLAB_MOTION_PATH = "~/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz"
+ISAAC_MOTION_PATH = (
+    "~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz"
+)
+MJLAB_MOTION_PATH = (
+    "~/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz"
+)
 MOTION_PATHS = {"isaacsim": ISAAC_MOTION_PATH, "mjlab": MJLAB_MOTION_PATH}
 SELECTED_MOTION = "sprint1_subject2_retargetted.npz"
 RUNNER = "instinctlab.tasks.shadowing.beyondmimic.config.g1.agents.beyondmimic_ppo_cfg:G1BeyondMimicPPORunnerCfg"
@@ -34,8 +35,7 @@ MOTION_LINKS = (
 )
 
 
-def make_motion_reference(play: bool) -> MotionReferenceRef:
-    robot = make_g1_29dof_robot_spec()
+def make_motion_reference(robot: RobotSpec, play: bool) -> MotionReferenceRef:
     return MotionReferenceRef(
         name="motion_reference",
         clip=ISAAC_MOTION_PATH,
@@ -59,35 +59,31 @@ def make_motion_reference(play: bool) -> MotionReferenceRef:
     )
 
 
-def make_robot():
-    return make_g1_29dof_shadowing_robot_spec()
-
-
 class G1BeyondMimicPlaneEnvCfg(beyondmimic_cfg.BeyondMimicEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_robot(),
-            motion_reference=make_motion_reference(False),
+            robot=robot,
+            motion_reference=make_motion_reference(robot, False),
             play=False,
         )
 
 
 class G1BeyondMimicPlaneEnvCfg_PLAY(beyondmimic_cfg.BeyondMimicEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_robot(),
-            motion_reference=make_motion_reference(True),
+            robot=robot,
+            motion_reference=make_motion_reference(robot, True),
             play=True,
         )
         self.sim = replace(self.sim, episode_length_s=6000.0)
 
 
-def g1_beyondmimic_plane() -> TaskSpec:
-    return G1BeyondMimicPlaneEnvCfg().to_task_spec(TASK_ID, RUNNER)
+def g1_beyondmimic_plane(robot: RobotSpec) -> TaskSpec:
+    return G1BeyondMimicPlaneEnvCfg(robot).to_task_spec(TASK_ID, RUNNER)
 
 
-def g1_beyondmimic_plane_play() -> TaskSpec:
-    return G1BeyondMimicPlaneEnvCfg_PLAY().to_task_spec(PLAY_TASK_ID, RUNNER)
+def g1_beyondmimic_plane_play(robot: RobotSpec) -> TaskSpec:
+    return G1BeyondMimicPlaneEnvCfg_PLAY(robot).to_task_spec(PLAY_TASK_ID, RUNNER)
 
 
 __all__ = [

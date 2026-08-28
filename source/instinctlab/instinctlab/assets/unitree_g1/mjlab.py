@@ -127,38 +127,6 @@ G1_29DOF_DFS_COLLISION_BODY_NAMES = (
     "right_elbow_link",
     "right_wrist_yaw_link",
 )
-G1_29DOF_ISAAC_BFS_JOINT_NAMES = (
-    "left_shoulder_pitch_joint",
-    "right_shoulder_pitch_joint",
-    "waist_pitch_joint",
-    "left_shoulder_roll_joint",
-    "right_shoulder_roll_joint",
-    "waist_roll_joint",
-    "left_shoulder_yaw_joint",
-    "right_shoulder_yaw_joint",
-    "waist_yaw_joint",
-    "left_elbow_joint",
-    "right_elbow_joint",
-    "left_hip_pitch_joint",
-    "right_hip_pitch_joint",
-    "left_wrist_roll_joint",
-    "right_wrist_roll_joint",
-    "left_hip_roll_joint",
-    "right_hip_roll_joint",
-    "left_wrist_pitch_joint",
-    "right_wrist_pitch_joint",
-    "left_hip_yaw_joint",
-    "right_hip_yaw_joint",
-    "left_wrist_yaw_joint",
-    "right_wrist_yaw_joint",
-    "left_knee_joint",
-    "right_knee_joint",
-    "left_ankle_pitch_joint",
-    "right_ankle_pitch_joint",
-    "left_ankle_roll_joint",
-    "right_ankle_roll_joint",
-)
-
 G1_29DOF_DEFAULT_JOINT_POS = {
     "waist_pitch_joint": 0.0,
     "waist_roll_joint": 0.0,
@@ -571,20 +539,6 @@ _G1_29DOF_ROBOT_SPEC = RobotSpec(
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
     assets=(
         BackendAsset(
-            backend="isaacsim",
-            path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            import_options={
-                "prim_path": "{ENV_REGEX_NS}/Robot",
-                "fix_base": False,
-                "merge_fixed_joints": False,
-                "replace_cylinders_with_capsules": True,
-            },
-        ),
-        BackendAsset(
             backend="mjlab",
             path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
             contact_body_aliases={
@@ -613,20 +567,6 @@ _G1_29DOF_SHADOWING_ROBOT_SPEC = RobotSpec(
     collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
     assets=(
-        BackendAsset(
-            backend="isaacsim",
-            path=str(RESOURCE_ROOT / "urdf" / "g1_29dof_torsobase_popsicle.urdf"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            import_options={
-                "prim_path": "{ENV_REGEX_NS}/Robot",
-                "fix_base": False,
-                "merge_fixed_joints": True,
-                "replace_cylinders_with_capsules": True,
-            },
-        ),
         BackendAsset(
             backend="mjlab",
             path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
@@ -657,22 +597,6 @@ _G1_29DOF_PARKOUR_ROBOT_SPEC = RobotSpec(
     joint_properties=G1_29DOF_JOINT_PROPERTIES,
     assets=(
         BackendAsset(
-            backend="isaacsim",
-            path=str(
-                RESOURCE_ROOT / "urdf" / "g1_29dof_torsoBase_popsicle_with_shoe.urdf"
-            ),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            import_options={
-                "prim_path": "{ENV_REGEX_NS}/Robot",
-                "fix_base": False,
-                "merge_fixed_joints": True,
-                "replace_cylinders_with_capsules": True,
-            },
-        ),
-        BackendAsset(
             backend="mjlab",
             path=str(
                 RESOURCE_ROOT / "xml" / "g1_29dof_torsoBase_popsicle_with_shoe.xml"
@@ -702,6 +626,23 @@ def make_g1_29dof_shadowing_robot_spec() -> RobotSpec:
 
 def make_g1_29dof_parkour_robot_spec() -> RobotSpec:
     return _G1_29DOF_PARKOUR_ROBOT_SPEC
+
+
+ROBOT_SPECS = {
+    "popsicle_torsobase_v1": _G1_29DOF_ROBOT_SPEC,
+    "popsicle_torsobase_shadowing_v1": _G1_29DOF_SHADOWING_ROBOT_SPEC,
+    "popsicle_torsobase_parkour_v1": _G1_29DOF_PARKOUR_ROBOT_SPEC,
+}
+
+
+def robot_spec(variant: str) -> RobotSpec:
+    """Return the complete MJLab-owned robot configuration for ``variant``."""
+    try:
+        return ROBOT_SPECS[variant]
+    except KeyError:
+        raise KeyError(
+            f"Unknown MJLab Unitree G1 variant {variant!r}; registered: {sorted(ROBOT_SPECS)}"
+        ) from None
 
 
 G1_29Dof_TorsoBase_symmetric_augmentation_joint_mapping = [
@@ -766,69 +707,6 @@ G1_29Dof_TorsoBase_symmetric_augmentation_joint_reverse_buf = [
     1,
     -1,
 ]
-G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_mapping = [
-    1,
-    0,
-    2,
-    4,
-    3,
-    5,
-    7,
-    6,
-    8,
-    10,
-    9,
-    12,
-    11,
-    14,
-    13,
-    16,
-    15,
-    18,
-    17,
-    20,
-    19,
-    22,
-    21,
-    24,
-    23,
-    26,
-    25,
-    28,
-    27,
-]
-G1_29Dof_TorsoBase_isaac_bfs_symmetric_augmentation_joint_reverse_buf = [
-    1,
-    1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    1,
-    1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    1,
-    -1,
-    -1,
-    -1,
-    -1,
-    1,
-    1,
-    1,
-    1,
-    -1,
-    -1,
-]
-
 beyondmimic_action_scale = {
     "waist_pitch_joint": 0.43857731392336724,
     "waist_roll_joint": 0.43857731392336724,
@@ -1055,4 +933,11 @@ def entity(variant: str, robot: RobotSpec, *, actuator_order=None) -> Any:
     )
 
 
-__all__ = ["DELAY_RESET_ONLY_PERIOD", "ENTITIES", "beyondmimic_actuator_cfgs", "entity"]
+__all__ = [
+    "DELAY_RESET_ONLY_PERIOD",
+    "ENTITIES",
+    "ROBOT_SPECS",
+    "beyondmimic_actuator_cfgs",
+    "entity",
+    "robot_spec",
+]

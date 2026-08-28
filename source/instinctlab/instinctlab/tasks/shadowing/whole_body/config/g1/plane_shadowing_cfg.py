@@ -1,10 +1,7 @@
 """G1 Whole Body Shadowing task configuration."""
 
 import instinctlab.tasks.shadowing.whole_body.shadowing_env_cfg as shadowing_cfg
-from instinctlab.assets.unitree_g1 import (
-    make_g1_29dof_robot_spec,
-    make_g1_29dof_shadowing_robot_spec,
-)
+from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, TaskSpec
 
 TASK_ID = "Instinct-Shadowing-WholeBody-Plane-G1-v0"
@@ -29,8 +26,7 @@ MOTION_LINKS = (
 )
 
 
-def make_motion_reference() -> MotionReferenceRef:
-    robot = make_g1_29dof_robot_spec()
+def make_motion_reference(robot: RobotSpec) -> MotionReferenceRef:
     return MotionReferenceRef(
         name="motion_reference",
         clip=MOTION_PATH,
@@ -54,29 +50,29 @@ def make_motion_reference() -> MotionReferenceRef:
 
 
 class G1PlaneShadowingEnvCfg(shadowing_cfg.ShadowingEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_g1_29dof_shadowing_robot_spec(),
-            motion_reference=make_motion_reference(),
+            robot=robot,
+            motion_reference=make_motion_reference(robot),
             play=False,
         )
 
 
 class G1PlaneShadowingEnvCfg_PLAY(shadowing_cfg.ShadowingEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_g1_29dof_shadowing_robot_spec(),
-            motion_reference=make_motion_reference(),
+            robot=robot,
+            motion_reference=make_motion_reference(robot),
             play=True,
         )
 
 
-def g1_plane_shadowing() -> TaskSpec:
-    return G1PlaneShadowingEnvCfg().to_task_spec(TASK_ID, RUNNER)
+def g1_plane_shadowing(robot: RobotSpec) -> TaskSpec:
+    return G1PlaneShadowingEnvCfg(robot).to_task_spec(TASK_ID, RUNNER)
 
 
-def g1_plane_shadowing_play() -> TaskSpec:
-    return G1PlaneShadowingEnvCfg_PLAY().to_task_spec(PLAY_TASK_ID, RUNNER)
+def g1_plane_shadowing_play(robot: RobotSpec) -> TaskSpec:
+    return G1PlaneShadowingEnvCfg_PLAY(robot).to_task_spec(PLAY_TASK_ID, RUNNER)
 
 
 __all__ = [

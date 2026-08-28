@@ -18,7 +18,6 @@ from __future__ import annotations
 import math
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1 import G1_29DOF_LINKS
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
@@ -106,28 +105,34 @@ RIGHT_HEIGHT_SCANNER = RayCasterRef(
     engine_max_distances={"mjlab": 10.0},
 )
 
-DEPTH_CAMERA = RayCasterRef(
-    name="camera",
-    attach="torso_link",
-    offset=(0.0487988662332928, 0.01, 0.4378029937970051),
-    offset_rot=(0.9135367613482678, 0.004363309284746571, 0.4067366430758002, 0.0),
-    offset_convention="world",
-    pattern=RayPatternRef(
-        kind="pinhole",
-        width=64,
-        height=36,
-        horizontal_fov_deg=89.51,
-        vertical_fov_deg=58.29,
-        focal_length=1.0,
-    ),
-    hit=("terrain", *G1_29DOF_LINKS),
-    ray_alignment="base",
-    miss="infinity",
-    max_distance=2.5,
-    min_distance=0.1,
-    crop=(18, 0, 16, 16),
-    update_period=0.02,
-)
+def _depth_camera(robot: RobotSpec) -> RayCasterRef:
+    camera_links = tuple(
+        name
+        for name in robot.physical_body_names
+        if name not in {"head_link", "left_rubber_hand", "right_rubber_hand"}
+    )
+    return RayCasterRef(
+        name="camera",
+        attach="torso_link",
+        offset=(0.0487988662332928, 0.01, 0.4378029937970051),
+        offset_rot=(0.9135367613482678, 0.004363309284746571, 0.4067366430758002, 0.0),
+        offset_convention="world",
+        pattern=RayPatternRef(
+            kind="pinhole",
+            width=64,
+            height=36,
+            horizontal_fov_deg=89.51,
+            vertical_fov_deg=58.29,
+            focal_length=1.0,
+        ),
+        hit=("terrain", *camera_links),
+        ray_alignment="base",
+        miss="infinity",
+        max_distance=2.5,
+        min_distance=0.1,
+        crop=(18, 0, 16, 16),
+        update_period=0.02,
+    )
 
 LEG_VOLUME_POINTS = VolumePointsRef(
     name="leg_volume_points",
@@ -146,7 +151,7 @@ LEG_VOLUME_POINTS = VolumePointsRef(
 )
 
 
-def _scene(motion_reference: MotionReferenceRef) -> SceneSpec:
+def _scene(motion_reference: MotionReferenceRef, depth_camera: RayCasterRef) -> SceneSpec:
     return SceneSpec(
         terrain=rough_terrain(virtual_obstacles=(PARKOUR_EDGE_CYLINDERS,)),
         contact_sensors=(
@@ -157,7 +162,7 @@ def _scene(motion_reference: MotionReferenceRef) -> SceneSpec:
                 history_length=3,
             ),
         ),
-        ray_casters=(LEFT_HEIGHT_SCANNER, RIGHT_HEIGHT_SCANNER, DEPTH_CAMERA),
+        ray_casters=(LEFT_HEIGHT_SCANNER, RIGHT_HEIGHT_SCANNER, depth_camera),
         motion_references=(motion_reference,),
         volume_points=(LEG_VOLUME_POINTS,),
         env_spacing=2.5,
@@ -227,7 +232,7 @@ def _commands() -> dict[str, CommandTermSpec]:
 # -----------------------------------------------------------------------------
 
 
-def _policy_observations(*, corrupt: bool, joints: EntityRef) -> ObsGroupSpec:
+def _policy_observations(*, corrupt: bool, joints: EntityRef, depth_camera: RayCasterRef) -> ObsGroupSpec:
     noise = (lambda lo, hi: NoiseSpec("uniform", lo, hi)) if corrupt else (lambda lo, hi: None)
     terms = {
         "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, noise=noise(-0.2, 0.2), scale=0.25, history_length=8),
@@ -254,7 +259,7 @@ def _policy_observations(*, corrupt: bool, joints: EntityRef) -> ObsGroupSpec:
         "depth_image": ObsTermSpec(
             func=mdp.DelayedDepthImage,
             params={
-                "sensor": DEPTH_CAMERA,
+                "sensor": depth_camera,
                 "history_skip_frames": 5,
                 "num_output_frames": 8,
                 "delayed_frame_ranges": (0, 1),
@@ -352,9 +357,13 @@ class ObservationGroupCfg:
 
 
 class ObservationsCfg:
-    def __init__(self, joints: EntityRef, motion_reference: MotionReferenceRef) -> None:
-        self.policy = ObservationGroupCfg(_policy_observations(corrupt=True, joints=joints))
-        self.critic = ObservationGroupCfg(_policy_observations(corrupt=False, joints=joints))
+    def __init__(self, joints: EntityRef, motion_reference: MotionReferenceRef, depth_camera: RayCasterRef) -> None:
+        self.policy = ObservationGroupCfg(
+            _policy_observations(corrupt=True, joints=joints, depth_camera=depth_camera)
+        )
+        self.critic = ObservationGroupCfg(
+            _policy_observations(corrupt=False, joints=joints, depth_camera=depth_camera)
+        )
         self.amp_policy = ObservationGroupCfg(_amp_policy_observations(joints))
         self.amp_reference = ObservationGroupCfg(_amp_reference_observations(joints, motion_reference))
 
@@ -638,8 +647,9 @@ def _events() -> dict[str, EventTermSpec]:
 class ParkourEnvCfg:
     def __init__(self, robot: RobotSpec, motion_reference: MotionReferenceRef) -> None:
         joints = _canonical_joints(robot)
+        depth_camera = _depth_camera(robot)
         self.robot = robot
-        self.scene = _scene(motion_reference)
+        self.scene = _scene(motion_reference, depth_camera)
         self.sim = SimSpec(
             physics_dt=0.005,
             decimation=4,
@@ -652,7 +662,7 @@ class ParkourEnvCfg:
             },
         )
         self.commands = _commands()
-        self.observations = ObservationsCfg(joints, motion_reference)
+        self.observations = ObservationsCfg(joints, motion_reference, depth_camera)
         self.actions = _actions(robot, joints)
         self.rewards = G1Rewards(joints, _velocity_limits(robot))
         self.curriculum = _curriculum()

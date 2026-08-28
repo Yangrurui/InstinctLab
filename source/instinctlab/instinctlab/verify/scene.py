@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1.interface import robot_spec
 from instinctlab.sim.backend import JOINT_ACC_SOURCES, RuntimeRequirements
 from instinctlab.sim.capabilities import (
     BATCHED_SIMULATION,
@@ -33,7 +33,12 @@ from instinctlab.sim.capabilities import (
     ROOT_STATE,
     ROOT_VELOCITY_WRITE,
 )
-from instinctlab.sim.scene import ContactSensorSpec, SceneSpec, SimulationSpec, TerrainSpec
+from instinctlab.sim.scene import (
+    ContactSensorSpec,
+    SceneSpec,
+    SimulationSpec,
+    TerrainSpec,
+)
 
 FEET = ("left_ankle_roll_link", "right_ankle_roll_link")
 
@@ -73,7 +78,7 @@ class VerificationScene:
     requirements: RuntimeRequirements
 
 
-def locomotion_flat_scene(*, num_envs: int = 2) -> VerificationScene:
+def locomotion_flat_scene(engine: str, *, num_envs: int = 2) -> VerificationScene:
     """Flat-ground G1, with the two contact sensors the behavioural checks read.
 
     The numbers are the retired unified config's, unchanged, so a sim2sim result stays comparable
@@ -84,7 +89,7 @@ def locomotion_flat_scene(*, num_envs: int = 2) -> VerificationScene:
         scene=SceneSpec(
             num_envs=num_envs,
             env_spacing=2.5,
-            robot=make_g1_29dof_robot_spec(),
+            robot=robot_spec(engine, "popsicle_torsobase_v1"),
             terrain=TerrainSpec(terrain_type="plane", sliding_friction=1.0, restitution=0.0),
             contact_sensors=(
                 ContactSensorSpec(

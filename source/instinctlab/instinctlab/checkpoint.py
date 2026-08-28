@@ -57,6 +57,8 @@ def _canonical(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
 
         def include(field) -> bool:
+            if field.metadata.get("contract_omit", False):
+                return False
             if not field.metadata.get("contract_omit_if_default", False):
                 return True
             default = field.default

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import math
-import torch
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+import torch
 
 _ALLOWED_LOAD_MODES = frozenset({"default", "strip_visual_meshes"})
 
@@ -68,7 +69,7 @@ class RobotSpec:
     joint_names: tuple[str, ...]
     body_names: tuple[str, ...]
     joint_properties: tuple[JointProperties, ...]
-    assets: tuple[BackendAsset, ...]
+    assets: tuple[BackendAsset, ...] = field(metadata={"contract_omit": True})
     default_root_pos: tuple[float, float, float]
     default_root_quat_wxyz: tuple[float, float, float, float]
     soft_joint_pos_limit_factor: float

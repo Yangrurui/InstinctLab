@@ -24,10 +24,15 @@ _RESERVED_SCENE_NAMES = frozenset({"robot", "terrain"})
 def _validate_engine_keys(spec: TaskSpec) -> None:
     declared = set(spec.engines)
     asset_backends = {asset.backend for asset in spec.robot.assets}
-    missing_assets = declared - asset_backends
-    if missing_assets:
+    unknown_assets = asset_backends - declared
+    if unknown_assets:
         raise ValueError(
-            f"Task {spec.task_id!r} declares engines {sorted(missing_assets)} without a robot asset for them."
+            f"Task {spec.task_id!r} has robot assets for undeclared engines {sorted(unknown_assets)}."
+        )
+    if len(asset_backends) != 1:
+        raise ValueError(
+            f"Task {spec.task_id!r} must be materialized with exactly one engine-owned robot asset, "
+            f"got {sorted(asset_backends)}."
         )
 
     keyed_settings = (

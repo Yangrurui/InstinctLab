@@ -28,6 +28,7 @@ from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
+
 def _parse() -> argparse.Namespace:
     """Choose the engine first, then let it add its own flags.
 
@@ -144,7 +145,7 @@ def _close_runner_writer(runner: object) -> None:
 def _train(args, engine, distributed, resources: ExitStack) -> None:
     from instinctlab.tasks.registry import spec as task_spec
 
-    spec = task_spec(args.task)
+    spec = task_spec(args.task, args.engine)
     compiled = engine.compile(spec, num_envs=args.num_envs, device=args.device, strict=args.strict)
 
     agent_cfg = compiled.agent_cfg

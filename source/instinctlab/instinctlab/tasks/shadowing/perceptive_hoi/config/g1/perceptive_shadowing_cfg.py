@@ -1,10 +1,7 @@
 """G1 Perceptive HOI Shadowing task configuration."""
 
 import instinctlab.tasks.shadowing.perceptive_hoi.perceptive_env_cfg as perceptual_cfg
-from instinctlab.assets.unitree_g1 import (
-    make_g1_29dof_robot_spec,
-    make_g1_29dof_shadowing_robot_spec,
-)
+from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, RigidObjectRef, TaskSpec
 
 TASK_ID = "Instinct-Perceptive-HOI-Shadowing-G1-v0"
@@ -93,8 +90,7 @@ def make_objects() -> tuple[RigidObjectRef, ...]:
     )
 
 
-def make_motion_reference(play: bool) -> MotionReferenceRef:
-    robot = make_g1_29dof_robot_spec()
+def make_motion_reference(robot: RobotSpec, play: bool) -> MotionReferenceRef:
     return MotionReferenceRef(
         name="motion_reference",
         clip=ISAAC_MOTION_PATH,
@@ -125,25 +121,21 @@ def make_motion_reference(play: bool) -> MotionReferenceRef:
     )
 
 
-def make_robot():
-    return make_g1_29dof_shadowing_robot_spec()
-
-
 class G1PerceptiveHoiShadowingEnvCfg(perceptual_cfg.PerceptiveHoiShadowingEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_robot(),
-            motion_reference=make_motion_reference(False),
+            robot=robot,
+            motion_reference=make_motion_reference(robot, False),
             objects=make_objects(),
             play=False,
         )
 
 
 class G1PerceptiveHoiShadowingEnvCfg_PLAY(perceptual_cfg.PerceptiveHoiShadowingEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_robot(),
-            motion_reference=make_motion_reference(True),
+            robot=robot,
+            motion_reference=make_motion_reference(robot, True),
             objects=make_objects(),
             play=True,
         )
@@ -152,12 +144,12 @@ class G1PerceptiveHoiShadowingEnvCfg_PLAY(perceptual_cfg.PerceptiveHoiShadowingE
         self.terminations.pop("link_pos_too_far")
 
 
-def g1_perceptive_hoi_shadowing() -> TaskSpec:
-    return G1PerceptiveHoiShadowingEnvCfg().to_task_spec(TASK_ID, RUNNER)
+def g1_perceptive_hoi_shadowing(robot: RobotSpec) -> TaskSpec:
+    return G1PerceptiveHoiShadowingEnvCfg(robot).to_task_spec(TASK_ID, RUNNER)
 
 
-def g1_perceptive_hoi_shadowing_play() -> TaskSpec:
-    return G1PerceptiveHoiShadowingEnvCfg_PLAY().to_task_spec(PLAY_TASK_ID, RUNNER)
+def g1_perceptive_hoi_shadowing_play(robot: RobotSpec) -> TaskSpec:
+    return G1PerceptiveHoiShadowingEnvCfg_PLAY(robot).to_task_spec(PLAY_TASK_ID, RUNNER)
 
 
 __all__ = [

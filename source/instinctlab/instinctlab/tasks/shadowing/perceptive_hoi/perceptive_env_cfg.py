@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1 import G1_29DOF_LINKS
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
@@ -146,7 +145,9 @@ def make_policy_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
 
 def make_critic_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
     return {
-        "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, history_length=PROPRIO_HISTORY_LENGTH),
+        "base_ang_vel": ObsTermSpec(
+            func=mdp.base_ang_vel, history_length=PROPRIO_HISTORY_LENGTH
+        ),
         "joint_pos": ObsTermSpec(
             func=mdp.joint_pos_rel,
             params={"asset_cfg": joints},
@@ -157,7 +158,9 @@ def make_critic_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
             params={"asset_cfg": joints},
             history_length=PROPRIO_HISTORY_LENGTH,
         ),
-        "last_action": ObsTermSpec(func=mdp.last_action, history_length=PROPRIO_HISTORY_LENGTH),
+        "last_action": ObsTermSpec(
+            func=mdp.last_action, history_length=PROPRIO_HISTORY_LENGTH
+        ),
     }
 
 
@@ -205,7 +208,12 @@ def make_critic_reference_observations() -> dict[str, ObsTermSpec]:
     }
 
 
-def make_camera(object_names: tuple[str, ...]) -> RayCasterRef:
+def make_camera(robot: RobotSpec, object_names: tuple[str, ...]) -> RayCasterRef:
+    camera_links = tuple(
+        name
+        for name in robot.physical_body_names
+        if name not in {"head_link", "left_rubber_hand", "right_rubber_hand"}
+    )
     return RayCasterRef(
         name="camera",
         attach="torso_link",
@@ -220,7 +228,7 @@ def make_camera(object_names: tuple[str, ...]) -> RayCasterRef:
             vertical_fov_deg=58.0,
             focal_length=1.0,
         ),
-        hit=("terrain", *G1_29DOF_LINKS, *object_names),
+        hit=("terrain", *camera_links, *object_names),
         ray_alignment="base",
         miss="infinity",
         max_distance=1.0e6,
@@ -247,6 +255,7 @@ def make_height_scanner() -> RayCasterRef:
 
 
 def make_scene(
+    robot: RobotSpec,
     motion_reference: MotionReferenceRef,
     objects: tuple[RigidObjectRef, ...],
     play: bool,
@@ -255,7 +264,7 @@ def make_scene(
     return SceneSpec(
         terrain=TerrainSpec(kind="plane"),
         contact_sensors=(make_contact_sensor(),),
-        ray_casters=(make_camera(object_names), make_height_scanner()),
+        ray_casters=(make_camera(robot, object_names), make_height_scanner()),
         motion_references=(motion_reference,),
         rigid_objects=objects,
         env_spacing=2.5 if play else 4.0,
@@ -289,13 +298,15 @@ class ObservationsCfg:
         motion_reference: MotionReferenceRef,
         objects: tuple[RigidObjectRef, ...],
     ) -> None:
-        joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
+        joints = EntityRef(
+            "robot", joints=tuple(robot.joint_names), preserve_order=True
+        )
         links = EntityRef("robot", bodies=motion_reference.links, preserve_order=True)
         object_names = tuple(obj.name for obj in objects)
         policy_terms = make_policy_reference_observations()
         policy_terms["depth_image"] = ObsTermSpec(
             kind="shadow_depth_image",
-            params={"sensor": make_camera(object_names)},
+            params={"sensor": make_camera(robot, object_names)},
         )
         policy_terms.update(make_policy_proprioception(joints))
 
@@ -595,7 +606,9 @@ def make_terminations(motion_reference: MotionReferenceRef) -> dict[str, DoneTer
 def make_curriculum(play: bool) -> dict[str, CurriculumTermSpec]:
     if play:
         return {}
-    return {"beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")}
+    return {
+        "beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")
+    }
 
 
 class PerceptiveHoiShadowingEnvCfg:
@@ -607,7 +620,7 @@ class PerceptiveHoiShadowingEnvCfg:
         play: bool,
     ) -> None:
         self.robot = robot
-        self.scene = make_scene(motion_reference, objects, play)
+        self.scene = make_scene(robot, motion_reference, objects, play)
         self.sim = SimSpec(
             physics_dt=0.005,
             decimation=4,

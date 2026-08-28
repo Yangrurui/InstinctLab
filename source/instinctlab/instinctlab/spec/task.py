@@ -35,7 +35,13 @@ from instinctlab.sim.robot_spec import RobotSpec
 
 from .mdp import MdpSpec
 from .rigid_object import RigidObjectRef
-from .sensor import ContactSensorRef, MotionReferenceRef, RayCasterRef, VirtualObstacleRef, VolumePointsRef
+from .sensor import (
+    ContactSensorRef,
+    MotionReferenceRef,
+    RayCasterRef,
+    VirtualObstacleRef,
+    VolumePointsRef,
+)
 
 __all__ = [
     "AgentSpec",
@@ -378,6 +384,11 @@ class TaskSpec:
             raise ValueError(
                 f"Task {self.task_id!r} does not declare engine {engine!r}; "
                 f"declared engines are {sorted(self.engines)}."
+            )
+        robot_engines = {asset.backend for asset in self.robot.assets}
+        if robot_engines != {engine}:
+            raise ValueError(
+                f"Task {self.task_id!r} was materialized for {sorted(robot_engines)}, not {engine!r}."
             )
 
     @property

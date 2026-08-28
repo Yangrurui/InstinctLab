@@ -9,6 +9,7 @@ primitives; height scanning remains a separate sensor concern.
 from __future__ import annotations
 
 from instinctlab import mdp
+from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ContactSensorRef,
     CurriculumTermSpec,
@@ -24,8 +25,8 @@ from instinctlab.tasks.terrain import rough_terrain
 
 
 class G1RoughEnvCfg(G1FlatEnvCfg):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, robot: RobotSpec) -> None:
+        super().__init__(robot)
         self.scene = SceneSpec(
             terrain=rough_terrain(),
             contact_sensors=(
@@ -42,5 +43,5 @@ class G1RoughEnvCfg(G1FlatEnvCfg):
         }
 
 
-def rough_g1() -> TaskSpec:
-    return G1RoughEnvCfg().to_task_spec("Instinct-Velocity-Rough-G1")
+def rough_g1(robot: RobotSpec) -> TaskSpec:
+    return G1RoughEnvCfg(robot).to_task_spec("Instinct-Velocity-Rough-G1")

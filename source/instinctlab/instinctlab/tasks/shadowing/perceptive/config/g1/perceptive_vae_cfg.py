@@ -3,15 +3,14 @@
 from dataclasses import replace
 
 import instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg as perceptual_cfg
-from instinctlab.assets.unitree_g1 import (
-    make_g1_29dof_robot_spec,
-    make_g1_29dof_shadowing_robot_spec,
-)
+from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, TaskSpec
 
 TASK_ID = "Instinct-Perceptive-Vae-G1-v0"
 PLAY_TASK_ID = "Instinct-Perceptive-Vae-G1-Play-v0"
-MOTION_PATH = "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1"
+MOTION_PATH = (
+    "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1"
+)
 MOTION_PATHS = {"isaacsim": MOTION_PATH, "mjlab": MOTION_PATH}
 RUNNER = "instinctlab.tasks.shadowing.perceptive.config.g1.agents.instinct_rl_vae_cfg:G1PerceptiveVaePPORunnerCfg"
 MOTION_LINKS = (
@@ -32,8 +31,7 @@ MOTION_LINKS = (
 )
 
 
-def make_motion_reference(play: bool) -> MotionReferenceRef:
-    robot = make_g1_29dof_robot_spec()
+def make_motion_reference(robot: RobotSpec, play: bool) -> MotionReferenceRef:
     return MotionReferenceRef(
         name="motion_reference",
         clip=MOTION_PATH,
@@ -57,15 +55,11 @@ def make_motion_reference(play: bool) -> MotionReferenceRef:
     )
 
 
-def make_robot():
-    return make_g1_29dof_shadowing_robot_spec()
-
-
 class G1PerceptiveVaeEnvCfg(perceptual_cfg.PerceptiveShadowingEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_robot(),
-            motion_reference=make_motion_reference(False),
+            robot=robot,
+            motion_reference=make_motion_reference(robot, False),
             motion_paths=MOTION_PATHS,
             play=False,
             vae=True,
@@ -73,10 +67,10 @@ class G1PerceptiveVaeEnvCfg(perceptual_cfg.PerceptiveShadowingEnvCfg):
 
 
 class G1PerceptiveVaeEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowingEnvCfg):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotSpec) -> None:
         super().__init__(
-            robot=make_robot(),
-            motion_reference=make_motion_reference(True),
+            robot=robot,
+            motion_reference=make_motion_reference(robot, True),
             motion_paths=MOTION_PATHS,
             play=True,
             vae=True,
@@ -91,12 +85,12 @@ class G1PerceptiveVaeEnvCfg_PLAY(perceptual_cfg.PerceptiveShadowingEnvCfg):
         )
 
 
-def g1_perceptive_vae() -> TaskSpec:
-    return G1PerceptiveVaeEnvCfg().to_task_spec(TASK_ID, RUNNER)
+def g1_perceptive_vae(robot: RobotSpec) -> TaskSpec:
+    return G1PerceptiveVaeEnvCfg(robot).to_task_spec(TASK_ID, RUNNER)
 
 
-def g1_perceptive_vae_play() -> TaskSpec:
-    return G1PerceptiveVaeEnvCfg_PLAY().to_task_spec(PLAY_TASK_ID, RUNNER)
+def g1_perceptive_vae_play(robot: RobotSpec) -> TaskSpec:
+    return G1PerceptiveVaeEnvCfg_PLAY(robot).to_task_spec(PLAY_TASK_ID, RUNNER)
 
 
 __all__ = [

@@ -18,7 +18,9 @@ from pathlib import Path
 import numpy as np
 import pytorch_kinematics as pk
 import torch
-from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_JOINT_NAMES
+from instinctlab.assets.unitree_g1 import robot_spec
+
+TARGET_JOINT_NAMES = robot_spec("isaacsim", "popsicle_torsobase_v1").joint_names
 
 LAFAN1_G1_JOINT_NAMES = (
     "left_hip_pitch_joint",
@@ -115,7 +117,7 @@ def build_target_chain(urdf_path: str | Path):
     with path.open() as handle:
         chain = pk.build_chain_from_urdf(handle.read())
     chain_joint_names = tuple(chain.get_joint_parameter_names())
-    if set(chain_joint_names) != set(G1_29DOF_DFS_JOINT_NAMES):
+    if set(chain_joint_names) != set(TARGET_JOINT_NAMES):
         raise ValueError(
             f"Target URDF joint inventory does not match the G1 29-DoF contract: {chain_joint_names}."
         )
@@ -148,15 +150,15 @@ def convert_lafan1_arrays(
     canonical_joint_pos = torch.stack(
         [
             source_joint_pos[:, source_indices[name]]
-            for name in G1_29DOF_DFS_JOINT_NAMES
+            for name in TARGET_JOINT_NAMES
         ],
         dim=1,
     )
     for name in REVERSED_WAIST_JOINTS:
-        canonical_joint_pos[:, G1_29DOF_DFS_JOINT_NAMES.index(name)] *= -1.0
+        canonical_joint_pos[:, TARGET_JOINT_NAMES.index(name)] *= -1.0
 
     canonical_indices = {
-        name: index for index, name in enumerate(G1_29DOF_DFS_JOINT_NAMES)
+        name: index for index, name in enumerate(TARGET_JOINT_NAMES)
     }
     chain_joint_pos = torch.stack(
         [
@@ -206,7 +208,7 @@ def convert_file(
     np.savez(
         temporary_path,
         framerate=np.asarray(float(framerate)),
-        joint_names=np.asarray(G1_29DOF_DFS_JOINT_NAMES),
+        joint_names=np.asarray(TARGET_JOINT_NAMES),
         joint_pos=joint_pos.cpu().numpy(),
         base_pos_w=base_pos_w.cpu().numpy(),
         base_quat_w=base_quat_w.cpu().numpy(),

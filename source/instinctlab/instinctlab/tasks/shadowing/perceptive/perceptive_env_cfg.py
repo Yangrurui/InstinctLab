@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1 import G1_29DOF_LINKS
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
@@ -42,7 +41,12 @@ MJLAB_CAMERA_NATIVE = {
 }
 
 
-def make_camera() -> RayCasterRef:
+def make_camera(robot: RobotSpec) -> RayCasterRef:
+    camera_links = tuple(
+        name
+        for name in robot.physical_body_names
+        if name not in {"head_link", "left_rubber_hand", "right_rubber_hand"}
+    )
     return RayCasterRef(
         name="camera",
         attach="torso_link",
@@ -57,7 +61,7 @@ def make_camera() -> RayCasterRef:
             vertical_fov_deg=58.0,
             focal_length=1.0,
         ),
-        hit=("terrain", *G1_29DOF_LINKS),
+        hit=("terrain", *camera_links),
         ray_alignment="base",
         miss="infinity",
         max_distance=1.0e6,
@@ -95,12 +99,14 @@ def make_contact_sensor(elements: str = ".*") -> ContactSensorRef:
 
 
 def make_scene(
+    robot: RobotSpec,
     motion_reference: MotionReferenceRef,
     motion_paths: dict[str, str],
     play: bool,
     vae: bool,
 ) -> SceneSpec:
-    ray_casters = (make_camera(),) if vae else (make_camera(), make_height_scanner())
+    camera = make_camera(robot)
+    ray_casters = (camera,) if vae else (camera, make_height_scanner())
     return SceneSpec(
         terrain=TerrainSpec(
             kind="shadow_motion_matched",
@@ -205,7 +211,9 @@ def make_policy_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
 
 def make_critic_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
     return {
-        "base_ang_vel": ObsTermSpec(func=mdp.base_ang_vel, history_length=PROPRIO_HISTORY_LENGTH),
+        "base_ang_vel": ObsTermSpec(
+            func=mdp.base_ang_vel, history_length=PROPRIO_HISTORY_LENGTH
+        ),
         "joint_pos": ObsTermSpec(
             func=mdp.joint_pos_rel,
             params={"asset_cfg": joints},
@@ -216,7 +224,9 @@ def make_critic_proprioception(joints: EntityRef) -> dict[str, ObsTermSpec]:
             params={"asset_cfg": joints},
             history_length=PROPRIO_HISTORY_LENGTH,
         ),
-        "last_action": ObsTermSpec(func=mdp.last_action, history_length=PROPRIO_HISTORY_LENGTH),
+        "last_action": ObsTermSpec(
+            func=mdp.last_action, history_length=PROPRIO_HISTORY_LENGTH
+        ),
     }
 
 
@@ -291,14 +301,16 @@ class ObservationsCfg:
         motion_reference: MotionReferenceRef,
         vae: bool,
     ) -> None:
-        joints = EntityRef("robot", joints=tuple(robot.joint_names), preserve_order=True)
+        joints = EntityRef(
+            "robot", joints=tuple(robot.joint_names), preserve_order=True
+        )
         links = EntityRef("robot", bodies=motion_reference.links, preserve_order=True)
         if vae:
             policy_terms = {
                 "depth_image": ObsTermSpec(
                     kind="shadow_depth_image",
                     params={
-                        "sensor": make_camera(),
+                        "sensor": make_camera(robot),
                         "history_length": 10,
                         "history_skip_frames": 3,
                         "num_output_frames": 4,
@@ -318,7 +330,7 @@ class ObservationsCfg:
             critic_terms = make_policy_reference_observations()
             critic_terms["depth_image"] = ObsTermSpec(
                 kind="shadow_depth_image",
-                params={"sensor": make_camera()},
+                params={"sensor": make_camera(robot)},
             )
             critic_terms["projected_gravity"] = ObsTermSpec(
                 func=mdp.projected_gravity,
@@ -329,7 +341,7 @@ class ObservationsCfg:
             policy_terms = make_policy_reference_observations()
             policy_terms["depth_image"] = ObsTermSpec(
                 kind="shadow_depth_image",
-                params={"sensor": make_camera()},
+                params={"sensor": make_camera(robot)},
             )
             policy_terms.update(make_policy_proprioception(joints))
             critic_terms = make_critic_reference_observations()
@@ -625,7 +637,9 @@ def make_terminations(
 def make_curriculum(adaptive_sampling: bool) -> dict[str, CurriculumTermSpec]:
     if not adaptive_sampling:
         return {}
-    return {"beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")}
+    return {
+        "beyond_adaptive_sampling": CurriculumTermSpec(kind="shadow_adaptive_sampling")
+    }
 
 
 class PerceptiveShadowingEnvCfg:
@@ -662,7 +676,7 @@ class PerceptiveShadowingEnvCfg:
                 "pinhole_cameras": {"camera": MJLAB_CAMERA_NATIVE},
             }
         self.robot = robot
-        self.scene = make_scene(motion_reference, motion_paths, play, vae)
+        self.scene = make_scene(robot, motion_reference, motion_paths, play, vae)
         self.sim = SimSpec(
             physics_dt=0.005,
             decimation=4,
@@ -673,7 +687,9 @@ class PerceptiveShadowingEnvCfg:
         self.actions = make_actions(robot)
         self.commands = make_commands()
         self.rewards = RewardsCfg()
-        adaptive_sampling = not play and motion_reference.motion_bin_length_s is not None
+        adaptive_sampling = (
+            not play and motion_reference.motion_bin_length_s is not None
+        )
         self.events = make_events(play, adaptive_sampling)
         self.curriculum = make_curriculum(adaptive_sampling)
         self.terminations = make_terminations(motion_reference)

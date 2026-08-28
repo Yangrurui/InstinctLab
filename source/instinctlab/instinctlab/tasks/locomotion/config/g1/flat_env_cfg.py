@@ -27,7 +27,6 @@ from __future__ import annotations
 import math
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
@@ -293,8 +292,8 @@ def _action_scale(robot: RobotSpec) -> dict[str, float]:
 
 
 class G1FlatEnvCfg:
-    def __init__(self) -> None:
-        self.robot = make_g1_29dof_robot_spec()
+    def __init__(self, robot: RobotSpec) -> None:
+        self.robot = robot
         joints = _canonical_joints(self.robot)
         self.scene = SceneSpec(
             contact_sensors=(
@@ -346,5 +345,5 @@ class G1FlatEnvCfg:
         )
 
 
-def flat_g1() -> TaskSpec:
-    return G1FlatEnvCfg().to_task_spec("Instinct-Velocity-Flat-G1")
+def flat_g1(robot: RobotSpec) -> TaskSpec:
+    return G1FlatEnvCfg(robot).to_task_spec("Instinct-Velocity-Flat-G1")

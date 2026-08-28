@@ -583,15 +583,6 @@ _G1_29DOF_ROBOT_SPEC = RobotSpec(
                 "replace_cylinders_with_capsules": True,
             },
         ),
-        BackendAsset(
-            backend="mjlab",
-            path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            load_mode="strip_visual_meshes",
-        ),
     ),
     default_root_pos=(0.0, 0.0, 0.82),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -625,15 +616,6 @@ _G1_29DOF_SHADOWING_ROBOT_SPEC = RobotSpec(
                 "merge_fixed_joints": True,
                 "replace_cylinders_with_capsules": True,
             },
-        ),
-        BackendAsset(
-            backend="mjlab",
-            path=str(RESOURCE_ROOT / "xml" / "g1_29dof_torsobase_popsicle.xml"),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            load_mode="strip_visual_meshes",
         ),
     ),
     default_root_pos=(0.0, 0.0, 0.82),
@@ -671,17 +653,6 @@ _G1_29DOF_PARKOUR_ROBOT_SPEC = RobotSpec(
                 "replace_cylinders_with_capsules": True,
             },
         ),
-        BackendAsset(
-            backend="mjlab",
-            path=str(
-                RESOURCE_ROOT / "xml" / "g1_29dof_torsoBase_popsicle_with_shoe.xml"
-            ),
-            contact_body_aliases={
-                "LL_FOOT": "left_ankle_roll_link",
-                "LR_FOOT": "right_ankle_roll_link",
-            },
-            load_mode="strip_visual_meshes",
-        ),
     ),
     default_root_pos=(0.0, 0.0, 0.9),
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
@@ -701,6 +672,23 @@ def make_g1_29dof_shadowing_robot_spec() -> RobotSpec:
 
 def make_g1_29dof_parkour_robot_spec() -> RobotSpec:
     return _G1_29DOF_PARKOUR_ROBOT_SPEC
+
+
+ROBOT_SPECS = {
+    "popsicle_torsobase_v1": _G1_29DOF_ROBOT_SPEC,
+    "popsicle_torsobase_shadowing_v1": _G1_29DOF_SHADOWING_ROBOT_SPEC,
+    "popsicle_torsobase_parkour_v1": _G1_29DOF_PARKOUR_ROBOT_SPEC,
+}
+
+
+def robot_spec(variant: str) -> RobotSpec:
+    """Return the complete Isaac-owned robot configuration for ``variant``."""
+    try:
+        return ROBOT_SPECS[variant]
+    except KeyError:
+        raise KeyError(
+            f"Unknown Isaac Unitree G1 variant {variant!r}; registered: {sorted(ROBOT_SPECS)}"
+        ) from None
 
 
 G1_29Dof_TorsoBase_symmetric_augmentation_joint_mapping = [
@@ -1342,7 +1330,9 @@ __all__ = [
     "G1_29DOF_TORSOBASE_POPSICLE_CFG",
     "G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG",
     "G1_29DOF_TORSOBASE_POPSICLE_SHADOWING_CFG",
+    "ROBOT_SPECS",
     "articulation",
     "beyondmimic_g1_29dof_actuators",
     "beyondmimic_g1_29dof_delayed_actuators",
+    "robot_spec",
 ]
