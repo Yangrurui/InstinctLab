@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 import instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg as perceptual_cfg
-from instinctlab.assets.unitree_g1.catalog import (
+from instinctlab.assets.unitree_g1 import (
     make_g1_29dof_robot_spec,
     make_g1_29dof_shadowing_robot_spec,
 )

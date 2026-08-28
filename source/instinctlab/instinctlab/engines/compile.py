@@ -96,7 +96,7 @@ class CompileCtx:
         if ref is None:
             return None
         if ref.entity == "robot" and ref.joints is not None and ref.preserve_order:
-            # A lone ``.*`` does not make either native resolver use the catalog order: it
+            # A lone ``.*`` does not make either native resolver use the canonical order: it
             # preserves the one regex, then still enumerates matches in the articulation's own
             # order (BFS on Isaac). Expand every order-sensitive robot selector against the
             # canonical RobotSpec before lowering it so native resolution receives exact DFS

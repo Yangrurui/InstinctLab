@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytorch_kinematics as pk
 import torch
-from instinctlab.assets.unitree_g1.catalog import G1_29DOF_DFS_JOINT_NAMES
+from instinctlab.assets.unitree_g1 import G1_29DOF_DFS_JOINT_NAMES
 
 LAFAN1_G1_JOINT_NAMES = (
     "left_hip_pitch_joint",

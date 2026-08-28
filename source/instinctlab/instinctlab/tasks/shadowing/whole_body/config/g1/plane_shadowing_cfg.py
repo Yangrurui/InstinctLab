@@ -1,7 +1,7 @@
 """G1 Whole Body Shadowing task configuration."""
 
 import instinctlab.tasks.shadowing.whole_body.shadowing_env_cfg as shadowing_cfg
-from instinctlab.assets.unitree_g1.catalog import (
+from instinctlab.assets.unitree_g1 import (
     make_g1_29dof_robot_spec,
     make_g1_29dof_shadowing_robot_spec,
 )

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from instinctlab.assets.unitree_g1.catalog import make_g1_29dof_robot_spec
+from instinctlab.assets.unitree_g1 import make_g1_29dof_robot_spec
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import MotionReferenceRef, SymmetricAugmentationSpec, TaskSpec
 from instinctlab.tasks.parkour.config.parkour_env_cfg import (

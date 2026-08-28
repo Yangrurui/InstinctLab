@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 
 from instinctlab import mdp
-from instinctlab.assets.unitree_g1.catalog import G1_29DOF_LINKS
+from instinctlab.assets.unitree_g1 import G1_29DOF_LINKS
 from instinctlab.sim.robot_spec import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,

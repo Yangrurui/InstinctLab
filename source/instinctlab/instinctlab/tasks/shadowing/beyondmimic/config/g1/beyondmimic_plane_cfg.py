@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 import instinctlab.tasks.shadowing.beyondmimic.beyondmimic_env_cfg as beyondmimic_cfg
-from instinctlab.assets.unitree_g1.catalog import (
+from instinctlab.assets.unitree_g1 import (
     make_g1_29dof_robot_spec,
     make_g1_29dof_shadowing_robot_spec,
 )
