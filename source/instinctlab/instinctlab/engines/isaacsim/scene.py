@@ -392,24 +392,27 @@ def _spawn_overrides(spawn: Any, spec: SceneSpec, profile: Mapping[str, Any]) ->
     of being overwritten with a restatement of itself that can fall out of step with it.
     """
     overrides: dict[str, Any] = {"activate_contact_sensors": bool(spec.contact_sensors)}
+    articulation = {}
     if profile["self_collision"] is not None:
         overrides["self_collision"] = profile["self_collision"]
+        # URDF conversion and the spawned articulation each carry a self-collision switch.  The
+        # popsicle asset declares the latter explicitly, so changing only the converter option
+        # leaves the runtime articulation unchanged.
+        articulation["enabled_self_collisions"] = profile["self_collision"]
 
     if profile["max_depenetration_velocity"] is not None:
         overrides["rigid_props"] = spawn.rigid_props.replace(
             max_depenetration_velocity=profile["max_depenetration_velocity"]
         )
 
-    solver = {
-        field: profile[key]
-        for field, key in (
-            ("solver_position_iteration_count", "solver_position_iterations"),
-            ("solver_velocity_iteration_count", "solver_velocity_iterations"),
-        )
-        if profile[key] is not None
-    }
-    if solver:
-        overrides["articulation_props"] = spawn.articulation_props.replace(**solver)
+    for field, key in (
+        ("solver_position_iteration_count", "solver_position_iterations"),
+        ("solver_velocity_iteration_count", "solver_velocity_iterations"),
+    ):
+        if profile[key] is not None:
+            articulation[field] = profile[key]
+    if articulation:
+        overrides["articulation_props"] = spawn.articulation_props.replace(**articulation)
     return overrides
 
 
