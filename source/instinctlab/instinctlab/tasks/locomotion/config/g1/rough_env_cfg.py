@@ -18,10 +18,7 @@ from instinctlab.spec import (
     TaskSpec,
 )
 from instinctlab.spec.capability import Requirement
-from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import (
-    COMMAND,
-    G1LocomotionFlatEnvCfg,
-)
+from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import G1LocomotionFlatEnvCfg
 from instinctlab.tasks.terrain import rough_terrain
 
 
@@ -38,7 +35,7 @@ class G1LocomotionRoughEnvCfg(G1LocomotionFlatEnvCfg):
         self.curriculum = {
             "terrain_levels": CurriculumTermSpec(
                 func=mdp.terrain_levels_vel,
-                params={"command_name": COMMAND},
+                params={"command_name": "base_velocity"},
                 level=Requirement.REQUIRED,
             )
         }
