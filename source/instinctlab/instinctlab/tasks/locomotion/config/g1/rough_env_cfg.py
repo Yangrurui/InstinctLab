@@ -13,18 +13,19 @@ from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     ContactSensorRef,
     CurriculumTermSpec,
+    MdpSpec,
     SceneSpec,
     TaskSpec,
 )
 from instinctlab.spec.capability import Requirement
 from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import (
     COMMAND,
-    G1FlatEnvCfg,
+    G1LocomotionFlatEnvCfg,
 )
 from instinctlab.tasks.terrain import rough_terrain
 
 
-class G1RoughEnvCfg(G1FlatEnvCfg):
+class G1LocomotionRoughEnvCfg(G1LocomotionFlatEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         super().__init__(robot)
         self.scene = SceneSpec(
@@ -44,4 +45,22 @@ class G1RoughEnvCfg(G1FlatEnvCfg):
 
 
 def rough_g1(robot: RobotSpec) -> TaskSpec:
-    return G1RoughEnvCfg(robot).to_task_spec("Instinct-Velocity-Rough-G1")
+    """Convert the explicit Rough config at the task registry boundary."""
+    config = G1LocomotionRoughEnvCfg(robot)
+    return TaskSpec(
+        task_id="Instinct-Velocity-Rough-G1",
+        robot=config.robot,
+        scene=config.scene,
+        sim=config.sim,
+        mdp=MdpSpec(
+            observations=config.observations,
+            actions=config.actions,
+            commands=config.commands,
+            rewards=config.rewards,
+            terminations=config.terminations,
+            events=config.events,
+            curriculum=config.curriculum,
+        ),
+        agent=config.agent,
+        engines=("isaacsim", "mjlab"),
+    )
