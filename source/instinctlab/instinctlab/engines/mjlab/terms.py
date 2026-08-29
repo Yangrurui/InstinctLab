@@ -17,9 +17,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from instinctlab.engines.compile import joint_position_target
-from instinctlab.engines.registry import TermRegistry
-from instinctlab.sim.capabilities import (
+from instinctlab.engines.capabilities import (
     BODY_MASS_PROPERTIES,
     DR_SLIDING_FRICTION,
     EXTERNAL_WRENCH,
@@ -27,6 +25,8 @@ from instinctlab.sim.capabilities import (
     ROOT_STATE,
     ROOT_VELOCITY_WRITE,
 )
+from instinctlab.engines.compile import joint_position_target
+from instinctlab.engines.registry import TermRegistry
 
 TERMS = TermRegistry("mjlab")
 

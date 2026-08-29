@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
-from instinctlab.sim.capabilities import CapabilitySet
+from instinctlab.engines.capabilities import CapabilitySet
 from instinctlab.spec.task import TaskSpec
 
 if TYPE_CHECKING:

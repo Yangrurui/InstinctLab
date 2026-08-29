@@ -18,9 +18,7 @@ import inspect
 import math
 from typing import Any
 
-from instinctlab.engines.compile import joint_position_target
-from instinctlab.engines.registry import TermRegistry
-from instinctlab.sim.capabilities import (
+from instinctlab.engines.capabilities import (
     BODY_MASS_PROPERTIES,
     DR_RESTITUTION,
     DR_SLIDING_FRICTION,
@@ -29,6 +27,8 @@ from instinctlab.sim.capabilities import (
     ROOT_STATE,
     ROOT_VELOCITY_WRITE,
 )
+from instinctlab.engines.compile import joint_position_target
+from instinctlab.engines.registry import TermRegistry
 
 TERMS = TermRegistry("isaacsim")
 

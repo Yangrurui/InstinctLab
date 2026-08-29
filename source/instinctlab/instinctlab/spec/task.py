@@ -16,11 +16,6 @@ longer a declaration.
 ``if engine == ...``. The distinction matters for the third engine: data keys are additive, and a
 conditional is an edit to every task file that ever used one.
 
-Note:
-    ``sim/scene.py`` also defines ``SceneSpec`` and ``TerrainSpec``. Those belong to the
-    ``SimulatorBackend`` stack that is being demoted to ``verify/`` for sim2sim assertions, and
-    carry fields this layer deliberately does not -- ``num_envs`` in particular, which is a
-    launch-time argument rather than a property of the task.
 """
 
 from __future__ import annotations

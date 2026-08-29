@@ -1,6 +1,6 @@
-"""What a backend can do, as registered identifiers rather than a closed set.
+"""What an engine can do, as registered identifiers rather than a closed set.
 
-A task states what it needs and a backend states what it provides; the comparison decides whether a
+A task states what it needs and an engine states what it provides; the comparison decides whether a
 term is resolved, skipped or refused. The vocabulary the two sides use has to be open, because the
 list of things a simulator can do is not knowable from here. This was a closed ``Enum`` for a while,
 and the cost of that shape only shows up when it is too late to change cheaply: an engine with a
@@ -9,7 +9,7 @@ module in the core, which is the same tax the whole N+M structure exists to avoi
 
 So an identifier is a namespaced string, registered with a description of what providing it means.
 Engine packages register their own on import. An unregistered identifier is refused rather than
-quietly treated as unsupported -- a typo in ``provides=`` would otherwise read as a backend that
+quietly treated as unsupported -- a typo in ``provides=`` would otherwise read as an engine that
 lacks the feature, and the task would skip a term it should have refused to run without.
 
 The namespace is not decoration. ``contact.air_time`` and ``dr.friction.sliding`` say which family a
@@ -19,9 +19,9 @@ rather than that it lost something called ``contact_air_time``.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Iterable, Mapping
 
 _REGISTRY: dict[str, str] = {}
 
@@ -36,7 +36,7 @@ def capability(identifier: str, description: str) -> str:
     Args:
         identifier: Namespaced id, ``family.name`` -- the family is what makes a resolution report
             readable when a capability goes missing.
-        description: What a backend is claiming when it provides this. Registering without one is
+        description: What an engine is claiming when it provides this. Registering without one is
             not allowed: the whole point of the identifier is that two engines agree on what it
             means, and a bare name lets them disagree silently.
 
@@ -97,7 +97,7 @@ RGB_ARRAY = capability("render.rgb_array", "Rendering frames to arrays.")
 
 @dataclass(frozen=True)
 class CapabilitySet:
-    """What one backend provides. Immutable, and validated against the registry when built."""
+    """What one engine provides. Immutable, and validated against the registry when built."""
 
     values: frozenset[str]
 
@@ -115,7 +115,7 @@ class CapabilitySet:
         check_known(required)
         missing = required.difference(self.values)
         if missing:
-            raise RuntimeError(f"{context} requires unsupported backend capabilities: {', '.join(sorted(missing))}")
+            raise RuntimeError(f"{context} requires unsupported engine capabilities: {', '.join(sorted(missing))}")
 
 
 __all__ = [
@@ -126,7 +126,6 @@ __all__ = [
     "CONTACT_AIR_TIME",
     "CONTACT_FORCE_VECTOR",
     "CONTACT_HISTORY",
-    "CapabilitySet",
     "DR_RESTITUTION",
     "DR_SLIDING_FRICTION",
     "EFFORT_CONTROL",
@@ -139,6 +138,7 @@ __all__ = [
     "RGB_ARRAY",
     "ROOT_STATE",
     "ROOT_VELOCITY_WRITE",
+    "CapabilitySet",
     "UnknownCapability",
     "capability",
     "check_known",

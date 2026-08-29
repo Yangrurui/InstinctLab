@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
+from instinctlab.engines.capabilities import CapabilitySet
 from instinctlab.engines.compile import (
     CompileCtx,
     compile_mdp,
@@ -25,7 +26,6 @@ from instinctlab.engines.compile import (
     flatten_reward_groups,
     observation_group_settings,
 )
-from instinctlab.sim.capabilities import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
 from instinctlab.spec.task import TaskSpec
 
