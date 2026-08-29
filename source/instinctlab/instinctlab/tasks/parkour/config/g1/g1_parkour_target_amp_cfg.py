@@ -89,7 +89,7 @@ class G1ParkourRewardsCfg:
             },
         )
         self.feet_slide = RewardTermSpec(
-            kind="contact_slide",
+            func=rewards.contact_slide,
             weight=-0.4,
             params={
                 "sensor_cfg": ContactSensorRef(
@@ -113,7 +113,7 @@ class G1ParkourRewardsCfg:
         )
         self.ang_vel_xy_l2 = RewardTermSpec(func=rewards.ang_vel_xy_l2, weight=-0.05)
         self.dof_torques_l2 = RewardTermSpec(
-            kind="joint_torques_l2",
+            func=rewards.joint_torques_l2,
             weight=-1.5e-7,
             params={
                 "asset_cfg": EntityRef(
@@ -124,7 +124,7 @@ class G1ParkourRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.dof_acc_l2 = RewardTermSpec(
-            kind="joint_acc_l2",
+            func=rewards.joint_acc_l2,
             weight=-1.25e-7,
             params={"asset_cfg": EntityRef("robot", joints=".*")},
             level=Requirement.REQUIRED,
@@ -207,7 +207,7 @@ class G1ParkourRewardsCfg:
             },
         )
         self.energy = RewardTermSpec(
-            kind="motors_power_square",
+            func=rewards.motors_power_square,
             weight=-5e-5,
             params={
                 "asset_cfg": EntityRef(
@@ -254,7 +254,7 @@ class G1ParkourRewardsCfg:
             },
         )
         self.torque_limits = RewardTermSpec(
-            kind="applied_torque_limits_by_ratio",
+            func=rewards.applied_torque_limits_by_ratio,
             weight=-0.01,
             params={
                 "asset_cfg": EntityRef("robot", joints=".*"),
@@ -263,7 +263,7 @@ class G1ParkourRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.undesired_contacts = RewardTermSpec(
-            kind="undesired_contacts",
+            func=rewards.undesired_contacts_by_force,
             weight=-1.0,
             params={
                 "sensor": ContactSensorRef(

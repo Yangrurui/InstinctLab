@@ -96,7 +96,7 @@ class LocomotionRewardsCfg:
             },
         )
         self.feet_slide = RewardTermSpec(
-            kind="contact_slide",
+            func=rewards.contact_slide,
             weight=-0.1,
             params={
                 "sensor_cfg": feet_contact,

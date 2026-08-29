@@ -7,6 +7,7 @@ from typing import Any
 import torch
 
 from instinctlab.compat import math as math_utils
+from instinctlab.compat import robot as compat_robot
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv, get_command
 from instinctlab.spec.sensor import ContactSensorRef
@@ -14,8 +15,53 @@ from instinctlab.spec.sensor import ContactSensorRef
 from .observations import _joint_ids, _name
 
 
+def _body_ids(asset_cfg: Any) -> Any:
+    if asset_cfg is None:
+        return slice(None)
+    ids = getattr(asset_cfg, "body_ids", slice(None))
+    return slice(None) if ids is None else ids
+
+
 def is_terminated(env: RlEnv) -> torch.Tensor:
     return env.termination_manager.terminated.float()
+
+
+def contact_slide(
+    env: RlEnv,
+    sensor_cfg: ContactSensorRef,
+    asset_cfg: Any = None,
+    ang_vel_penalty: bool = False,
+    threshold: float = 0.1,
+) -> torch.Tensor:
+    """Penalize native body motion while the selected bodies are in contact."""
+    sensor = env.scene.sensors[sensor_cfg.name]
+    history = compat_sensors.contact_force_history(sensor, sensor_cfg)
+    touching = torch.linalg.vector_norm(history, dim=-1).amax(dim=1) > threshold
+
+    asset = env.scene[_name(asset_cfg)]
+    body_ids = _body_ids(asset_cfg)
+    linear = compat_robot.body_linear_velocity_w(env, asset)[:, body_ids, :2]
+    penalty = torch.sum(torch.linalg.vector_norm(linear, dim=-1) * touching, dim=1)
+    if ang_vel_penalty:
+        angular = compat_robot.body_angular_velocity_w(env, asset)[:, body_ids, :2]
+        penalty += torch.sum(
+            torch.linalg.vector_norm(angular, dim=-1) * touching, dim=1
+        )
+    return penalty
+
+
+def joint_acc_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
+    """Penalize each engine's native joint-acceleration quantity."""
+    asset = env.scene[_name(asset_cfg)]
+    acceleration = compat_robot.joint_acceleration(env, asset)
+    return torch.sum(torch.square(acceleration[:, _joint_ids(asset_cfg)]), dim=1)
+
+
+def joint_torques_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
+    """Penalize native joint-space actuator effort for the selected joints."""
+    asset = env.scene[_name(asset_cfg)]
+    torque = compat_robot.joint_applied_torque(env, asset)[:, _joint_ids(asset_cfg)]
+    return torch.sum(torch.square(torque), dim=1)
 
 
 def track_lin_vel_xy_yaw_frame_exp(

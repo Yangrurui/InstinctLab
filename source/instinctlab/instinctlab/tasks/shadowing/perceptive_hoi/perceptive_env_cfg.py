@@ -583,7 +583,7 @@ class PerceptiveHoiRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.applied_torque_limits_by_ratio = RewardTermSpec(
-            kind="applied_torque_limits_by_ratio",
+            func=rewards.applied_torque_limits_by_ratio,
             weight=-0.05,
             params={
                 "asset_cfg": EntityRef(

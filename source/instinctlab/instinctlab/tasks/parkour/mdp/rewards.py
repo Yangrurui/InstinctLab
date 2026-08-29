@@ -1,36 +1,14 @@
-"""Parkour reward terms called directly by both engines.
+"""Parkour reward formulas called directly by both engines.
 
-Most of these are the Isaac Lab bodies with hub attribute names substituted. Three rewards that
-look portable are **not** here, and their absence is the useful part of this module:
+The task owns every aggregation, threshold and normalization below.  Quantities that genuinely
+differ between engines are read through :mod:`instinctlab.compat.robot` and
+:mod:`instinctlab.compat.sensors`; that compatibility boundary preserves the established native
+quantity instead of pretending the engines are physically identical.  For example, joint
+acceleration remains finite-differenced on Isaac and analytic MuJoCo ``qacc`` on MJLab, while
+joint effort remains Isaac ``applied_torque`` versus MJLab ``qfrc_actuator``.
 
-===================  ===============================================================================
-term                 why it cannot be a portable term
-===================  ===============================================================================
-``dof_acc_l2``       Reads ``joint_acc``. Isaac Lab finite-differences joint velocity across steps;
-                     mjlab reads MuJoCo's analytic ``qacc``. Near a contact these disagree by more
-                     than the reward's own scale, and the weight is ``-2e-7`` -- small enough that
-                     the disagreement shows up as a slightly different gait rather than as anything
-                     one would investigate.
-``dof_torques_l2``   Reads ``applied_torque``, which mjlab does not have. Its joint-space
-                     equivalent is ``qfrc_actuator``; ``actuator_force`` is the false friend, being
-                     actuation-space (nu) rather than joint-space (nv).
-``contact_slide``    Reads a newton threshold on contact force *and* per-body linear velocity.
-                     Neither ports: the two engines report different force quantities (normal-only
-                     against full 3-D), and the hub deliberately carries no per-body velocity,
-                     because Isaac Lab offsets each body's velocity to its own centre of mass while
-                     mjlab reports about the root's subtree centre.
-===================  ===============================================================================
-
-``joint_vel_limits`` used to sit in that table. Isaac Lab reads ``soft_joint_vel_limits`` from
-engine data and mjlab's ``EntityData`` has no equivalent field, so a port that asked either
-engine for the cap would not be portable. The limits now come from the task declaration, which
-reads them off :class:`~instinctlab.engines.assets.RobotSpec` -- the catalog is this repo's
-single source of truth for the robot. That is what makes the term portable, and it also removes
-a dependency on an engine-derived value that the two engines compute differently.
-
-Each is declared with ``kind=`` and implemented per engine, with a stated tolerance. That is
-not a workaround -- it is the design working: the alternative is a term that produces plausible
-numbers on both engines and quietly optimises something different on each.
+``joint_vel_limits`` reads its ordered limits from the task's ``RobotSpec`` rather than from an
+engine-derived value, because MJLab exposes no equivalent of Isaac's ``soft_joint_vel_limits``.
 
 Contact rewards go through :mod:`instinctlab.compat.sensors` and take a
 :class:`~instinctlab.spec.sensor.ContactSensorRef` in place of Isaac Lab's ``sensor_cfg``. That is
@@ -41,16 +19,114 @@ single native object to pass.
 
 from __future__ import annotations
 
-import torch
 from collections.abc import Sequence
 from typing import Any
 
+import torch
+
 from instinctlab.compat import math as math_utils
+from instinctlab.compat import robot as compat_robot
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv, get_command
 from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 
 from .observations import _body_index_list, _joint_ids, _name
+
+
+def _force_exceeds(
+    env: RlEnv, sensor: ContactSensorRef, threshold: float
+) -> torch.Tensor:
+    history = compat_sensors.contact_force_history(
+        env.scene.sensors[sensor.name], sensor
+    )
+    return torch.linalg.vector_norm(history, dim=-1).amax(dim=1) > threshold
+
+
+def undesired_contacts_by_force(
+    env: RlEnv, sensor: ContactSensorRef, threshold: float
+) -> torch.Tensor:
+    """Count selected bodies exceeding the task's native-force threshold."""
+    return torch.sum(_force_exceeds(env, sensor, threshold).float(), dim=1)
+
+
+def contact_slide(
+    env: RlEnv,
+    sensor_cfg: ContactSensorRef,
+    asset_cfg: Any = None,
+    ang_vel_penalty: bool = False,
+    threshold: float = 0.1,
+) -> torch.Tensor:
+    """Penalize native body motion while the selected bodies are in contact."""
+    history = compat_sensors.contact_force_history(
+        env.scene.sensors[sensor_cfg.name], sensor_cfg
+    )
+    touching = torch.linalg.vector_norm(history, dim=-1).amax(dim=1) > threshold
+
+    asset = env.scene[_name(asset_cfg)]
+    body_ids = _body_index_list(
+        asset_cfg, compat_robot.body_linear_velocity_w(env, asset).shape[1]
+    )
+    linear = compat_robot.body_linear_velocity_w(env, asset)[:, body_ids, :2]
+    penalty = torch.sum(torch.linalg.vector_norm(linear, dim=-1) * touching, dim=1)
+    if ang_vel_penalty:
+        angular = compat_robot.body_angular_velocity_w(env, asset)[:, body_ids, :2]
+        penalty += torch.sum(
+            torch.linalg.vector_norm(angular, dim=-1) * touching, dim=1
+        )
+    return penalty
+
+
+def joint_acc_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
+    """Penalize each engine's native joint-acceleration quantity."""
+    asset = env.scene[_name(asset_cfg)]
+    acceleration = compat_robot.joint_acceleration(env, asset)
+    return torch.sum(torch.square(acceleration[:, _joint_ids(asset_cfg)]), dim=1)
+
+
+def joint_torques_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
+    """Penalize native joint-space actuator effort for the selected joints."""
+    asset = env.scene[_name(asset_cfg)]
+    torque = compat_robot.joint_applied_torque(env, asset)[:, _joint_ids(asset_cfg)]
+    return torch.sum(torch.square(torque), dim=1)
+
+
+def motors_power_square(
+    env: RlEnv,
+    asset_cfg: Any = None,
+    normalize_by_stiffness: bool = True,
+    normalize_by_num_joints: bool = False,
+) -> torch.Tensor:
+    """Square native joint power, with the task-selected normalization."""
+    asset = env.scene[_name(asset_cfg)]
+    power_per_joint = (
+        compat_robot.joint_applied_torque(env, asset) * asset.data.joint_vel
+    )
+    if normalize_by_stiffness:
+        for joint_ids, stiffness in compat_robot.joint_stiffness_groups(asset):
+            power_per_joint[:, joint_ids] /= torch.as_tensor(
+                stiffness,
+                device=power_per_joint.device,
+                dtype=power_per_joint.dtype,
+            )
+    power_per_joint = power_per_joint[:, _joint_ids(asset_cfg)]
+    penalty = torch.sum(torch.square(power_per_joint), dim=-1)
+    if normalize_by_num_joints:
+        penalty = penalty / power_per_joint.shape[-1]
+    return penalty
+
+
+def applied_torque_limits_by_ratio(
+    env: RlEnv,
+    asset_cfg: Any = None,
+    limit_ratio: float = 0.8,
+) -> torch.Tensor:
+    """Penalize native effort above the task-selected fraction of native limits."""
+    asset = env.scene[_name(asset_cfg)]
+    joint_ids = _joint_ids(asset_cfg)
+    applied = torch.abs(compat_robot.joint_applied_torque(env, asset)[:, joint_ids])
+    limits = compat_robot.joint_effort_limits(env, asset, joint_ids)
+    excess = torch.clamp(applied - limits * limit_ratio, min=0.0)
+    return torch.sum(torch.square(excess), dim=-1)
 
 
 def is_terminated(env: RlEnv) -> torch.Tensor:
@@ -490,8 +566,9 @@ def undesired_contacts(env: RlEnv, sensor: ContactSensorRef) -> torch.Tensor:
     Isaac Lab's original thresholds ``‖net_forces_w‖`` at 1 N. That is forbidden here: Isaac Lab's
     ``net_forces_w`` is world-frame normal-only, mjlab's ``force`` is full 3-D in the contact frame.
     Contact is :func:`instinctlab.compat.sensors.in_contact`. A light touch now counts as contact
-    where the newton threshold would not; a task that needs the threshold should declare this
-    reward per engine.
+    where the newton threshold would not; a task that needs the threshold should use the
+    task-owned :func:`undesired_contacts_by_force`, whose compat read preserves each engine's
+    native force quantity.
     """
     touching = compat_sensors.in_contact(env.scene.sensors[sensor.name], sensor)
     return torch.sum(touching, dim=1)

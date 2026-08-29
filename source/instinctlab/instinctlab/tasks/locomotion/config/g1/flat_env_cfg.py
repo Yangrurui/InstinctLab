@@ -70,7 +70,7 @@ class G1LocomotionRewardsCfg:
             params={"asset_cfg": EntityRef("robot", joints=(".*_knee_joint",))},
         )
         self.dof_acc_l2 = RewardTermSpec(
-            kind="joint_acc_l2",
+            func=rewards.joint_acc_l2,
             weight=-2.0e-7,
             params={
                 "asset_cfg": EntityRef(
@@ -81,7 +81,7 @@ class G1LocomotionRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.dof_torques_l2 = RewardTermSpec(
-            kind="joint_torques_l2",
+            func=rewards.joint_torques_l2,
             weight=-4.0e-6,
             params={
                 "asset_cfg": EntityRef(

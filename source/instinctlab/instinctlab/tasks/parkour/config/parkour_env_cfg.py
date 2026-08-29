@@ -447,7 +447,7 @@ class ParkourEnvCfg:
                 params={"distance_buffer": 2.0},
             ),
             "base_contact": DoneTermSpec(
-                kind="illegal_contact",
+                func=terminations.illegal_contact_by_force,
                 params={"sensor": torso_contact, "threshold": 1.0},
             ),
             "bad_orientation": DoneTermSpec(

@@ -66,7 +66,6 @@ def merge_friction_params(
 
 def _import_cfgs() -> dict[str, Any]:
     """Isaac Lab's config classes, imported after ``AppLauncher`` has started the app."""
-    from isaaclab.envs import mdp as isaac_mdp
     from isaaclab.managers import (
         EventTermCfg,
         ObservationTermCfg,
@@ -74,15 +73,11 @@ def _import_cfgs() -> dict[str, Any]:
         TerminationTermCfg,
     )
 
-    import instinctlab.envs.mdp as instinct_mdp
-
     return {
         "obs": ObservationTermCfg,
         "reward": RewardTermCfg,
         "done": TerminationTermCfg,
         "event": EventTermCfg,
-        "mdp": isaac_mdp,
-        "instinct_mdp": instinct_mdp,
     }
 
 
@@ -167,29 +162,6 @@ def _term_params(spec, ctx):
     return params
 
 
-def _require_params(params: dict[str, Any], *names: str) -> dict[str, Any]:
-    """Reject a task that leaves a training choice to an engine default."""
-    missing = sorted(set(names) - set(params))
-    if missing:
-        raise ValueError(f"isaacsim term is missing explicit task params {missing}.")
-    return params
-
-
-def _sensor_entity(ref, ctx):
-    """A ``SceneEntityCfg`` naming a declared sensor and the elements a term wants from it.
-
-    A :class:`ContactSensorRef` is a sensor plus a subset of what it tracks, and Isaac Lab spells
-    that as an entity config over the sensor whose ``body_names`` slice it. Terms written against
-    the sensor rather than against the compat accessors need it in that shape.
-    """
-    from isaaclab.managers import SceneEntityCfg
-
-    elements = ref.elements
-    return SceneEntityCfg(
-        ref.name, body_names=elements if isinstance(elements, str) else list(elements)
-    )
-
-
 def _ray_sensor_entity(ref):
     """A whole ray sensor selection, without contact-only body filtering."""
     from isaaclab.managers import SceneEntityCfg
@@ -203,102 +175,6 @@ def _ray_sensor_entity(ref):
     return SceneEntityCfg(ref.name)
 
 
-def _contact_ref(params: dict[str, Any]):
-    """The ContactSensorRef a force-threshold term was declared with."""
-    ref = params.get("sensor")
-    if ref is None:
-        raise ValueError(
-            "isaacsim force-threshold terms need params['sensor'] (a ContactSensorRef)."
-        )
-    return ref
-
-
-@TERMS.termination("illegal_contact")
-def _illegal_contact(spec, ctx):
-    """Lower a declared normal-force contact termination onto Isaac Lab."""
-    cfgs = _import_cfgs()
-    params = ctx.params(spec)
-    return cfgs["done"](
-        func=cfgs["mdp"].illegal_contact,
-        time_out=spec.time_out,
-        params={
-            "threshold": params["threshold"],
-            "sensor_cfg": _sensor_entity(_contact_ref(params), ctx),
-        },
-    )
-
-
-@TERMS.reward("undesired_contacts")
-def _undesired_contacts(spec, ctx):
-    """Lower a declared normal-force contact penalty onto Isaac Lab."""
-    cfgs = _import_cfgs()
-    params = ctx.params(spec)
-    return cfgs["reward"](
-        func=cfgs["mdp"].undesired_contacts,
-        weight=spec.weight,
-        params={
-            "threshold": params["threshold"],
-            "sensor_cfg": _sensor_entity(_contact_ref(params), ctx),
-        },
-    )
-
-
-@TERMS.reward("contact_slide")
-def _contact_slide(spec, ctx):
-    """Lower the native link/COM slide quantity with task-owned selection and threshold."""
-    cfgs = _import_cfgs()
-    params = _require_params(_term_params(spec, ctx), "threshold")
-    return cfgs["reward"](
-        func=cfgs["instinct_mdp"].contact_slide,
-        weight=spec.weight,
-        params={**params, "sensor_cfg": _sensor_entity(params["sensor_cfg"], ctx)},
-    )
-
-
-@TERMS.reward("joint_acc_l2")
-def _joint_acc_l2(spec, ctx):
-    cfgs = _import_cfgs()
-    return cfgs["reward"](
-        func=cfgs["mdp"].joint_acc_l2,
-        weight=spec.weight,
-        params=_term_params(spec, ctx),
-    )
-
-
-@TERMS.reward("joint_torques_l2")
-def _joint_torques_l2(spec, ctx):
-    cfgs = _import_cfgs()
-    return cfgs["reward"](
-        func=cfgs["instinct_mdp"].joint_torques_l2,
-        weight=spec.weight,
-        params=_term_params(spec, ctx),
-    )
-
-
-@TERMS.reward("motors_power_square")
-def _motors_power_square(spec, ctx):
-    """Native energy quantity reading ``applied_torque`` (nv), which is on the denylist."""
-    from instinctlab.envs.mdp.rewards.regularizations import motors_power_square
-
-    cfgs = _import_cfgs()
-    params = _require_params(_term_params(spec, ctx), "normalize_by_stiffness")
-    return cfgs["reward"](func=motors_power_square, weight=spec.weight, params=params)
-
-
-@TERMS.reward("applied_torque_limits_by_ratio")
-def _applied_torque_limits_by_ratio(spec, ctx):
-    """Native torque-limit quantity. Same denylist reason as ``motors_power_square``."""
-    from instinctlab.envs.mdp.rewards.regularizations import (
-        applied_torque_limits_by_ratio,
-    )
-
-    cfgs = _import_cfgs()
-    params = _require_params(_term_params(spec, ctx), "limit_ratio")
-    return cfgs["reward"](
-        func=applied_torque_limits_by_ratio, weight=spec.weight, params=params
-    )
-
-
 @TERMS.action("joint_position")
 def _joint_position(spec, ctx):
     """Position-target action.
@@ -309,7 +185,7 @@ def _joint_position(spec, ctx):
     PhysX's own breadth-first order. The resulting difference against the golden is a whitelist
     entry, and it is the reason the two engines' action vectors mean the same thing.
     """
-    from instinctlab.envs.mdp import JointPositionActionCfg
+    from isaaclab.envs.mdp import JointPositionActionCfg
 
     target = joint_position_target(spec, ctx)
     entity = ctx.entity(target)
@@ -527,7 +403,7 @@ def _height_scan(spec, ctx):
 
 @TERMS.event("randomize_joint_default")
 def _randomize_joint_default(spec, ctx):
-    from instinctlab.envs.mdp.events.randomization import randomize_default_joint_pos
+    from .events import randomize_default_joint_pos
 
     return _event(
         spec,
@@ -593,7 +469,7 @@ def _randomize_body_inertia(spec, ctx):
 def _randomize_ray_offsets(spec, ctx):
     from isaaclab.managers import SceneEntityCfg
 
-    from instinctlab.envs.mdp.events.randomization import randomize_ray_offsets
+    from .events import randomize_ray_offsets
 
     params = ctx.params(spec)
     sensor_name = params.pop("sensor_name")

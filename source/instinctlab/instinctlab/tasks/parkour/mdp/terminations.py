@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
-import torch
 import weakref
 from typing import Any
+
+import torch
 
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv
@@ -63,11 +64,22 @@ def illegal_contact(env: RlEnv, sensor: ContactSensorRef) -> torch.Tensor:
     So the portable version asks each engine's own sensor whether it considers the element to be in
     contact, via the contact-duration signal that both engines maintain internally. That loses the
     ability to ignore light brushes, which is what the threshold was buying. A task that genuinely
-    needs a force threshold should declare this termination per engine and write down the tolerance
-    -- which is the honest version of what a shared threshold was doing anyway.
+    needs that gate should use the task-owned :func:`illegal_contact_by_force`; its compat read
+    preserves each engine's native force quantity instead of putting the formula in an adapter.
     """
     touching = compat_sensors.in_contact(env.scene.sensors[sensor.name], sensor)
     return torch.any(touching, dim=1)
+
+
+def illegal_contact_by_force(
+    env: RlEnv, sensor: ContactSensorRef, threshold: float
+) -> torch.Tensor:
+    """Terminate when any selected body exceeds the task's native-force threshold."""
+    history = compat_sensors.contact_force_history(
+        env.scene.sensors[sensor.name], sensor
+    )
+    exceeds = torch.linalg.vector_norm(history, dim=-1).amax(dim=1) > threshold
+    return torch.any(exceeds, dim=1)
 
 
 def _generator_field(generator: Any, name: str) -> Any:
