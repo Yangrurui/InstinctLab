@@ -775,7 +775,6 @@ G1_29DOF_LINKS = [
     "right_ankle_roll_link",
 ]
 
-DELAY_RESET_ONLY_PERIOD = 1_000_000
 ENTITIES = frozenset(
     {
         "popsicle_torsobase_v1",
@@ -785,27 +784,10 @@ ENTITIES = frozenset(
 )
 
 
-def _delay(delay: tuple[int, int], group_offset: int) -> dict[str, int | bool]:
-    if delay == (0, 0):
-        return {}
-    return {
-        "delay_min_lag": delay[0],
-        "delay_max_lag": delay[1],
-        "delay_update_period": DELAY_RESET_ONLY_PERIOD + group_offset,
-        "delay_per_env_phase": False,
-    }
-
-
 def beyondmimic_actuator_cfgs(
     actuator_cfg_type,
-    *,
-    delay: tuple[int, int] = (0, 0),
 ) -> tuple[object, ...]:
-    """Build MJLab's seven explicit native groups.
-
-    The two gain splits in ``legs`` and ``arms`` share a delay period so each
-    physical motor group draws one lag per environment and episode.
-    """
+    """Build MJLab's seven explicit non-delayed native groups."""
     return (
         actuator_cfg_type(
             target_names_expr=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
@@ -813,7 +795,6 @@ def beyondmimic_actuator_cfgs(
             stiffness=STIFFNESS_7520_14,
             damping=DAMPING_7520_14,
             armature=ARMATURE_7520_14,
-            **_delay(delay, 0),
         ),
         actuator_cfg_type(
             target_names_expr=("waist_yaw_joint",),
@@ -821,7 +802,6 @@ def beyondmimic_actuator_cfgs(
             stiffness=STIFFNESS_7520_14,
             damping=DAMPING_7520_14,
             armature=ARMATURE_7520_14,
-            **_delay(delay, 3),
         ),
         actuator_cfg_type(
             target_names_expr=(".*_hip_roll_joint", ".*_knee_joint"),
@@ -829,7 +809,6 @@ def beyondmimic_actuator_cfgs(
             stiffness=STIFFNESS_7520_22,
             damping=DAMPING_7520_22,
             armature=ARMATURE_7520_22,
-            **_delay(delay, 0),
         ),
         actuator_cfg_type(
             target_names_expr=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
@@ -837,7 +816,6 @@ def beyondmimic_actuator_cfgs(
             stiffness=2.0 * STIFFNESS_5020,
             damping=2.0 * DAMPING_5020,
             armature=2.0 * ARMATURE_5020,
-            **_delay(delay, 1),
         ),
         actuator_cfg_type(
             target_names_expr=("waist_roll_joint", "waist_pitch_joint"),
@@ -845,7 +823,6 @@ def beyondmimic_actuator_cfgs(
             stiffness=2.0 * STIFFNESS_5020,
             damping=2.0 * DAMPING_5020,
             armature=2.0 * ARMATURE_5020,
-            **_delay(delay, 2),
         ),
         actuator_cfg_type(
             target_names_expr=(
@@ -859,7 +836,6 @@ def beyondmimic_actuator_cfgs(
             stiffness=STIFFNESS_5020,
             damping=DAMPING_5020,
             armature=ARMATURE_5020,
-            **_delay(delay, 4),
         ),
         actuator_cfg_type(
             target_names_expr=(".*_wrist_pitch_joint", ".*_wrist_yaw_joint"),
@@ -867,9 +843,106 @@ def beyondmimic_actuator_cfgs(
             stiffness=STIFFNESS_4010,
             damping=DAMPING_4010,
             armature=ARMATURE_4010,
-            **_delay(delay, 4),
         ),
     )
+
+
+def beyondmimic_delayed_actuator_cfgs(
+    actuator_cfg_type,
+) -> tuple[object, ...]:
+    """Build MJLab's seven explicit Parkour actuator groups."""
+    return (
+        actuator_cfg_type(
+            target_names_expr=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
+            effort_limit=88.0,
+            stiffness=STIFFNESS_7520_14,
+            damping=DAMPING_7520_14,
+            armature=ARMATURE_7520_14,
+            delay_min_lag=0,
+            delay_max_lag=2,
+            delay_update_period=1_000_000,
+            delay_per_env_phase=False,
+        ),
+        actuator_cfg_type(
+            target_names_expr=("waist_yaw_joint",),
+            effort_limit=88.0,
+            stiffness=STIFFNESS_7520_14,
+            damping=DAMPING_7520_14,
+            armature=ARMATURE_7520_14,
+            delay_min_lag=0,
+            delay_max_lag=2,
+            delay_update_period=1_000_003,
+            delay_per_env_phase=False,
+        ),
+        actuator_cfg_type(
+            target_names_expr=(".*_hip_roll_joint", ".*_knee_joint"),
+            effort_limit=139.0,
+            stiffness=STIFFNESS_7520_22,
+            damping=DAMPING_7520_22,
+            armature=ARMATURE_7520_22,
+            delay_min_lag=0,
+            delay_max_lag=2,
+            delay_update_period=1_000_000,
+            delay_per_env_phase=False,
+        ),
+        actuator_cfg_type(
+            target_names_expr=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
+            effort_limit=50.0,
+            stiffness=2.0 * STIFFNESS_5020,
+            damping=2.0 * DAMPING_5020,
+            armature=2.0 * ARMATURE_5020,
+            delay_min_lag=0,
+            delay_max_lag=2,
+            delay_update_period=1_000_001,
+            delay_per_env_phase=False,
+        ),
+        actuator_cfg_type(
+            target_names_expr=("waist_roll_joint", "waist_pitch_joint"),
+            effort_limit=50.0,
+            stiffness=2.0 * STIFFNESS_5020,
+            damping=2.0 * DAMPING_5020,
+            armature=2.0 * ARMATURE_5020,
+            delay_min_lag=0,
+            delay_max_lag=2,
+            delay_update_period=1_000_002,
+            delay_per_env_phase=False,
+        ),
+        actuator_cfg_type(
+            target_names_expr=(
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+            ),
+            effort_limit=25.0,
+            stiffness=STIFFNESS_5020,
+            damping=DAMPING_5020,
+            armature=ARMATURE_5020,
+            delay_min_lag=0,
+            delay_max_lag=2,
+            delay_update_period=1_000_004,
+            delay_per_env_phase=False,
+        ),
+        actuator_cfg_type(
+            target_names_expr=(".*_wrist_pitch_joint", ".*_wrist_yaw_joint"),
+            effort_limit=5.0,
+            stiffness=STIFFNESS_4010,
+            damping=DAMPING_4010,
+            armature=ARMATURE_4010,
+            delay_min_lag=0,
+            delay_max_lag=2,
+            delay_update_period=1_000_004,
+            delay_per_env_phase=False,
+        ),
+    )
+
+
+ACTUATOR_CONFIGS = {
+    "popsicle_torsobase_v1": beyondmimic_actuator_cfgs,
+    "popsicle_torsobase_shadowing_v1": beyondmimic_actuator_cfgs,
+    "popsicle_torsobase_parkour_v1": beyondmimic_delayed_actuator_cfgs,
+}
 
 
 def _without_visual_meshes(xml: str) -> str:
@@ -928,19 +1001,18 @@ def entity(variant: str, robot: Any, *, actuator_order=None) -> Any:
         ),
         spec_fn=lambda: _load_spec(path, asset.load_mode),
         articulation=EntityArticulationInfoCfg(
-            actuators=beyondmimic_actuator_cfgs(
-                BuiltinPdActuatorCfg, delay=robot.actuator_delay
-            ),
+            actuators=ACTUATOR_CONFIGS[variant](BuiltinPdActuatorCfg),
             soft_joint_pos_limit_factor=robot.soft_joint_pos_limit_factor,
         ),
     )
 
 
 __all__ = [
-    "DELAY_RESET_ONLY_PERIOD",
+    "ACTUATOR_CONFIGS",
     "ENTITIES",
     "NATIVE_CONFIGS",
     "beyondmimic_actuator_cfgs",
+    "beyondmimic_delayed_actuator_cfgs",
     "entity",
     "native_config",
 ]

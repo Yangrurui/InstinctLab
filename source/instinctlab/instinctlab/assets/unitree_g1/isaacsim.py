@@ -904,130 +904,6 @@ _ISAAC_EXPORTS = frozenset(
 _ISAAC_LOADED = False
 
 
-def _beyondmimic_actuators(actuator_cfg_type) -> dict[str, object]:
-    """Build Isaac's five native actuator groups without shared-table inference."""
-    return {
-        "legs": actuator_cfg_type(
-            joint_names_expr=[
-                ".*_hip_yaw_joint",
-                ".*_hip_roll_joint",
-                ".*_hip_pitch_joint",
-                ".*_knee_joint",
-            ],
-            effort_limit_sim={
-                ".*_hip_yaw_joint": 88.0,
-                ".*_hip_roll_joint": 139.0,
-                ".*_hip_pitch_joint": 88.0,
-                ".*_knee_joint": 139.0,
-            },
-            velocity_limit_sim={
-                ".*_hip_yaw_joint": 32.0,
-                ".*_hip_roll_joint": 20.0,
-                ".*_hip_pitch_joint": 32.0,
-                ".*_knee_joint": 20.0,
-            },
-            stiffness={
-                ".*_hip_pitch_joint": STIFFNESS_7520_14,
-                ".*_hip_roll_joint": STIFFNESS_7520_22,
-                ".*_hip_yaw_joint": STIFFNESS_7520_14,
-                ".*_knee_joint": STIFFNESS_7520_22,
-            },
-            damping={
-                ".*_hip_pitch_joint": DAMPING_7520_14,
-                ".*_hip_roll_joint": DAMPING_7520_22,
-                ".*_hip_yaw_joint": DAMPING_7520_14,
-                ".*_knee_joint": DAMPING_7520_22,
-            },
-            armature={
-                ".*_hip_pitch_joint": ARMATURE_7520_14,
-                ".*_hip_roll_joint": ARMATURE_7520_22,
-                ".*_hip_yaw_joint": ARMATURE_7520_14,
-                ".*_knee_joint": ARMATURE_7520_22,
-            },
-        ),
-        "feet": actuator_cfg_type(
-            joint_names_expr=[".*_ankle_pitch_joint", ".*_ankle_roll_joint"],
-            effort_limit_sim=50.0,
-            velocity_limit_sim=37.0,
-            stiffness=2.0 * STIFFNESS_5020,
-            damping=2.0 * DAMPING_5020,
-            armature=2.0 * ARMATURE_5020,
-        ),
-        "waist": actuator_cfg_type(
-            joint_names_expr=["waist_roll_joint", "waist_pitch_joint"],
-            effort_limit_sim=50.0,
-            velocity_limit_sim=37.0,
-            stiffness=2.0 * STIFFNESS_5020,
-            damping=2.0 * DAMPING_5020,
-            armature=2.0 * ARMATURE_5020,
-        ),
-        "waist_yaw": actuator_cfg_type(
-            joint_names_expr=["waist_yaw_joint"],
-            effort_limit_sim=88.0,
-            velocity_limit_sim=32.0,
-            stiffness=STIFFNESS_7520_14,
-            damping=DAMPING_7520_14,
-            armature=ARMATURE_7520_14,
-        ),
-        "arms": actuator_cfg_type(
-            joint_names_expr=[
-                ".*_shoulder_pitch_joint",
-                ".*_shoulder_roll_joint",
-                ".*_shoulder_yaw_joint",
-                ".*_elbow_joint",
-                ".*_wrist_roll_joint",
-                ".*_wrist_pitch_joint",
-                ".*_wrist_yaw_joint",
-            ],
-            effort_limit_sim={
-                ".*_shoulder_pitch_joint": 25.0,
-                ".*_shoulder_roll_joint": 25.0,
-                ".*_shoulder_yaw_joint": 25.0,
-                ".*_elbow_joint": 25.0,
-                ".*_wrist_roll_joint": 25.0,
-                ".*_wrist_pitch_joint": 5.0,
-                ".*_wrist_yaw_joint": 5.0,
-            },
-            velocity_limit_sim={
-                ".*_shoulder_pitch_joint": 37.0,
-                ".*_shoulder_roll_joint": 37.0,
-                ".*_shoulder_yaw_joint": 37.0,
-                ".*_elbow_joint": 37.0,
-                ".*_wrist_roll_joint": 37.0,
-                ".*_wrist_pitch_joint": 22.0,
-                ".*_wrist_yaw_joint": 22.0,
-            },
-            stiffness={
-                ".*_shoulder_pitch_joint": STIFFNESS_5020,
-                ".*_shoulder_roll_joint": STIFFNESS_5020,
-                ".*_shoulder_yaw_joint": STIFFNESS_5020,
-                ".*_elbow_joint": STIFFNESS_5020,
-                ".*_wrist_roll_joint": STIFFNESS_5020,
-                ".*_wrist_pitch_joint": STIFFNESS_4010,
-                ".*_wrist_yaw_joint": STIFFNESS_4010,
-            },
-            damping={
-                ".*_shoulder_pitch_joint": DAMPING_5020,
-                ".*_shoulder_roll_joint": DAMPING_5020,
-                ".*_shoulder_yaw_joint": DAMPING_5020,
-                ".*_elbow_joint": DAMPING_5020,
-                ".*_wrist_roll_joint": DAMPING_5020,
-                ".*_wrist_pitch_joint": DAMPING_4010,
-                ".*_wrist_yaw_joint": DAMPING_4010,
-            },
-            armature={
-                ".*_shoulder_pitch_joint": ARMATURE_5020,
-                ".*_shoulder_roll_joint": ARMATURE_5020,
-                ".*_shoulder_yaw_joint": ARMATURE_5020,
-                ".*_elbow_joint": ARMATURE_5020,
-                ".*_wrist_roll_joint": ARMATURE_5020,
-                ".*_wrist_pitch_joint": ARMATURE_4010,
-                ".*_wrist_yaw_joint": ARMATURE_4010,
-            },
-        ),
-    }
-
-
 def _load_isaac() -> None:
     import isaaclab.sim as sim_utils
     from isaaclab.actuators import DelayedPDActuatorCfg, ImplicitActuatorCfg
@@ -1185,24 +1061,255 @@ def _load_isaac() -> None:
         None  # use value from the URDF file
     )
 
-    beyondmimic_g1_29dof_actuators = _beyondmimic_actuators(ImplicitActuatorCfg)
+    beyondmimic_g1_29dof_actuators = {
+        "legs": ImplicitActuatorCfg(
+            joint_names_expr=[
+                ".*_hip_yaw_joint",
+                ".*_hip_roll_joint",
+                ".*_hip_pitch_joint",
+                ".*_knee_joint",
+            ],
+            effort_limit_sim={
+                ".*_hip_yaw_joint": 88.0,
+                ".*_hip_roll_joint": 139.0,
+                ".*_hip_pitch_joint": 88.0,
+                ".*_knee_joint": 139.0,
+            },
+            velocity_limit_sim={
+                ".*_hip_yaw_joint": 32.0,
+                ".*_hip_roll_joint": 20.0,
+                ".*_hip_pitch_joint": 32.0,
+                ".*_knee_joint": 20.0,
+            },
+            stiffness={
+                ".*_hip_pitch_joint": STIFFNESS_7520_14,
+                ".*_hip_roll_joint": STIFFNESS_7520_22,
+                ".*_hip_yaw_joint": STIFFNESS_7520_14,
+                ".*_knee_joint": STIFFNESS_7520_22,
+            },
+            damping={
+                ".*_hip_pitch_joint": DAMPING_7520_14,
+                ".*_hip_roll_joint": DAMPING_7520_22,
+                ".*_hip_yaw_joint": DAMPING_7520_14,
+                ".*_knee_joint": DAMPING_7520_22,
+            },
+            armature={
+                ".*_hip_pitch_joint": ARMATURE_7520_14,
+                ".*_hip_roll_joint": ARMATURE_7520_22,
+                ".*_hip_yaw_joint": ARMATURE_7520_14,
+                ".*_knee_joint": ARMATURE_7520_22,
+            },
+        ),
+        "feet": ImplicitActuatorCfg(
+            joint_names_expr=[".*_ankle_pitch_joint", ".*_ankle_roll_joint"],
+            effort_limit_sim=50.0,
+            velocity_limit_sim=37.0,
+            stiffness=2.0 * STIFFNESS_5020,
+            damping=2.0 * DAMPING_5020,
+            armature=2.0 * ARMATURE_5020,
+        ),
+        "waist": ImplicitActuatorCfg(
+            joint_names_expr=["waist_roll_joint", "waist_pitch_joint"],
+            effort_limit_sim=50.0,
+            velocity_limit_sim=37.0,
+            stiffness=2.0 * STIFFNESS_5020,
+            damping=2.0 * DAMPING_5020,
+            armature=2.0 * ARMATURE_5020,
+        ),
+        "waist_yaw": ImplicitActuatorCfg(
+            joint_names_expr=["waist_yaw_joint"],
+            effort_limit_sim=88.0,
+            velocity_limit_sim=32.0,
+            stiffness=STIFFNESS_7520_14,
+            damping=DAMPING_7520_14,
+            armature=ARMATURE_7520_14,
+        ),
+        "arms": ImplicitActuatorCfg(
+            joint_names_expr=[
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+                ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint",
+            ],
+            effort_limit_sim={
+                ".*_shoulder_pitch_joint": 25.0,
+                ".*_shoulder_roll_joint": 25.0,
+                ".*_shoulder_yaw_joint": 25.0,
+                ".*_elbow_joint": 25.0,
+                ".*_wrist_roll_joint": 25.0,
+                ".*_wrist_pitch_joint": 5.0,
+                ".*_wrist_yaw_joint": 5.0,
+            },
+            velocity_limit_sim={
+                ".*_shoulder_pitch_joint": 37.0,
+                ".*_shoulder_roll_joint": 37.0,
+                ".*_shoulder_yaw_joint": 37.0,
+                ".*_elbow_joint": 37.0,
+                ".*_wrist_roll_joint": 37.0,
+                ".*_wrist_pitch_joint": 22.0,
+                ".*_wrist_yaw_joint": 22.0,
+            },
+            stiffness={
+                ".*_shoulder_pitch_joint": STIFFNESS_5020,
+                ".*_shoulder_roll_joint": STIFFNESS_5020,
+                ".*_shoulder_yaw_joint": STIFFNESS_5020,
+                ".*_elbow_joint": STIFFNESS_5020,
+                ".*_wrist_roll_joint": STIFFNESS_5020,
+                ".*_wrist_pitch_joint": STIFFNESS_4010,
+                ".*_wrist_yaw_joint": STIFFNESS_4010,
+            },
+            damping={
+                ".*_shoulder_pitch_joint": DAMPING_5020,
+                ".*_shoulder_roll_joint": DAMPING_5020,
+                ".*_shoulder_yaw_joint": DAMPING_5020,
+                ".*_elbow_joint": DAMPING_5020,
+                ".*_wrist_roll_joint": DAMPING_5020,
+                ".*_wrist_pitch_joint": DAMPING_4010,
+                ".*_wrist_yaw_joint": DAMPING_4010,
+            },
+            armature={
+                ".*_shoulder_pitch_joint": ARMATURE_5020,
+                ".*_shoulder_roll_joint": ARMATURE_5020,
+                ".*_shoulder_yaw_joint": ARMATURE_5020,
+                ".*_elbow_joint": ARMATURE_5020,
+                ".*_wrist_roll_joint": ARMATURE_5020,
+                ".*_wrist_pitch_joint": ARMATURE_4010,
+                ".*_wrist_yaw_joint": ARMATURE_4010,
+            },
+        ),
+    }
     beyondmimic_g1_29dof_delayed_actuators = {
-        name: DelayedPDActuatorCfg(
-            **{
-                field: getattr(cfg, field)
-                for field in (
-                    "joint_names_expr",
-                    "effort_limit_sim",
-                    "velocity_limit_sim",
-                    "stiffness",
-                    "damping",
-                    "armature",
-                )
+        "legs": DelayedPDActuatorCfg(
+            joint_names_expr=[
+                ".*_hip_yaw_joint",
+                ".*_hip_roll_joint",
+                ".*_hip_pitch_joint",
+                ".*_knee_joint",
+            ],
+            effort_limit_sim={
+                ".*_hip_yaw_joint": 88.0,
+                ".*_hip_roll_joint": 139.0,
+                ".*_hip_pitch_joint": 88.0,
+                ".*_knee_joint": 139.0,
+            },
+            velocity_limit_sim={
+                ".*_hip_yaw_joint": 32.0,
+                ".*_hip_roll_joint": 20.0,
+                ".*_hip_pitch_joint": 32.0,
+                ".*_knee_joint": 20.0,
+            },
+            stiffness={
+                ".*_hip_pitch_joint": STIFFNESS_7520_14,
+                ".*_hip_roll_joint": STIFFNESS_7520_22,
+                ".*_hip_yaw_joint": STIFFNESS_7520_14,
+                ".*_knee_joint": STIFFNESS_7520_22,
+            },
+            damping={
+                ".*_hip_pitch_joint": DAMPING_7520_14,
+                ".*_hip_roll_joint": DAMPING_7520_22,
+                ".*_hip_yaw_joint": DAMPING_7520_14,
+                ".*_knee_joint": DAMPING_7520_22,
+            },
+            armature={
+                ".*_hip_pitch_joint": ARMATURE_7520_14,
+                ".*_hip_roll_joint": ARMATURE_7520_22,
+                ".*_hip_yaw_joint": ARMATURE_7520_14,
+                ".*_knee_joint": ARMATURE_7520_22,
             },
             min_delay=0,
             max_delay=2,
-        )
-        for name, cfg in beyondmimic_g1_29dof_actuators.items()
+        ),
+        "feet": DelayedPDActuatorCfg(
+            joint_names_expr=[".*_ankle_pitch_joint", ".*_ankle_roll_joint"],
+            effort_limit_sim=50.0,
+            velocity_limit_sim=37.0,
+            stiffness=2.0 * STIFFNESS_5020,
+            damping=2.0 * DAMPING_5020,
+            armature=2.0 * ARMATURE_5020,
+            min_delay=0,
+            max_delay=2,
+        ),
+        "waist": DelayedPDActuatorCfg(
+            joint_names_expr=["waist_roll_joint", "waist_pitch_joint"],
+            effort_limit_sim=50.0,
+            velocity_limit_sim=37.0,
+            stiffness=2.0 * STIFFNESS_5020,
+            damping=2.0 * DAMPING_5020,
+            armature=2.0 * ARMATURE_5020,
+            min_delay=0,
+            max_delay=2,
+        ),
+        "waist_yaw": DelayedPDActuatorCfg(
+            joint_names_expr=["waist_yaw_joint"],
+            effort_limit_sim=88.0,
+            velocity_limit_sim=32.0,
+            stiffness=STIFFNESS_7520_14,
+            damping=DAMPING_7520_14,
+            armature=ARMATURE_7520_14,
+            min_delay=0,
+            max_delay=2,
+        ),
+        "arms": DelayedPDActuatorCfg(
+            joint_names_expr=[
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+                ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint",
+            ],
+            effort_limit_sim={
+                ".*_shoulder_pitch_joint": 25.0,
+                ".*_shoulder_roll_joint": 25.0,
+                ".*_shoulder_yaw_joint": 25.0,
+                ".*_elbow_joint": 25.0,
+                ".*_wrist_roll_joint": 25.0,
+                ".*_wrist_pitch_joint": 5.0,
+                ".*_wrist_yaw_joint": 5.0,
+            },
+            velocity_limit_sim={
+                ".*_shoulder_pitch_joint": 37.0,
+                ".*_shoulder_roll_joint": 37.0,
+                ".*_shoulder_yaw_joint": 37.0,
+                ".*_elbow_joint": 37.0,
+                ".*_wrist_roll_joint": 37.0,
+                ".*_wrist_pitch_joint": 22.0,
+                ".*_wrist_yaw_joint": 22.0,
+            },
+            stiffness={
+                ".*_shoulder_pitch_joint": STIFFNESS_5020,
+                ".*_shoulder_roll_joint": STIFFNESS_5020,
+                ".*_shoulder_yaw_joint": STIFFNESS_5020,
+                ".*_elbow_joint": STIFFNESS_5020,
+                ".*_wrist_roll_joint": STIFFNESS_5020,
+                ".*_wrist_pitch_joint": STIFFNESS_4010,
+                ".*_wrist_yaw_joint": STIFFNESS_4010,
+            },
+            damping={
+                ".*_shoulder_pitch_joint": DAMPING_5020,
+                ".*_shoulder_roll_joint": DAMPING_5020,
+                ".*_shoulder_yaw_joint": DAMPING_5020,
+                ".*_elbow_joint": DAMPING_5020,
+                ".*_wrist_roll_joint": DAMPING_5020,
+                ".*_wrist_pitch_joint": DAMPING_4010,
+                ".*_wrist_yaw_joint": DAMPING_4010,
+            },
+            armature={
+                ".*_shoulder_pitch_joint": ARMATURE_5020,
+                ".*_shoulder_roll_joint": ARMATURE_5020,
+                ".*_shoulder_yaw_joint": ARMATURE_5020,
+                ".*_elbow_joint": ARMATURE_5020,
+                ".*_wrist_roll_joint": ARMATURE_5020,
+                ".*_wrist_pitch_joint": ARMATURE_4010,
+                ".*_wrist_yaw_joint": ARMATURE_4010,
+            },
+            min_delay=0,
+            max_delay=2,
+        ),
     }
 
     robot = G1_29DOF_CFG
@@ -1264,32 +1371,10 @@ def _load_isaac() -> None:
             pos=parkour_robot.default_root_pos
         )
     )
-    _ISAAC_LOADED = True
-
-
-def _with_delay(
-    actuators: dict[str, object], delay: tuple[int, int]
-) -> dict[str, object]:
-    if delay == (0, 0):
-        return actuators
-    from isaaclab.actuators import DelayedPDActuatorCfg
-
-    fields = (
-        "joint_names_expr",
-        "effort_limit_sim",
-        "velocity_limit_sim",
-        "stiffness",
-        "damping",
-        "armature",
+    G1_29DOF_TORSOBASE_POPSICLE_PARKOUR_CFG.actuators = (
+        beyondmimic_g1_29dof_delayed_actuators
     )
-    return {
-        name: DelayedPDActuatorCfg(
-            **{field: getattr(cfg, field) for field in fields},
-            min_delay=delay[0],
-            max_delay=delay[1],
-        )
-        for name, cfg in actuators.items()
-    }
+    _ISAAC_LOADED = True
 
 
 def articulation(variant: str, robot) -> object:
@@ -1309,7 +1394,6 @@ def articulation(variant: str, robot) -> object:
             spawn_updates[name] = asset.import_options[name]
     cfg.spawn = cfg.spawn.replace(**spawn_updates)
     cfg.init_state = cfg.init_state.replace(pos=robot.default_root_pos)
-    cfg.actuators = _with_delay(cfg.actuators, robot.actuator_delay)
     return cfg
 
 
