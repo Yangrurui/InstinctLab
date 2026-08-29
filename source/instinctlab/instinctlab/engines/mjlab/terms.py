@@ -145,13 +145,20 @@ def _term_params(spec, ctx):
     return params
 
 
+def _require_params(params: dict[str, Any], *names: str) -> dict[str, Any]:
+    """Reject a task that leaves a training choice to an engine default."""
+    missing = sorted(set(names) - set(params))
+    if missing:
+        raise ValueError(f"mjlab term is missing explicit task params {missing}.")
+    return params
+
+
 @TERMS.termination("illegal_contact")
 def _illegal_contact(spec, ctx):
     """Lower a declared full-force contact termination onto MJLab."""
     from .rewards import illegal_contact
 
-    params = dict(ctx.params(spec))
-    params["threshold"]
+    params = _require_params(dict(ctx.params(spec)), "threshold")
     return _cfgs()["done"](func=illegal_contact, time_out=spec.time_out, params=params)
 
 
@@ -160,8 +167,7 @@ def _undesired_contacts(spec, ctx):
     """Lower a declared full-force contact penalty onto MJLab."""
     from .rewards import undesired_contacts
 
-    params = dict(ctx.params(spec))
-    params["threshold"]
+    params = _require_params(dict(ctx.params(spec)), "threshold")
     return _cfgs()["reward"](func=undesired_contacts, weight=spec.weight, params=params)
 
 
@@ -177,11 +183,8 @@ def _contact_slide(spec, ctx):
     """
     from .rewards import contact_slide
 
-    params = _term_params(spec, ctx)
-    params["threshold"]
-    return _cfgs()["reward"](
-        func=contact_slide, weight=spec.weight, params=params
-    )
+    params = _require_params(_term_params(spec, ctx), "threshold")
+    return _cfgs()["reward"](func=contact_slide, weight=spec.weight, params=params)
 
 
 @TERMS.reward("joint_acc_l2")
@@ -208,8 +211,7 @@ def _motors_power_square(spec, ctx):
     """Native energy quantity reading ``qfrc_actuator`` (nv), not ``actuator_force`` (nu)."""
     from .rewards import motors_power_square
 
-    params = _term_params(spec, ctx)
-    params["normalize_by_stiffness"]
+    params = _require_params(_term_params(spec, ctx), "normalize_by_stiffness")
     return _cfgs()["reward"](
         func=motors_power_square, weight=spec.weight, params=params
     )
@@ -220,8 +222,7 @@ def _applied_torque_limits_by_ratio(spec, ctx):
     """Native torque-limit quantity. Same ``qfrc_actuator`` / joint-id reasoning."""
     from .rewards import applied_torque_limits_by_ratio
 
-    params = _term_params(spec, ctx)
-    params["limit_ratio"]
+    params = _require_params(_term_params(spec, ctx), "limit_ratio")
     return _cfgs()["reward"](
         func=applied_torque_limits_by_ratio, weight=spec.weight, params=params
     )

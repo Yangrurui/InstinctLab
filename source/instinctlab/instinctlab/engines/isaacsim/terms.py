@@ -167,6 +167,14 @@ def _term_params(spec, ctx):
     return params
 
 
+def _require_params(params: dict[str, Any], *names: str) -> dict[str, Any]:
+    """Reject a task that leaves a training choice to an engine default."""
+    missing = sorted(set(names) - set(params))
+    if missing:
+        raise ValueError(f"isaacsim term is missing explicit task params {missing}.")
+    return params
+
+
 def _sensor_entity(ref, ctx):
     """A ``SceneEntityCfg`` naming a declared sensor and the elements a term wants from it.
 
@@ -239,8 +247,7 @@ def _undesired_contacts(spec, ctx):
 def _contact_slide(spec, ctx):
     """Lower the native link/COM slide quantity with task-owned selection and threshold."""
     cfgs = _import_cfgs()
-    params = _term_params(spec, ctx)
-    params["threshold"]
+    params = _require_params(_term_params(spec, ctx), "threshold")
     return cfgs["reward"](
         func=cfgs["instinct_mdp"].contact_slide,
         weight=spec.weight,
@@ -274,8 +281,7 @@ def _motors_power_square(spec, ctx):
     from instinctlab.envs.mdp.rewards.regularizations import motors_power_square
 
     cfgs = _import_cfgs()
-    params = _term_params(spec, ctx)
-    params["normalize_by_stiffness"]
+    params = _require_params(_term_params(spec, ctx), "normalize_by_stiffness")
     return cfgs["reward"](func=motors_power_square, weight=spec.weight, params=params)
 
 
@@ -287,8 +293,7 @@ def _applied_torque_limits_by_ratio(spec, ctx):
     )
 
     cfgs = _import_cfgs()
-    params = _term_params(spec, ctx)
-    params["limit_ratio"]
+    params = _require_params(_term_params(spec, ctx), "limit_ratio")
     return cfgs["reward"](
         func=applied_torque_limits_by_ratio, weight=spec.weight, params=params
     )
