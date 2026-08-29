@@ -13,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from instinctlab.sim.robot_spec import BackendAsset
+from instinctlab.engines.assets import BackendAsset
 from instinctlab.spec import TaskSpec
 
 _CONTRACT_VERSION = "task_spec_v1"

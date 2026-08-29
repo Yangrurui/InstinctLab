@@ -1,10 +1,12 @@
-"""Canonical robot descriptions shared by all simulator backends."""
+"""Engine-neutral robot contract and native asset routing."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from importlib import import_module
+from types import ModuleType
 from typing import Any
 
 import torch
@@ -78,10 +80,8 @@ class RobotSpec:
     actuator_delay: tuple[int, int] = (0, 0)
     """Command lag ``(min, max)`` in **physics steps**, inclusive, drawn once per episode.
 
-    Hub semantics — see ``compat/denylist.py`` ``actuator_delay``. ``(0, 0)`` is the
-    robot-interface default (no delay). A task that wants Isaac's DelayedPD / mjlab's
-    BuiltinPD 0–2 step lag writes ``(0, 2)`` here; each native asset applies the
-    same public meaning with its engine's actuator implementation.
+    Engine adapters normalize this value from the selected native asset config.
+    Native actuator configuration does not derive parameters from this summary.
     """
 
     @property
@@ -240,8 +240,27 @@ class RobotSpec:
         return result
 
 
+def native_asset_module(asset_id: str, engine: str) -> tuple[ModuleType, str]:
+    """Resolve ``package/variant`` through the package's neutral interface.
+
+    The resolver knows the package convention, not any concrete robot. Each
+    package interface only forwards to its selected native module, which keeps
+    engine adapters generic while native registrations and paths stay local.
+    """
+    package, separator, variant = asset_id.partition("/")
+    if not separator or not package.isidentifier() or not variant:
+        raise ValueError(
+            f"asset_id must be 'package/variant' with a Python package name, got {asset_id!r}"
+        )
+    if not engine.isidentifier():
+        raise ValueError(f"engine must be a Python module name, got {engine!r}")
+    interface = import_module(f"instinctlab.assets.{package}.interface")
+    return interface.native_module(engine, variant)
+
+
 __all__ = [
     "BackendAsset",
     "JointProperties",
     "RobotSpec",
+    "native_asset_module",
 ]

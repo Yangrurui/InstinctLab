@@ -1,7 +1,7 @@
 """G1 Whole Body Shadowing task configuration."""
 
 import instinctlab.tasks.shadowing.whole_body.shadowing_env_cfg as shadowing_cfg
-from instinctlab.sim.robot_spec import RobotSpec
+from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import MotionReferenceRef, TaskSpec
 
 TASK_ID = "Instinct-Shadowing-WholeBody-Plane-G1-v0"

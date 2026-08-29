@@ -1,6 +1,6 @@
 """Engine-neutral G1 Parkour task configuration."""
 
-from instinctlab.sim.robot_spec import RobotSpec
+from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import MotionReferenceRef, SymmetricAugmentationSpec, TaskSpec
 from instinctlab.tasks.parkour.config.parkour_env_cfg import (
     AMP_HISTORY,

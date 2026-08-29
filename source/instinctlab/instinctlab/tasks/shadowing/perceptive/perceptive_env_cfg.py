@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from instinctlab import mdp
-from instinctlab.sim.robot_spec import RobotSpec
+from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
     AgentSpec,

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from instinctlab.sim.robot_spec import RobotSpec
+from instinctlab.engines.assets import RobotSpec
 
 
 def build_viser_env(spec: Any, *, num_envs: int, device: str, strict: bool) -> Any:

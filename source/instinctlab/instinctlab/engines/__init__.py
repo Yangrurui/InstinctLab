@@ -10,10 +10,10 @@ be able to inspect the available adapters before deciding which one to bootstrap
 from __future__ import annotations
 
 from importlib import import_module
+from typing import TYPE_CHECKING, Any
 
-from .base import CompiledTask, EngineAdapter, Resolution, UnsupportedTerm
-from .compile import CompileCtx, compile_family, compile_mdp, observation_group_settings, qualname_of
-from .registry import FAMILIES, TermRegistry
+if TYPE_CHECKING:
+    from .base import EngineAdapter
 
 ADAPTERS: dict[str, str] = {
     "isaacsim": "instinctlab.engines.isaacsim.adapter:IsaacSimAdapter",
@@ -44,6 +44,34 @@ def adapter(engine: str) -> EngineAdapter:
         raise KeyError(f"unknown engine {engine!r}; known engines are {', '.join(names())}") from None
     module_path, _, attr = path.partition(":")
     return getattr(import_module(module_path), attr)()
+
+
+_SHARED_EXPORTS = {
+    "CompileCtx": ("instinctlab.engines.compile", "CompileCtx"),
+    "CompiledTask": ("instinctlab.engines.base", "CompiledTask"),
+    "EngineAdapter": ("instinctlab.engines.base", "EngineAdapter"),
+    "FAMILIES": ("instinctlab.engines.registry", "FAMILIES"),
+    "Resolution": ("instinctlab.engines.base", "Resolution"),
+    "TermRegistry": ("instinctlab.engines.registry", "TermRegistry"),
+    "UnsupportedTerm": ("instinctlab.engines.base", "UnsupportedTerm"),
+    "compile_family": ("instinctlab.engines.compile", "compile_family"),
+    "compile_mdp": ("instinctlab.engines.compile", "compile_mdp"),
+    "observation_group_settings": (
+        "instinctlab.engines.compile",
+        "observation_group_settings",
+    ),
+    "qualname_of": ("instinctlab.engines.compile", "qualname_of"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attribute = _SHARED_EXPORTS[name]
+    except KeyError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+    value = getattr(import_module(module_name), attribute)
+    globals()[name] = value
+    return value
 
 
 __all__ = [

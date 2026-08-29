@@ -24,7 +24,7 @@ term                 why it cannot be a portable term
 ``joint_vel_limits`` used to sit in that table. Isaac Lab reads ``soft_joint_vel_limits`` from
 engine data and mjlab's ``EntityData`` has no equivalent field, so a port that asked either
 engine for the cap would not be portable. The limits now come from the task declaration, which
-reads them off :class:`~instinctlab.sim.robot_spec.RobotSpec` -- the catalog is this repo's
+reads them off :class:`~instinctlab.engines.assets.RobotSpec` -- the catalog is this repo's
 single source of truth for the robot. That is what makes the term portable, and it also removes
 a dependency on an engine-derived value that the two engines compute differently.
 
@@ -170,7 +170,7 @@ def joint_vel_limits(
 ) -> torch.Tensor:
     """Penalise joint velocities past a catalog-stated soft cap.
 
-    Limits come from the task declaration, which reads them off :class:`~instinctlab.sim.robot_spec.RobotSpec`.
+    Limits come from the task declaration, which reads them off :class:`~instinctlab.engines.assets.RobotSpec`.
     Reading the catalog is what makes this portable: Isaac Lab's original reads
     ``soft_joint_vel_limits`` from engine data, and mjlab's ``EntityData`` has no equivalent
     field. It also removes a dependency on an engine-derived value that the two engines

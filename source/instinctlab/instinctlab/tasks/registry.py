@@ -16,7 +16,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from instinctlab.sim.robot_spec import RobotSpec
+    from instinctlab.engines.assets import RobotSpec
     from instinctlab.spec import TaskSpec
 
 TASKS: dict[str, str] = {

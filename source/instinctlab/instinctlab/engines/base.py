@@ -33,7 +33,7 @@ from instinctlab.engines.capabilities import CapabilitySet
 from instinctlab.spec.task import TaskSpec
 
 if TYPE_CHECKING:
-    from instinctlab.sim.robot_spec import RobotSpec
+    from instinctlab.engines.assets import RobotSpec
 
 __all__ = [
     "CompiledTask",

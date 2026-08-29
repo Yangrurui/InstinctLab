@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 import instinctlab.tasks.shadowing.beyondmimic.beyondmimic_env_cfg as beyondmimic_cfg
-from instinctlab.sim.robot_spec import RobotSpec
+from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import MotionReferenceRef, TaskSpec
 
 TASK_ID = "Instinct-BeyondMimic-Plane-G1-v0"

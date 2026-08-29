@@ -1,7 +1,7 @@
 """G1 Perceptive HOI Shadowing task configuration."""
 
 import instinctlab.tasks.shadowing.perceptive_hoi.perceptive_env_cfg as perceptual_cfg
-from instinctlab.sim.robot_spec import RobotSpec
+from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import MotionReferenceRef, RigidObjectRef, TaskSpec
 
 TASK_ID = "Instinct-Perceptive-HOI-Shadowing-G1-v0"

@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 import instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg as perceptual_cfg
-from instinctlab.sim.robot_spec import RobotSpec
+from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import MotionReferenceRef, TaskSpec
 
 TASK_ID = "Instinct-Perceptive-Vae-G1-v0"
