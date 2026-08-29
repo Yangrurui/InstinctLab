@@ -6,6 +6,8 @@ import torch
 from dataclasses import dataclass
 from typing import Literal
 
+from instinctlab.compat.motion_reference import clip_frame, exhausted_envs
+
 from .clip import MotionSample
 
 
@@ -83,9 +85,15 @@ def make_buffers(
         scene_object_names=scene_object_names,
         object_pos_w=torch.zeros(num_envs, num_frames, num_objects, 3, device=device),
         object_quat_w=object_quat,
-        object_lin_vel_w=torch.zeros(num_envs, num_frames, num_objects, 3, device=device),
-        object_ang_vel_w=torch.zeros(num_envs, num_frames, num_objects, 3, device=device),
-        object_validity=torch.zeros(num_envs, num_frames, num_objects, dtype=torch.bool, device=device),
+        object_lin_vel_w=torch.zeros(
+            num_envs, num_frames, num_objects, 3, device=device
+        ),
+        object_ang_vel_w=torch.zeros(
+            num_envs, num_frames, num_objects, 3, device=device
+        ),
+        object_validity=torch.zeros(
+            num_envs, num_frames, num_objects, dtype=torch.bool, device=device
+        ),
     )
 
 
@@ -190,31 +198,6 @@ def translate_world_positions(
     origin = env_origins[env_ids]
     buffers.base_pos_w[env_ids] += origin.unsqueeze(1)
     buffers.link_pos_w[env_ids] += origin.unsqueeze(1).unsqueeze(1)
-    buffers.object_pos_w[env_ids] += origin.unsqueeze(1).unsqueeze(1) * buffers.object_validity[env_ids].unsqueeze(-1)
-
-
-def clip_frame(
-    buffers: MotionReferenceBuffers, frame: int = 0
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Root orientation, world velocities and joints at one look-ahead frame.
-
-    Field names of the clip buffers live here so portable AMP terms never write
-    engine-specific field access. AMP passes the dedicated current-time
-    ``reference_frame`` buffer; look-ahead consumers may pass ``data`` instead.
-    """
-    return (
-        buffers.base_quat_w[:, frame],
-        buffers.base_lin_vel_w[:, frame],
-        buffers.base_ang_vel_w[:, frame],
-        buffers.joint_pos[:, frame],
-        buffers.joint_vel[:, frame],
-    )
-
-
-def exhausted_envs(buffers: MotionReferenceBuffers, aiming_frame_idx: torch.Tensor) -> torch.Tensor:
-    """Return the per-environment exhaustion mask at each sensor's current target slot."""
-    num_envs = buffers.validity.shape[0]
-    if aiming_frame_idx.shape != (num_envs,):
-        raise ValueError(f"aiming_frame_idx must have shape ({num_envs},), got {tuple(aiming_frame_idx.shape)}.")
-    env_ids = torch.arange(num_envs, device=buffers.validity.device)
-    return ~buffers.validity[env_ids, aiming_frame_idx]
+    buffers.object_pos_w[env_ids] += origin.unsqueeze(1).unsqueeze(
+        1
+    ) * buffers.object_validity[env_ids].unsqueeze(-1)

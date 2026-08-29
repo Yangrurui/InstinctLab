@@ -1,4 +1,4 @@
-"""Observation terms that run unmodified under either engine's native manager.
+"""Parkour observations called directly by both engines.
 
 Each function here takes the same arguments an Isaac Lab observation term takes, including a native
 ``SceneEntityCfg`` that the compiler has already lowered, and is passed to the engine's own
@@ -28,27 +28,12 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
-from collections.abc import Callable, Sequence
 from typing import Any
 
 from instinctlab.compat.env import RlEnv, get_command
+from instinctlab.compat.observation_terms import show_debug_image
 from instinctlab.compat.sensors import depth_image
 from instinctlab.spec.sensor import RayCasterRef
-
-__all__ = [
-    "DelayedDepthImage",
-    "base_ang_vel",
-    "base_lin_vel",
-    "clear_delayed_depth_history",
-    "delayed_depth_terms",
-    "generated_commands",
-    "joint_pos_rel",
-    "joint_vel",
-    "joint_vel_rel",
-    "last_action",
-    "projected_gravity",
-    "set_debug_image_sink",
-]
 
 
 def base_ang_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
@@ -87,25 +72,18 @@ def joint_pos_rel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     """Joint positions relative to their defaults."""
     asset = env.scene[_name(asset_cfg)]
     joint_ids = _joint_ids(asset_cfg)
-    return asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
-
-
-def joint_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
-    """Joint velocities.
-
-    Portable as-is: both engines expose ``joint_vel`` meaning the same thing. Note that
-    ``joint_acc`` next door does *not* port -- Isaac Lab finite-differences it while mjlab reads
-    MuJoCo's analytic ``qacc`` -- which is why there is no acceleration term in this module.
-    """
-    asset = env.scene[_name(asset_cfg)]
-    return asset.data.joint_vel[:, _joint_ids(asset_cfg)]
+    return (
+        asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+    )
 
 
 def joint_vel_rel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     """Joint velocities relative to their defaults."""
     asset = env.scene[_name(asset_cfg)]
     joint_ids = _joint_ids(asset_cfg)
-    return asset.data.joint_vel[:, joint_ids] - asset.data.default_joint_vel[:, joint_ids]
+    return (
+        asset.data.joint_vel[:, joint_ids] - asset.data.default_joint_vel[:, joint_ids]
+    )
 
 
 def last_action(env: RlEnv, action_name: str | None = None) -> torch.Tensor:
@@ -140,6 +118,8 @@ class DelayedDepthImage:
     reference buffer. Manager-level ``history_length`` on this term must stay 0:
     stacking the already-sampled 8-frame output would silently change the width.
     """
+
+    clears_history_on_env_reset = True
 
     def __init__(self, cfg: Any, env: RlEnv) -> None:
         params = cfg.params
@@ -220,7 +200,9 @@ class DelayedDepthImage:
                 env_ids = env_ids.unsqueeze(0)
         n = self._delay[env_ids].shape[0]
         lo, hi = self.delayed_frame_ranges
-        self._delay[env_ids] = torch.randint(int(lo), int(hi) + 1, (n,), device=self._delay.device)
+        self._delay[env_ids] = torch.randint(
+            int(lo), int(hi) + 1, (n,), device=self._delay.device
+        )
 
     def __call__(
         self,
@@ -252,7 +234,9 @@ class DelayedDepthImage:
         epoch = getattr(native_sensor, "frame_sequence", None)
         if epoch is None:
             timestamp = getattr(native_sensor, "_timestamp_last_update", None)
-            epoch = None if timestamp is None else tuple(timestamp.detach().cpu().tolist())
+            epoch = (
+                None if timestamp is None else tuple(timestamp.detach().cpu().tolist())
+            )
         new_frame = epoch is None or epoch != self._last_sensor_epoch
         if new_frame:
             self._history[:, self._write] = processed
@@ -261,89 +245,26 @@ class DelayedDepthImage:
             self._primed[unprimed] = True
             self._write = (self._write + 1) % self.sensor_history_length
             self._last_sensor_epoch = epoch
-        order = (torch.arange(self.sensor_history_length, device=self._history.device) + self._write) % (
-            self.sensor_history_length
-        )
+        order = (
+            torch.arange(self.sensor_history_length, device=self._history.device)
+            + self._write
+        ) % (self.sensor_history_length)
         linear = self._history[:, order]
-        indices = (self.sensor_history_length - self.frame_offset.unsqueeze(0) - self._delay.unsqueeze(1) - 1).to(
-            torch.long
+        indices = (
+            self.sensor_history_length
+            - self.frame_offset.unsqueeze(0)
+            - self._delay.unsqueeze(1)
+            - 1
+        ).to(torch.long)
+        batch = (
+            torch.arange(linear.shape[0], device=linear.device)
+            .unsqueeze(1)
+            .expand_as(indices)
         )
-        batch = torch.arange(linear.shape[0], device=linear.device).unsqueeze(1).expand_as(indices)
         delayed = linear[batch, indices]
         if show_debug:
-            _maybe_debug_visualize_depth(delayed, window_name="depth_image", debug_vis=True)
+            show_debug_image(delayed, window_name="depth_image")
         return delayed
-
-
-_debug_image_sink: Callable[[str, Any], None] | None = None
-
-
-def set_debug_image_sink(sink: Callable[[str, Any], None] | None) -> None:
-    """Redirect depth ``debug_vis`` away from cv2 (Viser play sets this)."""
-    global _debug_image_sink
-    _debug_image_sink = sink
-
-
-def _maybe_debug_visualize_depth(delayed: torch.Tensor, *, window_name: str, debug_vis: bool) -> None:
-    if not debug_vis:
-        return
-    if _debug_image_sink is not None:
-        _debug_image_sink(window_name, delayed[:, -1, :, :])
-        return
-    panel = delayed.permute(1, 2, 0, 3).flatten(start_dim=0, end_dim=1).flatten(start_dim=1, end_dim=2)
-    peak = float(panel.max())
-    if peak <= 0:
-        return
-    img = (panel * 255.0 / peak).detach().cpu().numpy().astype("uint8")
-    import cv2
-
-    vis = cv2.resize(img, (img.shape[1] * 5, img.shape[0] * 5), interpolation=cv2.INTER_AREA)
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.imshow(window_name, vis)
-    cv2.waitKey(1)
-
-
-def _coerce_reset_env_ids(env: RlEnv, env_ids: Any | None) -> torch.Tensor | slice:
-    """Normalize ``_reset_idx`` env_ids (``None``, slice, int, Sequence, tensor)."""
-    if env_ids is None:
-        return slice(None)
-    if isinstance(env_ids, slice):
-        return env_ids
-    device = getattr(env, "device", "cpu")
-    if isinstance(env_ids, torch.Tensor):
-        if env_ids.numel() == 0:
-            return env_ids.reshape(0).to(device=device, dtype=torch.long)
-        return env_ids.reshape(-1).to(device=device, dtype=torch.long)
-    if isinstance(env_ids, int):
-        return torch.tensor([env_ids], device=device, dtype=torch.long)
-    if isinstance(env_ids, Sequence) and not isinstance(env_ids, (str, bytes, bytearray)):
-        return torch.tensor(list(env_ids), device=device, dtype=torch.long)
-    raise TypeError(f"unsupported env_ids type {type(env_ids)!r}")
-
-
-def delayed_depth_terms(env: RlEnv) -> tuple[DelayedDepthImage, ...]:
-    """Return live depth terms, unwrapping Isaac's ``ManagerTermBase`` adapter."""
-    manager = getattr(env, "observation_manager", None)
-    if manager is None:
-        return ()
-    found: list[DelayedDepthImage] = []
-    cfgs = getattr(manager, "_group_obs_term_cfgs", {})
-    for group_cfgs in cfgs.values():
-        for cfg in group_cfgs:
-            term = getattr(cfg, "func", None)
-            implementation = getattr(term, "_impl", term)
-            if isinstance(implementation, DelayedDepthImage):
-                found.append(implementation)
-    return tuple(found)
-
-
-def clear_delayed_depth_history(env: RlEnv, env_ids: Any | None = None) -> None:
-    """Episode-reset hook: clear ``DelayedDepthImage`` rings the way a camera sensor reset would."""
-    coerced = _coerce_reset_env_ids(env, env_ids)
-    if isinstance(coerced, torch.Tensor) and coerced.numel() == 0:
-        return
-    for term in delayed_depth_terms(env):
-        term.clear_history(coerced)
 
 
 def _process_depth_image(
@@ -356,14 +277,18 @@ def _process_depth_image(
     normalization_range: tuple[float, float] | None = None,
 ) -> torch.Tensor:
     """Crop → blur → clip-and-normalise. Misses become the ceiling (1.0)."""
-    finite = torch.where(torch.isfinite(image), image, torch.full_like(image, sensor.max_distance))
+    finite = torch.where(
+        torch.isfinite(image), image, torch.full_like(image, sensor.max_distance)
+    )
     if sensor.crop is not None:
         top, bottom, left, right = sensor.crop
         height, width = finite.shape[1], finite.shape[2]
         finite = finite[:, top : height - bottom, left : width - right]
     plane = finite.squeeze(-1)
     if resize_shape is not None:
-        plane = F.interpolate(plane.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False).squeeze(1)
+        plane = F.interpolate(
+            plane.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False
+        ).squeeze(1)
     if kernel_size > 1 and sigma > 0.0:
         plane = _gaussian_blur(plane, kernel_size, sigma)
     lo, hi = normalization_range or (0.0, sensor.max_distance)
@@ -372,7 +297,10 @@ def _process_depth_image(
 
 
 def _gaussian_blur(image: torch.Tensor, kernel_size: int, sigma: float) -> torch.Tensor:
-    coords = torch.arange(kernel_size, device=image.device, dtype=image.dtype) - kernel_size // 2
+    coords = (
+        torch.arange(kernel_size, device=image.device, dtype=image.dtype)
+        - kernel_size // 2
+    )
     gauss = torch.exp(-0.5 * (coords / sigma) ** 2)
     gauss = gauss / gauss.sum()
     kernel = (gauss[:, None] * gauss[None, :]).view(1, 1, kernel_size, kernel_size)

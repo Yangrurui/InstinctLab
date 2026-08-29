@@ -55,7 +55,9 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
     on the wrong physics. See :mod:`instinctlab.utils.contact_overflow`.
     """
 
-    def __init__(self, cfg, device: str, render_mode: str | None = None, **kwargs) -> None:
+    def __init__(
+        self, cfg, device: str, render_mode: str | None = None, **kwargs
+    ) -> None:
         import mjlab.envs.manager_based_rl_env as env_mod
 
         from instinctlab.utils.contact_overflow import check_contact_overflow
@@ -83,7 +85,9 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
             terrain.debug_vis(visualizer)
 
     def _reset_idx(self, env_ids=None) -> None:
-        from instinctlab.mdp.observations import clear_delayed_depth_history
+        from instinctlab.compat.observation_terms import (
+            clear_resettable_observation_histories,
+        )
 
-        clear_delayed_depth_history(self, env_ids)
+        clear_resettable_observation_histories(self, env_ids)
         super()._reset_idx(env_ids)

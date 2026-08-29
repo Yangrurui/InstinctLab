@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-from instinctlab import mdp
 from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     AgentSpec,
@@ -24,38 +23,39 @@ from instinctlab.spec.capability import Requirement
 from instinctlab.tasks.parkour.config.parkour_env_cfg import (
     ParkourEnvCfg,
 )
+from instinctlab.tasks.parkour.mdp import rewards
 
 
 class G1ParkourRewardsCfg:
     def __init__(self, robot: RobotSpec) -> None:
         self.track_lin_vel_xy_exp = RewardTermSpec(
-            func=mdp.track_lin_vel_xy_exp,
+            func=rewards.track_lin_vel_xy_exp,
             weight=2.0,
             params={"command_name": "base_velocity", "std": 0.5},
         )
         self.track_ang_vel_z_exp = RewardTermSpec(
-            func=mdp.track_ang_vel_z_exp,
+            func=rewards.track_ang_vel_z_exp,
             weight=2.0,
             params={"command_name": "base_velocity", "std": 0.5},
         )
         self.heading_error = RewardTermSpec(
-            func=mdp.heading_error,
+            func=rewards.heading_error,
             weight=-1.0,
             params={"command_name": "base_velocity"},
         )
         self.dont_wait = RewardTermSpec(
-            func=mdp.dont_wait,
+            func=rewards.dont_wait,
             weight=-0.5,
             params={"command_name": "base_velocity"},
         )
-        self.is_alive = RewardTermSpec(func=mdp.is_alive, weight=3.0)
+        self.is_alive = RewardTermSpec(func=rewards.is_alive, weight=3.0)
         self.stand_still = RewardTermSpec(
-            func=mdp.stand_still_when_idle,
+            func=rewards.stand_still_when_idle,
             weight=-0.3,
             params={"command_name": "base_velocity", "offset": 4.0},
         )
         self.volume_points_penetration = RewardTermSpec(
-            func=mdp.volume_points_penetration,
+            func=rewards.volume_points_penetration,
             weight=-8.0,
             params={
                 "sensor": VolumePointsRef(
@@ -77,7 +77,7 @@ class G1ParkourRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.feet_air_time = RewardTermSpec(
-            func=mdp.feet_air_time,
+            func=rewards.feet_air_time,
             weight=0.5,
             params={
                 "command_name": "base_velocity",
@@ -102,7 +102,7 @@ class G1ParkourRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.joint_deviation_hip = RewardTermSpec(
-            func=mdp.joint_deviation_square,
+            func=rewards.joint_deviation_square,
             weight=-0.5,
             params={
                 "asset_cfg": EntityRef(
@@ -111,7 +111,7 @@ class G1ParkourRewardsCfg:
                 )
             },
         )
-        self.ang_vel_xy_l2 = RewardTermSpec(func=mdp.ang_vel_xy_l2, weight=-0.05)
+        self.ang_vel_xy_l2 = RewardTermSpec(func=rewards.ang_vel_xy_l2, weight=-0.05)
         self.dof_torques_l2 = RewardTermSpec(
             kind="joint_torques_l2",
             weight=-1.5e-7,
@@ -130,19 +130,21 @@ class G1ParkourRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.dof_vel_l2 = RewardTermSpec(
-            func=mdp.joint_vel_l2,
+            func=rewards.joint_vel_l2,
             weight=-1e-4,
             params={"asset_cfg": EntityRef("robot", joints=".*")},
         )
-        self.action_rate_l2 = RewardTermSpec(func=mdp.action_rate_l2, weight=-0.005)
-        self.flat_orientation_l2 = RewardTermSpec(func=mdp.flat_orientation_l2, weight=-3.0)
+        self.action_rate_l2 = RewardTermSpec(func=rewards.action_rate_l2, weight=-0.005)
+        self.flat_orientation_l2 = RewardTermSpec(
+            func=rewards.flat_orientation_l2, weight=-3.0
+        )
         self.pelvis_orientation_l2 = RewardTermSpec(
-            func=mdp.link_orientation,
+            func=rewards.link_orientation,
             weight=-3.0,
             params={"asset_cfg": EntityRef("robot", bodies="pelvis")},
         )
         self.feet_flat_ori = RewardTermSpec(
-            func=mdp.feet_orientation_contact,
+            func=rewards.feet_orientation_contact,
             weight=-0.4,
             params={
                 "sensor": ContactSensorRef(
@@ -153,7 +155,7 @@ class G1ParkourRewardsCfg:
             },
         )
         self.feet_at_plane = RewardTermSpec(
-            func=mdp.feet_at_plane,
+            func=rewards.feet_at_plane,
             weight=-0.1,
             params={
                 "sensor": ContactSensorRef(
@@ -196,7 +198,7 @@ class G1ParkourRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.feet_close_xy = RewardTermSpec(
-            func=mdp.feet_close_xy_gauss,
+            func=rewards.feet_close_xy_gauss,
             weight=0.4,
             params={
                 "threshold": 0.12,
@@ -217,7 +219,7 @@ class G1ParkourRewardsCfg:
             level=Requirement.REQUIRED,
         )
         self.freeze_upper_body = RewardTermSpec(
-            func=mdp.joint_deviation_l1,
+            func=rewards.joint_deviation_l1,
             weight=-0.004,
             params={
                 "asset_cfg": EntityRef(
@@ -232,12 +234,12 @@ class G1ParkourRewardsCfg:
             },
         )
         self.dof_pos_limits = RewardTermSpec(
-            func=mdp.joint_pos_limits,
+            func=rewards.joint_pos_limits,
             weight=-1.0,
             params={"asset_cfg": EntityRef("robot", joints=".*")},
         )
         self.dof_vel_limits = RewardTermSpec(
-            func=mdp.joint_vel_limits,
+            func=rewards.joint_vel_limits,
             weight=-1.0,
             params={
                 "soft_ratio": 0.9,
@@ -267,7 +269,8 @@ class G1ParkourRewardsCfg:
                 "sensor": ContactSensorRef(
                     name="contact_forces",
                     elements="(?!.*_ankle_roll_link).*",
-                )
+                ),
+                "threshold": 1.0,
             },
             level=Requirement.REQUIRED,
         )
@@ -464,6 +467,3 @@ def parkour_target_g1(robot: RobotSpec) -> TaskSpec:
         agent=config.agent,
         engines=("isaacsim", "mjlab"),
     )
-
-
-__all__ = ["G1ParkourEnvCfg", "G1ParkourRewardsCfg", "parkour_target_g1"]

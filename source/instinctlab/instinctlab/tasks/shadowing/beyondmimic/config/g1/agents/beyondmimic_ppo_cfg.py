@@ -69,6 +69,8 @@ class G1BeyondMimicPPORunnerCfg(InstinctRlOnPolicyRunnerCfg):
 
         self.run_name = "".join(
             [
-                f"_GPU{os.environ.get('CUDA_VISIBLE_DEVICES')}" if "CUDA_VISIBLE_DEVICES" in os.environ else "",
+                f"_GPU{os.environ.get('CUDA_VISIBLE_DEVICES')}"
+                if "CUDA_VISIBLE_DEVICES" in os.environ
+                else "",
             ]
         )

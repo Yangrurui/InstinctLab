@@ -30,11 +30,17 @@ from instinctlab.engines.registry import TermRegistry
 
 TERMS = TermRegistry("mjlab")
 
-MJLAB_FRICTION_KEYS: frozenset[str] = frozenset({"ranges", "operation", "shared_random", "distribution", "axes"})
-MJLAB_FRICTION_ALIASES: frozenset[str] = frozenset({"static_friction_range", "dynamic_friction_range"})
+MJLAB_FRICTION_KEYS: frozenset[str] = frozenset(
+    {"ranges", "operation", "shared_random", "distribution", "axes"}
+)
+MJLAB_FRICTION_ALIASES: frozenset[str] = frozenset(
+    {"static_friction_range", "dynamic_friction_range"}
+)
 
 
-def merge_friction_params(profile: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+def merge_friction_params(
+    profile: dict[str, Any], params: dict[str, Any]
+) -> dict[str, Any]:
     """Honor task-supplied sliding friction, and refuse keys this engine cannot apply.
 
     MuJoCo has one sliding coefficient. A task that states static and dynamic ranges is mapped
@@ -56,7 +62,9 @@ def merge_friction_params(profile: dict[str, Any], params: dict[str, Any]) -> di
             "(static/dynamic map to their union as 'ranges')."
         )
     if "ranges" in params and (params.keys() & MJLAB_FRICTION_ALIASES):
-        raise ValueError("mjlab randomize_friction: pass 'ranges' or static/dynamic friction, not both.")
+        raise ValueError(
+            "mjlab randomize_friction: pass 'ranges' or static/dynamic friction, not both."
+        )
     merged = dict(profile)
     for key in MJLAB_FRICTION_KEYS:
         if key in params:
@@ -76,7 +84,13 @@ def merge_friction_params(profile: dict[str, Any], params: dict[str, Any]) -> di
 
 
 def _cfgs() -> dict[str, Any]:
-    from mjlab.managers import CurriculumTermCfg, EventTermCfg, ObservationTermCfg, RewardTermCfg, TerminationTermCfg
+    from mjlab.managers import (
+        CurriculumTermCfg,
+        EventTermCfg,
+        ObservationTermCfg,
+        RewardTermCfg,
+        TerminationTermCfg,
+    )
 
     return {
         "obs": ObservationTermCfg,
@@ -101,12 +115,16 @@ def _observation(spec, ctx):
 
 @TERMS.portable("reward")
 def _reward(spec, ctx):
-    return _cfgs()["reward"](func=spec.func, weight=spec.weight, params=ctx.params(spec))
+    return _cfgs()["reward"](
+        func=spec.func, weight=spec.weight, params=ctx.params(spec)
+    )
 
 
 @TERMS.portable("termination")
 def _termination(spec, ctx):
-    return _cfgs()["done"](func=spec.func, time_out=spec.time_out, params=ctx.params(spec))
+    return _cfgs()["done"](
+        func=spec.func, time_out=spec.time_out, params=ctx.params(spec)
+    )
 
 
 @TERMS.portable("curriculum")
@@ -129,21 +147,21 @@ def _term_params(spec, ctx):
 
 @TERMS.termination("illegal_contact")
 def _illegal_contact(spec, ctx):
-    """Terminate on ‖force‖ (full 3-D, friction included) above 1 N. Matches InstinctMJ."""
-    from .rewards import CONTACT_FORCE_THRESHOLD_N, illegal_contact
+    """Lower a declared full-force contact termination onto MJLab."""
+    from .rewards import illegal_contact
 
     params = dict(ctx.params(spec))
-    params.setdefault("threshold", CONTACT_FORCE_THRESHOLD_N)
+    params["threshold"]
     return _cfgs()["done"](func=illegal_contact, time_out=spec.time_out, params=params)
 
 
 @TERMS.reward("undesired_contacts")
 def _undesired_contacts(spec, ctx):
-    """Count bodies whose ‖force‖ (full 3-D, friction included) exceeds 1 N."""
-    from .rewards import CONTACT_FORCE_THRESHOLD_N, undesired_contacts
+    """Lower a declared full-force contact penalty onto MJLab."""
+    from .rewards import undesired_contacts
 
     params = dict(ctx.params(spec))
-    params.setdefault("threshold", CONTACT_FORCE_THRESHOLD_N)
+    params["threshold"]
     return _cfgs()["reward"](func=undesired_contacts, weight=spec.weight, params=params)
 
 
@@ -159,14 +177,20 @@ def _contact_slide(spec, ctx):
     """
     from .rewards import contact_slide
 
-    return _cfgs()["reward"](func=contact_slide, weight=spec.weight, params=_term_params(spec, ctx))
+    params = _term_params(spec, ctx)
+    params["threshold"]
+    return _cfgs()["reward"](
+        func=contact_slide, weight=spec.weight, params=params
+    )
 
 
 @TERMS.reward("joint_acc_l2")
 def _joint_acc_l2(spec, ctx):
     from mjlab.envs.mdp import joint_acc_l2
 
-    return _cfgs()["reward"](func=joint_acc_l2, weight=spec.weight, params=_term_params(spec, ctx))
+    return _cfgs()["reward"](
+        func=joint_acc_l2, weight=spec.weight, params=_term_params(spec, ctx)
+    )
 
 
 @TERMS.reward("joint_torques_l2")
@@ -174,27 +198,33 @@ def _joint_torques_l2(spec, ctx):
     """Joint-space torque penalty. mjlab's stock term reads ``actuator_force`` (nu)."""
     from .rewards import joint_torques_l2
 
-    return _cfgs()["reward"](func=joint_torques_l2, weight=spec.weight, params=_term_params(spec, ctx))
+    return _cfgs()["reward"](
+        func=joint_torques_l2, weight=spec.weight, params=_term_params(spec, ctx)
+    )
 
 
 @TERMS.reward("motors_power_square")
 def _motors_power_square(spec, ctx):
-    """Parkour's energy term. Reads ``qfrc_actuator`` (nv), not ``actuator_force`` (nu)."""
+    """Native energy quantity reading ``qfrc_actuator`` (nv), not ``actuator_force`` (nu)."""
     from .rewards import motors_power_square
 
     params = _term_params(spec, ctx)
-    params.setdefault("normalize_by_stiffness", True)
-    return _cfgs()["reward"](func=motors_power_square, weight=spec.weight, params=params)
+    params["normalize_by_stiffness"]
+    return _cfgs()["reward"](
+        func=motors_power_square, weight=spec.weight, params=params
+    )
 
 
 @TERMS.reward("applied_torque_limits_by_ratio")
 def _applied_torque_limits_by_ratio(spec, ctx):
-    """Parkour's torque-limit term. Same ``qfrc_actuator`` / joint-id reasoning."""
+    """Native torque-limit quantity. Same ``qfrc_actuator`` / joint-id reasoning."""
     from .rewards import applied_torque_limits_by_ratio
 
     params = _term_params(spec, ctx)
-    params.setdefault("limit_ratio", 0.8)
-    return _cfgs()["reward"](func=applied_torque_limits_by_ratio, weight=spec.weight, params=params)
+    params["limit_ratio"]
+    return _cfgs()["reward"](
+        func=applied_torque_limits_by_ratio, weight=spec.weight, params=params
+    )
 
 
 @TERMS.action("joint_position")
@@ -215,8 +245,8 @@ def _joint_position(spec, ctx):
         entity_name=target.entity,
         actuator_names=tuple(target.joints),
         preserve_order=target.preserve_order,
-        scale=params.get("scale", 1.0),
-        use_default_offset=params.get("use_default_offset", True),
+        scale=params["scale"],
+        use_default_offset=params["use_default_offset"],
     )
 
 
@@ -233,24 +263,31 @@ def _uniform_velocity(spec, ctx):
 
     params = ctx.params(spec)
     return UniformVelocityCommandCfg(
-        entity_name=params.get("entity", "robot"),
+        entity_name=params["entity"],
         resampling_time_range=params["resampling_time_range"],
-        rel_standing_envs=params.get("rel_standing_envs", 0.0),
-        rel_heading_envs=params.get("rel_heading_envs", 1.0),
-        heading_command=params.get("heading_command", False),
-        heading_control_stiffness=params.get("heading_control_stiffness", 1.0),
-        debug_vis=params.get("debug_vis", True),
+        rel_standing_envs=params["rel_standing_envs"],
+        rel_heading_envs=params["rel_heading_envs"],
+        heading_command=params["heading_command"],
+        heading_control_stiffness=params["heading_control_stiffness"],
+        debug_vis=params["debug_vis"],
         ranges=UniformVelocityCommandCfg.Ranges(
             lin_vel_x=params["lin_vel_x"],
             lin_vel_y=params["lin_vel_y"],
             ang_vel_z=params["ang_vel_z"],
-            heading=params.get("heading", (-math.pi, math.pi)),
+            heading=params["heading"],
         ),
     )
 
 
 def _event(spec, func, params: dict[str, Any]):
-    return _cfgs()["event"](func=func, mode=spec.mode, interval_range_s=spec.interval_range_s, params=params)
+    return _cfgs()["event"](
+        func=func, mode=spec.mode, interval_range_s=spec.interval_range_s, params=params
+    )
+
+
+@TERMS.portable("event")
+def _portable_event(spec, ctx):
+    return _event(spec, spec.func, ctx.params(spec))
 
 
 def _geoms_of(ctx, ref) -> Any:
@@ -263,7 +300,9 @@ def _geoms_of(ctx, ref) -> Any:
     """
     from mjlab.managers import SceneEntityCfg
 
-    return SceneEntityCfg(ref.entity if ref is not None else "robot", geom_names=(".*",))
+    return SceneEntityCfg(
+        ref.entity if ref is not None else "robot", geom_names=(".*",)
+    )
 
 
 @TERMS.event(
@@ -280,8 +319,12 @@ def _randomize_friction(spec, ctx):
     """
     from mjlab.envs.mdp import dr
 
-    profile = merge_friction_params(dict(ctx.profile.get("friction_dr", {})), ctx.params(spec))
-    return _event(spec, dr.geom_friction, {"asset_cfg": _geoms_of(ctx, spec.target), **profile})
+    profile = merge_friction_params(
+        dict(ctx.profile.get("friction_dr", {})), ctx.params(spec)
+    )
+    return _event(
+        spec, dr.geom_friction, {"asset_cfg": _geoms_of(ctx, spec.target), **profile}
+    )
 
 
 @TERMS.event("randomize_body_mass", provides=(BODY_MASS_PROPERTIES,))
@@ -289,6 +332,8 @@ def _randomize_body_mass(spec, ctx):
     from .events import randomize_body_mass
 
     params = ctx.params(spec)
+    if params["operation"] != "add":
+        raise ValueError("mjlab randomize_body_mass only implements operation='add'.")
     return _event(
         spec,
         randomize_body_mass,
@@ -321,6 +366,7 @@ def _reset_root_state_uniform(spec, ctx):
         spec,
         reset_root_state_uniform,
         {
+            "asset_cfg": ctx.entity(spec.target),
             "pose_range": params["pose_range"],
             "velocity_range": params["velocity_range"],
         },
@@ -336,6 +382,7 @@ def _reset_joints_by_scale(spec, ctx):
         spec,
         reset_joints_by_scale,
         {
+            "asset_cfg": ctx.entity(spec.target),
             "position_range": params["position_range"],
             "velocity_range": params["velocity_range"],
         },
@@ -362,61 +409,46 @@ def _push_by_setting_velocity(spec, ctx):
     from mjlab.envs.mdp import push_by_setting_velocity
 
     params = ctx.params(spec)
-    return _event(spec, push_by_setting_velocity, {"velocity_range": params["velocity_range"]})
+    return _event(
+        spec,
+        push_by_setting_velocity,
+        {
+            "asset_cfg": ctx.entity(spec.target),
+            "velocity_range": params["velocity_range"],
+        },
+    )
 
 
-@TERMS.event("register_virtual_obstacles")
-def _register_virtual_obstacles(spec, ctx):
-    from instinctlab.mdp.events import register_virtual_obstacles
+# Motion-reference commands --------------------------------------------------
 
-    return _event(spec, register_virtual_obstacles, ctx.params(spec))
-
-
-# Shadowing -----------------------------------------------------------------
-
-_SHADOW_COMMAND_KINDS = {
-    "shadow_position_reference": "position",
-    "shadow_rotation_reference": "rotation",
-    "shadow_joint_position_reference": "joint_position",
-    "shadow_joint_velocity_reference": "joint_velocity",
+_MOTION_REFERENCE_COMMAND_KINDS = {
+    "motion_reference_position": "position",
+    "motion_reference_rotation": "rotation",
+    "motion_reference_joint_position": "joint_position",
+    "motion_reference_joint_velocity": "joint_velocity",
 }
 
 
-def _shadow_command(spec, ctx):
-    from .shadowing import build_command
+def _motion_reference_command(spec, ctx):
+    from .motion_reference_commands import build_command
 
-    return build_command(_SHADOW_COMMAND_KINDS[spec.kind], ctx.params(spec))
-
-
-for _kind in _SHADOW_COMMAND_KINDS:
-    TERMS.register("command", _kind, _shadow_command)
+    return build_command(_MOTION_REFERENCE_COMMAND_KINDS[spec.kind], ctx.params(spec))
 
 
-def _shadow_entity(ctx):
-    from instinctlab.spec import EntityRef
-
-    motion = ctx.spec.scene.motion_reference("motion_reference")
-    return ctx.entity(EntityRef("robot", bodies=motion.links, preserve_order=True))
+for _kind in _MOTION_REFERENCE_COMMAND_KINDS:
+    TERMS.register("command", _kind, _motion_reference_command)
 
 
-def _shadow_obs(spec, ctx):
-    from instinctlab.mdp import shadowing
+@TERMS.observation("height_scan")
+def _height_scan(spec, ctx):
+    """Lower the shared ray-height observation onto MJLab's sensor-name API."""
+    from mjlab.envs.mdp import height_scan
 
-    func = shadowing.link_position if spec.kind == "shadow_link_position" else shadowing.link_rotation
-    return _cfgs()["obs"](func=func, params={"asset_cfg": _shadow_entity(ctx)})
-
-
-TERMS.register("observation", "shadow_link_position", _shadow_obs)
-TERMS.register("observation", "shadow_link_rotation", _shadow_obs)
-
-
-@TERMS.observation("shadow_base_linear_velocity")
-def _shadow_base_linear_velocity(spec, ctx):
-    from mjlab.envs import mdp
-
+    params = ctx.params(spec)
+    sensor = params.pop("sensor")
     return _cfgs()["obs"](
-        func=mdp.base_lin_vel,
-        params=ctx.params(spec),
+        func=height_scan,
+        params={"sensor_name": sensor.name, **params},
         noise=ctx.noise(spec.noise),
         scale=spec.scale,
         clip=spec.clip,
@@ -424,131 +456,22 @@ def _shadow_base_linear_velocity(spec, ctx):
     )
 
 
-@TERMS.observation("shadow_depth_image")
-def _shadow_depth(spec, ctx):
-    from instinctlab import mdp
-    from instinctlab.mdp import shadowing
-
-    params = ctx.params(spec)
-    if "history_length" in params:
-        func = mdp.DelayedDepthImage
-    else:
-        func = shadowing.depth_image
-        params.update(resize_shape=(18, 32), normalization_range=(0.0, 2.0))
-    return _cfgs()["obs"](func=func, params=params)
-
-
-@TERMS.observation("shadow_height_scan")
-def _shadow_height(spec, ctx):
-    from mjlab.envs.mdp import height_scan
-
-    params = ctx.params(spec)
-    sensor = params.pop("sensor")
-    return _cfgs()["obs"](func=height_scan, params={"sensor_name": sensor.name}, clip=(-20.0, 20.0))
-
-
-_SHADOW_REWARDS = {
-    "shadow_base_position_gauss": "base_position_imitation",
-    "shadow_base_rotation_gauss": "base_rotation_imitation",
-    "shadow_link_position_gauss": "link_position_imitation",
-    "shadow_link_rotation_gauss": "link_rotation_imitation",
-    "shadow_link_linear_velocity_gauss": "link_linear_velocity_imitation",
-    "shadow_link_angular_velocity_gauss": "link_angular_velocity_imitation",
-}
-
-
-def _shadow_reward(spec, ctx):
-    from instinctlab.mdp import shadowing
-
-    params = ctx.params(spec)
-    params.update(reference_cfg="motion_reference", asset_cfg=_shadow_entity(ctx))
-    return _cfgs()["reward"](
-        func=getattr(shadowing, _SHADOW_REWARDS[spec.kind]),
-        weight=spec.weight,
-        params=params,
-    )
-
-
-for _kind in _SHADOW_REWARDS:
-    TERMS.register("reward", _kind, _shadow_reward)
-
-
-@TERMS.reward("shadow_undesired_contacts")
-def _shadow_contact_reward(spec, ctx):
-    from instinctlab.mdp.shadowing import undesired_contacts
-
-    return _cfgs()["reward"](
-        func=undesired_contacts,
-        weight=spec.weight,
-        params=ctx.params(spec),
-    )
-
-
-@TERMS.reward("shadow_torque_limit_ratio")
-def _shadow_torque(spec, ctx):
-    from instinctlab.spec import EntityRef
-
-    from .rewards import applied_torque_limits_by_ratio
-
-    entity = ctx.entity(EntityRef("robot", joints=(".*ankle.*", ".*wrist.*")))
-    return _cfgs()["reward"](
-        func=applied_torque_limits_by_ratio,
-        weight=spec.weight,
-        params={"asset_cfg": entity},
-    )
-
-
-_SHADOW_DONES = {
-    "shadow_base_position_too_far": "base_position_too_far",
-    "shadow_projected_gravity_too_far": "projected_gravity_too_far",
-    "shadow_link_position_too_far": "link_position_too_far",
-}
-
-
-def _shadow_done(spec, ctx):
-    from instinctlab.mdp import shadowing
-
-    params = ctx.params(spec)
-    params.update(reference_cfg="motion_reference", asset_cfg=_shadow_entity(ctx))
-    if spec.kind == "shadow_link_position_too_far":
-        motion_links = ctx.spec.scene.motion_reference("motion_reference").links
-        params["link_ids"] = tuple(motion_links.index(name) for name in spec.target.bodies)
-    return _cfgs()["done"](
-        func=getattr(shadowing, _SHADOW_DONES[spec.kind]),
-        time_out=spec.time_out,
-        params=params,
-    )
-
-
-for _kind in _SHADOW_DONES:
-    TERMS.register("termination", _kind, _shadow_done)
-
-
-@TERMS.termination("shadow_illegal_reset_contact")
-def _shadow_illegal_reset(spec, ctx):
-    from instinctlab.mdp.shadowing import IllegalResetContact
-
-    return _cfgs()["done"](func=IllegalResetContact, time_out=spec.time_out, params=ctx.params(spec))
-
-
 @TERMS.event("randomize_joint_default")
-def _shadow_joint_default(spec, ctx):
-    from instinctlab.spec import EntityRef
-
-    from .shadowing import randomize_default_joint_pos
+def _randomize_joint_default(spec, ctx):
+    from .events import randomize_default_joint_pos
 
     return _event(
         spec,
         randomize_default_joint_pos,
         {
-            "asset_cfg": ctx.entity(EntityRef("robot", joints=".*")),
+            "asset_cfg": ctx.entity(spec.target),
             "offset_distribution_params": ctx.params(spec)["range"],
         },
     )
 
 
 @TERMS.event("randomize_base_com")
-def _shadow_base_com(spec, ctx):
+def _randomize_base_com(spec, ctx):
     from mjlab.envs.mdp import dr
 
     axes = {"x": 0, "y": 1, "z": 2}
@@ -561,17 +484,15 @@ def _shadow_base_com(spec, ctx):
 
 
 @TERMS.event("randomize_actuator_gains")
-def _shadow_actuator_gains(spec, ctx):
+def _randomize_actuator_gains(spec, ctx):
     from mjlab.envs.mdp import dr
-
-    from instinctlab.spec import EntityRef
 
     params = ctx.params(spec)
     return _event(
         spec,
         dr.pd_gains,
         {
-            "asset_cfg": ctx.entity(EntityRef("robot", joints=".*")),
+            "asset_cfg": ctx.entity(spec.target),
             "kp_range": params["stiffness_range"],
             "kd_range": params["damping_range"],
             "operation": params["operation"],
@@ -579,8 +500,8 @@ def _shadow_actuator_gains(spec, ctx):
     )
 
 
-@TERMS.event("shadow_randomize_body_inertia")
-def _shadow_body_inertia(spec, ctx):
+@TERMS.event("randomize_body_inertia")
+def _randomize_body_inertia(spec, ctx):
     from mjlab.envs.mdp import dr
 
     from .events import uniform_mass_scale_distribution
@@ -598,51 +519,8 @@ def _shadow_body_inertia(spec, ctx):
     )
 
 
-@TERMS.event("shadow_randomize_ray_offsets")
-def _shadow_ray_offsets(spec, ctx):
-    from .shadowing import randomize_ray_offsets
+@TERMS.event("randomize_ray_offsets")
+def _randomize_ray_offsets(spec, ctx):
+    from .events import randomize_ray_offsets
 
-    return _event(spec, randomize_ray_offsets, {"sensor_name": "camera", **ctx.params(spec)})
-
-
-@TERMS.event("push_root_velocity")
-def _shadow_push(spec, ctx):
-    from mjlab.envs.mdp import push_by_setting_velocity
-
-    return _event(
-        spec,
-        push_by_setting_velocity,
-        {"velocity_range": ctx.params(spec)["velocity_range"]},
-    )
-
-
-def _shadow_runtime_event(spec, ctx):
-    from instinctlab.engines import shadowing_events
-
-    names = {
-        "shadow_match_reference_origin": "match_reference_origin",
-        "shadow_reset_robot_from_reference": "reset_robot_from_reference",
-        "shadow_smooth_bin_failures": "smooth_bin_failures",
-        "shadow_reset_objects_from_reference": "reset_objects_from_reference",
-        "shadow_update_objects_from_reference": "update_objects_from_reference",
-    }
-    params = ctx.params(spec)
-    params.setdefault("motion_reference", "motion_reference")
-    return _event(spec, getattr(shadowing_events, names[spec.kind]), params)
-
-
-for _kind in (
-    "shadow_match_reference_origin",
-    "shadow_reset_robot_from_reference",
-    "shadow_smooth_bin_failures",
-    "shadow_reset_objects_from_reference",
-    "shadow_update_objects_from_reference",
-):
-    TERMS.register("event", _kind, _shadow_runtime_event)
-
-
-@TERMS.curriculum("shadow_adaptive_sampling")
-def _shadow_curriculum(spec, ctx):
-    from instinctlab.engines.shadowing_events import adaptive_sampling
-
-    return _cfgs()["curriculum"](func=adaptive_sampling, params=ctx.params(spec))
+    return _event(spec, randomize_ray_offsets, ctx.params(spec))

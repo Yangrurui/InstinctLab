@@ -1,4 +1,4 @@
-"""Portable shadowing observations, imitation rewards, and failure checks.
+"""Shadowing observations, imitation rewards, and failure checks.
 
 Only public scene/data tensors are used.  The two adapters lower selectors to native entity
 configs; root-link naming is normalized here because MJLab intentionally distinguishes the root
@@ -15,7 +15,9 @@ from instinctlab.compat import math as math_utils
 from instinctlab.utils.math import quat_to_tan_norm
 
 
-def depth_image(env, sensor, resize_shape=(18, 32), normalization_range=(0.0, 2.0), debug_vis=False):
+def depth_image(
+    env, sensor, resize_shape=(18, 32), normalization_range=(0.0, 2.0), debug_vis=False
+):
     """Reference camera pipeline: clamp/normalize first, then crop and resize.
 
     ``debug_vis`` is training-off and play-on. Viser patches it onto the live observation
@@ -28,12 +30,16 @@ def depth_image(env, sensor, resize_shape=(18, 32), normalization_range=(0.0, 2.
     normalized = raw.clamp(lo, hi).sub(lo).div(hi - lo)
     if sensor.crop is not None:
         top, bottom, left, right = sensor.crop
-        normalized = normalized[:, top : normalized.shape[1] - bottom, left : normalized.shape[2] - right]
-    processed = F.interpolate(normalized.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False)
+        normalized = normalized[
+            :, top : normalized.shape[1] - bottom, left : normalized.shape[2] - right
+        ]
+    processed = F.interpolate(
+        normalized.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False
+    )
     if debug_vis:
-        from instinctlab.mdp.observations import _maybe_debug_visualize_depth
+        from instinctlab.compat.observation_terms import show_debug_image
 
-        _maybe_debug_visualize_depth(processed, window_name="depth_image", debug_vis=True)
+        show_debug_image(processed, window_name="depth_image")
     return processed
 
 
@@ -81,27 +87,43 @@ def link_rotation(env, asset_cfg, *, in_base_frame: bool = True):
     asset = env.scene[_name(asset_cfg, "robot")]
     quat = asset.data.body_link_quat_w[:, _ids(asset_cfg)]
     if in_base_frame:
-        root_inv = math_utils.quat_inv(_field(asset.data, "root_quat_w", "root_link_quat_w"))
-        quat = math_utils.quat_mul(root_inv.unsqueeze(1).expand(-1, quat.shape[1], -1), quat)
+        root_inv = math_utils.quat_inv(
+            _field(asset.data, "root_quat_w", "root_link_quat_w")
+        )
+        quat = math_utils.quat_mul(
+            root_inv.unsqueeze(1).expand(-1, quat.shape[1], -1), quat
+        )
     return quat_to_tan_norm(quat)
 
 
-def base_position_imitation(env, reference_cfg="motion_reference", asset_cfg="robot", std: float = 0.3):
+def base_position_imitation(
+    env, reference_cfg="motion_reference", asset_cfg="robot", std: float = 0.3
+):
     reference = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     ref = reference.base_pos_w[:, 0]
-    pos = _field(env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w")
+    pos = _field(
+        env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w"
+    )
     reward = torch.exp(-torch.square(pos - ref).sum(dim=-1) / (std * std))
     return reward * reference.validity[:, 0]
 
 
 def base_rotation_imitation(
-    env, reference_cfg="motion_reference", asset_cfg="robot", std: float = 0.4, difference_type="axis_angle"
+    env,
+    reference_cfg="motion_reference",
+    asset_cfg="robot",
+    std: float = 0.4,
+    difference_type="axis_angle",
 ):
     reference = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     ref = reference.base_quat_w[:, 0]
-    quat = _field(env.scene[_name(asset_cfg, "robot")].data, "root_quat_w", "root_link_quat_w")
+    quat = _field(
+        env.scene[_name(asset_cfg, "robot")].data, "root_quat_w", "root_link_quat_w"
+    )
     if difference_type == "axis_angle":
-        error = math_utils.axis_angle_from_quat(math_utils.quat_mul(ref, math_utils.quat_conjugate(quat))).norm(dim=-1)
+        error = math_utils.axis_angle_from_quat(
+            math_utils.quat_mul(ref, math_utils.quat_conjugate(quat))
+        ).norm(dim=-1)
     elif difference_type == "box_minus":
         error = math_utils.quat_box_minus(ref, quat).norm(dim=-1)
     else:
@@ -114,7 +136,9 @@ def _relative_reference(asset, buffers):
     robot_quat = _field(asset.data, "root_quat_w", "root_link_quat_w")
     ref_pos = buffers.base_pos_w[:, 0]
     ref_quat = buffers.base_quat_w[:, 0]
-    delta = math_utils.yaw_quat(math_utils.quat_mul(robot_quat, math_utils.quat_inv(ref_quat)))
+    delta = math_utils.yaw_quat(
+        math_utils.quat_mul(robot_quat, math_utils.quat_inv(ref_quat))
+    )
     base = robot_pos.clone()
     base[:, 2] = ref_pos[:, 2]
     rel_pos = base.unsqueeze(1) + math_utils.quat_apply(
@@ -122,7 +146,8 @@ def _relative_reference(asset, buffers):
         buffers.link_pos_w[:, 0] - ref_pos.unsqueeze(1),
     )
     rel_quat = math_utils.quat_mul(
-        delta.unsqueeze(1).expand(-1, buffers.link_quat_w.shape[2], -1), buffers.link_quat_w[:, 0]
+        delta.unsqueeze(1).expand(-1, buffers.link_quat_w.shape[2], -1),
+        buffers.link_quat_w[:, 0],
     )
     return rel_pos, rel_quat
 
@@ -161,18 +186,26 @@ def link_rotation_imitation(
     buffers = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     actual = asset.data.body_link_quat_w[:, _ids(asset_cfg)]
     if in_base_frame:
-        root_inv = math_utils.quat_inv(_field(asset.data, "root_quat_w", "root_link_quat_w"))
-        actual = math_utils.quat_mul(root_inv.unsqueeze(1).expand(-1, actual.shape[1], -1), actual)
+        root_inv = math_utils.quat_inv(
+            _field(asset.data, "root_quat_w", "root_link_quat_w")
+        )
+        actual = math_utils.quat_mul(
+            root_inv.unsqueeze(1).expand(-1, actual.shape[1], -1), actual
+        )
         target = buffers.link_quat_b[:, 0]
     elif in_relative_world_frame:
         target = _relative_reference(asset, buffers)[1]
     else:
         target = buffers.link_quat_w[:, 0]
-    error = math_utils.quat_error_magnitude(actual.reshape(-1, 4), target.reshape(-1, 4)).view(actual.shape[:2])
+    error = math_utils.quat_error_magnitude(
+        actual.reshape(-1, 4), target.reshape(-1, 4)
+    ).view(actual.shape[:2])
     return _combine(torch.square(error), std, combine_method)
 
 
-def _link_velocity_imitation(env, reference_cfg, asset_cfg, std, combine_method, angular):
+def _link_velocity_imitation(
+    env, reference_cfg, asset_cfg, std, combine_method, angular
+):
     asset = env.scene[_name(asset_cfg, "robot")]
     buffers = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     # main and InstinctMJ both use the velocity of the link-frame origin.
@@ -185,15 +218,27 @@ def _link_velocity_imitation(env, reference_cfg, asset_cfg, std, combine_method,
 
 
 def link_linear_velocity_imitation(
-    env, reference_cfg="motion_reference", asset_cfg="robot", std=1.0, combine_method="mean_prod"
+    env,
+    reference_cfg="motion_reference",
+    asset_cfg="robot",
+    std=1.0,
+    combine_method="mean_prod",
 ):
-    return _link_velocity_imitation(env, reference_cfg, asset_cfg, std, combine_method, False)
+    return _link_velocity_imitation(
+        env, reference_cfg, asset_cfg, std, combine_method, False
+    )
 
 
 def link_angular_velocity_imitation(
-    env, reference_cfg="motion_reference", asset_cfg="robot", std=3.14, combine_method="mean_prod"
+    env,
+    reference_cfg="motion_reference",
+    asset_cfg="robot",
+    std=3.14,
+    combine_method="mean_prod",
 ):
-    return _link_velocity_imitation(env, reference_cfg, asset_cfg, std, combine_method, True)
+    return _link_velocity_imitation(
+        env, reference_cfg, asset_cfg, std, combine_method, True
+    )
 
 
 def base_position_too_far(
@@ -207,7 +252,9 @@ def base_position_too_far(
 ):
     reference = env.scene[_name(reference_cfg, "motion_reference")].data
     ref = reference.base_pos_w[:, 0]
-    pos = _field(env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w")
+    pos = _field(
+        env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w"
+    )
     diff = (pos - ref).abs() if height_only else (pos - ref).norm(dim=-1)
     return (diff[:, 2] if height_only else diff) > distance_threshold
 
@@ -226,8 +273,12 @@ def projected_gravity_too_far(
     reference = env.scene[_name(reference_cfg, "motion_reference")].data
     ref = reference.base_quat_w[:, 0]
     gravity = _field(asset.data, "GRAVITY_VEC_W", "gravity_vec_w")
-    diff = math_utils.quat_apply_inverse(quat, gravity) - math_utils.quat_apply_inverse(ref, gravity)
-    return (diff[:, 2].abs() if z_only else diff.norm(dim=-1)) > projected_gravity_threshold
+    diff = math_utils.quat_apply_inverse(quat, gravity) - math_utils.quat_apply_inverse(
+        ref, gravity
+    )
+    return (
+        diff[:, 2].abs() if z_only else diff.norm(dim=-1)
+    ) > projected_gravity_threshold
 
 
 def link_position_too_far(
@@ -243,7 +294,9 @@ def link_position_too_far(
 ):
     actual = link_position(env, asset_cfg, in_base_frame=in_base_frame)[:, link_ids]
     buffers = env.scene[_name(reference_cfg, "motion_reference")].data
-    target = (buffers.link_pos_b if in_base_frame else buffers.link_pos_w)[:, 0, link_ids]
+    target = (buffers.link_pos_b if in_base_frame else buffers.link_pos_w)[
+        :, 0, link_ids
+    ]
     diff = (actual - target).abs()
     distance = diff[..., 2] if height_only else diff.norm(dim=-1)
     return distance.amax(dim=-1) > distance_threshold
@@ -264,7 +317,9 @@ class IllegalResetContact:
         history = contact_force_history(env.scene.sensors[sensor.name], sensor)
         contacts = torch.norm(history, dim=-1).amax(dim=1).gt(threshold).any(dim=-1)
         self.counter += contacts.long()
-        return (self.counter >= episode_length_threshold) & (env.episode_length_buf <= episode_length_threshold)
+        return (self.counter >= episode_length_threshold) & (
+            env.episode_length_buf <= episode_length_threshold
+        )
 
 
 def undesired_contacts(env, sensor, threshold=1.0):
@@ -273,6 +328,3 @@ def undesired_contacts(env, sensor, threshold=1.0):
 
     history = contact_force_history(env.scene.sensors[sensor.name], sensor)
     return torch.norm(history, dim=-1).amax(dim=1).gt(threshold).float().sum(dim=-1)
-
-
-__all__ = [name for name in globals() if not name.startswith("_")]

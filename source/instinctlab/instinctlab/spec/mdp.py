@@ -5,7 +5,7 @@ a choice the task author makes case by case:
 
 **Portable families carry a function.** Observations, rewards, terminations and commands are
 written as ``ObsTermSpec(mdp.base_ang_vel, ...)`` -- a direct reference to a function in
-:mod:`instinctlab.mdp` that runs unmodified under either engine's native manager. This is not a
+:mod:`instinctlab.tasks.<task>.mdp` that runs unmodified under either engine's native manager. This is not a
 convenience. It is the reason migration is cheap: an Isaac Lab task's term definitions transfer
 almost verbatim, with the import redirected and the class renamed, because the function itself did
 not have to change.
@@ -85,7 +85,9 @@ class NoiseSpec:
         if self.kind == "uniform" and self.lo > self.hi:
             raise ValueError(f"Uniform noise has lo={self.lo} above hi={self.hi}.")
         if self.kind == "gaussian" and self.hi < 0.0:
-            raise ValueError(f"Gaussian noise has a negative standard deviation: {self.hi}.")
+            raise ValueError(
+                f"Gaussian noise has a negative standard deviation: {self.hi}."
+            )
 
 
 @dataclass(frozen=True)
@@ -93,8 +95,8 @@ class TermSpec:
     """Base of every MDP term.
 
     Args:
-        func: The portable implementation, for observation / reward / termination / command terms.
-            Written exactly as an Isaac Lab task would write it.
+        func: The task-owned portable implementation, run directly by either engine's native
+            manager.
         kind: The semantic name, for action / event / curriculum terms, looked up in the running
             engine's registry. Exactly one of ``func`` and ``kind`` is set.
         params: Arguments passed to the term, identical on every engine.
@@ -117,10 +119,12 @@ class TermSpec:
             stated = "both" if self.func is not None else "neither"
             raise ValueError(
                 f"{type(self).__name__} must set exactly one of func / kind; {stated} was given. "
-                "Portable terms carry the function itself; per-engine terms carry a semantic name."
+                "Portable terms carry the task function; native terms carry a semantic name."
             )
         object.__setattr__(self, "params", dict(self.params))
-        object.__setattr__(self, "engine_params", {k: dict(v) for k, v in self.engine_params.items()})
+        object.__setattr__(
+            self, "engine_params", {k: dict(v) for k, v in self.engine_params.items()}
+        )
 
     @property
     def is_portable(self) -> bool:
@@ -208,7 +212,9 @@ class EventTermSpec(TermSpec):
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.mode not in {"startup", "reset", "interval"}:
-            raise ValueError(f"Unknown event mode {self.mode!r}; expected startup, reset, or interval.")
+            raise ValueError(
+                f"Unknown event mode {self.mode!r}; expected startup, reset, or interval."
+            )
         if (self.mode == "interval") != (self.interval_range_s is not None):
             raise ValueError(
                 f"Event in {self.mode!r} mode with interval_range_s={self.interval_range_s}: an "
@@ -270,9 +276,13 @@ class ObsGroupSpec:
 
     def __post_init__(self) -> None:
         if not self.terms:
-            raise ValueError("An observation group with no terms produces an empty input tensor.")
+            raise ValueError(
+                "An observation group with no terms produces an empty input tensor."
+            )
         if self.history_length is not None and self.history_length < 0:
-            raise ValueError(f"Observation group history_length={self.history_length} is negative.")
+            raise ValueError(
+                f"Observation group history_length={self.history_length} is negative."
+            )
         object.__setattr__(self, "terms", dict(self.terms))
 
 
@@ -294,9 +304,20 @@ class MdpSpec:
     curriculum: Mapping[str, CurriculumTermSpec] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for name in ("observations", "actions", "terminations", "events", "commands", "curriculum"):
+        for name in (
+            "observations",
+            "actions",
+            "terminations",
+            "events",
+            "commands",
+            "curriculum",
+        ):
             object.__setattr__(self, name, dict(getattr(self, name)))
-        object.__setattr__(self, "rewards", {group: dict(terms) for group, terms in self.rewards.items()})
+        object.__setattr__(
+            self,
+            "rewards",
+            {group: dict(terms) for group, terms in self.rewards.items()},
+        )
 
     def terms(self) -> dict[str, TermSpec]:
         """Every term keyed by ``family/name``, the key used throughout a compilation's report.
@@ -333,7 +354,15 @@ class MdpSpec:
         for term in self.terms().values():
             if term.target is not None:
                 found.append(term.target)
-            found.extend(v for v in walk_parameter_values(term.params.values()) if isinstance(v, EntityRef))
+            found.extend(
+                v
+                for v in walk_parameter_values(term.params.values())
+                if isinstance(v, EntityRef)
+            )
             for overrides in term.engine_params.values():
-                found.extend(v for v in walk_parameter_values(overrides.values()) if isinstance(v, EntityRef))
+                found.extend(
+                    v
+                    for v in walk_parameter_values(overrides.values())
+                    if isinstance(v, EntityRef)
+                )
         return tuple(found)

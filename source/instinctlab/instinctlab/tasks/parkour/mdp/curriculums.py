@@ -1,4 +1,4 @@
-"""Curriculum terms that run unmodified under either engine's native manager.
+"""Parkour curriculum terms called directly by both engines.
 
 Both engines' terrain objects already expose ``update_env_origins``, ``terrain_levels`` and a
 generator with ``size``, so one implementation of each walk is enough. Isaac Lab's originals
@@ -16,10 +16,10 @@ from instinctlab.compat.env import get_command
 if TYPE_CHECKING:
     from instinctlab.compat.env import RlEnv
 
-__all__ = ["terrain_levels_vel", "tracking_exp_vel"]
 
-
-def terrain_levels_vel(env: RlEnv, env_ids: torch.Tensor, command_name: str) -> torch.Tensor:
+def terrain_levels_vel(
+    env: RlEnv, env_ids: torch.Tensor, command_name: str
+) -> torch.Tensor:
     """Move robots to harder or easier tiles from how far they walked this episode.
 
     Walked more than half a tile: climb a level. Walked less than half the commanded distance
@@ -35,9 +35,15 @@ def terrain_levels_vel(env: RlEnv, env_ids: torch.Tensor, command_name: str) -> 
         )
     asset = env.scene["robot"]
     command = get_command(env, command_name)
-    distance = torch.norm(asset.data.root_link_pos_w[env_ids, :2] - env.scene.env_origins[env_ids, :2], dim=1)
+    distance = torch.norm(
+        asset.data.root_link_pos_w[env_ids, :2] - env.scene.env_origins[env_ids, :2],
+        dim=1,
+    )
     move_up = distance > generator.size[0] / 2
-    move_down = distance < torch.norm(command[env_ids, :2], dim=1) * env.max_episode_length_s * 0.5
+    move_down = (
+        distance
+        < torch.norm(command[env_ids, :2], dim=1) * env.max_episode_length_s * 0.5
+    )
     move_down = move_down & ~move_up
     terrain.update_env_origins(env_ids, move_up, move_down)
     return torch.mean(terrain.terrain_levels.float())
@@ -79,10 +85,14 @@ def tracking_exp_vel(
     missing = [key for key in needed if key not in metrics]
     if missing:
         available = ", ".join(sorted(metrics)) if metrics else "none"
-        raise RuntimeError(f"Command {command_name!r} is missing metrics {missing}. Available: {available}.")
+        raise RuntimeError(
+            f"Command {command_name!r} is missing metrics {missing}. Available: {available}."
+        )
     tracking_exp_vel_xy = metrics["tracking_exp_vel_xy"][env_ids]
     tracking_exp_vel_yaw = metrics["tracking_exp_vel_yaw"][env_ids]
-    move_up = (tracking_exp_vel_xy > lin_vel_threshold[1]) * (tracking_exp_vel_yaw > ang_vel_threshold[1])
+    move_up = (tracking_exp_vel_xy > lin_vel_threshold[1]) * (
+        tracking_exp_vel_yaw > ang_vel_threshold[1]
+    )
     move_down = tracking_exp_vel_xy < lin_vel_threshold[0]
     move_down = move_down * ~move_up
     terrain.update_env_origins(env_ids, move_up, move_down)

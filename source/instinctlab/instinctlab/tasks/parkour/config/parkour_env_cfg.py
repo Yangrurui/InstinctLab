@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from instinctlab import mdp
 from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
@@ -25,29 +24,36 @@ from instinctlab.spec import (
     VolumePointsRef,
 )
 from instinctlab.spec.capability import Requirement
+from instinctlab.tasks.parkour.mdp import (
+    amp,
+    curriculums,
+    events,
+    observations,
+    terminations,
+)
 from instinctlab.tasks.terrain import rough_terrain
 
 
 class ParkourPolicyObsCfg:
     def __init__(self, robot: RobotSpec, depth_camera: RayCasterRef) -> None:
         self.base_ang_vel = ObsTermSpec(
-            func=mdp.base_ang_vel,
+            func=observations.base_ang_vel,
             noise=NoiseSpec("uniform", -0.2, 0.2),
             scale=0.25,
             history_length=8,
         )
         self.projected_gravity = ObsTermSpec(
-            func=mdp.projected_gravity,
+            func=observations.projected_gravity,
             noise=NoiseSpec("uniform", -0.05, 0.05),
             history_length=8,
         )
         self.velocity_commands = ObsTermSpec(
-            func=mdp.generated_commands,
+            func=observations.generated_commands,
             params={"command_name": "base_velocity"},
             history_length=8,
         )
         self.joint_pos = ObsTermSpec(
-            func=mdp.joint_pos_rel,
+            func=observations.joint_pos_rel,
             params={
                 "asset_cfg": EntityRef(
                     "robot",
@@ -59,7 +65,7 @@ class ParkourPolicyObsCfg:
             history_length=8,
         )
         self.joint_vel = ObsTermSpec(
-            func=mdp.joint_vel_rel,
+            func=observations.joint_vel_rel,
             params={
                 "asset_cfg": EntityRef(
                     "robot",
@@ -71,9 +77,9 @@ class ParkourPolicyObsCfg:
             scale=0.05,
             history_length=8,
         )
-        self.actions = ObsTermSpec(func=mdp.last_action, history_length=8)
+        self.actions = ObsTermSpec(func=observations.last_action, history_length=8)
         self.depth_image = ObsTermSpec(
-            func=mdp.DelayedDepthImage,
+            func=observations.DelayedDepthImage,
             params={
                 "sensor": depth_camera,
                 "history_skip_frames": 5,
@@ -90,16 +96,22 @@ class ParkourPolicyObsCfg:
 
 class ParkourCriticObsCfg:
     def __init__(self, robot: RobotSpec, depth_camera: RayCasterRef) -> None:
-        self.base_lin_vel = ObsTermSpec(func=mdp.base_lin_vel, history_length=8)
-        self.base_ang_vel = ObsTermSpec(func=mdp.base_ang_vel, scale=0.25, history_length=8)
-        self.projected_gravity = ObsTermSpec(func=mdp.projected_gravity, history_length=8)
+        self.base_lin_vel = ObsTermSpec(
+            func=observations.base_lin_vel, history_length=8
+        )
+        self.base_ang_vel = ObsTermSpec(
+            func=observations.base_ang_vel, scale=0.25, history_length=8
+        )
+        self.projected_gravity = ObsTermSpec(
+            func=observations.projected_gravity, history_length=8
+        )
         self.velocity_commands = ObsTermSpec(
-            func=mdp.generated_commands,
+            func=observations.generated_commands,
             params={"command_name": "base_velocity"},
             history_length=8,
         )
         self.joint_pos = ObsTermSpec(
-            func=mdp.joint_pos_rel,
+            func=observations.joint_pos_rel,
             params={
                 "asset_cfg": EntityRef(
                     "robot",
@@ -110,7 +122,7 @@ class ParkourCriticObsCfg:
             history_length=8,
         )
         self.joint_vel = ObsTermSpec(
-            func=mdp.joint_vel_rel,
+            func=observations.joint_vel_rel,
             params={
                 "asset_cfg": EntityRef(
                     "robot",
@@ -121,9 +133,9 @@ class ParkourCriticObsCfg:
             scale=0.05,
             history_length=8,
         )
-        self.actions = ObsTermSpec(func=mdp.last_action, history_length=8)
+        self.actions = ObsTermSpec(func=observations.last_action, history_length=8)
         self.depth_image = ObsTermSpec(
-            func=mdp.DelayedDepthImage,
+            func=observations.DelayedDepthImage,
             params={
                 "sensor": depth_camera,
                 "history_skip_frames": 5,
@@ -140,9 +152,11 @@ class ParkourCriticObsCfg:
 
 class ParkourAmpPolicyObsCfg:
     def __init__(self, robot: RobotSpec) -> None:
-        self.projected_gravity = ObsTermSpec(func=mdp.projected_gravity, history_length=10)
+        self.projected_gravity = ObsTermSpec(
+            func=observations.projected_gravity, history_length=10
+        )
         self.joint_pos_rel = ObsTermSpec(
-            func=mdp.joint_pos_rel,
+            func=observations.joint_pos_rel,
             params={
                 "asset_cfg": EntityRef(
                     "robot",
@@ -153,7 +167,7 @@ class ParkourAmpPolicyObsCfg:
             history_length=10,
         )
         self.joint_vel = ObsTermSpec(
-            func=mdp.joint_vel_rel,
+            func=observations.joint_vel_rel,
             params={
                 "asset_cfg": EntityRef(
                     "robot",
@@ -164,14 +178,18 @@ class ParkourAmpPolicyObsCfg:
             scale=0.05,
             history_length=10,
         )
-        self.base_lin_vel = ObsTermSpec(func=mdp.base_lin_vel, history_length=10)
-        self.base_ang_vel = ObsTermSpec(func=mdp.base_ang_vel, history_length=10)
+        self.base_lin_vel = ObsTermSpec(
+            func=observations.base_lin_vel, history_length=10
+        )
+        self.base_ang_vel = ObsTermSpec(
+            func=observations.base_ang_vel, history_length=10
+        )
 
 
 class ParkourAmpReferenceObsCfg:
     def __init__(self, robot: RobotSpec, motion_reference: MotionReferenceRef) -> None:
         self.projected_gravity = ObsTermSpec(
-            func=mdp.projected_gravity_from_reference,
+            func=amp.projected_gravity_from_reference,
             params={
                 "sensor": motion_reference,
                 "asset_cfg": EntityRef(
@@ -183,7 +201,7 @@ class ParkourAmpReferenceObsCfg:
             history_length=10,
         )
         self.joint_pos_rel = ObsTermSpec(
-            func=mdp.joint_pos_rel_from_reference,
+            func=amp.joint_pos_rel_from_reference,
             params={
                 "sensor": motion_reference,
                 "asset_cfg": EntityRef(
@@ -195,7 +213,7 @@ class ParkourAmpReferenceObsCfg:
             history_length=10,
         )
         self.joint_vel = ObsTermSpec(
-            func=mdp.joint_vel_rel_from_reference,
+            func=amp.joint_vel_rel_from_reference,
             params={
                 "sensor": motion_reference,
                 "asset_cfg": EntityRef(
@@ -208,7 +226,7 @@ class ParkourAmpReferenceObsCfg:
             history_length=10,
         )
         self.base_lin_vel = ObsTermSpec(
-            func=mdp.base_lin_vel_from_reference,
+            func=amp.base_lin_vel_from_reference,
             params={
                 "sensor": motion_reference,
                 "asset_cfg": EntityRef(
@@ -220,7 +238,7 @@ class ParkourAmpReferenceObsCfg:
             history_length=10,
         )
         self.base_ang_vel = ObsTermSpec(
-            func=mdp.base_ang_vel_from_reference,
+            func=amp.base_ang_vel_from_reference,
             params={
                 "sensor": motion_reference,
                 "asset_cfg": EntityRef(
@@ -279,6 +297,15 @@ class ParkourEnvCfg:
                 "mjlab": {
                     "contact_sensor_maxmatch": 128,
                     "ccd_iterations": 128,
+                    "pinhole_cameras": {
+                        "camera": {
+                            "include_geom_groups": (0, 1, 2),
+                            "exclude_parent_body": True,
+                            "mesh_filter_max_hops": 6,
+                            "mesh_filter_epsilon": 1.0e-4,
+                            "update_period": 0.0,
+                        }
+                    },
                 }
             },
         )
@@ -403,7 +430,7 @@ class ParkourEnvCfg:
         self.rewards = rewards
         self.curriculum = {
             "terrain_levels": CurriculumTermSpec(
-                func=mdp.tracking_exp_vel,
+                func=curriculums.tracking_exp_vel,
                 params={
                     "command_name": "base_velocity",
                     "lin_vel_threshold": (0.3, 0.6),
@@ -413,23 +440,26 @@ class ParkourEnvCfg:
             )
         }
         self.terminations = {
-            "time_out": DoneTermSpec(func=mdp.time_out, time_out=True),
+            "time_out": DoneTermSpec(func=terminations.time_out, time_out=True),
             "terrain_out_of_bounds": DoneTermSpec(
-                func=mdp.terrain_out_of_bounds,
+                func=terminations.terrain_out_of_bounds,
                 time_out=True,
                 params={"distance_buffer": 2.0},
             ),
             "base_contact": DoneTermSpec(
                 kind="illegal_contact",
-                params={"sensor": torso_contact},
+                params={"sensor": torso_contact, "threshold": 1.0},
             ),
-            "bad_orientation": DoneTermSpec(func=mdp.bad_orientation, params={"limit_angle": 1.0}),
+            "bad_orientation": DoneTermSpec(
+                func=terminations.bad_orientation,
+                params={"limit_angle": 1.0},
+            ),
             "root_height": DoneTermSpec(
-                func=mdp.root_height_below_env_origin_minimum,
+                func=terminations.root_height_below_env_origin_minimum,
                 params={"minimum_height": 0.5},
             ),
             "dataset_exhausted": DoneTermSpec(
-                func=mdp.dataset_exhausted,
+                func=terminations.dataset_exhausted,
                 time_out=True,
                 params={
                     "sensor": motion_reference,
@@ -458,6 +488,7 @@ class ParkourEnvCfg:
             "reset_base": EventTermSpec(
                 kind="reset_root_state_uniform",
                 mode="reset",
+                target=EntityRef("robot"),
                 params={
                     "pose_range": {
                         "x": (-0.1, 0.1),
@@ -475,7 +506,7 @@ class ParkourEnvCfg:
                 },
             ),
             "register_virtual_obstacles": EventTermSpec(
-                kind="register_virtual_obstacles",
+                func=events.register_virtual_obstacles,
                 mode="startup",
                 params={"sensor": leg_volume_points},
                 level=Requirement.REQUIRED,
@@ -483,6 +514,7 @@ class ParkourEnvCfg:
             "reset_robot_joints": EventTermSpec(
                 kind="reset_joints_by_offset",
                 mode="reset",
+                target=EntityRef("robot", joints=".*"),
                 params={
                     "position_range": (-0.15, 0.15),
                     "velocity_range": (0.0, 0.0),
@@ -490,12 +522,3 @@ class ParkourEnvCfg:
             ),
         }
         self.agent = agent
-
-
-__all__ = [
-    "ParkourAmpPolicyObsCfg",
-    "ParkourAmpReferenceObsCfg",
-    "ParkourCriticObsCfg",
-    "ParkourEnvCfg",
-    "ParkourPolicyObsCfg",
-]

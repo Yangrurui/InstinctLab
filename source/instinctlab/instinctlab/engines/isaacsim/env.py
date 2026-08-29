@@ -12,11 +12,13 @@ class InstinctManagerBasedRLEnv:
 
     @classmethod
     def wrap(cls, base_cls: type) -> type:
-        from instinctlab.mdp.observations import clear_delayed_depth_history
+        from instinctlab.compat.observation_terms import (
+            clear_resettable_observation_histories,
+        )
 
         class _Env(base_cls):  # type: ignore[misc,valid-type]
             def _reset_idx(self, env_ids: Sequence[int]):
-                clear_delayed_depth_history(self, env_ids)
+                clear_resettable_observation_histories(self, env_ids)
                 super()._reset_idx(env_ids)
 
         _Env.__name__ = base_cls.__name__

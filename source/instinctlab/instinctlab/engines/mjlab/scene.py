@@ -45,18 +45,8 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
     "ls_iterations": 20,
     "ccd_iterations": 500,
     "njmax": 300,
-    "friction_dr": {
-        # One interval, because MuJoCo has one sliding friction coefficient where PhysX has a
-        # static and a dynamic one. This is the union of main's two intervals -- min of the lows,
-        # max of the highs -- which is what InstinctMJ's port does, and the closest thing to "the
-        # same randomisation" that a single coefficient can be. Restitution has no per-geom
-        # counterpart at all and is dropped rather than approximated.
-        "ranges": (0.2, 0.8),
-        "operation": "abs",
-        "shared_random": True,
-    },
 }
-"""Solver settings a task does not state, matching InstinctMJ's values for flat locomotion."""
+"""Native simulator defaults shared by every task unless its profile overrides them."""
 
 
 def _sub_terrain(
@@ -114,7 +104,9 @@ def _generator(spec: TerrainGeneratorSpec) -> Any:
 
 def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     if spec.restitution != 0.0:
-        raise ValueError("mjlab terrain cannot honor restitution; MuJoCo terrain geoms have no restitution field")
+        raise ValueError(
+            "mjlab terrain cannot honor restitution; MuJoCo terrain geoms have no restitution field"
+        )
     if spec.static_friction != spec.dynamic_friction:
         raise ValueError(
             "mjlab terrain has one sliding-friction coefficient and cannot honor different "
@@ -124,7 +116,9 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     from .terrains.terrain_importer_cfg import TerrainImporterCfg
 
     if spec.kind == "plane":
-        return TerrainImporterCfg(terrain_type="plane", sliding_friction=spec.dynamic_friction)
+        return TerrainImporterCfg(
+            terrain_type="plane", sliding_friction=spec.dynamic_friction
+        )
     if spec.kind == "generator":
         if spec.generator is None:
             raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
@@ -138,7 +132,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
         from .rough import rough_importer_cfg
 
         return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
-    if spec.kind == "shadow_motion_matched":
+    if spec.kind == "motion_matched":
         import os
         from dataclasses import dataclass
 
@@ -209,7 +203,9 @@ def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
     obstacles: dict[str, Any] = {}
     for obstacle in spec.virtual_obstacles:
         if obstacle.kind != "greedy_edge_cylinder":
-            raise NotImplementedError(f"mjlab has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}.")
+            raise NotImplementedError(
+                f"mjlab has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}."
+            )
         obstacles[obstacle.name] = GreedyconcatEdgeCylinderCfg(
             cylinder_radius=obstacle.cylinder_radius,
             min_points=obstacle.min_points,
@@ -253,11 +249,17 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
 
     from .contact_sensor import thresholded_contact_sensor_cfg
 
-    elements = (sensor.elements,) if isinstance(sensor.elements, str) else tuple(sensor.elements)
+    elements = (
+        (sensor.elements,)
+        if isinstance(sensor.elements, str)
+        else tuple(sensor.elements)
+    )
     return thresholded_contact_sensor_cfg(
         name=sensor.name,
         primary=ContactMatch(mode="body", pattern=elements, entity=sensor.entity),
-        secondary=None if sensor.against is None else ContactMatch(mode="body", pattern=(sensor.against,)),
+        secondary=None
+        if sensor.against is None
+        else ContactMatch(mode="body", pattern=(sensor.against,)),
         fields=("found", "force"),
         reduce="netforce",
         track_air_time=sensor.track_air_time,
@@ -266,7 +268,9 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
     )
 
 
-def _build_ray_caster(sensor: RayCasterRef, profile: Mapping[str, Any] | None = None) -> Any:
+def _build_ray_caster(
+    sensor: RayCasterRef, profile: Mapping[str, Any] | None = None
+) -> Any:
     """mjlab does not ship Isaac's sky-origin scanner or world-convention camera."""
     sensor = sensor.for_engine("mjlab")
     refuse_unhonored_ray_alignment(sensor)
@@ -283,14 +287,18 @@ def _build_ray_caster(sensor: RayCasterRef, profile: Mapping[str, Any] | None = 
     return terrain_ray_caster(sensor)
 
 
-def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_envs: int) -> Any:
+def build_scene(
+    spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_envs: int
+) -> Any:
     """A ``SceneCfg`` holding the robot, terrain and sensors."""
     from mjlab.scene import SceneCfg
 
     sensors = (
         tuple(_build_contact_sensor(sensor) for sensor in spec.contact_sensors)
         + tuple(_build_ray_caster(sensor, profile) for sensor in spec.ray_casters)
-        + tuple(_build_motion_reference(sensor, robot) for sensor in spec.motion_references)
+        + tuple(
+            _build_motion_reference(sensor, robot) for sensor in spec.motion_references
+        )
         + tuple(_build_volume_points(sensor) for sensor in spec.volume_points)
     )
     entities = {"robot": build_entity(robot)}

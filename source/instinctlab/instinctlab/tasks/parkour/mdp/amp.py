@@ -1,4 +1,4 @@
-"""AMP observations: one function of kinematic state, two extractors.
+"""Parkour AMP observations: one function of kinematic state, two extractors.
 
 A discriminator that can trivially tell policy samples from reference samples
 drives the style reward to a constant. Training still converges. The usual
@@ -30,21 +30,8 @@ from typing import Any
 
 from instinctlab.compat.env import RlEnv
 from instinctlab.compat.math import quat_apply, quat_apply_inverse
-from instinctlab.engines.motion_reference import clip_frame
+from instinctlab.compat.motion_reference import clip_frame
 from instinctlab.spec.sensor import MotionReferenceRef
-
-__all__ = [
-    "AMP_TERM_ORDER",
-    "GRAVITY_DOWN_W",
-    "amp_obs_from_reference",
-    "amp_obs_from_robot_like",
-    "base_ang_vel_from_reference",
-    "base_lin_vel_from_reference",
-    "joint_pos_rel_from_reference",
-    "joint_vel_rel_from_reference",
-    "projected_gravity_from_reference",
-    "robot_like_from_clip",
-]
 
 AMP_TERM_ORDER = (
     "projected_gravity",
@@ -64,7 +51,9 @@ check cannot hide a live-gravity vs hardcode mismatch.
 """
 
 
-def amp_obs_from_robot_like(data: Any, joint_ids: Any = slice(None)) -> dict[str, torch.Tensor]:
+def amp_obs_from_robot_like(
+    data: Any, joint_ids: Any = slice(None)
+) -> dict[str, torch.Tensor]:
     """Policy-side AMP builder: hub robot fields, no conversion.
 
     Feeding a clip that has been promoted onto these fields
@@ -72,8 +61,10 @@ def amp_obs_from_robot_like(data: Any, joint_ids: Any = slice(None)) -> dict[str
     """
     return {
         "projected_gravity": data.projected_gravity_b,
-        "joint_pos_rel": data.joint_pos[:, joint_ids] - data.default_joint_pos[:, joint_ids],
-        "joint_vel": data.joint_vel[:, joint_ids] - data.default_joint_vel[:, joint_ids],
+        "joint_pos_rel": data.joint_pos[:, joint_ids]
+        - data.default_joint_pos[:, joint_ids],
+        "joint_vel": data.joint_vel[:, joint_ids]
+        - data.default_joint_vel[:, joint_ids],
         "base_lin_vel": data.root_link_lin_vel_b,
         "base_ang_vel": data.root_link_ang_vel_b,
     }
@@ -169,7 +160,9 @@ def base_ang_vel_from_reference(
     return _reference_obs(env, sensor, asset_cfg)["base_ang_vel"]
 
 
-def _reference_obs(env: RlEnv, sensor: MotionReferenceRef, asset_cfg: Any) -> dict[str, torch.Tensor]:
+def _reference_obs(
+    env: RlEnv, sensor: MotionReferenceRef, asset_cfg: Any
+) -> dict[str, torch.Tensor]:
     if asset_cfg is None:
         raise ValueError(
             "AMP reference terms need asset_cfg naming the joints in canonical order. "
@@ -199,7 +192,9 @@ def _joint_ids(asset_cfg: Any) -> Any:
     return slice(None) if asset_cfg is None else asset_cfg.joint_ids
 
 
-def _batch_gravity(gravity_w: torch.Tensor | None, quat_w: torch.Tensor) -> torch.Tensor:
+def _batch_gravity(
+    gravity_w: torch.Tensor | None, quat_w: torch.Tensor
+) -> torch.Tensor:
     n = quat_w.shape[0]
     if gravity_w is None:
         gravity = torch.zeros(n, 3, device=quat_w.device, dtype=quat_w.dtype)

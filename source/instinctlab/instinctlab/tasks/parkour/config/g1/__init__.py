@@ -4,5 +4,3 @@ The package does not import either engine or the agent configuration as a side e
 """
 
 from .g1_parkour_target_amp_cfg import parkour_target_g1
-
-__all__ = ["parkour_target_g1"]

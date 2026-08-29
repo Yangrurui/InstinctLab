@@ -1,4 +1,4 @@
-"""Termination terms that run unmodified under either engine's native manager."""
+"""Parkour termination terms called directly by both engines."""
 
 from __future__ import annotations
 
@@ -9,21 +9,12 @@ from typing import Any
 
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv
-from instinctlab.engines.motion_reference import exhausted_envs
+from instinctlab.compat.motion_reference import exhausted_envs
 from instinctlab.spec.sensor import ContactSensorRef, MotionReferenceRef
 
 from .observations import _name
 
 _MAP_HALF: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
-
-__all__ = [
-    "bad_orientation",
-    "dataset_exhausted",
-    "illegal_contact",
-    "root_height_below_env_origin_minimum",
-    "terrain_out_of_bounds",
-    "time_out",
-]
 
 
 def time_out(env: RlEnv) -> torch.Tensor:
@@ -126,7 +117,9 @@ def _map_half_extents(env: RlEnv) -> tuple[float, float]:
     half_x = 0.5 * (n_rows * size[0] + 2 * border_width)
     half_y = 0.5 * (n_cols * size[1] + 2 * border_width)
     if not math.isfinite(half_x) or not math.isfinite(half_y):
-        raise RuntimeError(f"terrain_out_of_bounds computed a non-finite map extent ({half_x}, {half_y}).")
+        raise RuntimeError(
+            f"terrain_out_of_bounds computed a non-finite map extent ({half_x}, {half_y})."
+        )
     extents = (half_x, half_y)
     try:
         _MAP_HALF[terrain] = extents
@@ -135,7 +128,9 @@ def _map_half_extents(env: RlEnv) -> tuple[float, float]:
     return extents
 
 
-def terrain_out_of_bounds(env: RlEnv, distance_buffer: float, asset_cfg: Any = None) -> torch.Tensor:
+def terrain_out_of_bounds(
+    env: RlEnv, distance_buffer: float, asset_cfg: Any = None
+) -> torch.Tensor:
     """Terminate when the actor is too close to the edge of the whole generated map.
 
     Both references explicitly return false for their infinite plane. Generated terrain uses
@@ -156,7 +151,9 @@ def terrain_out_of_bounds(env: RlEnv, distance_buffer: float, asset_cfg: Any = N
     return torch.logical_or(x_out, y_out)
 
 
-def bad_orientation(env: RlEnv, limit_angle: float, asset_cfg: Any = None) -> torch.Tensor:
+def bad_orientation(
+    env: RlEnv, limit_angle: float, asset_cfg: Any = None
+) -> torch.Tensor:
     """Terminate when the base tilts past ``limit_angle`` from upright.
 
     Uses ``projected_gravity_b``, the portable attitude signal. The raw gravity vectors are
@@ -168,7 +165,9 @@ def bad_orientation(env: RlEnv, limit_angle: float, asset_cfg: Any = None) -> to
     return torch.acos(upright_cosine).abs() > limit_angle
 
 
-def root_height_below_env_origin_minimum(env: RlEnv, minimum_height: float, asset_cfg: Any = None) -> torch.Tensor:
+def root_height_below_env_origin_minimum(
+    env: RlEnv, minimum_height: float, asset_cfg: Any = None
+) -> torch.Tensor:
     """Terminate when the root drops more than ``minimum_height`` below a non-positive env origin.
 
     Both parkour references clamp the env-origin height at zero before subtracting. Reads

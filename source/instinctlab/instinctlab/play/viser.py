@@ -7,12 +7,14 @@ selecting another engine. The mesh helpers below are catalog checks, not a secon
 
 from __future__ import annotations
 
-import numpy as np
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+
+import numpy as np
 
 from instinctlab.engines.assets import RobotSpec
 
@@ -23,7 +25,9 @@ def build_viser_env(spec: Any, *, num_envs: int, device: str, strict: bool) -> A
     from instinctlab.play.env import PlayEnv
 
     viewer_engine = adapter("mjlab")
-    compiled = viewer_engine.compile(spec, num_envs=num_envs, device=device, strict=strict)
+    compiled = viewer_engine.compile(
+        spec, num_envs=num_envs, device=device, strict=strict
+    )
     groups = compiled.env_cfg.observations
     items = groups.values() if isinstance(groups, dict) else vars(groups).values()
     for group in items:
@@ -102,7 +106,9 @@ def visual_asset_path(robot: RobotSpec) -> Path:
             path = Path(asset.path)
             if path.suffix == suffix:
                 return path
-    raise FileNotFoundError(f"{robot.name} has no MJCF or URDF asset to take meshes from")
+    raise FileNotFoundError(
+        f"{robot.name} has no MJCF or URDF asset to take meshes from"
+    )
 
 
 def _xyz(text: str | None) -> tuple[float, float, float]:
@@ -190,7 +196,11 @@ def enable_depth_image_debug_vis(target: object) -> None:
         mapping = (
             terms
             if isinstance(terms, dict)
-            else {name: value for name, value in vars(group).items() if hasattr(value, "params")}
+            else {
+                name: value
+                for name, value in vars(group).items()
+                if hasattr(value, "params")
+            }
         )
         term = mapping.get("depth_image")
         if term is None or not isinstance(getattr(term, "params", None), dict):
@@ -233,7 +243,11 @@ def enable_pose_command_debug_vis(target: object) -> None:
     items = (
         commands
         if isinstance(commands, dict)
-        else {name: value for name, value in vars(commands).items() if not name.startswith("_")}
+        else {
+            name: value
+            for name, value in vars(commands).items()
+            if not name.startswith("_")
+        }
     )
     term = items.get("base_velocity")
     if term is None:
@@ -320,17 +334,29 @@ def _import_viser():
 
     import site as site_mod
 
-    preferred = [path for path in site_mod.getsitepackages() if (Path(path) / "websockets" / "asyncio").is_dir()]
+    preferred = [
+        path
+        for path in site_mod.getsitepackages()
+        if (Path(path) / "websockets" / "asyncio").is_dir()
+    ]
     prebundle = [path for path in sys.path if "pip_prebundle" in path]
-    sys.path = preferred + [path for path in sys.path if path not in preferred and path not in prebundle] + prebundle
-    for name in [module for module in sys.modules if module == "websockets" or module.startswith("websockets.")]:
+    sys.path = (
+        preferred
+        + [path for path in sys.path if path not in preferred and path not in prebundle]
+        + prebundle
+    )
+    for name in [
+        module
+        for module in sys.modules
+        if module == "websockets" or module.startswith("websockets.")
+    ]:
         del sys.modules[name]
     import viser
 
     return viser
 
 
-def _depth_frame_to_rgb(frame: torch.Tensor, *, scale: int = 5) -> np.ndarray:
+def _depth_frame_to_rgb(frame: Any, *, scale: int = 5) -> np.ndarray:
     """Latest policy depth for one env: black=near, white=far."""
     peak = float(frame.max())
     if peak <= 0:
@@ -340,7 +366,11 @@ def _depth_frame_to_rgb(frame: torch.Tensor, *, scale: int = 5) -> np.ndarray:
     if scale != 1:
         import cv2
 
-        img = cv2.resize(img, (img.shape[1] * scale, img.shape[0] * scale), interpolation=cv2.INTER_AREA)
+        img = cv2.resize(
+            img,
+            (img.shape[1] * scale, img.shape[0] * scale),
+            interpolation=cv2.INTER_AREA,
+        )
     return np.repeat(img[..., None], 3, axis=-1)
 
 
@@ -372,10 +402,15 @@ def play_with_viser(
     from mjlab.viewer import ViserPlayViewer
     from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
 
-    from instinctlab.mdp.observations import set_debug_image_sink
+    from instinctlab.compat.observation_terms import set_debug_image_sink
 
     class _InstinctViserPlayViewer(ViserPlayViewer):
-        def __init__(self, *args: Any, depth_panel_state: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        def __init__(
+            self,
+            *args: Any,
+            depth_panel_state: dict[str, Any] | None = None,
+            **kwargs: Any,
+        ) -> None:
             super().__init__(*args, **kwargs)
             self._depth_panel_state = depth_panel_state
 
@@ -399,12 +434,16 @@ def play_with_viser(
             entries: list[tuple[str, str, int]] = []
             for file in sorted(directory.glob("model_*.pt")):
                 step = _checkpoint_step(file.name)
-                entries.append((file.name, format_time_ago(int(now - file.stat().st_mtime)), step))
+                entries.append(
+                    (file.name, format_time_ago(int(now - file.stat().st_mtime)), step)
+                )
             entries.sort(key=lambda item: item[2])
             return [(name, ago) for name, ago, _ in entries]
 
         available = list(directory.glob("model_*.pt"))
-        current = max(available, key=lambda path: _checkpoint_step(path.name), default=None)
+        current = max(
+            available, key=lambda path: _checkpoint_step(path.name), default=None
+        )
         if current is not None:
             manager = CheckpointManager(
                 current_name=current.name,

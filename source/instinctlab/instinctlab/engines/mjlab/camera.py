@@ -1,10 +1,9 @@
 """mjlab pinhole camera aligned with InstinctMJ, not Isaac's grouped mesh targets.
 
 Stock ``RayCastSensorCfg`` filters geom groups at the BVH kernel (default ``(0, 1, 2)``).
-InstinctMJ's Parkour camera inherits that mask, parent exclusion, zero update period, and six
-min-distance hops. Perceptive and HOI explicitly change those native settings to ``(0, 2)``, no
-parent exclusion, a 1/60 s update period, and 24 hops. The task's mjlab profile carries only these
-native settings; this module resolves them without knowing which task requested the camera.
+The task's MJLab profile declares the native group mask, parent exclusion,
+update period, and min-distance hop settings. This module validates and lowers
+those settings without knowing which task requested the camera.
 
 InstinctMJ keeps ``mesh_prim_paths`` empty for these cameras, so there is no body-name mesh
 filter. When ``min_distance > 0``, ``GroupedRayCaster._apply_hit_filter_and_continue`` re-raycasts
@@ -16,7 +15,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import MISSING, dataclass
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -35,25 +34,23 @@ __all__ = [
 
 _DEFAULT_FILTER_MAX_HOPS = 6
 _DEFAULT_FILTER_EPSILON = 1.0e-4
-_DEFAULT_UPDATE_PERIOD = 0.0
 
 
 def pinhole_camera_geom_groups() -> tuple[int, ...]:
-    """Geom groups InstinctMJ parkour inherits from mjlab ``RayCastSensorCfg``."""
+    """Read MJLab's stock ray-caster geom-group default for diagnostics."""
     from mjlab.sensor.raycast_sensor import RayCastSensorCfg
 
     field = RayCastSensorCfg.__dataclass_fields__["include_geom_groups"]
     default = field.default
     if default is None:
         raise RuntimeError(
-            "mjlab RayCastSensorCfg.include_geom_groups default is None; "
-            "InstinctMJ parkour expects the stock (0, 1, 2) mask."
+            "mjlab RayCastSensorCfg.include_geom_groups default is None."
         )
     return tuple(default)
 
 
 def pinhole_camera_hop_params() -> dict[str, Any]:
-    """Local defaults matching InstinctMJ; source-parity tests protect the copied values."""
+    """Report the adapter's legacy native hop defaults for diagnostics."""
     return {
         "filter": "geom_groups_min_distance_hop",
         "hop_max": _DEFAULT_FILTER_MAX_HOPS,
@@ -63,38 +60,38 @@ def pinhole_camera_hop_params() -> dict[str, Any]:
     }
 
 
-def _ray_cast_sensor_default(field_name: str) -> Any:
-    from mjlab.sensor.raycast_sensor import RayCastSensorCfg
-
-    field = RayCastSensorCfg.__dataclass_fields__[field_name]
-    if field.default is MISSING:
-        raise RuntimeError(f"mjlab RayCastSensorCfg.{field_name} has no scalar default")
-    return field.default
-
-
 def pinhole_camera_native_settings(
     sensor: RayCasterRef,
     profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Resolve InstinctMJ's native camera fields from a generic engine profile entry."""
-    hop = pinhole_camera_hop_params()
-    settings: dict[str, Any] = {
-        "include_geom_groups": pinhole_camera_geom_groups(),
-        "exclude_parent_body": bool(_ray_cast_sensor_default("exclude_parent_body")),
-        "mesh_filter_max_hops": int(hop["hop_max"]),
-        "mesh_filter_epsilon": float(hop["hop_epsilon_m"]),
-        "update_period": _DEFAULT_UPDATE_PERIOD,
+    """Validate native camera fields explicitly declared by the task profile."""
+    required = {
+        "include_geom_groups",
+        "exclude_parent_body",
+        "mesh_filter_max_hops",
+        "mesh_filter_epsilon",
+        "update_period",
     }
     camera_profiles = {} if profile is None else profile.get("pinhole_cameras", {})
     if not isinstance(camera_profiles, Mapping):
         raise TypeError("mjlab profile 'pinhole_cameras' must map sensor names to settings")
-    overrides = camera_profiles.get(sensor.name, {})
+    overrides = camera_profiles.get(sensor.name)
+    if overrides is None:
+        raise ValueError(
+            f"mjlab pinhole camera {sensor.name!r} needs an explicit "
+            "sim.profiles['mjlab']['pinhole_cameras'] entry"
+        )
     if not isinstance(overrides, Mapping):
         raise TypeError(f"mjlab pinhole camera profile for {sensor.name!r} must be a mapping")
-    unknown = set(overrides) - set(settings)
+    unknown = set(overrides) - required
     if unknown:
         raise ValueError(f"mjlab pinhole camera {sensor.name!r} has unknown profile settings: {sorted(unknown)}")
-    settings.update(overrides)
+    missing = required - set(overrides)
+    if missing:
+        raise ValueError(
+            f"mjlab pinhole camera {sensor.name!r} profile is missing {sorted(missing)}"
+        )
+    settings = dict(overrides)
 
     groups = settings["include_geom_groups"]
     if groups is not None:

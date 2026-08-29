@@ -1,21 +1,23 @@
-"""Isaac-native manager configs for shared shadowing terms."""
+"""Isaac-native manager configs for motion-reference commands."""
 
 from __future__ import annotations
 
-from instinctlab.engines.shadowing_commands import make_shadowing_command_classes
+from instinctlab.compat.motion_reference_commands import (
+    make_motion_reference_command_classes,
+)
 
 
 def build_command(kind: str, params: dict):
     from isaaclab.managers import CommandTerm, CommandTermCfg
     from isaaclab.utils import configclass
 
-    classes = make_shadowing_command_classes(CommandTerm)
+    classes = make_motion_reference_command_classes(CommandTerm)
 
     @configclass
-    class ShadowingCommandCfg(CommandTermCfg):
+    class MotionReferenceCommandCfg(CommandTermCfg):
         class_type: type = classes[kind]
-        motion_reference: str = params.get("motion_reference", "motion_reference")
-        entity_name: str = params.get("entity", "robot")
+        motion_reference: str = params["motion_reference"]
+        entity_name: str = params["entity"]
         resampling_time_range: tuple[float, float] = (1.0e4, 1.0e5)
         current_state_command: bool = params.get("current_state_command", False)
         realtime_mode: bool = params.get("realtime_mode", False)
@@ -24,7 +26,7 @@ def build_command(kind: str, params: dict):
         rotation_mode: str = params.get("rotation_mode", "axis_angle")
         debug_vis: bool = False
 
-    return ShadowingCommandCfg()
+    return MotionReferenceCommandCfg()
 
 
 __all__ = ["build_command"]

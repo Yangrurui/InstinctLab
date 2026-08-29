@@ -1,6 +1,6 @@
 """Reward terms that read quantities the two engines disagree about.
 
-Everything portable lives in ``instinctlab.mdp``. What is left here is a term whose two
+Portable terms live inside their owning task. What is left here is a term whose two
 implementations differ in more than spelling, and writing one portable version would have meant
 picking a side and calling it the meaning.
 
@@ -9,11 +9,11 @@ Ported from InstinctMJ.
 
 from __future__ import annotations
 
-import torch
 from typing import Any
 
+import torch
+
 __all__ = [
-    "CONTACT_FORCE_THRESHOLD_N",
     "applied_torque_limits_by_ratio",
     "contact_slide",
     "illegal_contact",
@@ -21,13 +21,6 @@ __all__ = [
     "motors_power_square",
     "undesired_contacts",
 ]
-
-# Full 3-D contact force after ``reduce="netforce"`` (includes friction). InstinctMJ
-# parkour uses the same 1 N on this quantity. That is *not* Isaac's 1 N on
-# world-frame normal load -- see engines/isaacsim/terms.py and the measured
-# trigger rates recorded on the builders.
-CONTACT_FORCE_THRESHOLD_N = 1.0
-
 
 def _force_exceeds(env: Any, sensor: Any, threshold: float) -> torch.Tensor:
     """``(env, element)``: max-over-history ‖force‖ exceeds ``threshold``.
@@ -37,25 +30,19 @@ def _force_exceeds(env: Any, sensor: Any, threshold: float) -> torch.Tensor:
     """
     from instinctlab.compat import sensors as sensor_compat
 
-    history = sensor_compat.contact_force_history(env.scene.sensors[sensor.name], sensor)
+    history = sensor_compat.contact_force_history(
+        env.scene.sensors[sensor.name], sensor
+    )
     return torch.max(torch.norm(history, dim=-1), dim=1)[0] > threshold
 
 
-def illegal_contact(env: Any, sensor: Any, threshold: float = CONTACT_FORCE_THRESHOLD_N) -> torch.Tensor:
-    """Terminate when any referenced element's full contact force exceeds 1 N.
-
-    InstinctMJ's parkour ``illegal_contact``. The 1 N is on ‖force‖ (friction
-    included), not on Isaac's normal-only ``net_forces_w``.
-    """
+def illegal_contact(env: Any, sensor: Any, threshold: float) -> torch.Tensor:
+    """Terminate when any referenced element's full force exceeds ``threshold``."""
     return torch.any(_force_exceeds(env, sensor, threshold), dim=1)
 
 
-def undesired_contacts(env: Any, sensor: Any, threshold: float = CONTACT_FORCE_THRESHOLD_N) -> torch.Tensor:
-    """Count referenced elements whose full contact force exceeds 1 N.
-
-    InstinctMJ's parkour ``undesired_contacts``. Same quantity caveat as
-    :func:`illegal_contact`.
-    """
+def undesired_contacts(env: Any, sensor: Any, threshold: float) -> torch.Tensor:
+    """Count referenced elements whose full force exceeds ``threshold``."""
     return torch.sum(_force_exceeds(env, sensor, threshold).float(), dim=1)
 
 
@@ -135,7 +122,9 @@ def joint_torques_l2(
 
         asset_cfg = SceneEntityCfg("robot")
     asset = env.scene[asset_cfg.name]
-    return torch.sum(torch.square(asset.data.qfrc_actuator[:, asset_cfg.joint_ids]), dim=1)
+    return torch.sum(
+        torch.square(asset.data.qfrc_actuator[:, asset_cfg.joint_ids]), dim=1
+    )
 
 
 def motors_power_square(
@@ -157,7 +146,9 @@ def motors_power_square(
     power_j = asset.data.qfrc_actuator * asset.data.joint_vel
     if normalize_by_stiffness:
         for target_ids, stiffness in _iter_joint_stiffness(asset):
-            power_j[:, target_ids] /= torch.as_tensor(stiffness, device=power_j.device, dtype=power_j.dtype)
+            power_j[:, target_ids] /= torch.as_tensor(
+                stiffness, device=power_j.device, dtype=power_j.dtype
+            )
     power_j = power_j[:, asset_cfg.joint_ids]
     power = torch.sum(torch.square(power_j), dim=-1)
     if normalize_by_num_joints:
@@ -201,13 +192,19 @@ def _effort_limits(env: Any, asset: Any, asset_cfg: Any) -> torch.Tensor:
                 joint_id_global = int(asset.indexing.joint_ids[joint_id])
                 joint_actfrcrange = env.sim.model.jnt_actfrcrange
                 if joint_actfrcrange.ndim == 3:
-                    effort_limit = torch.max(torch.abs(joint_actfrcrange[:, joint_id_global]), dim=-1).values
+                    effort_limit = torch.max(
+                        torch.abs(joint_actfrcrange[:, joint_id_global]), dim=-1
+                    ).values
                 else:
-                    effort_limit = torch.max(torch.abs(joint_actfrcrange[joint_id_global]))
+                    effort_limit = torch.max(
+                        torch.abs(joint_actfrcrange[joint_id_global])
+                    )
             else:
                 ctrl_id_global = int(actuator.global_ctrl_ids[idx])
                 effort_limit = torch.max(torch.abs(actuator_forcerange[ctrl_id_global]))
-            joint_effort_limits[:, joint_id] = torch.maximum(joint_effort_limits[:, joint_id], effort_limit)
+            joint_effort_limits[:, joint_id] = torch.maximum(
+                joint_effort_limits[:, joint_id], effort_limit
+            )
     return joint_effort_limits[:, asset_cfg.joint_ids]
 
 
@@ -228,4 +225,6 @@ def applied_torque_limits_by_ratio(
     asset = env.scene[asset_cfg.name]
     applied = torch.abs(asset.data.qfrc_actuator[:, asset_cfg.joint_ids])
     limits = _effort_limits(env, asset, asset_cfg)
-    return torch.sum(torch.square((applied - limits * limit_ratio).clamp(min=0.0)), dim=-1)
+    return torch.sum(
+        torch.square((applied - limits * limit_ratio).clamp(min=0.0)), dim=-1
+    )

@@ -51,17 +51,10 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
     "gpu_max_rigid_contact_count": None,
     "gpu_collision_stack_size": None,
     "use_terrain_physics_material": False,
-    "friction_dr": {
-        "static_friction_range": (0.25, 0.8),
-        "dynamic_friction_range": (0.2, 0.6),
-        "restitution_range": (0.0, 0.8),
-        "num_buckets": 64,
-    },
 }
 """Engine settings a task may state through ``spec.sim.profiles['isaacsim']``.
 
-``friction_dr`` is main's randomisation for the flat locomotion task and has no asset to come from.
-The rest default to the asset or simulator values; a task overrides one by naming it.
+Values default to the asset or simulator settings; a task overrides one by naming it.
 """
 
 _ROBOT_PRIM = "{ENV_REGEX_NS}/Robot"
@@ -126,7 +119,8 @@ def _generator(spec: TerrainGeneratorSpec) -> Any:
         slope_threshold=spec.slope_threshold,
         use_cache=False,
         sub_terrains={
-            name: _sub_terrain(tile.kind, tile.proportion, tile.params) for name, tile in spec.sub_terrains.items()
+            name: _sub_terrain(tile.kind, tile.proportion, tile.params)
+            for name, tile in spec.sub_terrains.items()
         },
     )
 
@@ -160,12 +154,16 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
         from .rough import rough_importer_cfg
 
         return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
-    if spec.kind == "shadow_motion_matched":
+    if spec.kind == "motion_matched":
         import os
 
-        from instinctlab.terrains import TerrainImporterCfg as InstinctTerrainImporterCfg
+        from instinctlab.terrains import (
+            TerrainImporterCfg as InstinctTerrainImporterCfg,
+        )
         from instinctlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
-        from instinctlab.terrains.trimesh.mesh_terrains_cfg import MotionMatchedTerrainCfg
+        from instinctlab.terrains.trimesh.mesh_terrains_cfg import (
+            MotionMatchedTerrainCfg,
+        )
 
         path = os.path.expanduser(spec.params["engine_paths"]["isaacsim"])
         generator = FiledTerrainGeneratorCfg(
@@ -209,7 +207,9 @@ def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
     obstacles: dict[str, Any] = {}
     for obstacle in spec.virtual_obstacles:
         if obstacle.kind != "greedy_edge_cylinder":
-            raise NotImplementedError(f"Isaac Sim has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}.")
+            raise NotImplementedError(
+                f"Isaac Sim has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}."
+            )
         obstacles[obstacle.name] = GreedyconcatEdgeCylinderCfg(
             cylinder_radius=obstacle.cylinder_radius,
             min_points=obstacle.min_points,
@@ -220,7 +220,9 @@ def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
 
 
 def _build_volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
-    from instinctlab.sensors.volume_points.points_generator_cfg import Grid3dPointsGeneratorCfg
+    from instinctlab.sensors.volume_points.points_generator_cfg import (
+        Grid3dPointsGeneratorCfg,
+    )
     from instinctlab.sensors.volume_points.volume_points_cfg import VolumePointsCfg
 
     period = sensor.update_period if sensor.update_period is not None else sensor_period
@@ -273,7 +275,11 @@ def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
         )
     from isaaclab.sensors import ContactSensorCfg
 
-    elements = sensor.elements if isinstance(sensor.elements, str) else "|".join(sensor.elements)
+    elements = (
+        sensor.elements
+        if isinstance(sensor.elements, str)
+        else "|".join(sensor.elements)
+    )
     return ContactSensorCfg(
         prim_path=f"{_ROBOT_PRIM}/{elements}",
         history_length=sensor.history_length,
@@ -297,11 +303,15 @@ def _build_ray_caster(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     """
     refuse_unhonored_ray_alignment(sensor)
     if sensor.miss != "infinity":
-        raise ValueError(f"Isaac ray caster {sensor.name!r} has miss={sensor.miss!r}; the portable contract is +inf.")
+        raise ValueError(
+            f"Isaac ray caster {sensor.name!r} has miss={sensor.miss!r}; the portable contract is +inf."
+        )
     if sensor.pattern.kind == "pinhole":
         return _build_pinhole_camera(sensor, sensor_period=sensor_period)
     if sensor.pattern.kind != "grid":
-        raise ValueError(f"Isaac ray caster {sensor.name!r} has pattern.kind={sensor.pattern.kind!r}.")
+        raise ValueError(
+            f"Isaac ray caster {sensor.name!r} has pattern.kind={sensor.pattern.kind!r}."
+        )
     if sensor.hit != "terrain":
         raise ValueError(
             f"Isaac ray caster {sensor.name!r} has hit={sensor.hit!r}; only 'terrain' is implemented for a grid."
@@ -335,8 +345,12 @@ def _build_pinhole_camera(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     """
     from isaaclab.sensors.ray_caster.patterns import PinholeCameraPatternCfg
 
-    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_camera_cfg import GroupedRayCasterCameraCfg
-    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_cfg import get_link_prim_targets
+    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_camera_cfg import (
+        GroupedRayCasterCameraCfg,
+    )
+    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_cfg import (
+        get_link_prim_targets,
+    )
 
     meshes: list[Any] = []
     if sensor.hits_terrain():
@@ -385,7 +399,9 @@ def _sky_light() -> Any:
     )
 
 
-def _spawn_overrides(spawn: Any, spec: SceneSpec, profile: Mapping[str, Any]) -> dict[str, Any]:
+def _spawn_overrides(
+    spawn: Any, spec: SceneSpec, profile: Mapping[str, Any]
+) -> dict[str, Any]:
     """What this task changes about the robot's spawn, and nothing else.
 
     Anything the profile leaves at ``None`` is not mentioned, so the asset's value survives instead
@@ -412,11 +428,20 @@ def _spawn_overrides(spawn: Any, spec: SceneSpec, profile: Mapping[str, Any]) ->
         if profile[key] is not None:
             articulation[field] = profile[key]
     if articulation:
-        overrides["articulation_props"] = spawn.articulation_props.replace(**articulation)
+        overrides["articulation_props"] = spawn.articulation_props.replace(
+            **articulation
+        )
     return overrides
 
 
-def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_envs: int, sensor_period: float) -> Any:
+def build_scene(
+    spec: SceneSpec,
+    robot: Any,
+    profile: Mapping[str, Any],
+    *,
+    num_envs: int,
+    sensor_period: float,
+) -> Any:
     """An ``InteractiveSceneCfg`` holding the robot, terrain, sensors and light.
 
     Built by assignment rather than by declaring a subclass, because the set of sensors is only
@@ -426,7 +451,9 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
     from isaaclab.scene import InteractiveSceneCfg
 
     articulation_cfg = articulation(robot)
-    spawn = articulation_cfg.spawn.replace(**_spawn_overrides(articulation_cfg.spawn, spec, profile))
+    spawn = articulation_cfg.spawn.replace(
+        **_spawn_overrides(articulation_cfg.spawn, spec, profile)
+    )
 
     scene = InteractiveSceneCfg(num_envs=num_envs, env_spacing=spec.env_spacing)
     scene.lazy_sensor_update = True
@@ -444,9 +471,15 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
             scale=resolved.scale,
             mass_props=sim_utils.MassPropertiesCfg(mass=resolved.mass),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=resolved.kinematic),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=resolved.kinematic
+            ),
         )
-        setattr(scene, resolved.name, RigidObjectCfg(prim_path=f"{{ENV_REGEX_NS}}/{resolved.name}", spawn=mesh))
+        setattr(
+            scene,
+            resolved.name,
+            RigidObjectCfg(prim_path=f"{{ENV_REGEX_NS}}/{resolved.name}", spawn=mesh),
+        )
     for sensor in spec.contact_sensors:
         cfg = _build_contact_sensor(sensor)
         # Every physics step, matching the contact durations the timing terms read. The default of
@@ -455,11 +488,17 @@ def build_scene(spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_
         setattr(scene, sensor.name, cfg)
     for sensor in spec.ray_casters:
         sensor = sensor.for_engine("isaacsim")
-        setattr(scene, sensor.name, _build_ray_caster(sensor, sensor_period=sensor_period))
+        setattr(
+            scene, sensor.name, _build_ray_caster(sensor, sensor_period=sensor_period)
+        )
     for sensor in spec.motion_references:
         setattr(scene, sensor.name, _build_motion_reference(sensor, robot))
     for sensor in spec.volume_points:
-        setattr(scene, sensor.name, _build_volume_points(sensor, sensor_period=sensor_period))
+        setattr(
+            scene,
+            sensor.name,
+            _build_volume_points(sensor, sensor_period=sensor_period),
+        )
     scene.sky_light = _sky_light()
     return scene
 

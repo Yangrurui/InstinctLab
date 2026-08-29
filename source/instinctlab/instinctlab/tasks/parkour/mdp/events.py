@@ -1,4 +1,4 @@
-"""Portable event terms. One implementation, run by either engine's EventManager.
+"""Parkour event terms run by either engine's EventManager.
 
 Events are usually per-engine (``kind=``). Registration is the exception: both
 sensors expose ``register_virtual_obstacles`` and both terrains expose
@@ -11,10 +11,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from instinctlab.compat.sensors import registered_cylinder_count, require_volume_points_registered
+from instinctlab.compat.sensors import (
+    registered_cylinder_count,
+    require_volume_points_registered,
+)
 from instinctlab.spec.sensor import VolumePointsRef
-
-__all__ = ["register_virtual_obstacles"]
 
 
 def _sensor_name(sensor: VolumePointsRef | str) -> str:
@@ -50,8 +51,12 @@ def register_virtual_obstacles(
     for name in names:
         volume = env.scene.sensors[name]
         if not hasattr(volume, "register_virtual_obstacles"):
-            raise RuntimeError(f"sensor {name!r} has no register_virtual_obstacles; it is not a volume-points sensor.")
+            raise RuntimeError(
+                f"sensor {name!r} has no register_virtual_obstacles; it is not a volume-points sensor."
+            )
         volume.register_virtual_obstacles(obstacles)
         require_volume_points_registered(volume)
         count = registered_cylinder_count(volume)
-        print(f"[{name}] registered {len(obstacles)} virtual obstacle set(s), {count} cylinders.")
+        print(
+            f"[{name}] registered {len(obstacles)} virtual obstacle set(s), {count} cylinders."
+        )

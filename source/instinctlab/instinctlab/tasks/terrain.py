@@ -7,9 +7,12 @@ to their native terrain implementation.
 
 from __future__ import annotations
 
-from instinctlab.spec import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec, VirtualObstacleRef
-
-__all__ = ["rough_terrain"]
+from instinctlab.spec import (
+    SubTerrainSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
+    VirtualObstacleRef,
+)
 
 
 def _walls() -> dict[str, object]:
@@ -20,7 +23,9 @@ def _walls() -> dict[str, object]:
     }
 
 
-def _target_patches(*, centered: bool = False, radii: list[float] | None = None) -> dict[str, object]:
+def _target_patches(
+    *, centered: bool = False, radii: list[float] | None = None
+) -> dict[str, object]:
     target: dict[str, object] = {
         "num_patches": 50,
         "patch_radius": radii or [0.05, 0.10, 0.15, 0.20],
@@ -198,6 +203,10 @@ def _rough_generator() -> TerrainGeneratorSpec:
     )
 
 
-def rough_terrain(*, virtual_obstacles: tuple[VirtualObstacleRef, ...] = ()) -> TerrainSpec:
+def rough_terrain(
+    *, virtual_obstacles: tuple[VirtualObstacleRef, ...] = ()
+) -> TerrainSpec:
     """Shared rough terrain used by locomotion and parkour on every engine."""
-    return TerrainSpec(kind="rough", generator=_rough_generator(), virtual_obstacles=virtual_obstacles)
+    return TerrainSpec(
+        kind="rough", generator=_rough_generator(), virtual_obstacles=virtual_obstacles
+    )

@@ -45,9 +45,13 @@ class MjlabCompileCtx(CompileCtx):
         from mjlab.utils.noise import GaussianNoiseCfg, UniformNoiseCfg
 
         if noise.kind == "uniform":
-            return UniformNoiseCfg(n_min=noise.lo, n_max=noise.hi, operation=noise.operation)
+            return UniformNoiseCfg(
+                n_min=noise.lo, n_max=noise.hi, operation=noise.operation
+            )
         if noise.kind == "gaussian":
-            return GaussianNoiseCfg(mean=noise.lo, std=noise.hi, operation=noise.operation)
+            return GaussianNoiseCfg(
+                mean=noise.lo, std=noise.hi, operation=noise.operation
+            )
         raise NotImplementedError(f"mjlab has no noise model for kind {noise.kind!r}.")
 
 
@@ -62,12 +66,16 @@ def _observation_groups(compiled: Mapping[str, Any]) -> dict[str, Any]:
     from mjlab.managers import ObservationGroupCfg
 
     return {
-        name: ObservationGroupCfg(terms=dict(group["terms"]), **observation_group_settings(group))
+        name: ObservationGroupCfg(
+            terms=dict(group["terms"]), **observation_group_settings(group)
+        )
         for name, group in compiled.items()
     }
 
 
-def _rewards(compiled: Mapping[str, Mapping[str, Any]], omit: tuple[str, ...] = ()) -> dict[str, Any]:
+def _rewards(
+    compiled: Mapping[str, Mapping[str, Any]], omit: tuple[str, ...] = ()
+) -> dict[str, Any]:
     return flatten_reward_groups(compiled, omit=omit)
 
 
@@ -104,7 +112,12 @@ class MjlabAdapter:
         has one. Both engines therefore spell it the same way and mean the same thing, but each
         engine registers its own.
         """
-        parser.add_argument("--device", type=str, default="cuda:0", help="Device to simulate and learn on.")
+        parser.add_argument(
+            "--device",
+            type=str,
+            default="cuda:0",
+            help="Device to simulate and learn on.",
+        )
 
     @staticmethod
     def bootstrap(args: argparse.Namespace) -> object | None:
@@ -122,7 +135,9 @@ class MjlabAdapter:
         Calling the reference's own helper, rather than assigning the flags here, keeps this
         engine on whatever stack mjlab decides that helper means.
         """
-        require_supported_version("mjlab", MjlabAdapter.SUPPORTED_VERSIONS, engine=MjlabAdapter.name)
+        require_supported_version(
+            "mjlab", MjlabAdapter.SUPPORTED_VERSIONS, engine=MjlabAdapter.name
+        )
         for distribution, supported in MjlabAdapter.RUNTIME_VERSIONS.items():
             require_supported_version(distribution, supported, engine=MjlabAdapter.name)
 
@@ -153,7 +168,9 @@ class MjlabAdapter:
         merged.update(spec.sim.profiles.get(self.name, {}))
         return merged
 
-    def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
+    def compile(
+        self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False
+    ) -> CompiledTask:
         spec.validate_for_engine(self.name)
 
         from mjlab.envs import ManagerBasedRlEnvCfg
@@ -197,7 +214,9 @@ class MjlabAdapter:
             # generated grid and drop contacts without raising.
             sim_kwargs["nconmax"] = mj_overrides.get("nconmax", 70)
             sim_kwargs["njmax"] = mj_overrides.get("njmax", profile["njmax"])
-            sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get("contact_sensor_maxmatch", 500)
+            sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get(
+                "contact_sensor_maxmatch", 500
+            )
         elif spec.scene.terrain.kind == "rough":
             # Per-world allocations, multiplied by the environment count.
             # ``d.nacon`` is one global counter; per-world is nacon/nworld.
@@ -206,12 +225,14 @@ class MjlabAdapter:
             # a MuJoCo capacity into the engine-neutral terrain declaration.
             sim_kwargs["nconmax"] = mj_overrides.get("nconmax", 512)
             sim_kwargs["njmax"] = mj_overrides.get("njmax", 1536)
-            sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get("contact_sensor_maxmatch", 128)
+            sim_kwargs["contact_sensor_maxmatch"] = mj_overrides.get(
+                "contact_sensor_maxmatch", 128
+            )
         else:
             sim_kwargs["njmax"] = mj_overrides.get("njmax", profile["njmax"])
 
         # Task-native capacities take precedence for every terrain kind.  In particular,
-        # shadow_motion_matched is neither the generic "generator" nor "rough" spelling;
+        # motion_matched is neither the generic "generator" nor "rough" spelling;
         # previously its InstinctMJ overrides were silently discarded here.
         for field in ("nconmax", "njmax", "contact_sensor_maxmatch"):
             if field in mj_overrides:
@@ -248,7 +269,9 @@ class MjlabAdapter:
             env_cls=TerrainAwareRlEnv,
             env_cfg=env_cfg,
             resolution=resolution,
-            agent_factory=lambda: spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),
+            agent_factory=lambda: spec.agent.resolve()(
+                **spec.agent.resolved_overrides(self.name)
+            ),
         )
 
     def play(

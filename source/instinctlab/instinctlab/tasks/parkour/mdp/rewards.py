@@ -1,4 +1,4 @@
-"""Reward terms that run unmodified under either engine's native manager.
+"""Parkour reward terms called directly by both engines.
 
 Most of these are the Isaac Lab bodies with hub attribute names substituted. Three rewards that
 look portable are **not** here, and their absence is the useful part of this module:
@@ -52,43 +52,15 @@ from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePoints
 
 from .observations import _body_index_list, _joint_ids, _name
 
-__all__ = [
-    "action_rate_l2",
-    "ang_vel_xy_l2",
-    "dont_wait",
-    "feet_air_time",
-    "feet_air_time_positive_biped",
-    "feet_at_plane",
-    "feet_close_xy_gauss",
-    "feet_orientation_contact",
-    "flat_orientation_l2",
-    "heading_error",
-    "is_alive",
-    "is_terminated",
-    "joint_deviation_l1",
-    "joint_deviation_square",
-    "joint_pos_limits",
-    "joint_vel_l2",
-    "joint_vel_limits",
-    "lin_vel_z_l2",
-    "link_orientation",
-    "stand_still",
-    "stand_still_when_idle",
-    "track_ang_vel_z_exp",
-    "track_ang_vel_z_world_exp",
-    "track_lin_vel_xy_exp",
-    "track_lin_vel_xy_yaw_frame_exp",
-    "undesired_contacts",
-    "volume_points_penetration",
-]
-
 
 def is_terminated(env: RlEnv) -> torch.Tensor:
     """Whether the episode ended for a reason other than the time limit."""
     return env.termination_manager.terminated.float()
 
 
-def track_lin_vel_xy_yaw_frame_exp(env: RlEnv, std: float, command_name: str, asset_cfg: Any = None) -> torch.Tensor:
+def track_lin_vel_xy_yaw_frame_exp(
+    env: RlEnv, std: float, command_name: str, asset_cfg: Any = None
+) -> torch.Tensor:
     """Track the commanded planar velocity, measured in the gravity-aligned robot frame.
 
     Uses the root **link** velocity, where Isaac Lab's original reads the centre-of-mass alias
@@ -99,20 +71,28 @@ def track_lin_vel_xy_yaw_frame_exp(env: RlEnv, std: float, command_name: str, as
     """
     asset = env.scene[_name(asset_cfg)]
     yaw_frame = math_utils.yaw_quat(asset.data.root_link_quat_w)
-    vel_yaw = math_utils.quat_apply_inverse(yaw_frame, asset.data.root_link_lin_vel_w[:, :3])
-    error = torch.sum(torch.square(get_command(env, command_name)[:, :2] - vel_yaw[:, :2]), dim=1)
+    vel_yaw = math_utils.quat_apply_inverse(
+        yaw_frame, asset.data.root_link_lin_vel_w[:, :3]
+    )
+    error = torch.sum(
+        torch.square(get_command(env, command_name)[:, :2] - vel_yaw[:, :2]), dim=1
+    )
     return torch.exp(-error / std**2)
 
 
-def track_ang_vel_z_world_exp(env: RlEnv, command_name: str, std: float, asset_cfg: Any = None) -> torch.Tensor:
+def track_ang_vel_z_world_exp(
+    env: RlEnv, command_name: str, std: float, asset_cfg: Any = None
+) -> torch.Tensor:
     """Track the commanded yaw rate, in the world frame.
 
     Value-for-value identical to the golden despite reading the link spelling, for the reason set
-    out in :mod:`instinctlab.mdp.observations`: Isaac Lab copies the angular rows between its
+    out in :mod:`instinctlab.tasks.parkour.mdp.observations`: Isaac Lab copies the angular rows between its
     centre-of-mass and link velocity buffers untouched.
     """
     asset = env.scene[_name(asset_cfg)]
-    error = torch.square(get_command(env, command_name)[:, 2] - asset.data.root_link_ang_vel_w[:, 2])
+    error = torch.square(
+        get_command(env, command_name)[:, 2] - asset.data.root_link_ang_vel_w[:, 2]
+    )
     return torch.exp(-error / std**2)
 
 
@@ -131,7 +111,9 @@ def feet_air_time_positive_biped(
     in_contact = contact_time > 0.0
     in_mode_time = torch.where(in_contact, contact_time, air_time)
     single_stance = torch.sum(in_contact.int(), dim=1) == 1
-    reward = torch.min(torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1)[0]
+    reward = torch.min(
+        torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1
+    )[0]
     reward = torch.clamp(reward, max=threshold)
     return reward * (torch.norm(get_command(env, command_name)[:, :2], dim=1) > 0.1)
 
@@ -146,8 +128,12 @@ def stand_still(env: RlEnv, command_name: str, asset_cfg: Any = None) -> torch.T
     """Penalise joint deviation from the default pose while the command is near zero."""
     asset = env.scene[_name(asset_cfg)]
     command = get_command(env, command_name)
-    deviation = torch.sum(torch.abs(asset.data.joint_pos - asset.data.default_joint_pos), dim=1)
-    standing = (torch.norm(command[:, :2], dim=1) < 0.1) * (torch.abs(command[:, 2]) < 0.1)
+    deviation = torch.sum(
+        torch.abs(asset.data.joint_pos - asset.data.default_joint_pos), dim=1
+    )
+    standing = (torch.norm(command[:, :2], dim=1) < 0.1) * (
+        torch.abs(command[:, 2]) < 0.1
+    )
     return deviation * standing
 
 
@@ -195,7 +181,9 @@ def joint_deviation_l1(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     """Penalise joint positions that drift from the default pose."""
     asset = env.scene[_name(asset_cfg)]
     joint_ids = _joint_ids(asset_cfg)
-    angle = asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+    angle = (
+        asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+    )
     return torch.sum(torch.abs(angle), dim=1)
 
 
@@ -207,7 +195,9 @@ def lin_vel_z_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
 
 def action_rate_l2(env: RlEnv) -> torch.Tensor:
     """Penalise fast changes in the action. Identical on both engines."""
-    return torch.sum(torch.square(env.action_manager.action - env.action_manager.prev_action), dim=1)
+    return torch.sum(
+        torch.square(env.action_manager.action - env.action_manager.prev_action), dim=1
+    )
 
 
 def is_alive(env: RlEnv) -> torch.Tensor:
@@ -215,7 +205,9 @@ def is_alive(env: RlEnv) -> torch.Tensor:
     return 1.0 - env.termination_manager.terminated.float()
 
 
-def track_lin_vel_xy_exp(env: RlEnv, command_name: str, std: float, asset_cfg: Any = None) -> torch.Tensor:
+def track_lin_vel_xy_exp(
+    env: RlEnv, command_name: str, std: float, asset_cfg: Any = None
+) -> torch.Tensor:
     """Track the commanded planar velocity, measured in the base frame.
 
     Uses the root **link** velocity, where Isaac Lab's original reads the centre-of-mass alias
@@ -247,21 +239,28 @@ def track_lin_vel_xy_exp(env: RlEnv, command_name: str, std: float, asset_cfg: A
     """
     asset = env.scene[_name(asset_cfg)]
     error = torch.sum(
-        torch.square(get_command(env, command_name)[:, :2] - asset.data.root_link_lin_vel_b[:, :2]),
+        torch.square(
+            get_command(env, command_name)[:, :2]
+            - asset.data.root_link_lin_vel_b[:, :2]
+        ),
         dim=1,
     )
     return torch.exp(-error / std**2)
 
 
-def track_ang_vel_z_exp(env: RlEnv, command_name: str, std: float, asset_cfg: Any = None) -> torch.Tensor:
+def track_ang_vel_z_exp(
+    env: RlEnv, command_name: str, std: float, asset_cfg: Any = None
+) -> torch.Tensor:
     """Track the commanded yaw rate, in the base frame.
 
     Value-for-value identical to Isaac Lab's despite reading the link spelling, for the reason set
-    out in :mod:`instinctlab.mdp.observations`: Isaac Lab copies the angular rows between its
+    out in :mod:`instinctlab.tasks.parkour.mdp.observations`: Isaac Lab copies the angular rows between its
     centre-of-mass and link velocity buffers untouched. Already measured and pinned.
     """
     asset = env.scene[_name(asset_cfg)]
-    error = torch.square(get_command(env, command_name)[:, 2] - asset.data.root_link_ang_vel_b[:, 2])
+    error = torch.square(
+        get_command(env, command_name)[:, 2] - asset.data.root_link_ang_vel_b[:, 2]
+    )
     return torch.exp(-error / std**2)
 
 
@@ -274,7 +273,9 @@ def ang_vel_xy_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
 def joint_vel_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     """Penalise squared joint velocity over the selected joints."""
     asset = env.scene[_name(asset_cfg)]
-    return torch.sum(torch.square(asset.data.joint_vel[:, _joint_ids(asset_cfg)]), dim=1)
+    return torch.sum(
+        torch.square(asset.data.joint_vel[:, _joint_ids(asset_cfg)]), dim=1
+    )
 
 
 def stand_still_when_idle(
@@ -292,8 +293,12 @@ def stand_still_when_idle(
     """
     asset = env.scene[_name(asset_cfg)]
     command = get_command(env, command_name)
-    deviation = torch.sum(torch.abs(asset.data.joint_pos - asset.data.default_joint_pos), dim=1)
-    standing = (torch.norm(command[:, :2], dim=1) < threshold) * (torch.abs(command[:, 2]) < threshold)
+    deviation = torch.sum(
+        torch.abs(asset.data.joint_pos - asset.data.default_joint_pos), dim=1
+    )
+    standing = (torch.norm(command[:, :2], dim=1) < threshold) * (
+        torch.abs(command[:, 2]) < threshold
+    )
     return (deviation - offset) * standing
 
 
@@ -312,7 +317,9 @@ def dont_wait(env: RlEnv, command_name: str, asset_cfg: Any = None) -> torch.Ten
     lin_vel_cmd_x = get_command(env, command_name)[:, 0]
     lin_vel_x = asset.data.root_link_lin_vel_b[:, 0]
     return (lin_vel_cmd_x > 0.3) * (
-        (lin_vel_x < 0.15).float() + (lin_vel_x < 0.0).float() + (lin_vel_x < -0.15).float()
+        (lin_vel_x < 0.15).float()
+        + (lin_vel_x < 0.0).float()
+        + (lin_vel_x < -0.15).float()
     )
 
 
@@ -335,7 +342,9 @@ def feet_air_time(
     in_contact = contact_time > 0.0
     in_mode_time = torch.where(in_contact, contact_time, air_time)
     single_stance = torch.sum(in_contact.int(), dim=1) == 1
-    reward = torch.min(torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1)[0]
+    reward = torch.min(
+        torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1
+    )[0]
     if threshold is not None:
         reward = torch.clamp(reward, max=threshold)
     command = get_command(env, command_name)
@@ -350,7 +359,9 @@ def joint_deviation_square(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     """Penalise squared joint deviation from the default pose."""
     asset = env.scene[_name(asset_cfg)]
     joint_ids = _joint_ids(asset_cfg)
-    angle = asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+    angle = (
+        asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+    )
     return torch.sum(torch.square(angle), dim=1)
 
 
@@ -367,14 +378,20 @@ def link_orientation(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     asset = env.scene[_name(asset_cfg)]
     ids = _body_index_list(asset_cfg, asset.data.body_link_quat_w.shape[1])
     if not ids:
-        raise RuntimeError("link_orientation needs a body to penalise; the selector matched none.")
-    gravity_w = math_utils.quat_apply(asset.data.root_link_quat_w, asset.data.projected_gravity_b)
+        raise RuntimeError(
+            "link_orientation needs a body to penalise; the selector matched none."
+        )
+    gravity_w = math_utils.quat_apply(
+        asset.data.root_link_quat_w, asset.data.projected_gravity_b
+    )
     link_quat = asset.data.body_link_quat_w[:, ids[0], :]
     link_projected_gravity = math_utils.quat_apply_inverse(link_quat, gravity_w)
     return torch.sum(torch.square(link_projected_gravity[:, :2]), dim=1)
 
 
-def feet_orientation_contact(env: RlEnv, sensor: ContactSensorRef, asset_cfg: Any = None) -> torch.Tensor:
+def feet_orientation_contact(
+    env: RlEnv, sensor: ContactSensorRef, asset_cfg: Any = None
+) -> torch.Tensor:
     """Penalise foot tilt, only while that foot is in contact.
 
     Isaac Lab gated on ``‖net_forces_w‖ > 1`` N (world-frame normal only). That threshold is
@@ -386,12 +403,18 @@ def feet_orientation_contact(env: RlEnv, sensor: ContactSensorRef, asset_cfg: An
     asset = env.scene[_name(asset_cfg)]
     ids = _body_index_list(asset_cfg, asset.data.body_link_quat_w.shape[1])
     if not ids:
-        raise RuntimeError("feet_orientation_contact needs at least one body; the selector matched none.")
+        raise RuntimeError(
+            "feet_orientation_contact needs at least one body; the selector matched none."
+        )
     quats = asset.data.body_link_quat_w[:, ids, :]
     n_envs, n_feet = quats.shape[:2]
-    gravity_w = math_utils.quat_apply(asset.data.root_link_quat_w, asset.data.projected_gravity_b)
+    gravity_w = math_utils.quat_apply(
+        asset.data.root_link_quat_w, asset.data.projected_gravity_b
+    )
     gravity_w = gravity_w.unsqueeze(1).expand(-1, n_feet, -1)
-    projected = math_utils.quat_apply_inverse(quats.reshape(-1, 4), gravity_w.reshape(-1, 3)).reshape(n_envs, n_feet, 3)
+    projected = math_utils.quat_apply_inverse(
+        quats.reshape(-1, 4), gravity_w.reshape(-1, 3)
+    ).reshape(n_envs, n_feet, 3)
     tilt = torch.linalg.vector_norm(projected[:, :, :2], dim=-1)
     touching = compat_sensors.in_contact(env.scene.sensors[sensor.name], sensor)
     return torch.sum(tilt * touching.float(), dim=1)
@@ -422,15 +445,25 @@ def feet_at_plane(
         raise RuntimeError(f"feet_at_plane needs two bodies, got {len(ids)}.")
     touching = compat_sensors.in_contact(env.scene.sensors[sensor.name], sensor)
     left_hit_z = compat_sensors.ray_hits_w(env.scene.sensors[left_scanner.name])[..., 2]
-    right_hit_z = compat_sensors.ray_hits_w(env.scene.sensors[right_scanner.name])[..., 2]
+    right_hit_z = compat_sensors.ray_hits_w(env.scene.sensors[right_scanner.name])[
+        ..., 2
+    ]
     left_height = asset.data.body_link_pos_w[:, ids[0], 2].unsqueeze(-1)
     right_height = asset.data.body_link_pos_w[:, ids[1], 2].unsqueeze(-1)
-    left_reward = torch.clamp(left_height - left_hit_z - height_offset, min=0.0, max=0.3) * touching[:, 0:1].float()
-    right_reward = torch.clamp(right_height - right_hit_z - height_offset, min=0.0, max=0.3) * touching[:, 1:2].float()
+    left_reward = (
+        torch.clamp(left_height - left_hit_z - height_offset, min=0.0, max=0.3)
+        * touching[:, 0:1].float()
+    )
+    right_reward = (
+        torch.clamp(right_height - right_hit_z - height_offset, min=0.0, max=0.3)
+        * touching[:, 1:2].float()
+    )
     return torch.sum(left_reward, dim=-1) + torch.sum(right_reward, dim=-1)
 
 
-def feet_close_xy_gauss(env: RlEnv, threshold: float, std: float = 0.1, asset_cfg: Any = None) -> torch.Tensor:
+def feet_close_xy_gauss(
+    env: RlEnv, threshold: float, std: float = 0.1, asset_cfg: Any = None
+) -> torch.Tensor:
     """Reward the first two selected bodies staying at least ``threshold`` apart in body-frame y.
 
     Reads ``body_link_pos_w`` and ``heading_w``. Isaac Lab's parkour term used the legacy
@@ -464,7 +497,9 @@ def undesired_contacts(env: RlEnv, sensor: ContactSensorRef) -> torch.Tensor:
     return torch.sum(touching, dim=1)
 
 
-def volume_points_penetration(env: RlEnv, sensor: VolumePointsRef, tolerance: float = 0.0) -> torch.Tensor:
+def volume_points_penetration(
+    env: RlEnv, sensor: VolumePointsRef, tolerance: float = 0.0
+) -> torch.Tensor:
     """Penalise points inside a registered virtual obstacle, weighted by speed.
 
     Both parkour sources: ``sum (in_obstacle * (|v| + 1e-6) * depth)``. Depth is
@@ -476,5 +511,7 @@ def volume_points_penetration(env: RlEnv, sensor: VolumePointsRef, tolerance: fl
     penetration = compat_sensors.volume_points_penetration_offset(volume).flatten(1, 2)
     depth = torch.linalg.vector_norm(penetration, dim=-1)
     in_obstacle = (depth > tolerance).float()
-    speed = torch.linalg.vector_norm(compat_sensors.volume_points_vel_w(volume).flatten(1, 2), dim=-1)
+    speed = torch.linalg.vector_norm(
+        compat_sensors.volume_points_vel_w(volume).flatten(1, 2), dim=-1
+    )
     return torch.sum(in_obstacle * (speed + 1e-6) * depth, dim=-1)

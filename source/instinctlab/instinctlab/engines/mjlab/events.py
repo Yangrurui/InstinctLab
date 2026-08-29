@@ -22,18 +22,69 @@ still costs nothing to import without mjlab installed.
 from __future__ import annotations
 
 import math
-import torch
 from typing import Any
 
+import torch
 from mjlab.envs.mdp import dr as _dr
 from mjlab.managers.event_manager import requires_model_fields
 
 __all__ = [
+    "randomize_default_joint_pos",
+    "randomize_ray_offsets",
     "randomize_body_mass",
     "reset_joints_by_offset",
     "reset_joints_by_scale",
     "uniform_mass_scale_distribution",
 ]
+
+
+def randomize_default_joint_pos(env, env_ids, asset_cfg, offset_distribution_params):
+    """Randomize default joint positions and keep the position-action offset aligned."""
+    asset = env.scene[asset_cfg.name]
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+    else:
+        env_ids = torch.as_tensor(
+            env_ids, dtype=torch.long, device=env.device
+        ).flatten()
+    joint_ids = asset_cfg.joint_ids
+    if joint_ids is None:
+        joint_ids = torch.arange(
+            asset.data.default_joint_pos.shape[1], device=env.device
+        )
+    elif isinstance(joint_ids, slice):
+        joint_ids = torch.arange(
+            asset.data.default_joint_pos.shape[1], device=env.device
+        )[joint_ids]
+    else:
+        joint_ids = torch.as_tensor(
+            joint_ids, dtype=torch.long, device=env.device
+        ).flatten()
+    index = (env_ids[:, None], joint_ids[None, :])
+    target = asset.data.default_joint_pos[index]
+    noise = torch.empty_like(target).uniform_(*offset_distribution_params)
+    asset.data.default_joint_pos[index] = target + noise
+    action = env.action_manager.get_term("joint_pos")
+    action._offset[index] = asset.data.default_joint_pos[index]
+
+
+def randomize_ray_offsets(env, env_ids, sensor_name, offset_pose_ranges=None):
+    """Apply per-environment calibration noise to a ray sensor's frame."""
+    sensor = env.scene.sensors[sensor_name]
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+    ranges = offset_pose_ranges or {}
+    keys = ("x", "y", "z", "roll", "pitch", "yaw")
+    bounds = torch.tensor(
+        [ranges.get(key, (0.0, 0.0)) for key in keys], device=env.device
+    )
+    sample = (
+        torch.rand(len(env_ids), 6, device=env.device) * (bounds[:, 1] - bounds[:, 0])
+        + bounds[:, 0]
+    )
+    if not hasattr(sensor, "set_offset_noise"):
+        raise TypeError(f"sensor {sensor_name!r} does not expose set_offset_noise")
+    sensor.set_offset_noise(env_ids, sample)
 
 
 def _rows(data: torch.Tensor, env_ids: torch.Tensor) -> torch.Tensor:
@@ -72,19 +123,26 @@ def reset_joints_by_offset(
         env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
 
     asset = env.scene[asset_cfg.name]
-    joint_pos = _rows(asset.data.default_joint_pos, env_ids)[:, asset_cfg.joint_ids].clone()
+    joint_pos = _rows(asset.data.default_joint_pos, env_ids)[
+        :, asset_cfg.joint_ids
+    ].clone()
     joint_pos += sample_uniform(*position_range, joint_pos.shape, env.device)
     limits = _rows(asset.data.soft_joint_pos_limits, env_ids)[:, asset_cfg.joint_ids]
     joint_pos = joint_pos.clamp_(limits[..., 0], limits[..., 1])
 
-    joint_vel = _rows(asset.data.default_joint_vel, env_ids)[:, asset_cfg.joint_ids].clone()
+    joint_vel = _rows(asset.data.default_joint_vel, env_ids)[
+        :, asset_cfg.joint_ids
+    ].clone()
     joint_vel += sample_uniform(*velocity_range, joint_vel.shape, env.device)
 
     joint_ids = asset_cfg.joint_ids
     if isinstance(joint_ids, list):
         joint_ids = torch.tensor(joint_ids, device=env.device)
     asset.write_joint_state_to_sim(
-        joint_pos.view(len(env_ids), -1), joint_vel.view(len(env_ids), -1), env_ids=env_ids, joint_ids=joint_ids
+        joint_pos.view(len(env_ids), -1),
+        joint_vel.view(len(env_ids), -1),
+        env_ids=env_ids,
+        joint_ids=joint_ids,
     )
 
 
@@ -106,19 +164,26 @@ def reset_joints_by_scale(
         env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
 
     asset = env.scene[asset_cfg.name]
-    joint_pos = _rows(asset.data.default_joint_pos, env_ids)[:, asset_cfg.joint_ids].clone()
+    joint_pos = _rows(asset.data.default_joint_pos, env_ids)[
+        :, asset_cfg.joint_ids
+    ].clone()
     joint_pos *= sample_uniform(*position_range, joint_pos.shape, env.device)
     limits = _rows(asset.data.soft_joint_pos_limits, env_ids)[:, asset_cfg.joint_ids]
     joint_pos = joint_pos.clamp_(limits[..., 0], limits[..., 1])
 
-    joint_vel = _rows(asset.data.default_joint_vel, env_ids)[:, asset_cfg.joint_ids].clone()
+    joint_vel = _rows(asset.data.default_joint_vel, env_ids)[
+        :, asset_cfg.joint_ids
+    ].clone()
     joint_vel *= sample_uniform(*velocity_range, joint_vel.shape, env.device)
 
     joint_ids = asset_cfg.joint_ids
     if isinstance(joint_ids, list):
         joint_ids = torch.tensor(joint_ids, device=env.device)
     asset.write_joint_state_to_sim(
-        joint_pos.view(len(env_ids), -1), joint_vel.view(len(env_ids), -1), env_ids=env_ids, joint_ids=joint_ids
+        joint_pos.view(len(env_ids), -1),
+        joint_vel.view(len(env_ids), -1),
+        env_ids=env_ids,
+        joint_ids=joint_ids,
     )
 
 
@@ -135,12 +200,20 @@ def uniform_mass_scale_distribution() -> Any:
 
     return dr.Distribution(
         name="uniform_mass_scale_to_alpha",
-        sample=lambda lo, hi, shape, device: 0.5
-        * torch.log(sample_uniform(torch.exp(2.0 * lo), torch.exp(2.0 * hi), shape, device=device)),
+        sample=lambda lo, hi, shape, device: (
+            0.5
+            * torch.log(
+                sample_uniform(
+                    torch.exp(2.0 * lo), torch.exp(2.0 * hi), shape, device=device
+                )
+            )
+        ),
     )
 
 
-@requires_model_fields(*_dr.pseudo_inertia.model_fields, recompute=_dr.pseudo_inertia.recompute)
+@requires_model_fields(
+    *_dr.pseudo_inertia.model_fields, recompute=_dr.pseudo_inertia.recompute
+)
 def randomize_body_mass(
     env: Any,
     env_ids: torch.Tensor | None,
@@ -168,11 +241,15 @@ def randomize_body_mass(
         env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
     env_ids = env_ids.to(env.device, dtype=torch.int)
 
-    local_ids = torch.arange(asset.indexing.body_ids.numel(), device=env.device, dtype=torch.long)
+    local_ids = torch.arange(
+        asset.indexing.body_ids.numel(), device=env.device, dtype=torch.long
+    )
     local_ids = local_ids[asset_cfg.body_ids].reshape(-1)
     distribution = uniform_mass_scale_distribution()
 
-    for local_id, model_id in zip(local_ids.tolist(), asset.indexing.body_ids[local_ids].tolist(), strict=True):
+    for local_id, model_id in zip(
+        local_ids.tolist(), asset.indexing.body_ids[local_ids].tolist(), strict=True
+    ):
         mass = _default_mass(env, env_ids, model_id)
         lo, hi = (mass + add_range[0]) / mass, (mass + add_range[1]) / mass
         if lo <= 0.0:
@@ -191,7 +268,11 @@ def randomize_body_mass(
 def _default_mass(env: Any, env_ids: torch.Tensor, model_id: int) -> float:
     """The body's default mass, which must be one number for the ratio to be well defined."""
     masses = env.sim.get_default_field("body_mass")
-    masses = masses[env_ids, model_id] if "body_mass" in env.sim.per_world_default_fields else masses[model_id]
+    masses = (
+        masses[env_ids, model_id]
+        if "body_mass" in env.sim.per_world_default_fields
+        else masses[model_id]
+    )
     masses = masses.reshape(-1)
     if not torch.allclose(masses, masses[0].expand_as(masses)):
         raise ValueError(

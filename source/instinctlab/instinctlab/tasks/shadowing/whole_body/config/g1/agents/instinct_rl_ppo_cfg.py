@@ -106,7 +106,10 @@ class MoEPolicyCfg(PolicyCfgMixin, InstinctRlActorCriticCfg):
     actor_hidden_dims = [256, 256, 128]
     critic_hidden_dims = [256, 256, 128]
     num_moe_experts = 8
-    moe_gate_hidden_dims = [128, 64]  # Naive MLP for gating: input -> 128 -> 64 -> num_experts
+    moe_gate_hidden_dims = [
+        128,
+        64,
+    ]  # Naive MLP for gating: input -> 128 -> 64 -> num_experts
 
 
 @configclass
@@ -175,11 +178,15 @@ class G1ShadowingPPORunnerCfg(InstinctRlOnPolicyRunnerCfg):
                 (
                     "_MlpEncoder"
                     if isinstance(self.policy, EncoderPolicyCfg)
-                    and isinstance(self.policy.encoder_configs.motion_ref, MotionRefEncoderMlpCfg)
+                    and isinstance(
+                        self.policy.encoder_configs.motion_ref, MotionRefEncoderMlpCfg
+                    )
                     else ""
                 ),
                 "_MoEPolicy" if isinstance(self.policy, MoEPolicyCfg) else "",
-                "_EquivalentMlpPolicy" if isinstance(self.policy, EquivalentMlpPolicyCfg) else "",
+                "_EquivalentMlpPolicy"
+                if isinstance(self.policy, EquivalentMlpPolicyCfg)
+                else "",
                 (
                     # "_newStd" if self.ckpt_manipulator == "newStd" else "",
                     # ("_obsNorm" if not isinstance(self.normalizers, dict) else ""),

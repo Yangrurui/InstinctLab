@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from instinctlab import mdp
 from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     ContactSensorRef,
@@ -17,12 +16,13 @@ from instinctlab.tasks.locomotion.config.locomotion_env_cfg import (
     LocomotionEnvCfg,
     LocomotionRewardsCfg,
 )
+from instinctlab.tasks.locomotion.mdp import rewards
 
 
 class G1LocomotionRewardsCfg:
     def __init__(self) -> None:
         self.dof_pos_limits = RewardTermSpec(
-            func=mdp.joint_pos_limits,
+            func=rewards.joint_pos_limits,
             weight=-1.0,
             params={
                 "asset_cfg": EntityRef(
@@ -32,7 +32,7 @@ class G1LocomotionRewardsCfg:
             },
         )
         self.joint_deviation_hip = RewardTermSpec(
-            func=mdp.joint_deviation_l1,
+            func=rewards.joint_deviation_l1,
             weight=-0.1,
             params={
                 "asset_cfg": EntityRef(
@@ -42,7 +42,7 @@ class G1LocomotionRewardsCfg:
             },
         )
         self.joint_deviation_arms = RewardTermSpec(
-            func=mdp.joint_deviation_l1,
+            func=rewards.joint_deviation_l1,
             weight=-0.1,
             params={
                 "asset_cfg": EntityRef(
@@ -60,12 +60,12 @@ class G1LocomotionRewardsCfg:
             },
         )
         self.joint_deviation_torso = RewardTermSpec(
-            func=mdp.joint_deviation_l1,
+            func=rewards.joint_deviation_l1,
             weight=-0.1,
             params={"asset_cfg": EntityRef("robot", joints="waist_.*")},
         )
         self.joint_deviation_knee = RewardTermSpec(
-            func=mdp.joint_deviation_l1,
+            func=rewards.joint_deviation_l1,
             weight=-0.05,
             params={"asset_cfg": EntityRef("robot", joints=(".*_knee_joint",))},
         )
@@ -160,10 +160,3 @@ def flat_g1(robot: RobotSpec) -> TaskSpec:
         agent=config.agent,
         engines=("isaacsim", "mjlab"),
     )
-
-
-__all__ = [
-    "G1LocomotionFlatEnvCfg",
-    "G1LocomotionRewardsCfg",
-    "flat_g1",
-]
