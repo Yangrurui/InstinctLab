@@ -52,6 +52,9 @@ def test_checkpoint_contract_accepts_the_same_task_across_engines(tmp_path) -> N
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
     manifest = add_task_contract({"engine": "isaacsim"}, spec)
+    assert manifest["portability"]["contract_portability"]["multi_engine"]
+    assert manifest["portability"]["clean_resolution"]["known"] is False
+    assert manifest["task_contract"]["portability"]["native_extras"]["count"] == 0
     (tmp_path / "manifest.json").write_text(json.dumps(manifest))
     validate_checkpoint_contract(checkpoint, spec)
 

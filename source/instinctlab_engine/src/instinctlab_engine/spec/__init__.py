@@ -27,6 +27,7 @@ from .mdp import (
     RewardTermSpec,
     TermSpec,
 )
+from .portability import portability_report
 from .rigid_object import RigidObjectRef
 from .robot import BackendAsset, JointProperties, RobotSpec
 from .sensor import (
@@ -84,4 +85,5 @@ __all__ = [
     "VirtualObstacleRef",
     "VolumePointsRef",
     "freeze_task_spec",
+    "portability_report",
 ]

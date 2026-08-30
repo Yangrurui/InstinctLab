@@ -388,5 +388,9 @@ class TaskSpec:
 
     @property
     def is_portable(self) -> bool:
-        """Whether the task runs on more than one engine without an escape hatch."""
+        """Legacy shorthand for multi-engine declaration without native extras.
+
+        Use :func:`instinctlab_engine.spec.portability_report` when overlays or
+        compilation cleanliness matter; those are independent dimensions.
+        """
         return len(self.engines) > 1 and not self.engine_extras

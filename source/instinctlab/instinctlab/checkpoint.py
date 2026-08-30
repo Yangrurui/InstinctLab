@@ -13,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from instinctlab_engine.spec import TaskSpec
+from instinctlab_engine.spec import TaskSpec, portability_report
 from instinctlab_engine.spec.robot import BackendAsset
 
 _CONTRACT_VERSION = "task_contract_v2"
@@ -260,6 +260,7 @@ def task_contract(spec: TaskSpec) -> dict[str, Any]:
         "asset_id": spec.robot.asset_id,
         "joint_names": list(spec.robot.joint_names),
         "body_names": list(spec.robot.body_names),
+        "portability": portability_report(spec),
         "policy_io": _fingerprint(
             _POLICY_IO_VERSION,
             _policy_io_payload(spec, agent_config),
@@ -280,6 +281,7 @@ def task_contract(spec: TaskSpec) -> dict[str, Any]:
 def add_task_contract(manifest: Mapping[str, Any], spec: TaskSpec) -> dict[str, Any]:
     """Return a compilation manifest carrying checkpoint compatibility metadata."""
     payload = dict(manifest)
+    payload["portability"] = portability_report(spec, payload)
     payload["task_contract"] = task_contract(spec)
     return payload
 
