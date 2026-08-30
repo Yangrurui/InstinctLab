@@ -5,6 +5,7 @@ from __future__ import annotations
 from instinctlab_engine.spec import (
     ActionTermSpec,
     AgentSpec,
+    CollisionExclusionRef,
     CommandTermSpec,
     ContactSensorRef,
     CurriculumTermSpec,
@@ -963,6 +964,7 @@ class PerceptiveShadowingEnvCfg:
     def __init__(
         self,
         robot: RobotSpec,
+        collision_exclusions: tuple[CollisionExclusionRef, ...],
         motion_reference: MotionReferenceRef,
         motion_paths: dict[str, str],
         ray_casters: tuple[RayCasterRef, ...],
@@ -996,6 +998,7 @@ class PerceptiveShadowingEnvCfg:
             ),
             ray_casters=ray_casters,
             motion_references=(motion_reference,),
+            collision_exclusions=collision_exclusions,
             env_spacing=env_spacing,
         )
         self.sim = simulation

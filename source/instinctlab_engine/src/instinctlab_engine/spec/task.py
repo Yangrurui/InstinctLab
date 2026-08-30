@@ -30,6 +30,7 @@ from instinctlab_engine.spec.robot import RobotSpec
 
 from .mdp import MdpSpec
 from .rigid_object import RigidObjectRef
+from .relations import CollisionExclusionRef
 from .sensor import (
     ContactSensorRef,
     MotionReferenceRef,
@@ -219,6 +220,9 @@ class SceneSpec:
     native_sensors: tuple[NativeSensorRef, ...] = field(
         default=(), metadata={"contract_omit_if_default": True}
     )
+    collision_exclusions: tuple[CollisionExclusionRef, ...] = field(
+        default=(), metadata={"contract_omit_if_default": True}
+    )
     rigid_objects: tuple[RigidObjectRef, ...] = field(default=(), metadata={"contract_omit_if_default": True})
     """Ankle (or other) volume-point clouds. Penetration is not a raycast."""
     env_spacing: float = 2.5
@@ -229,6 +233,7 @@ class SceneSpec:
         object.__setattr__(self, "motion_references", tuple(self.motion_references))
         object.__setattr__(self, "volume_points", tuple(self.volume_points))
         object.__setattr__(self, "native_sensors", tuple(self.native_sensors))
+        object.__setattr__(self, "collision_exclusions", tuple(self.collision_exclusions))
         object.__setattr__(self, "rigid_objects", tuple(self.rigid_objects))
         names = (
             [sensor.name for sensor in self.contact_sensors]
@@ -245,6 +250,12 @@ class SceneSpec:
             raise ValueError("Rigid object names must be unique.")
         if self.env_spacing <= 0.0:
             raise ValueError(f"env_spacing must be positive, got {self.env_spacing}.")
+        exclusion_keys = [
+            (exclusion.entity, exclusion.pair)
+            for exclusion in self.collision_exclusions
+        ]
+        if len(exclusion_keys) != len(set(exclusion_keys)):
+            raise ValueError("Collision exclusions must be unique unordered body pairs.")
 
     def sensor(self, name: str) -> ContactSensorRef:
         """The declared contact sensor called ``name``."""

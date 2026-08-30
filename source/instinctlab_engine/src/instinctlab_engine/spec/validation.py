@@ -135,6 +135,19 @@ def _validate_scene_bindings(spec: TaskSpec) -> None:
                 f"{sensor.entity!r}/{sensor.attach!r}, which is not a declared robot frame."
             )
 
+    for exclusion in scene.collision_exclusions:
+        if exclusion.entity != "robot":
+            raise ValueError(
+                f"Collision exclusion {exclusion.pair!r} refers to unknown entity "
+                f"{exclusion.entity!r}."
+            )
+        unknown = set(exclusion.pair) - body_name_set
+        if unknown:
+            raise ValueError(
+                f"Collision exclusion {exclusion.pair!r} names unknown robot bodies: "
+                f"{sorted(unknown)}."
+            )
+
 
 def _sensor_maps(spec: TaskSpec) -> dict[type, Mapping[str, Any]]:
     scene = spec.scene

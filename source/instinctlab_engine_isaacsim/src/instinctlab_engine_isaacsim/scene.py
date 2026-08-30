@@ -324,6 +324,9 @@ def build_scene(
     spawn = articulation_cfg.spawn.replace(
         **_spawn_overrides(articulation_cfg.spawn, spec, profile)
     )
+    from .relations import with_collision_exclusions
+
+    spawn = with_collision_exclusions(spawn, spec.collision_exclusions)
 
     scene = InteractiveSceneCfg(num_envs=num_envs, env_spacing=spec.env_spacing)
     scene.lazy_sensor_update = True

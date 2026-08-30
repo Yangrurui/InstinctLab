@@ -170,7 +170,13 @@ def build_scene(
             for sensor in spec.native_sensors
         )
     )
-    entities = {"robot": build_entity(robot)}
+    from .relations import with_collision_exclusions
+
+    entities = {
+        "robot": with_collision_exclusions(
+            build_entity(robot), spec.collision_exclusions
+        )
+    }
     for obj in spec.rigid_objects:
         import os
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from instinctlab_engine.spec import (
     AgentSpec,
+    CollisionExclusionRef,
     MdpSpec,
     MotionReferenceRef,
     RayCasterRef,
@@ -153,6 +154,24 @@ class G1PerceptiveShadowingEnvCfg(PerceptiveShadowingEnvCfg):
         )
         super().__init__(
             robot=robot,
+            collision_exclusions=(
+                CollisionExclusionRef(
+                    body_a="left_elbow_link",
+                    body_b="left_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="right_elbow_link",
+                    body_b="right_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="right_hip_roll_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="left_hip_roll_link",
+                ),
+            ),
             motion_reference=motion_reference,
             motion_paths={
                 "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
@@ -334,6 +353,24 @@ class G1PerceptiveShadowingEnvCfg_PLAY(PerceptiveShadowingEnvCfg):
         )
         super().__init__(
             robot=robot,
+            collision_exclusions=(
+                CollisionExclusionRef(
+                    body_a="left_elbow_link",
+                    body_b="left_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="right_elbow_link",
+                    body_b="right_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="right_hip_roll_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="left_hip_roll_link",
+                ),
+            ),
             motion_reference=motion_reference,
             motion_paths={
                 "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
@@ -517,6 +554,24 @@ class G1PerceptiveShadowingOneMotionEnvCfg(PerceptiveShadowingEnvCfg):
         )
         super().__init__(
             robot=robot,
+            collision_exclusions=(
+                CollisionExclusionRef(
+                    body_a="left_elbow_link",
+                    body_b="left_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="right_elbow_link",
+                    body_b="right_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="right_hip_roll_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="left_hip_roll_link",
+                ),
+            ),
             motion_reference=motion_reference,
             motion_paths={
                 "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
@@ -699,6 +754,24 @@ class G1PerceptiveShadowingOneMotionEnvCfg_PLAY(PerceptiveShadowingEnvCfg):
         )
         super().__init__(
             robot=robot,
+            collision_exclusions=(
+                CollisionExclusionRef(
+                    body_a="left_elbow_link",
+                    body_b="left_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="right_elbow_link",
+                    body_b="right_wrist_pitch_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="right_hip_roll_link",
+                ),
+                CollisionExclusionRef(
+                    body_a="pelvis",
+                    body_b="left_hip_roll_link",
+                ),
+            ),
             motion_reference=motion_reference,
             motion_paths={
                 "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
