@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import copy
 import inspect
-import numpy as np
-import torch
-import trimesh
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import mujoco
+import numpy as np
+import torch
+import trimesh
 from mjlab.terrains import SubTerrainCfg as SubTerrainBaseCfg
 from mjlab.terrains import TerrainGenerator
 
-from instinctlab.engines.pose_velocity import curriculum_column_indices
+from instinctlab.compat.terrain import curriculum_column_indices
 
 if TYPE_CHECKING:
     from .terrain_generator_cfg import FiledTerrainGeneratorCfg

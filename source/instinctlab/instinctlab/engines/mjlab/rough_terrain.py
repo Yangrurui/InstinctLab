@@ -1,4 +1,8 @@
-"""Lower the shared rough-terrain contract to MJLab terrain configs."""
+"""Lower the shared rough-terrain contract to MJLab terrain configs.
+
+The task-owned recipe lives in :mod:`instinctlab.tasks.terrain`. Every function
+here constructs an MJLab config or selects an MJLab terrain implementation.
+"""
 
 from __future__ import annotations
 

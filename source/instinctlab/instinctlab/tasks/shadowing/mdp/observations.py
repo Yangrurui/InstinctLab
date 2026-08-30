@@ -26,13 +26,14 @@ reason, and it is a critic-only observation, so it does not reach the deployed p
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 import torch.nn.functional as F
-from typing import Any
 
 from instinctlab.compat.env import RlEnv, get_command
 from instinctlab.compat.observation_terms import show_debug_image
-from instinctlab.compat.sensors import depth_image
+from instinctlab.compat.sensors import depth_image, ray_hits_w, ray_origin_z_w
 from instinctlab.spec.sensor import RayCasterRef
 
 
@@ -92,6 +93,29 @@ def last_action(env: RlEnv, action_name: str | None = None) -> torch.Tensor:
     from instinctlab.compat.env import raw_action
 
     return raw_action(env, action_name)
+
+
+def height_scan(
+    env: RlEnv,
+    sensor: RayCasterRef,
+    offset: float,
+    miss_value: str,
+) -> torch.Tensor:
+    """Height of each ray origin above its hit, preserving declared native miss policy."""
+    ray_sensor = env.scene.sensors[sensor.name]
+    heights = ray_origin_z_w(ray_sensor) - ray_hits_w(ray_sensor)[..., 2] - offset
+    if miss_value == "negative_infinity":
+        return heights
+    if miss_value == "max_distance":
+        return torch.where(
+            torch.isfinite(heights),
+            heights,
+            torch.full_like(heights, sensor.max_distance),
+        )
+    raise ValueError(
+        "height_scan miss_value must be 'negative_infinity' or 'max_distance', "
+        f"got {miss_value!r}."
+    )
 
 
 class DelayedDepthImage:

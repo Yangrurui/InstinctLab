@@ -1,20 +1,15 @@
-"""Shared pose-velocity command math, importable with neither engine installed.
+"""Parkour's pose-velocity command algorithm, importable with neither engine installed.
 
-Both reference implementations are the same algorithm on two ``CommandTerm`` bases. Duplicating
-the arithmetic would let the copies drift the way the column-index mapping already has: training
-still converges, the robot just tracks the wrong speed envelope. A third engine therefore pays
-for a thin subclass, not another 350 lines.
-
-This module lives next to ``compile.py`` rather than in ``mdp/`` because the command family is
-already per-engine (field names and visualization differ). Putting the mixin there would give a
-portable-looking home to something that is not a portable term.
+The engine adapters supply only a generic native ``CommandTerm`` wrapper.  All
+Parkour-specific sampling, terrain binding, metrics, and command arithmetic
+live here and reach both managers through ``CommandTermSpec(func=...)``.
 
 Velocity boxes are keyed by sub-terrain **name**. A name maps to a *set* of columns: both
 engines' curriculum generators assign columns by Isaac Lab's cumulative-proportion formula
 (``j / num_cols + 0.001``). Upstream mjlab instead emits one column per type and ignores
 ``num_cols``; our ``FiledTerrainGenerator`` honors the declared width so the two grids match.
 The remaining naming divergence is mjlab random mode, where a column is a mix of types and
-this module returns ``None`` so the mixin raises rather than guessing an index.
+this module returns ``None`` so the command raises rather than guessing an index.
 
 Robot state is read under the hub spellings (``root_link_*``). The Isaac reference used the
 legacy COM aliases for the tracking metrics; those aliases are denylisted here, and the angular
@@ -24,30 +19,26 @@ rows are the same tensor on Isaac anyway.
 from __future__ import annotations
 
 import math
-import numpy as np
-import torch
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from types import SimpleNamespace
 from typing import Any
 
-from instinctlab.compat.math import euler_xyz_from_quat, quat_apply_inverse, wrap_to_pi, yaw_quat
+import numpy as np
+import torch
+
+from instinctlab.compat.math import (
+    euler_xyz_from_quat,
+    quat_apply_inverse,
+    wrap_to_pi,
+    yaw_quat,
+)
+from instinctlab.compat.terrain import column_sub_terrain_names, resolve_named_columns
 
 __all__ = [
     "POSE_VELOCITY_PARAM_KEYS",
-    "PoseVelocityMixin",
-    "UnresolvableTerrainColumn",
-    "actual_column_count",
-    "column_sub_terrain_names",
+    "PoseVelocityCommand",
     "command_params",
-    "curriculum_column_indices",
-    "even_column_assignment",
-    "resolve_named_columns",
-    "type_share_histogram",
 ]
-
-
-class UnresolvableTerrainColumn(RuntimeError):
-    """A velocity box cannot be bound without guessing a column index."""
-
 
 POSE_VELOCITY_PARAM_KEYS: frozenset[str] = frozenset(
     {
@@ -81,7 +72,9 @@ def _range_pair(value: Any, name: str, *, positive: bool = False) -> tuple[float
         raise ValueError(f"pose_velocity {name} must be a two-value range, got {value!r}.")
     lo, hi = value
     if isinstance(lo, bool) or isinstance(hi, bool):
-        raise ValueError(f"pose_velocity {name} must contain numbers, got {value!r}.")
+        raise ValueError(  # noqa: TRY004 - keep the established declaration error contract
+            f"pose_velocity {name} must contain numbers, got {value!r}."
+        )
     try:
         pair = (float(lo), float(hi))
     except (TypeError, ValueError) as exc:
@@ -95,7 +88,9 @@ def _range_pair(value: Any, name: str, *, positive: bool = False) -> tuple[float
 
 def _finite_scalar(value: Any, name: str, *, minimum: float | None = None) -> float:
     if isinstance(value, bool):
-        raise ValueError(f"pose_velocity {name} must be numeric, got {value!r}.")
+        raise ValueError(  # noqa: TRY004 - keep the established declaration error contract
+            f"pose_velocity {name} must be numeric, got {value!r}."
+        )
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
@@ -199,148 +194,24 @@ def command_params(params: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def resolve_named_columns(
-    column_names: Sequence[str | None],
-    requested: Iterable[str],
-) -> dict[str, tuple[int, ...]]:
-    """Map each requested sub-terrain name to the columns that carry it.
+class PoseVelocityCommand:
+    """Task-owned command implementation adapted by either native command manager."""
 
-    Raises if any column has no name or any requested name matches no column, listing both
-    sides. An index fallback is how the references put velocity boxes on the wrong tiles.
-    """
-    names = list(column_names)
-    unnamed = [index for index, name in enumerate(names) if not name]
-    available = [name for name in names if name]
-    wanted = list(requested)
-    unknown = sorted(set(wanted) - set(available))
-    if unnamed or unknown:
-        raise UnresolvableTerrainColumn(
-            "Cannot resolve velocity boxes by sub-terrain name. "
-            f"Unnamable columns: {unnamed}. "
-            f"Unknown names: {unknown}. "
-            f"Columns: {names}. "
-            f"Requested: {wanted}."
+    def __init__(self, env: Any, params: Mapping[str, Any]) -> None:
+        fields = command_params(params)
+        ranges = SimpleNamespace(
+            lin_vel_x=fields["lin_vel_x"],
+            lin_vel_y=fields["lin_vel_y"],
+            ang_vel_z=fields["ang_vel_z"],
         )
-    return {name: tuple(index for index, column in enumerate(names) if column == name) for name in wanted}
-
-
-def curriculum_column_indices(proportions: Sequence[float], num_cols: int) -> list[int]:
-    """Isaac Lab's curriculum column assignment. Do not re-derive; the ``+ 0.001`` is load-bearing.
-
-    Copied from ``isaaclab.terrains.terrain_generator.TerrainGenerator._generate_curriculum_terrains``:
-    column ``j`` is the first sub-terrain whose cumulative (normalized) proportion exceeds
-    ``j / num_cols + 0.001``.
-    """
-    weights = np.asarray(proportions, dtype=np.float64)
-    if weights.size == 0:
-        raise RuntimeError("curriculum column assignment needs at least one sub-terrain proportion.")
-    weights = weights / weights.sum()
-    cumulative = np.cumsum(weights)
-    indices: list[int] = []
-    for index in range(num_cols):
-        matches = np.where(index / num_cols + 0.001 < cumulative)[0]
-        if matches.size == 0:
-            raise RuntimeError(
-                f"curriculum column {index} of {num_cols} matched no sub-terrain. "
-                f"Normalized proportions: {weights.tolist()}."
-            )
-        indices.append(int(np.min(matches)))
-    return indices
-
-
-def even_column_assignment(num_envs: int, num_cols: int, device: torch.device | str | None = None) -> torch.Tensor:
-    """Isaac Lab's even split of environments across columns.
-
-    Copied from ``isaaclab.terrains.terrain_importer.TerrainImporter._compute_env_origins_curriculum``.
-    Columns already encode type share (via :func:`curriculum_column_indices`), so an even split
-    across columns reproduces the declared per-type proportions. Do not replace this with
-    type-level weights of length ``num_cols``: that would double-count types that already occupy
-    more than one column.
-    """
-    return torch.div(
-        torch.arange(num_envs, device=device),
-        (num_envs / num_cols),
-        rounding_mode="floor",
-    ).to(torch.long)
-
-
-def type_share_histogram(
-    terrain_types: torch.Tensor | Sequence[int],
-    column_names: Sequence[str | None],
-) -> dict[str, float]:
-    """Per-name share of environments. Unnamed columns are counted under ``''``."""
-    types = terrain_types.detach().cpu().tolist() if isinstance(terrain_types, torch.Tensor) else list(terrain_types)
-    if not types:
-        return {}
-    names = list(column_names)
-    counts: dict[str, int] = {}
-    for column in types:
-        name = names[int(column)] if 0 <= int(column) < len(names) else None
-        key = name if name else ""
-        counts[key] = counts.get(key, 0) + 1
-    n_env = len(types)
-    return {name: count / n_env for name, count in counts.items()}
-
-
-def actual_column_count(terrain: Any) -> int:
-    """Grid width from the terrain object, not from ``cfg.num_cols``.
-
-    Our mjlab ``FiledTerrainGenerator`` honors ``num_cols`` in curriculum mode, so the two
-    numbers should agree. Reading the built grid still catches a silent shrink if an upstream
-    generator (or a future edit) starts ignoring the declaration again.
-    """
-    patches = getattr(terrain, "flat_patches", None)
-    if patches and "target" in patches:
-        return int(patches["target"].shape[1])
-    origins = getattr(terrain, "terrain_origins", None)
-    if origins is not None:
-        return int(origins.shape[1])
-    raise UnresolvableTerrainColumn(
-        "Terrain has neither flat_patches['target'] nor terrain_origins, so columns cannot be named."
-    )
-
-
-def column_sub_terrain_names(terrain: Any) -> list[str | None]:
-    """Name occupying each column under Isaac's cumulative-proportion allocation.
-
-    Curriculum mode on both engines uses the same formula as
-    :func:`curriculum_column_indices`. Random (non-curriculum) mode leaves a column as a mix
-    of types; this returns ``None`` for every column so :func:`resolve_named_columns` raises
-    rather than guessing. Isaac's parkour/rough grids are curriculum, so the ``None`` path is
-    the mjlab-only remaining divergence.
-    """
-    generator = terrain.cfg.terrain_generator
-    if generator is None:
-        raise RuntimeError("pose_velocity needs a generated terrain; this importer has no terrain_generator.")
-    names = list(generator.sub_terrains.keys())
-    n_cols = actual_column_count(terrain)
-    if not getattr(generator, "curriculum", False):
-        return [None] * n_cols
-    if n_cols != int(generator.num_cols):
-        raise RuntimeError(
-            f"Curriculum grid is {n_cols} columns but terrain_generator.num_cols={generator.num_cols}. "
-            f"Sub-terrains: {names}."
-        )
-    if not names:
-        raise RuntimeError("pose_velocity needs at least one named sub-terrain.")
-    proportions = [generator.sub_terrains[name].proportion for name in names]
-    if n_cols == len(names):
-        return list(names)
-    return [names[index] for index in curriculum_column_indices(proportions, n_cols)]
-
-
-class PoseVelocityMixin:
-    """Resample / update / metric arithmetic against ``self``.
-
-    The subclass binds ``robot`` and ``terrain``, implements
-    :meth:`_column_sub_terrain_names`, and then calls :meth:`_pose_velocity_setup`.
-    Everything that does arithmetic lives here so an AST check on the subclass can
-    prove it added none.
-    """
-
-    def _column_sub_terrain_names(self) -> Sequence[str | None]:
-        """Sub-terrain name occupying each column, or ``None`` if that column cannot be named."""
-        raise NotImplementedError
+        self.cfg = SimpleNamespace(**fields, ranges=ranges, patch_vis=False)
+        self._env = env
+        self.device = env.device
+        self.num_envs = env.num_envs
+        self.metrics: dict[str, torch.Tensor] = {}
+        self.robot = env.scene[fields["entity"]]
+        self.terrain = env.scene["terrain"]
+        self._pose_velocity_setup()
 
     def _pose_velocity_setup(self) -> None:
         device = self.device
@@ -374,7 +245,7 @@ class PoseVelocityMixin:
         self.random_lin_vel_y = torch.zeros(n_env, device=device)
         self.random_ang_vel_z = torch.zeros(n_env, device=device)
 
-        self._column_names = list(self._column_sub_terrain_names())
+        self._column_names = list(column_sub_terrain_names(self.terrain))
         self._bind_velocity_boxes()
 
         self.random_lin_vel_x_range[:, 0] = self.cfg.ranges.lin_vel_x[0]

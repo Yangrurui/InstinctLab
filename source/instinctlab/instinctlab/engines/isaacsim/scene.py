@@ -151,7 +151,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
             debug_vis=False,
         )
     if spec.kind == "rough":
-        from .rough import rough_importer_cfg
+        from .rough_terrain import rough_importer_cfg
 
         return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
     if spec.kind == "motion_matched":
@@ -195,10 +195,10 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
 
 
 def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
-    """Parkour's edge cylinders. Attached here so rough.py stays the locomotion recipe.
+    """Parkour's edge cylinders. Attached here so rough-terrain lowering stays generic.
 
     Count / placement will not match mjlab. That is the recorded obstacle-set
-    divergence in :mod:`instinctlab.engines.mjlab.rough`, not a builder bug.
+    divergence in :mod:`instinctlab.engines.mjlab.rough_terrain`, not a builder bug.
     """
     if not spec.virtual_obstacles:
         return cfg
@@ -505,6 +505,6 @@ def build_scene(
 
 def _build_motion_reference(sensor: Any, robot: Any) -> Any:
     """Build the clip-backed reference sensor for Isaac's lifecycle."""
-    from .motion_reference import build_motion_reference_sensor
+    from .motion_reference_sensor import build_motion_reference_sensor
 
     return build_motion_reference_sensor(sensor, robot)

@@ -3,18 +3,18 @@ from __future__ import annotations
 import copy
 import gc
 import math
-import numpy as np
 import time
-import torch
-import trimesh
 from typing import TYPE_CHECKING
 
 import mujoco
+import numpy as np
+import torch
+import trimesh
 from mjlab.terrains import SubTerrainCfg as SubTerrainBaseCfg
 from mjlab.terrains import TerrainEntity as TerrainImporterBase
 from mjlab.terrains import TerrainGenerator
 
-from instinctlab.engines.pose_velocity import even_column_assignment
+from instinctlab.compat.terrain import even_column_assignment
 
 from .height_field.utils import convert_height_field_to_mesh
 

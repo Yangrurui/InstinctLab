@@ -13,12 +13,13 @@ and is on by default.
 
 from __future__ import annotations
 
-import torch
 from collections import deque
 from collections.abc import Sequence
 from typing import Any
 
-from instinctlab.engines.pose_velocity import column_sub_terrain_names
+import torch
+
+from instinctlab.compat.terrain import column_sub_terrain_names
 from instinctlab.tasks.terrain import rough_terrain
 
 _ROUGH_GENERATOR = rough_terrain().generator
@@ -42,7 +43,7 @@ def attach_terrain_split(env: Any) -> Any:
         return env
     print(
         "[INFO] Per-terrain episode logging on "
-        f"{len(set(n for n in column_names if n))} named types; "
+        f"{len({name for name in column_names if name})} named types; "
         f"shared recipe uses {list(ALIGNED_TERRAINS)}"
     )
     return TerrainSplitVecEnv(env, column_names, types)

@@ -26,6 +26,7 @@ __all__ = [
     "joint_applied_torque",
     "joint_effort_limits",
     "joint_stiffness_groups",
+    "root_command_linear_velocity_b",
 ]
 
 
@@ -99,6 +100,25 @@ def body_angular_velocity_w(env: Any, asset: Any) -> torch.Tensor:
     if value is None:
         raise PortabilityError(
             f"{type(asset).__name__} has no {attribute}; native body angular velocity is unavailable."
+        )
+    return value
+
+
+def root_command_linear_velocity_b(env: Any, asset: Any) -> torch.Tensor:
+    """Return the native quantity historically used by velocity-command metrics.
+
+    Isaac Lab's stock command measures COM linear velocity; MJLab's measures the
+    root-link velocity. The command algorithm is portable, but silently changing
+    this diagnostic quantity would make its episode metrics incomparable.
+    """
+    attribute = {
+        "isaacsim": "root_com_lin_vel_b",
+        "mjlab": "root_link_lin_vel_b",
+    }[_native_engine(env, asset)]
+    value = getattr(asset.data, attribute, None)
+    if value is None:
+        raise PortabilityError(
+            f"{type(asset).__name__} has no {attribute}; command tracking velocity is unavailable."
         )
     return value
 

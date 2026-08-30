@@ -1,7 +1,8 @@
-"""Event functions mjlab does not ship.
+"""Native MJLab event functions used by :mod:`.event_terms`.
 
-Two of them, and both exist for the same reason: mjlab has a neighbouring primitive that would have
-compiled without complaint and randomised something else.
+These functions touch MuJoCo model fields or MJLab sensor state directly, so
+they cannot be task-owned portable events.  Several also preserve side effects
+that a nearby stock primitive would silently omit.
 
 ``reset_joints_by_offset`` adds a sampled offset to the default joint position where Isaac Lab's
 ``reset_joints_by_scale`` multiplies it. mjlab now ships a native offset helper, but it indexes
@@ -12,11 +13,14 @@ changes a body's mass and leaves its inertia tensor untouched, where Isaac Lab's
 torso is also harder to rotate. Substituting either neighbour would leave two runs looking
 comparable while training against different physics.
 
-Both are ported from InstinctMJ, the mjlab-side reference implementation for this task.
+The implementations are ported from InstinctMJ, the MJLab-side reference for
+these tasks. Default-joint randomization also updates the canonical action
+offset, and ray-offset randomization uses the native sensor mutation hook.
 
-Unlike its siblings this module imports mjlab when loaded, because a decorator has to run at
-definition time. It stays lazily imported from the builders that use it, so the package as a whole
-still costs nothing to import without mjlab installed.
+This is deliberately separate from the SDK-free registry/lowering module: the
+``requires_model_fields`` decorator has to import MJLab at definition time.
+Builders import this module only when compilation reaches one of these native
+functions, so listing task contracts does not load MJLab.
 """
 
 from __future__ import annotations
@@ -29,9 +33,9 @@ from mjlab.envs.mdp import dr as _dr
 from mjlab.managers.event_manager import requires_model_fields
 
 __all__ = [
+    "randomize_body_mass",
     "randomize_default_joint_pos",
     "randomize_ray_offsets",
-    "randomize_body_mass",
     "reset_joints_by_offset",
     "reset_joints_by_scale",
     "uniform_mass_scale_distribution",

@@ -1,7 +1,7 @@
 """The MDP of a task, declared once for every engine.
 
-A term is stated in one of two ways, and which one applies is a property of the family rather than
-a choice the task author makes case by case:
+A term is stated in one of two ways.  The choice follows the implementation's
+actual portability; event terms in particular may use either form:
 
 **Portable families carry a function.** Observations, rewards, terminations and commands are
 written as ``ObsTermSpec(mdp.base_ang_vel, ...)`` -- a direct reference to a function in
@@ -10,13 +10,17 @@ convenience. It is the reason migration is cheap: an Isaac Lab task's term defin
 almost verbatim, with the import redirected and the class renamed, because the function itself did
 not have to change.
 
-**Per-engine families carry a semantic name.** Actions, events and domain randomisation are stated
-as ``EventTermSpec(kind="randomize_friction")`` and resolved through each engine's term registry.
-These families are where the engines genuinely differ -- Isaac Lab randomises friction per shape
-across 64 buckets, mjlab shares one friction per environment -- and pretending otherwise would mean
-picking one engine's idiom and making the other emulate it badly. Naming the intent instead lets
-each engine keep the implementation its own users would recognise, which is what "each engine keeps
-its own characteristics" has to mean in practice.
+**Native terms carry a semantic name.** Actions and events that change native
+physics state are stated as ``EventTermSpec(kind="randomize_friction")`` and
+resolved through each engine's term registry.  Isaac Lab randomises friction
+per shape across a bucket pool, while MJLab changes MuJoCo geom fields; choosing
+one native function as the shared implementation would silently change the
+other engine's behavior.  Named intent keeps those translations explicit.
+
+An event that only uses the shared environment surface should instead carry its
+task-owned function, just like an observation or reward.  Adding such an event
+does not require an engine registration.  A new ``kind=`` is reserved for an
+operation that genuinely needs a new native adapter or capability.
 
 The split is visible in :class:`TermSpec`: exactly one of ``func`` and ``kind`` is set, and which
 one is set determines whether the compiler needs a per-engine mapping at all.
@@ -97,8 +101,8 @@ class TermSpec:
     Args:
         func: The task-owned portable implementation, run directly by either engine's native
             manager.
-        kind: The semantic name, for action / event / curriculum terms, looked up in the running
-            engine's registry. Exactly one of ``func`` and ``kind`` is set.
+        kind: The semantic name for a native term, looked up in the running engine's registry.
+            Exactly one of ``func`` and ``kind`` is set.
         params: Arguments passed to the term, identical on every engine.
         target: The entity subset the term acts on, if any.
         level: What the compiler does when this engine cannot provide the term.
@@ -200,6 +204,10 @@ class DoneTermSpec(TermSpec):
 class EventTermSpec(TermSpec):
     """One event or domain randomisation.
 
+    Use ``func=`` when the event runs on the shared environment interface.  Use
+    ``kind=`` only when each engine must lower the operation onto different
+    native physics or sensor state.
+
     Args:
         mode: When it fires. ``"startup"`` once at construction, ``"reset"`` per episode,
             ``"interval"`` on a timer.
@@ -242,7 +250,15 @@ class ActionTermSpec(TermSpec):
 
 @dataclass(frozen=True)
 class CommandTermSpec(TermSpec):
-    """One command generator. REQUIRED by default: an observation term reads its output."""
+    """One command generator. REQUIRED by default: observations read its output.
+
+    A task-owned ``func`` is a class or factory called as ``func(env=env,
+    params=params)``.  It exposes ``command``, ``metrics``,
+    ``_update_metrics()``, ``_resample_command(env_ids)`` and
+    ``_update_command()``; each engine's portable command wrapper supplies the
+    native manager base and timer. A new task command therefore does not need
+    an engine registration.
+    """
 
     level: Requirement = Requirement.REQUIRED
 

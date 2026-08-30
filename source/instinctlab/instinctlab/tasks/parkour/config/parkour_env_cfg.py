@@ -31,6 +31,7 @@ from instinctlab.tasks.parkour.mdp import (
     observations,
     terminations,
 )
+from instinctlab.tasks.parkour.mdp.commands import PoseVelocityCommand
 from instinctlab.tasks.terrain import rough_terrain
 
 
@@ -311,7 +312,7 @@ class ParkourEnvCfg:
         )
         self.commands = {
             "base_velocity": CommandTermSpec(
-                kind="pose_velocity",
+                func=PoseVelocityCommand,
                 level=Requirement.REQUIRED,
                 params={
                     "entity": "robot",

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import torch
 from typing import Any
+
+import torch
 
 from ..denylist import PortabilityError
 
@@ -24,6 +25,38 @@ def ray_hits_w(sensor: Any) -> torch.Tensor:
         return hits
     misses = distances < 0.0
     return hits.masked_fill(misses.unsqueeze(-1), float("inf"))
+
+
+def ray_origin_z_w(sensor: Any) -> torch.Tensor:
+    """Return one world-frame ray-origin height for every flattened hit.
+
+    Isaac stores one ``pos_w`` per environment. MJLab stores ``frame_pos_w``
+    because a sensor may contain several frames. This accessor only normalizes
+    that shape; the task still decides offsets and miss values.
+    """
+    hits = ray_hits_w(sensor)
+    data = sensor.data
+    frame_positions = getattr(data, "frame_pos_w", None)
+    if frame_positions is not None:
+        if frame_positions.ndim != 3 or frame_positions.shape[-1] != 3:
+            raise PortabilityError(
+                f"Ray frame positions must be (env, frame, 3), got {tuple(frame_positions.shape)}."
+            )
+        num_frames = frame_positions.shape[1]
+        if hits.shape[1] % num_frames:
+            raise PortabilityError(
+                f"{hits.shape[1]} ray hits cannot be divided among {num_frames} frames."
+            )
+        rays_per_frame = hits.shape[1] // num_frames
+        return frame_positions[..., 2].repeat_interleave(rays_per_frame, dim=1)
+
+    position = getattr(data, "pos_w", None)
+    if position is None or position.ndim != 2 or position.shape[-1] != 3:
+        shape = None if position is None else tuple(position.shape)
+        raise PortabilityError(
+            f"{type(sensor).__name__} has no ray-origin pos_w shaped (env, 3); got {shape}."
+        )
+    return position[:, 2:3].expand(-1, hits.shape[1])
 
 
 def depth_image(sensor: Any) -> torch.Tensor:

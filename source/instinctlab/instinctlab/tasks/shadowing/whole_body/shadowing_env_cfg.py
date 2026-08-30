@@ -22,12 +22,13 @@ from instinctlab.spec import (
 )
 from instinctlab.spec.capability import Requirement
 from instinctlab.tasks.shadowing.mdp import (
-    events as shadowing_events,
-)
-from instinctlab.tasks.shadowing.mdp import (
+    commands,
     observations,
     rewards,
     terminations,
+)
+from instinctlab.tasks.shadowing.mdp import (
+    events as shadowing_events,
 )
 from instinctlab.tasks.shadowing.mdp import (
     terms as shadowing_terms,
@@ -37,30 +38,33 @@ from instinctlab.tasks.shadowing.mdp import (
 class ShadowingCommandsCfg:
     def __init__(self) -> None:
         self.position_ref_command = CommandTermSpec(
-            kind="motion_reference_position",
+            func=commands.PositionReference,
             params={
                 "motion_reference": "motion_reference",
                 "entity": "robot",
+                "resampling_time_range": (1.0e4, 1.0e5),
                 "current_state_command": False,
                 "realtime_mode": True,
                 "anchor_frame": "robot",
             },
         )
         self.position_b_ref_command = CommandTermSpec(
-            kind="motion_reference_position",
+            func=commands.PositionReference,
             params={
                 "motion_reference": "motion_reference",
                 "entity": "robot",
+                "resampling_time_range": (1.0e4, 1.0e5),
                 "current_state_command": False,
                 "realtime_mode": True,
                 "anchor_frame": "reference",
             },
         )
         self.rotation_ref_command = CommandTermSpec(
-            kind="motion_reference_rotation",
+            func=commands.RotationReference,
             params={
                 "motion_reference": "motion_reference",
                 "entity": "robot",
+                "resampling_time_range": (1.0e4, 1.0e5),
                 "current_state_command": False,
                 "realtime_mode": True,
                 "in_base_frame": True,
@@ -68,18 +72,20 @@ class ShadowingCommandsCfg:
             },
         )
         self.joint_pos_ref_command = CommandTermSpec(
-            kind="motion_reference_joint_position",
+            func=commands.JointPositionReference,
             params={
                 "motion_reference": "motion_reference",
                 "entity": "robot",
+                "resampling_time_range": (1.0e4, 1.0e5),
                 "current_state_command": False,
             },
         )
         self.joint_vel_ref_command = CommandTermSpec(
-            kind="motion_reference_joint_velocity",
+            func=commands.JointVelocityReference,
             params={
                 "motion_reference": "motion_reference",
                 "entity": "robot",
+                "resampling_time_range": (1.0e4, 1.0e5),
                 "current_state_command": False,
             },
         )

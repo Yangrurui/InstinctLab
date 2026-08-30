@@ -1,8 +1,11 @@
-"""Isaac Sim motion-reference sensor: a thin ``SensorBase`` around the portable clip.
+"""Isaac Sim motion-reference sensor: a native ``SensorBase`` around the portable clip.
 
 SDK imports stay inside :func:`build_motion_reference_sensor` so ``contract_report`` still answers
 without Isaac. The clip clock and the 50% mirror mask live in
 :class:`~instinctlab.engines.motion_reference.MotionReferenceRuntime`.
+
+Only the Isaac lifecycle belongs here: ``SensorBase`` construction, native
+timestamps/outdated flags, and the ``SensorBaseCfg`` returned to the scene.
 """
 
 from __future__ import annotations
@@ -17,9 +20,9 @@ __all__ = ["build_motion_reference_sensor"]
 
 def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
     """Native Isaac ``SensorBaseCfg`` whose class loads the clip at initialize."""
-    import torch
     from collections.abc import Sequence
 
+    import torch
     from isaaclab.sensors import SensorBase, SensorBaseCfg
     from isaaclab.utils import configclass
 

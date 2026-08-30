@@ -1,4 +1,8 @@
-"""Lower the shared rough-terrain contract to Isaac Lab terrain configs."""
+"""Lower the shared rough-terrain contract to Isaac Lab terrain configs.
+
+The task-owned recipe lives in :mod:`instinctlab.tasks.terrain`. Every function
+here constructs an Isaac SDK config or selects an Isaac terrain class.
+"""
 
 from __future__ import annotations
 

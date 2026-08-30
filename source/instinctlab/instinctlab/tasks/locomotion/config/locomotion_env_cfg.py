@@ -21,7 +21,12 @@ from instinctlab.spec import (
     SimSpec,
 )
 from instinctlab.spec.capability import Requirement
-from instinctlab.tasks.locomotion.mdp import observations, rewards, terminations
+from instinctlab.tasks.locomotion.mdp import (
+    commands,
+    observations,
+    rewards,
+    terminations,
+)
 
 
 class LocomotionPolicyObsCfg:
@@ -177,7 +182,7 @@ class LocomotionEnvCfg:
         }
         self.commands = {
             "base_velocity": CommandTermSpec(
-                kind="uniform_velocity",
+                func=commands.UniformVelocityCommand,
                 params={
                     "entity": "robot",
                     "resampling_time_range": (10.0, 10.0),
@@ -190,6 +195,18 @@ class LocomotionEnvCfg:
                     "lin_vel_y": (-0.5, 0.5),
                     "ang_vel_z": (-1.5, 1.5),
                     "heading": (-math.pi, math.pi),
+                    "extended_sampling": False,
+                    "rel_world_envs": 0.0,
+                    "rel_forward_envs": 0.0,
+                    "init_velocity_prob": 0.0,
+                },
+                engine_params={
+                    "mjlab": {
+                        "extended_sampling": True,
+                        "rel_world_envs": 0.0,
+                        "rel_forward_envs": 0.0,
+                        "init_velocity_prob": 0.0,
+                    }
                 },
             )
         }

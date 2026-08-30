@@ -129,7 +129,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
             sliding_friction=spec.dynamic_friction,
         )
     if spec.kind == "rough":
-        from .rough import rough_importer_cfg
+        from .rough_terrain import rough_importer_cfg
 
         return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
     if spec.kind == "motion_matched":
@@ -340,6 +340,6 @@ def build_scene(
 
 def _build_motion_reference(sensor: Any, robot: Any) -> Any:
     """Build the clip-backed reference sensor for MJLab's lifecycle."""
-    from .motion_reference import build_motion_reference_sensor
+    from .motion_reference_sensor import build_motion_reference_sensor
 
     return build_motion_reference_sensor(sensor, robot)

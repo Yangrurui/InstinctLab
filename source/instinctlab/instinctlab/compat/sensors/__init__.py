@@ -15,7 +15,7 @@ from .contact import (
     in_contact,
     sensor_engine,
 )
-from .ray import depth_image, ray_hits_w
+from .ray import depth_image, ray_hits_w, ray_origin_z_w
 from .volume_points import (
     registered_cylinder_count,
     require_volume_points_registered,
@@ -33,6 +33,7 @@ __all__ = [
     "forget",
     "in_contact",
     "ray_hits_w",
+    "ray_origin_z_w",
     "registered_cylinder_count",
     "require_volume_points_registered",
     "sensor_engine",
