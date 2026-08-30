@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from copy import deepcopy
 from typing import Any
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -17,7 +18,7 @@ class PluginDiscoveryError(RuntimeError):
 
 _records: dict[str, dict[str, Any]] = {}
 _key_origins: dict[tuple[str, str], str] = {}
-_used: set[str] = set()
+_usage_log: list[str] = []
 
 
 def _distribution_details(entry_point: Any) -> tuple[str, str]:
@@ -88,11 +89,12 @@ def mark_plugin_used(group: str, key: str) -> None:
     """Mark the plugin that owns ``group/key`` as affecting the current process."""
     record_id = _key_origins.get((group, key))
     if record_id is not None:
-        _used.add(record_id)
+        _usage_log.append(record_id)
 
 
-def plugin_provenance(*, engine: str | None = None) -> list[dict[str, Any]]:
-    """Metadata for installed plugins whose registered keys were actually used."""
+def _provenance(
+    record_ids: set[str], *, engine: str | None = None
+) -> list[dict[str, Any]]:
 
     def affects_engine(record: dict[str, Any]) -> bool:
         if engine is None or record["group"] == "instinctlab.assets":
@@ -107,24 +109,50 @@ def plugin_provenance(*, engine: str | None = None) -> list[dict[str, Any]]:
         return True
 
     return [
-        dict(_records[record_id])
-        for record_id in sorted(_used)
+        deepcopy(_records[record_id])
+        for record_id in sorted(record_ids)
         if affects_engine(_records[record_id])
     ]
 
 
-def _snapshot_provenance() -> tuple[dict, dict, set]:
-    return dict(_records), dict(_key_origins), set(_used)
+def plugin_provenance(*, engine: str | None = None) -> list[dict[str, Any]]:
+    """Metadata for plugins used anywhere in the current process."""
+    return _provenance(set(_usage_log), engine=engine)
 
 
-def _restore_provenance(snapshot: tuple[dict, dict, set]) -> None:
+def plugin_usage_snapshot() -> int:
+    """Return a cursor used to scope provenance to one compilation."""
+    return len(_usage_log)
+
+
+def plugin_provenance_since(
+    usage_start: int,
+    *,
+    engine: str | None = None,
+    include_keys: Iterable[tuple[str, str]] = (),
+) -> list[dict[str, Any]]:
+    """Metadata for uses after ``usage_start`` plus explicitly selected keys."""
+    record_ids = set(_usage_log[usage_start:])
+    record_ids.update(
+        record_id
+        for group, key in include_keys
+        if (record_id := _key_origins.get((group, key))) is not None
+    )
+    return _provenance(record_ids, engine=engine)
+
+
+def _snapshot_provenance() -> tuple[dict, dict, list]:
+    return dict(_records), dict(_key_origins), list(_usage_log)
+
+
+def _restore_provenance(snapshot: tuple[dict, dict, list]) -> None:
     records, origins, used = snapshot
     _records.clear()
     _records.update(records)
     _key_origins.clear()
     _key_origins.update(origins)
-    _used.clear()
-    _used.update(used)
+    _usage_log.clear()
+    _usage_log.extend(used)
 
 
 __all__ = [
@@ -134,5 +162,7 @@ __all__ = [
     "load_plugin_callable",
     "mark_plugin_used",
     "plugin_provenance",
+    "plugin_provenance_since",
+    "plugin_usage_snapshot",
     "record_plugin",
 ]

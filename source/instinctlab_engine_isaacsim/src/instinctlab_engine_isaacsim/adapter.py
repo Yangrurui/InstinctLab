@@ -301,6 +301,7 @@ class IsaacSimAdapter:
             bind_motion_reference_origins(env.scene, spec.scene.motion_references)
             return env
 
+        resolution.capture_plugin_provenance(asset_id=spec.robot.asset_id)
         return CompiledTask(
             env_cls=env_cls,
             env_cfg=env_cfg,

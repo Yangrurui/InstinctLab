@@ -105,6 +105,15 @@ class Resolution:
     profile: dict[str, Any] = field(default_factory=dict)
     engine_extras_used: tuple[str, ...] = ()
     strict: bool = False
+    plugin_usage_start: int = field(default=-1, repr=False)
+    plugins: tuple[dict[str, Any], ...] = field(default=(), repr=False)
+    _plugins_captured: bool = field(default=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.plugin_usage_start < 0:
+            from instinctlab_engine.plugins import plugin_usage_snapshot
+
+            self.plugin_usage_start = plugin_usage_snapshot()
 
     @property
     def is_clean(self) -> bool:
@@ -158,7 +167,16 @@ class Resolution:
         two runs may have been compiled from the same task file and still have optimised different
         objectives, and the difference exists only here.
         """
-        from instinctlab_engine.plugins import plugin_provenance
+        from instinctlab_engine.plugins import plugin_provenance_since
+
+        plugins = (
+            list(self.plugins)
+            if self._plugins_captured
+            else plugin_provenance_since(
+                self.plugin_usage_start,
+                engine=self.engine,
+            )
+        )
 
         return {
             "engine": self.engine,
@@ -171,8 +189,30 @@ class Resolution:
             "engine_extras_used": list(self.engine_extras_used),
             "strict": self.strict,
             "portable": self.is_clean and not self.engine_extras_used,
-            "plugins": plugin_provenance(engine=self.engine),
+            "plugins": plugins,
         }
+
+    def capture_plugin_provenance(self, *, asset_id: str) -> None:
+        """Finish the plugin ledger for this compilation.
+
+        Engine and asset selection happen immediately before ``Resolution`` is
+        created, so they are included explicitly. Term and terrain lookups are
+        captured from the per-compilation usage cursor.
+        """
+        from instinctlab_engine.plugins import plugin_provenance_since
+
+        asset_package = asset_id.partition("/")[0]
+        self.plugins = tuple(
+            plugin_provenance_since(
+                self.plugin_usage_start,
+                engine=self.engine,
+                include_keys=(
+                    ("instinctlab.engines", self.engine),
+                    ("instinctlab.assets", asset_package),
+                ),
+            )
+        )
+        self._plugins_captured = True
 
 
 @dataclass

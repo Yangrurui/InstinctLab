@@ -13,7 +13,11 @@ from instinctlab_engine import registry as registry_module
 from instinctlab_engine.assets import AssetRegistry
 from instinctlab_engine.base import Resolution
 from instinctlab_engine.bridge import entity as entity_module
-from instinctlab_engine.plugins import PluginDiscoveryError, plugin_provenance
+from instinctlab_engine.plugins import (
+    PluginDiscoveryError,
+    plugin_provenance_since,
+    plugin_usage_snapshot,
+)
 from instinctlab_engine.registry import TermRegistry, TerrainExtensionRegistry
 
 
@@ -319,9 +323,10 @@ def test_two_term_extensions_for_one_backend_are_composed_and_attributed(
     )
 
     terms = TermRegistry("isaacsim")
+    resolution = Resolution(engine="isaacsim", task_id="test")
     assert terms.lookup("event", "alpha") is not None
     assert terms.lookup("event", "beta") is not None
-    manifest = Resolution(engine="isaacsim", task_id="test").manifest()
+    manifest = resolution.manifest()
     assert [entry["distribution"] for entry in manifest["plugins"]] == [
         "alpha-randomizers",
         "beta-randomizers",
@@ -350,8 +355,9 @@ def test_unused_plugin_is_not_recorded_as_affecting_a_resolution(
     )
 
     terms = TermRegistry("mjlab")
+    usage_start = plugin_usage_snapshot()
     assert terms.lookup("event", "used") is not None
-    provenance = plugin_provenance(engine="mjlab")
+    provenance = plugin_provenance_since(usage_start, engine="mjlab")
     assert len(provenance) == 1
     assert provenance[0]["registered_keys"] == [
         "mjlab:kind:event:unused",

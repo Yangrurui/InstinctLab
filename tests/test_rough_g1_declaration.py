@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from instinctlab_engine.spec import freeze_task_spec
 from instinctlab.tasks.terrain import rough_terrain
 from tests.engine_packages import ISAACSIM_ENGINE, MJLAB_ENGINE
 from tests.task_specs import task_spec
@@ -51,9 +52,16 @@ def test_the_task_carries_the_shared_rough_recipe(task) -> None:
 
 
 def test_locomotion_and_parkour_use_the_same_training_recipe() -> None:
-    locomotion = task_spec("Instinct-Velocity-Rough-G1").scene.terrain.generator
+    locomotion_task = task_spec("Instinct-Velocity-Rough-G1")
+    locomotion = locomotion_task.scene.terrain.generator
     parkour = task_spec("Instinct-Parkour-Target-G1").scene.terrain.generator
-    assert locomotion == parkour == rough_terrain().generator
+    expected_task = freeze_task_spec(
+        replace(
+            locomotion_task,
+            scene=replace(locomotion_task.scene, terrain=rough_terrain()),
+        )
+    )
+    assert locomotion == parkour == expected_task.scene.terrain.generator
 
 
 def test_the_curriculum_is_required_and_names_the_command(task) -> None:

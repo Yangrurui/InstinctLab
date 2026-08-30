@@ -262,6 +262,7 @@ class MjlabAdapter:
             bind_motion_reference_origins(env.scene, spec.scene.motion_references)
             return env
 
+        resolution.capture_plugin_provenance(asset_id=spec.robot.asset_id)
         return CompiledTask(
             env_factory=make_env,
             env_cls=TerrainAwareRlEnv,
