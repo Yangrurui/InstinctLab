@@ -6,7 +6,35 @@ from typing import Any
 
 import torch
 
+from instinctlab.spec.sensor import RayCasterRef
+
 from ..denylist import PortabilityError
+
+
+def camera_pose_for_alignment(torso_pos, torso_quat, offset, offset_rot, alignment: str):
+    """Return an attached camera pose using either yaw-only or full-body rotation."""
+    from instinctlab.compat.math import quat_apply, quat_mul, yaw_quat
+
+    rot = yaw_quat(torso_quat) if alignment == "yaw" else torso_quat
+    shift = offset.to(dtype=torso_pos.dtype, device=torso_pos.device)
+    if shift.shape != torso_pos.shape:
+        shift = shift.reshape(1, -1).expand_as(torso_pos)
+    qoff = offset_rot.to(dtype=torso_quat.dtype, device=torso_quat.device)
+    if qoff.shape != torso_quat.shape:
+        qoff = qoff.reshape(1, -1).expand_as(torso_quat)
+    return torso_pos + quat_apply(rot, shift), quat_mul(rot, qoff)
+
+
+def refuse_unhonored_ray_alignment(sensor: RayCasterRef) -> None:
+    """Reject a declared ray alignment that neither backend can currently apply."""
+    if sensor.pattern.kind == "pinhole" and sensor.ray_alignment != "base":
+        raise ValueError(
+            f"Ray caster {sensor.name!r} is a pinhole with "
+            f"ray_alignment={sensor.ray_alignment!r}. Both engines ignore that "
+            "field on a camera and always use the attach body's full rotation; "
+            f"{sensor.ray_alignment!r} would be accepted and silently ignored. "
+            "Declare ray_alignment='base'."
+        )
 
 
 def ray_hits_w(sensor: Any) -> torch.Tensor:

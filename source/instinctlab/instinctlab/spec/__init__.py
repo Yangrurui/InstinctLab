@@ -27,6 +27,7 @@ from .mdp import (
     TermSpec,
 )
 from .rigid_object import RigidObjectRef
+from .robot import BackendAsset, JointProperties, RobotSpec
 from .sensor import (
     ContactSensorRef,
     Grid3dPointsRef,
@@ -37,12 +38,21 @@ from .sensor import (
     VirtualObstacleRef,
     VolumePointsRef,
 )
-from .task import AgentSpec, SceneSpec, SimSpec, SubTerrainSpec, TaskSpec, TerrainGeneratorSpec, TerrainSpec
+from .task import (
+    AgentSpec,
+    SceneSpec,
+    SimSpec,
+    SubTerrainSpec,
+    TaskSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
+)
 
 __all__ = [
     "UNIVERSAL_KINDS",
     "ActionTermSpec",
     "AgentSpec",
+    "BackendAsset",
     "CommandTermSpec",
     "ContactSensorRef",
     "CurriculumTermSpec",
@@ -50,6 +60,7 @@ __all__ = [
     "EntityRef",
     "EventTermSpec",
     "Grid3dPointsRef",
+    "JointProperties",
     "MdpSpec",
     "MotionReferenceRef",
     "NoiseSpec",
@@ -60,6 +71,7 @@ __all__ = [
     "Requirement",
     "RewardTermSpec",
     "RigidObjectRef",
+    "RobotSpec",
     "SceneSpec",
     "SimSpec",
     "SubTerrainSpec",

@@ -18,7 +18,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
-from instinctlab.engines.capabilities import CapabilitySet
 from instinctlab.engines.compile import (
     CompileCtx,
     compile_mdp,
@@ -26,6 +25,7 @@ from instinctlab.engines.compile import (
     flatten_reward_groups,
     observation_group_settings,
 )
+from instinctlab.spec.capability import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
 from instinctlab.spec.task import TaskSpec
 
@@ -305,7 +305,7 @@ class IsaacSimAdapter:
         env_cls = InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)
 
         def make_env() -> Any:
-            from instinctlab.engines.motion_reference import (
+            from instinctlab.runtime.motion_reference import (
                 bind_motion_reference_origins,
             )
 

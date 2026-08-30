@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from instinctlab.engines.assets import BackendAsset, JointProperties, RobotSpec, native_asset_module
+from instinctlab.assets.registry import native_asset_module
+from instinctlab.spec.robot import BackendAsset, JointProperties, RobotSpec
 
 __all__ = ["articulation", "robot_spec"]
 

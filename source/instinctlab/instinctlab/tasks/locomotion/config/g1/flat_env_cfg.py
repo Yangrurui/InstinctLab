@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     ContactSensorRef,
     EntityRef,
@@ -11,6 +10,7 @@ from instinctlab.spec import (
     TaskSpec,
 )
 from instinctlab.spec.capability import Requirement
+from instinctlab.spec.robot import RobotSpec
 from instinctlab.tasks.locomotion.config.g1.rl_cfgs import G1_LOCOMOTION_TRAINING_CFG
 from instinctlab.tasks.locomotion.config.locomotion_env_cfg import (
     LocomotionEnvCfg,

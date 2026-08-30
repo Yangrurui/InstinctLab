@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import AgentSpec, MdpSpec, MotionReferenceRef, SimSpec, TaskSpec
+from instinctlab.spec.robot import RobotSpec
 from instinctlab.tasks.shadowing.beyondmimic.beyondmimic_env_cfg import (
     BeyondMimicCurriculumCfg,
     BeyondMimicEnvCfg,

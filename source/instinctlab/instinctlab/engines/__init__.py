@@ -12,18 +12,33 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
+from instinctlab.compat import entity as _entity
+
 if TYPE_CHECKING:
     from .base import EngineAdapter
 
-ADAPTERS: dict[str, str] = {
-    "isaacsim": "instinctlab.engines.isaacsim.adapter:IsaacSimAdapter",
-    "mjlab": "instinctlab.engines.mjlab.adapter:MjlabAdapter",
-}
+ADAPTERS: dict[str, str] = {}
 """Engine name -> dotted path of its adapter class.
 
 Paths rather than classes: naming an engine must not import it. A launcher reads this table to
 know what ``--engine`` accepts, then imports exactly the one it was given.
 """
+
+
+def register_adapter(engine: str, path: str) -> None:
+    """Register an engine plugin without editing the shared compiler."""
+    module, separator, attribute = path.partition(":")
+    if not engine.isidentifier() or not separator or not module or not attribute.isidentifier():
+        raise ValueError(f"invalid engine adapter registration {engine!r} -> {path!r}")
+    existing = ADAPTERS.get(engine)
+    if existing is not None and existing != path:
+        raise ValueError(f"engine {engine!r} is already registered as {existing!r}")
+    ADAPTERS[engine] = path
+    _entity.register_packages({engine: module.rpartition(".")[0]})
+
+
+register_adapter("isaacsim", "instinctlab.engines.isaacsim.adapter:IsaacSimAdapter")
+register_adapter("mjlab", "instinctlab.engines.mjlab.adapter:MjlabAdapter")
 
 
 def names() -> tuple[str, ...]:
@@ -89,4 +104,5 @@ __all__ = [
     "names",
     "observation_group_settings",
     "qualname_of",
+    "register_adapter",
 ]

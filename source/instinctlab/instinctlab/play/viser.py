@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from instinctlab.engines.assets import RobotSpec
+from instinctlab.spec.robot import RobotSpec
 
 
 def build_viser_env(spec: Any, *, num_envs: int, device: str, strict: bool) -> Any:

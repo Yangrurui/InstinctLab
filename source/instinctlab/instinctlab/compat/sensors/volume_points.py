@@ -2,10 +2,87 @@
 
 from __future__ import annotations
 
-import torch
+import math
 from typing import Any
 
+import torch
+
+from instinctlab.spec.sensor import Grid3dPointsRef
+
 from ..denylist import PortabilityError
+
+
+def grid3d_points(grid: Grid3dPointsRef) -> tuple[tuple[float, float, float], ...]:
+    """Return local points in the order used by both native generators."""
+    return grid.points()
+
+
+def cylinder_penetration_offset(
+    point: tuple[float, float, float],
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    radius: float,
+) -> tuple[float, float, float]:
+    """Return the world-frame surface-to-point offset for a finite cylinder."""
+    px, py, pz = point
+    ax, ay, az = start
+    bx, by, bz = end
+    abx, aby, abz = bx - ax, by - ay, bz - az
+    ab_len = math.sqrt(abx * abx + aby * aby + abz * abz)
+    if ab_len <= 0.0:
+        raise ValueError("cylinder segment has zero length.")
+    ux, uy, uz = abx / ab_len, aby / ab_len, abz / ab_len
+    t = (px - ax) * ux + (py - ay) * uy + (pz - az) * uz
+    if t < 0.0 or t > ab_len:
+        return (0.0, 0.0, 0.0)
+    projx, projy, projz = ax + t * ux, ay + t * uy, az + t * uz
+    dx, dy, dz = px - projx, py - projy, pz - projz
+    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if dist >= radius:
+        return (0.0, 0.0, 0.0)
+    if dist <= 0.0:
+        nx, ny, nz = uy, -ux, 0.0
+        nlen = math.sqrt(nx * nx + ny * ny + nz * nz)
+        if nlen <= 1e-8:
+            nx, ny, nz = 0.0, uz, -uy
+            nlen = math.sqrt(nx * nx + ny * ny + nz * nz)
+        nx, ny, nz = nx / nlen, ny / nlen, nz / nlen
+        return (-nx * radius, -ny * radius, -nz * radius)
+    scale = (radius - dist) / dist
+    return ((projx - px) * scale, (projy - py) * scale, (projz - pz) * scale)
+
+
+def point_velocity_from_link(
+    link_lin_vel: tuple[float, float, float],
+    link_ang_vel: tuple[float, float, float],
+    link_pos: tuple[float, float, float],
+    point_pos: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Apply ``v_point = v_link + omega x (point - link_origin)``."""
+    rx = point_pos[0] - link_pos[0]
+    ry = point_pos[1] - link_pos[1]
+    rz = point_pos[2] - link_pos[2]
+    wx, wy, wz = link_ang_vel
+    return (
+        link_lin_vel[0] + wy * rz - wz * ry,
+        link_lin_vel[1] + wz * rx - wx * rz,
+        link_lin_vel[2] + wx * ry - wy * rx,
+    )
+
+
+def link_linear_velocity_from_com(
+    com_lin_vel: tuple[float, float, float],
+    ang_vel: tuple[float, float, float],
+    com_offset_w: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Convert COM linear velocity to the link-origin linear velocity."""
+    wx, wy, wz = ang_vel
+    ox, oy, oz = com_offset_w
+    return (
+        com_lin_vel[0] + (wy * -oz - wz * -oy),
+        com_lin_vel[1] + (wz * -ox - wx * -oz),
+        com_lin_vel[2] + (wx * -oy - wy * -ox),
+    )
 
 
 def registered_cylinder_count(sensor: Any) -> int:

@@ -232,7 +232,7 @@ def joint_vel_limits(
 ) -> torch.Tensor:
     """Penalise joint velocities past a catalog-stated soft cap.
 
-    Limits come from the task declaration, which reads them off :class:`~instinctlab.engines.assets.RobotSpec`.
+    Limits come from the task declaration, which reads them off :class:`~instinctlab.spec.robot.RobotSpec`.
     Reading the catalog is what makes this portable: Isaac Lab's original reads
     ``soft_joint_vel_limits`` from engine data, and mjlab's ``EntityData`` has no equivalent
     field. It also removes a dependency on an engine-derived value that the two engines
@@ -592,3 +592,10 @@ def volume_points_penetration(
         compat_sensors.volume_points_vel_w(volume).flatten(1, 2), dim=-1
     )
     return torch.sum(in_obstacle * (speed + 1e-6) * depth, dim=-1)
+
+
+def penetration_reward(depth: float, speed: float, *, tolerance: float = 0.0) -> float:
+    """Scalar form of :func:`volume_points_penetration` for fixed-state probes."""
+    if depth <= tolerance:
+        return 0.0
+    return (speed + 1e-6) * depth

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import inspect
 import re
-import torch
 import weakref
 from types import MappingProxyType
 from typing import Any, Mapping, MutableMapping
+
+import torch
 
 from instinctlab.spec.sensor import ContactSensorRef
 
@@ -25,6 +26,33 @@ _FORCE_HISTORY: Mapping[str, tuple[str, bool]] = MappingProxyType(
 _NAMES: MutableMapping[Any, list[str]] = weakref.WeakKeyDictionary()
 _IDS: MutableMapping[Any, dict[tuple[str, tuple[str, ...], bool], list[int]]] = weakref.WeakKeyDictionary()
 _ENGINES: MutableMapping[Any, str] = weakref.WeakKeyDictionary()
+
+
+def contact_from_force(force: torch.Tensor, threshold: float, num_slots: int = 1) -> torch.Tensor:
+    """Convert ``(env, slot, xyz)`` net forces to a loaded-contact mask."""
+    over = torch.linalg.vector_norm(force, dim=-1) > threshold
+    if num_slots > 1:
+        over = over.view(over.size(0), -1, num_slots).any(dim=-1)
+    return over
+
+
+def step_contact_clock(
+    *,
+    is_contact: torch.Tensor,
+    elapsed: torch.Tensor,
+    current_air: torch.Tensor,
+    last_air: torch.Tensor,
+    current_contact: torch.Tensor,
+    last_contact: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Advance the portable air/contact timer by one simulation step."""
+    first_contact = (current_air > 0) & is_contact
+    first_detached = (current_contact > 0) & ~is_contact
+    new_last_air = torch.where(first_contact, current_air + elapsed, last_air)
+    new_current_air = torch.where(~is_contact, current_air + elapsed, torch.zeros_like(current_air))
+    new_last_contact = torch.where(first_detached, current_contact + elapsed, last_contact)
+    new_current_contact = torch.where(is_contact, current_contact + elapsed, torch.zeros_like(current_contact))
+    return new_current_air, new_last_air, new_current_contact, new_last_contact
 
 
 def forget(sensor: Any | None = None) -> None:

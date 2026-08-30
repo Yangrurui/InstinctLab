@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     AgentSpec,
     MdpSpec,
@@ -12,6 +11,7 @@ from instinctlab.spec import (
     RigidObjectRef,
     TaskSpec,
 )
+from instinctlab.spec.robot import RobotSpec
 from instinctlab.tasks.shadowing.perceptive_hoi.perceptive_env_cfg import (
     PerceptiveHoiCurriculumCfg,
     PerceptiveHoiEventsCfg,

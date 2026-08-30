@@ -21,7 +21,7 @@ from typing import Any
 import torch
 
 from instinctlab.compat.math import quat_apply, quat_from_euler_xyz, quat_inv, quat_mul
-from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
+from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab.spec.sensor import RayCasterRef
 
 __all__ = [

@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
+from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
 

@@ -21,14 +21,14 @@ def _flat_patches(value: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _perlin(value: Mapping[str, Any]) -> Any:
-    import instinctlab.terrains as terrain_gen
+    import instinctlab.engines.isaacsim.terrains as terrain_gen
 
     return terrain_gen.PerlinPlaneTerrainCfg(**dict(value))
 
 
 def _sub_terrain(tile: SubTerrainSpec) -> Any:
     """Translate one engine-neutral rough tile to its Isaac implementation."""
-    import instinctlab.terrains as terrain_gen
+    import instinctlab.engines.isaacsim.terrains as terrain_gen
 
     fields = dict(tile.params)
     if flat_patches := fields.get("flat_patch_sampling"):
@@ -81,7 +81,7 @@ def rough_importer_cfg(spec: TerrainSpec) -> Any:
     from isaaclab.sim import MdlFileCfg, RigidBodyMaterialCfg
     from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
-    from instinctlab.terrains import TerrainImporterCfg
+    from instinctlab.engines.isaacsim.terrains import TerrainImporterCfg
 
     return TerrainImporterCfg(
         prim_path="/World/ground",

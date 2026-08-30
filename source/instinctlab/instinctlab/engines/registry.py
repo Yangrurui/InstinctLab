@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from instinctlab.engines.capabilities import CapabilitySet
+from instinctlab.spec.capability import CapabilitySet
 
 __all__ = ["FAMILIES", "TermBuilder", "TermRegistry"]
 

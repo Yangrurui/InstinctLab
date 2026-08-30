@@ -8,7 +8,6 @@ primitives; height scanning remains a separate sensor concern.
 
 from __future__ import annotations
 
-from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     ContactSensorRef,
     CurriculumTermSpec,
@@ -17,6 +16,7 @@ from instinctlab.spec import (
     TaskSpec,
 )
 from instinctlab.spec.capability import Requirement
+from instinctlab.spec.robot import RobotSpec
 from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import G1LocomotionFlatEnvCfg
 from instinctlab.tasks.locomotion.mdp import curriculums
 from instinctlab.tasks.terrain import rough_terrain

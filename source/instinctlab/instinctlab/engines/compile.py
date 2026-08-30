@@ -18,8 +18,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from instinctlab.compat import entity as compat_entity
-from instinctlab.engines.capabilities import CapabilitySet
-from instinctlab.spec.capability import Requirement
+from instinctlab.spec.capability import CapabilitySet, Requirement
 from instinctlab.spec.entity import EntityRef, resolve_entity_names
 from instinctlab.spec.mdp import MdpSpec, NoiseSpec, TermSpec
 from instinctlab.spec.task import TaskSpec

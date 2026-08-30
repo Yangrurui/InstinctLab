@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from instinctlab.engines.assets import RobotSpec
+from instinctlab.spec.robot import RobotSpec
 
 from .mdp import MdpSpec
 from .rigid_object import RigidObjectRef
@@ -327,7 +327,7 @@ class TaskSpec:
 
     Args:
         task_id: Registration id, unique across the project.
-        robot: The robot's engine-independent contract from ``engines/assets.py``.
+        robot: The robot's engine-independent contract from ``spec/robot.py``.
         scene: Terrain and sensors.
         sim: Timing and per-engine solver profiles.
         mdp: Every term of the MDP.

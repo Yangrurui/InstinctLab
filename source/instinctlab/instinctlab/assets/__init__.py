@@ -1,1 +1,5 @@
-"""Robot asset packages with one native module per supported engine."""
+"""Robot asset packages and engine-neutral native-module routing."""
+
+from .registry import native_asset_module
+
+__all__ = ["native_asset_module"]

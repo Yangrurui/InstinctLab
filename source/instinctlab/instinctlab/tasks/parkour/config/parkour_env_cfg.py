@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from instinctlab.engines.assets import RobotSpec
 from instinctlab.spec import (
     ActionTermSpec,
     AgentSpec,
@@ -24,6 +23,7 @@ from instinctlab.spec import (
     VolumePointsRef,
 )
 from instinctlab.spec.capability import Requirement
+from instinctlab.spec.robot import RobotSpec
 from instinctlab.tasks.parkour.mdp import (
     amp,
     curriculums,

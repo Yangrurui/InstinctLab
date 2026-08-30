@@ -18,7 +18,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
-from instinctlab.engines.capabilities import CapabilitySet
 from instinctlab.engines.compile import (
     CompileCtx,
     compile_mdp,
@@ -27,6 +26,7 @@ from instinctlab.engines.compile import (
     observation_group_settings,
     record_reward_omissions,
 )
+from instinctlab.spec.capability import CapabilitySet
 from instinctlab.spec.mdp import NoiseSpec
 from instinctlab.spec.task import TaskSpec
 
@@ -256,7 +256,7 @@ class MjlabAdapter:
         )
 
         def make_env() -> Any:
-            from instinctlab.engines.motion_reference import (
+            from instinctlab.runtime.motion_reference import (
                 bind_motion_reference_origins,
             )
 

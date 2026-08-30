@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.engines.ray_alignment import refuse_unhonored_ray_alignment
+from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
 
@@ -157,11 +157,13 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     if spec.kind == "motion_matched":
         import os
 
-        from instinctlab.terrains import (
+        from instinctlab.engines.isaacsim.terrains import (
             TerrainImporterCfg as InstinctTerrainImporterCfg,
         )
-        from instinctlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
-        from instinctlab.terrains.trimesh.mesh_terrains_cfg import (
+        from instinctlab.engines.isaacsim.terrains.terrain_generator_cfg import (
+            FiledTerrainGeneratorCfg,
+        )
+        from instinctlab.engines.isaacsim.terrains.trimesh.mesh_terrains_cfg import (
             MotionMatchedTerrainCfg,
         )
 
@@ -202,7 +204,9 @@ def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
     """
     if not spec.virtual_obstacles:
         return cfg
-    from instinctlab.terrains.virtual_obstacle import GreedyconcatEdgeCylinderCfg
+    from instinctlab.engines.isaacsim.terrains.virtual_obstacle import (
+        GreedyconcatEdgeCylinderCfg,
+    )
 
     obstacles: dict[str, Any] = {}
     for obstacle in spec.virtual_obstacles:
@@ -220,10 +224,12 @@ def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
 
 
 def _build_volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
-    from instinctlab.sensors.volume_points.points_generator_cfg import (
+    from instinctlab.engines.isaacsim.sensors.volume_points.points_generator_cfg import (
         Grid3dPointsGeneratorCfg,
     )
-    from instinctlab.sensors.volume_points.volume_points_cfg import VolumePointsCfg
+    from instinctlab.engines.isaacsim.sensors.volume_points.volume_points_cfg import (
+        VolumePointsCfg,
+    )
 
     period = sensor.update_period if sensor.update_period is not None else sensor_period
     bodies = f"({'|'.join(sensor.bodies)})"
@@ -345,10 +351,10 @@ def _build_pinhole_camera(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     """
     from isaaclab.sensors.ray_caster.patterns import PinholeCameraPatternCfg
 
-    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_camera_cfg import (
+    from instinctlab.engines.isaacsim.sensors.grouped_ray_caster.grouped_ray_caster_camera_cfg import (
         GroupedRayCasterCameraCfg,
     )
-    from instinctlab.sensors.grouped_ray_caster.grouped_ray_caster_cfg import (
+    from instinctlab.engines.isaacsim.sensors.grouped_ray_caster.grouped_ray_caster_cfg import (
         get_link_prim_targets,
     )
 

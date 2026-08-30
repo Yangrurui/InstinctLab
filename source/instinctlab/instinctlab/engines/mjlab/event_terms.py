@@ -13,7 +13,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from instinctlab.engines.capabilities import (
+from instinctlab.engines.registry import TermRegistry
+from instinctlab.spec.capability import (
     BODY_MASS_PROPERTIES,
     DR_SLIDING_FRICTION,
     EXTERNAL_WRENCH,
@@ -21,7 +22,6 @@ from instinctlab.engines.capabilities import (
     ROOT_STATE,
     ROOT_VELOCITY_WRITE,
 )
-from instinctlab.engines.registry import TermRegistry
 
 MJLAB_FRICTION_KEYS: frozenset[str] = frozenset(
     {"ranges", "operation", "shared_random", "distribution", "axes"}

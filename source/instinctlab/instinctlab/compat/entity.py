@@ -59,6 +59,7 @@ __all__ = [
     "UnsupportedSelector",
     "lower",
     "register",
+    "register_packages",
     "resolved_names",
     "selector_field",
     "selector_kinds",
@@ -79,6 +80,12 @@ class _Selectors:
 
 
 _ENGINES: dict[str, _Selectors] = {}
+_PACKAGES: dict[str, str] = {}
+
+
+def register_packages(packages: Mapping[str, str]) -> None:
+    """Register lazy engine packages without making compat import the engine registry."""
+    _PACKAGES.update(packages)
 
 
 def register(engine: str, *, kinds: Iterable[str], cfg: tuple[str, str], container: type) -> None:
@@ -114,7 +121,7 @@ def register(engine: str, *, kinds: Iterable[str], cfg: tuple[str, str], contain
 
 
 def _ensure_registered() -> None:
-    """Import the adapter packages, since registration is a side effect of importing them.
+    """Import registered adapter packages so their selector declarations run.
 
     Adapters do not import their SDK at module scope, so this is safe on a machine with neither
     engine installed -- which is the case this whole layer is built to keep working.
@@ -122,11 +129,9 @@ def _ensure_registered() -> None:
     导入 adapter 包以触发注册副作用。adapter 不在模块级 import SDK，
     故在未安装任一引擎的机器上仍安全——本层即为此设计。
     """
-    from instinctlab.engines import ADAPTERS
-
-    for engine, path in ADAPTERS.items():
+    for engine, package in _PACKAGES.items():
         if engine not in _ENGINES:
-            importlib.import_module(path.partition(":")[0].rpartition(".")[0])
+            importlib.import_module(package)
 
 
 def selector_kinds() -> Mapping[str, frozenset[str]]:

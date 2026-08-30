@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from instinctlab.engines.capabilities import (
+from instinctlab.engines.registry import TermRegistry
+from instinctlab.spec.capability import (
     BODY_MASS_PROPERTIES,
     DR_RESTITUTION,
     DR_SLIDING_FRICTION,
@@ -22,7 +23,6 @@ from instinctlab.engines.capabilities import (
     ROOT_STATE,
     ROOT_VELOCITY_WRITE,
 )
-from instinctlab.engines.registry import TermRegistry
 
 ISAAC_FRICTION_KEYS: frozenset[str] = frozenset(
     {

@@ -15,52 +15,18 @@ first resolves the task's reference-specific value, then maps it onto its native
 InstinctMJ reached the same place from the other direction -- its ``ForceThresholdContactSensor``
 docstring calls the behaviour "InstinctLab force-threshold air-time semantics".
 
-The clock itself is a free function so it can be tested without mjlab installed;
-the subclass below only moves tensors in and out of mjlab's state object.
+The clock itself lives in ``compat.sensors.contact`` so it can be tested without
+mjlab installed; the subclass below only moves tensors in and out of mjlab's
+state object.
 """
 
 from __future__ import annotations
 
-import torch
 from typing import Any
 
-__all__ = ["contact_from_force", "step_contact_clock", "thresholded_contact_sensor_cfg"]
+from instinctlab.compat.sensors.contact import contact_from_force, step_contact_clock
 
-
-def contact_from_force(force: torch.Tensor, threshold: float, num_slots: int = 1) -> torch.Tensor:
-    """``[B, N, 3]`` net forces to a ``[B, P]`` touchdown mask.
-
-    A primary counts as loaded when *any* of its slots carries more than the
-    threshold, which is how mjlab reduces slots for the ``found`` rule too.
-    """
-    over = torch.linalg.vector_norm(force, dim=-1) > threshold
-    if num_slots > 1:
-        over = over.view(over.size(0), -1, num_slots).any(dim=-1)
-    return over
-
-
-def step_contact_clock(
-    *,
-    is_contact: torch.Tensor,
-    elapsed: torch.Tensor,
-    current_air: torch.Tensor,
-    last_air: torch.Tensor,
-    current_contact: torch.Tensor,
-    last_contact: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """One tick of the air/contact clock: ``(current_air, last_air, current_contact, last_contact)``.
-
-    Same recurrence Isaac Lab and mjlab both run; only ``is_contact`` differed.
-    ``last_*`` latch the duration of the phase that just ended, so they hold the
-    completed flight time that ``feet_air_time`` pays on.
-    """
-    first_contact = (current_air > 0) & is_contact
-    first_detached = (current_contact > 0) & ~is_contact
-    new_last_air = torch.where(first_contact, current_air + elapsed, last_air)
-    new_current_air = torch.where(~is_contact, current_air + elapsed, torch.zeros_like(current_air))
-    new_last_contact = torch.where(first_detached, current_contact + elapsed, last_contact)
-    new_current_contact = torch.where(is_contact, current_contact + elapsed, torch.zeros_like(current_contact))
-    return new_current_air, new_last_air, new_current_contact, new_last_contact
+__all__ = ["thresholded_contact_sensor_cfg"]
 
 
 def thresholded_contact_sensor_cfg(*, force_threshold: float, **kwargs: Any) -> Any:

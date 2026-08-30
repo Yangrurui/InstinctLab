@@ -13,8 +13,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from instinctlab.engines.assets import BackendAsset
 from instinctlab.spec import TaskSpec
+from instinctlab.spec.robot import BackendAsset
 
 _CONTRACT_VERSION = "task_spec_v1"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
