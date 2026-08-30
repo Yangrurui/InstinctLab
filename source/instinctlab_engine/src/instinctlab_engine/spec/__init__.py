@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from .capability import Requirement
 from .entity import UNIVERSAL_KINDS, EntityRef
+from .freeze import freeze_task_spec
 from .mdp import (
     ActionTermSpec,
     CommandTermSpec,
@@ -82,4 +83,5 @@ __all__ = [
     "TerrainSpec",
     "VirtualObstacleRef",
     "VolumePointsRef",
+    "freeze_task_spec",
 ]

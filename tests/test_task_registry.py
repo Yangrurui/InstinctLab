@@ -3,8 +3,12 @@
 from collections.abc import Mapping
 from pathlib import Path
 
-from instinctlab_engine.spec import EntityRef
+import pytest
+
+from instinctlab.checkpoint import task_contract
 from instinctlab.tasks import registry
+from instinctlab_engine.spec import EntityRef
+
 from tests.task_specs import task_spec
 
 TASK_ROOT = Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/tasks"
@@ -33,6 +37,19 @@ def test_task_sources_do_not_register_gym_environments() -> None:
 def test_every_registered_factory_returns_its_own_task_id() -> None:
     for task_id in registry.ids():
         assert task_spec(task_id).task_id == task_id
+
+
+def test_registry_returns_the_same_immutable_snapshot_used_for_hashing() -> None:
+    task = task_spec("Instinct-Velocity-Flat-G1")
+    before = task_contract(task)
+
+    with pytest.raises(TypeError):
+        task.mdp.actions["new_action"] = next(iter(task.mdp.actions.values()))
+    first_action = next(iter(task.mdp.actions.values()))
+    with pytest.raises(TypeError):
+        first_action.params["new_parameter"] = 1.0
+
+    assert task_contract(task) == before
 
 
 def test_play_checkpoint_pairs_are_explicit_and_policy_compatible() -> None:

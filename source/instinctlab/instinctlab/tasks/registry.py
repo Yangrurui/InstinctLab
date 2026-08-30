@@ -15,6 +15,8 @@ from collections.abc import Callable
 from importlib import import_module
 from typing import TYPE_CHECKING
 
+from instinctlab_engine.spec import freeze_task_spec
+
 if TYPE_CHECKING:
     from instinctlab_engine.spec import TaskSpec
     from instinctlab_engine.spec.robot import RobotSpec
@@ -150,4 +152,6 @@ def spec(task_id: str, robot: RobotSpec) -> TaskSpec:
             "a task known by two names cannot be compared across engines"
         )
     built.validate()
-    return built
+    frozen = freeze_task_spec(built)
+    frozen.validate()
+    return frozen

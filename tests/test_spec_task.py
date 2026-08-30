@@ -12,7 +12,6 @@ from dataclasses import replace
 
 import pytest
 
-from instinctlab_engine.spec.robot import BackendAsset, JointProperties, RobotSpec
 from instinctlab_engine.spec import (
     ActionTermSpec,
     AgentSpec,
@@ -38,7 +37,9 @@ from instinctlab_engine.spec import (
     TerrainSpec,
     VirtualObstacleRef,
     VolumePointsRef,
+    freeze_task_spec,
 )
+from instinctlab_engine.spec.robot import BackendAsset, JointProperties, RobotSpec
 
 
 def _robot(backend: str = "mjlab") -> RobotSpec:
@@ -250,6 +251,44 @@ Whole-task validation.
 
 def test_a_valid_task_validates():
     _task().validate()
+
+
+def test_task_freezing_copies_and_deeply_immutabilizes_the_declaration():
+    source_ranges = {"shared": [0.0, 1.0]}
+    source = _task(
+        mdp=MdpSpec(
+            commands={
+                "base_velocity": CommandTermSpec(
+                    _observed,
+                    params={"velocity_ranges": source_ranges},
+                )
+            }
+        )
+    )
+
+    frozen = freeze_task_spec(source)
+    assert frozen is not source
+    assert frozen.mdp is not source.mdp
+    assert frozen.mdp.commands["base_velocity"].params["velocity_ranges"][
+        "shared"
+    ] == (0.0, 1.0)
+
+    source_ranges["shared"].append(2.0)
+    source.mdp.commands["base_velocity"].params["new"] = True
+    assert frozen.mdp.commands["base_velocity"].params["velocity_ranges"][
+        "shared"
+    ] == (0.0, 1.0)
+    assert "new" not in frozen.mdp.commands["base_velocity"].params
+
+    with pytest.raises(TypeError):
+        frozen.mdp.commands["extra"] = CommandTermSpec(_observed)
+    with pytest.raises(TypeError):
+        frozen.mdp.commands["base_velocity"].params["new"] = True
+    with pytest.raises(TypeError):
+        frozen.mdp.commands["base_velocity"].params["velocity_ranges"][
+            "new"
+        ] = (0.0, 1.0)
+    frozen.validate()
 
 
 def test_a_task_refuses_an_engine_it_did_not_declare():
