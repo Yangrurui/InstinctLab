@@ -13,10 +13,11 @@ import pytest
 import instinctlab_engine
 from instinctlab_engine.actuators import (
     APPLIED_EFFORT,
+    JOINT_POSITION_COMMAND,
     ActuatorRegistry,
 )
 from instinctlab_engine.preflight import PreflightError, preflight_report, require_preflight
-from instinctlab_engine.spec import NativeSensorRef
+from instinctlab_engine.spec import EntityRef, NativeSensorRef
 from instinctlab.tasks import registry
 
 from tests.task_specs import task_spec, with_rigid_object_fixture
@@ -174,7 +175,14 @@ class _AssetOverrideAdapter:
 
     def asset_conformance(self, asset_id):
         report = self._wrapped.asset_conformance(asset_id)
-        return {**report, "actuator_model_ids": [self._model_id]}
+        return {
+            **report,
+            "actuator_model_ids": [self._model_id],
+            "actuator_groups": [
+                {**group, "model_id": self._model_id}
+                for group in report["actuator_groups"]
+            ],
+        }
 
     def actuator_requirements(self, spec):
         return self._wrapped.actuator_requirements(spec)
@@ -214,6 +222,99 @@ def test_actuator_capability_mismatch_fails_without_resolving_factory(
         "joint_position_command"
     ]
     assert "module_that_must_not_import" not in sys.modules
+
+
+class _MixedActuatorAdapter:
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+        self.name = wrapped.name
+
+    def contract_report(self, spec):
+        return self._wrapped.contract_report(spec)
+
+    def asset_conformance(self, asset_id):
+        report = self._wrapped.asset_conformance(asset_id)
+        groups = [
+            {
+                **group,
+                "model_id": (
+                    "external.position.v1"
+                    if "waist_pitch_joint" in group["joint_names"]
+                    else "external.other.v1"
+                ),
+            }
+            for group in report["actuator_groups"]
+        ]
+        return {
+            **report,
+            "actuator_model_ids": [
+                "external.other.v1",
+                "external.position.v1",
+            ],
+            "actuator_groups": groups,
+        }
+
+    def actuator_requirements(self, spec):
+        return {"action/joint_pos": [JOINT_POSITION_COMMAND]}
+
+    def rigid_object_conformance(self, ref):
+        return self._wrapped.rigid_object_conformance(ref)
+
+
+def test_mixed_actuator_capabilities_apply_only_to_selected_joint_groups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from instinctlab_engine import preflight as preflight_module
+
+    actuator_registry = ActuatorRegistry(load_entry_points=False)
+    actuator_registry.register(
+        engine="mjlab",
+        model_id="external.position.v1",
+        config_factory="position_factory_that_must_not_import:Factory",
+        capabilities={JOINT_POSITION_COMMAND},
+    )
+    actuator_registry.register(
+        engine="mjlab",
+        model_id="external.other.v1",
+        config_factory="other_factory_that_must_not_import:Factory",
+        capabilities=(),
+    )
+    monkeypatch.setattr(preflight_module, "ACTUATORS", actuator_registry)
+    selected = instinctlab_engine.adapter("mjlab")
+    task = task_spec("Instinct-Velocity-Flat-G1", "mjlab")
+    joint_pos = replace(
+        task.mdp.actions["joint_pos"],
+        target=EntityRef(
+            "robot",
+            joints=("waist_pitch_joint",),
+            preserve_order=True,
+        ),
+    )
+    task = replace(
+        task,
+        mdp=replace(task.mdp, actions={"joint_pos": joint_pos}),
+    )
+
+    report = preflight_report(
+        task,
+        "mjlab",
+        selected_adapter=_MixedActuatorAdapter(selected),
+    )
+
+    assert report["status"] == "ok"
+    selected_groups = [
+        group
+        for group in report["actuators"]
+        if group["requested_capabilities"]
+    ]
+    assert [(group["group"], group["model_id"]) for group in selected_groups] == [
+        ("4", "external.position.v1")
+    ]
+    assert selected_groups[0]["requested_capabilities"] == [
+        JOINT_POSITION_COMMAND
+    ]
+    assert "position_factory_that_must_not_import" not in sys.modules
+    assert "other_factory_that_must_not_import" not in sys.modules
 
 
 def test_allow_nonclean_does_not_override_hard_component_incompatibility() -> None:

@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from instinctlab_engine.assets import NativeActuatorGroup
 from instinctlab_engine.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
@@ -50,6 +51,7 @@ class IsaacRobotCfg:
     actuator_delay: tuple[int, int]
     actuator_model_ids: tuple[str, ...]
     actuator_group_count: int
+    actuator_groups: tuple[NativeActuatorGroup, ...]
     length_unit: str
     angle_unit: str
     effort_unit: str
@@ -624,6 +626,46 @@ G1_29DOF_CFG = IsaacRobotCfg(
     actuator_delay=(0, 0),
     actuator_model_ids=("isaaclab.implicit_pd.v1",),
     actuator_group_count=5,
+    actuator_groups=(
+        NativeActuatorGroup(
+            name="legs",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=(
+                ".*_hip_yaw_joint",
+                ".*_hip_roll_joint",
+                ".*_hip_pitch_joint",
+                ".*_knee_joint",
+            ),
+        ),
+        NativeActuatorGroup(
+            name="feet",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
+        ),
+        NativeActuatorGroup(
+            name="waist",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=("waist_roll_joint", "waist_pitch_joint"),
+        ),
+        NativeActuatorGroup(
+            name="waist_yaw",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=("waist_yaw_joint",),
+        ),
+        NativeActuatorGroup(
+            name="arms",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=(
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+                ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint",
+            ),
+        ),
+    ),
     length_unit="m",
     angle_unit="rad",
     effort_unit="N*m",
@@ -657,6 +699,46 @@ G1_29DOF_SHADOWING_CFG = IsaacRobotCfg(
     actuator_delay=(0, 0),
     actuator_model_ids=("isaaclab.implicit_pd.v1",),
     actuator_group_count=5,
+    actuator_groups=(
+        NativeActuatorGroup(
+            name="legs",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=(
+                ".*_hip_yaw_joint",
+                ".*_hip_roll_joint",
+                ".*_hip_pitch_joint",
+                ".*_knee_joint",
+            ),
+        ),
+        NativeActuatorGroup(
+            name="feet",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
+        ),
+        NativeActuatorGroup(
+            name="waist",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=("waist_roll_joint", "waist_pitch_joint"),
+        ),
+        NativeActuatorGroup(
+            name="waist_yaw",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=("waist_yaw_joint",),
+        ),
+        NativeActuatorGroup(
+            name="arms",
+            model_id="isaaclab.implicit_pd.v1",
+            selectors=(
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+                ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint",
+            ),
+        ),
+    ),
     length_unit="m",
     angle_unit="rad",
     effort_unit="N*m",
@@ -692,6 +774,46 @@ G1_29DOF_PARKOUR_CFG = IsaacRobotCfg(
     actuator_delay=(0, 2),
     actuator_model_ids=("isaaclab.delayed_pd.v1",),
     actuator_group_count=5,
+    actuator_groups=(
+        NativeActuatorGroup(
+            name="legs",
+            model_id="isaaclab.delayed_pd.v1",
+            selectors=(
+                ".*_hip_yaw_joint",
+                ".*_hip_roll_joint",
+                ".*_hip_pitch_joint",
+                ".*_knee_joint",
+            ),
+        ),
+        NativeActuatorGroup(
+            name="feet",
+            model_id="isaaclab.delayed_pd.v1",
+            selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
+        ),
+        NativeActuatorGroup(
+            name="waist",
+            model_id="isaaclab.delayed_pd.v1",
+            selectors=("waist_roll_joint", "waist_pitch_joint"),
+        ),
+        NativeActuatorGroup(
+            name="waist_yaw",
+            model_id="isaaclab.delayed_pd.v1",
+            selectors=("waist_yaw_joint",),
+        ),
+        NativeActuatorGroup(
+            name="arms",
+            model_id="isaaclab.delayed_pd.v1",
+            selectors=(
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+                ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint",
+            ),
+        ),
+    ),
     length_unit="m",
     angle_unit="rad",
     effort_unit="N*m",
@@ -1429,7 +1551,7 @@ def articulation(variant: str, robot) -> object:
         cfg.actuators,
         robot.joint_names,
         selector_field="joint_names_expr",
-        expected_group_count=NATIVE_CONFIGS[variant].actuator_group_count,
+        expected_groups=NATIVE_CONFIGS[variant].actuator_groups,
     )
     return cfg
 

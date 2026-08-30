@@ -34,6 +34,15 @@ class NativeAssetContractError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class NativeActuatorGroup:
+    """SDK-free identity and selector contract for one native actuator group."""
+
+    name: str
+    model_id: str
+    selectors: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class NativeAssetDefinition:
     """Validated native module surface, still free of simulator SDK objects."""
 
@@ -64,6 +73,7 @@ _COMMON_CONFIG_FIELDS = (
     "actuator_delay",
     "actuator_model_ids",
     "actuator_group_count",
+    "actuator_groups",
     "length_unit",
     "angle_unit",
     "effort_unit",
@@ -151,6 +161,61 @@ def _duplicates(values: tuple[str, ...]) -> tuple[str, ...]:
             duplicates.add(value)
         seen.add(value)
     return tuple(sorted(duplicates))
+
+
+def _actuator_group_joints(
+    asset_id: str,
+    group: NativeActuatorGroup,
+    joint_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not group.name or not group.model_id or not group.selectors:
+        raise NativeAssetContractError(
+            f"{asset_id} actuator groups require non-empty names, model ids, and selectors"
+        )
+    try:
+        matched = tuple(
+            name
+            for name in joint_names
+            if any(re.fullmatch(pattern, name) for pattern in group.selectors)
+        )
+    except re.error as exc:
+        raise NativeAssetContractError(
+            f"{asset_id} actuator group {group.name!r} has an invalid selector: {exc}"
+        ) from exc
+    if not matched:
+        raise NativeAssetContractError(
+            f"{asset_id} actuator group {group.name!r} matches no canonical joint"
+        )
+    return matched
+
+
+def _validate_actuator_group_metadata(
+    asset_id: str,
+    groups: tuple[NativeActuatorGroup, ...],
+    joint_names: tuple[str, ...],
+) -> dict[str, tuple[str, ...]]:
+    group_names = tuple(group.name for group in groups)
+    duplicates = _duplicates(group_names)
+    if not groups or duplicates:
+        raise NativeAssetContractError(
+            f"{asset_id} must declare non-empty, uniquely named actuator_groups; "
+            f"duplicates={duplicates}"
+        )
+    coverage = {name: [] for name in joint_names}
+    resolved: dict[str, tuple[str, ...]] = {}
+    for group in groups:
+        matched = _actuator_group_joints(asset_id, group, joint_names)
+        resolved[group.name] = matched
+        for name in matched:
+            coverage[name].append(group.name)
+    uncovered = [name for name, owners in coverage.items() if not owners]
+    duplicated = {name: owners for name, owners in coverage.items() if len(owners) > 1}
+    if uncovered or duplicated:
+        raise NativeAssetContractError(
+            f"{asset_id} actuator metadata joint coverage is not exact; "
+            f"uncovered={uncovered}, multiple_groups={duplicated}"
+        )
+    return resolved
 
 
 def _urdf_topology(path: Path, root_body: str) -> tuple[tuple[str, ...], set[str], set[str]]:
@@ -271,6 +336,27 @@ def validate_native_asset_definition(definition: NativeAssetDefinition) -> None:
         raise NativeAssetContractError(
             f"{definition.asset_id} actuator_group_count must be a positive integer"
         )
+    actuator_groups = tuple(config.actuator_groups)
+    if len(actuator_groups) != config.actuator_group_count:
+        raise NativeAssetContractError(
+            f"{definition.asset_id} declares {len(actuator_groups)} actuator_groups but "
+            f"actuator_group_count is {config.actuator_group_count}"
+        )
+    if any(not isinstance(group, NativeActuatorGroup) for group in actuator_groups):
+        raise NativeAssetContractError(
+            f"{definition.asset_id} actuator_groups must contain NativeActuatorGroup values"
+        )
+    group_model_ids = tuple(dict.fromkeys(group.model_id for group in actuator_groups))
+    if group_model_ids != model_ids:
+        raise NativeAssetContractError(
+            f"{definition.asset_id} actuator_model_ids must equal the ordered unique models "
+            "used by actuator_groups"
+        )
+    _validate_actuator_group_metadata(
+        definition.asset_id,
+        actuator_groups,
+        names["joint_names"],
+    )
     from instinctlab_engine.actuators import ACTUATORS
 
     known_models = set(ACTUATORS.registrations(definition.engine))
@@ -326,6 +412,12 @@ def native_asset_conformance_report(
 ) -> dict[str, Any]:
     """Readable evidence from the validated SDK-free asset boundary."""
     config = definition.config
+    actuator_groups = tuple(config.actuator_groups)
+    resolved_groups = _validate_actuator_group_metadata(
+        definition.asset_id,
+        actuator_groups,
+        tuple(config.joint_names),
+    )
     return {
         "asset_id": definition.asset_id,
         "engine": definition.engine,
@@ -342,6 +434,15 @@ def native_asset_conformance_report(
         "collision_body_count": len(config.collision_body_names),
         "actuator_model_ids": list(config.actuator_model_ids),
         "actuator_group_count": config.actuator_group_count,
+        "actuator_groups": [
+            {
+                "name": group.name,
+                "model_id": group.model_id,
+                "selectors": list(group.selectors),
+                "joint_names": list(resolved_groups[group.name]),
+            }
+            for group in actuator_groups
+        ],
         "units": {
             "length": config.length_unit,
             "angle": config.angle_unit,
@@ -357,28 +458,44 @@ def validate_native_actuator_groups(
     joint_names: tuple[str, ...],
     *,
     selector_field: str,
-    expected_group_count: int,
+    expected_groups: tuple[NativeActuatorGroup, ...],
 ) -> None:
-    """Validate native group selectors after SDK config construction.
+    """Validate native group identity and selectors after SDK construction.
 
-    This checks coverage only. Every concrete parameter remains written on the
-    native group object owned by the asset module.
+    Every concrete parameter remains written on the native group object owned
+    by the asset module. The core checks only identity and exact joint routing.
     """
     if isinstance(groups, dict):
         named_groups = tuple((str(name), value) for name, value in groups.items())
     else:
         named_groups = tuple((str(index), value) for index, value in enumerate(groups))
-    if len(named_groups) != expected_group_count:
+    expected_by_name = {group.name: group for group in expected_groups}
+    actual_names = tuple(name for name, _ in named_groups)
+    expected_names = tuple(group.name for group in expected_groups)
+    if actual_names != expected_names:
         raise NativeAssetContractError(
-            f"{asset_id} constructed {len(named_groups)} actuator groups; native config "
-            f"declares {expected_group_count}"
+            f"{asset_id} constructed actuator groups {actual_names}; native metadata "
+            f"declares {expected_names}"
         )
     coverage = {name: [] for name in joint_names}
     for group_name, group in named_groups:
+        expected = expected_by_name[group_name]
+        model_id = getattr(group, "instinctlab_model_id", None)
+        if model_id != expected.model_id:
+            raise NativeAssetContractError(
+                f"{asset_id} actuator group {group_name!r} was built by model "
+                f"{model_id!r}; expected {expected.model_id!r}"
+            )
         selectors = getattr(group, selector_field, None)
         if not selectors:
             raise NativeAssetContractError(
                 f"{asset_id} actuator group {group_name!r} has no {selector_field}"
+            )
+        selectors = tuple(selectors)
+        if selectors != expected.selectors:
+            raise NativeAssetContractError(
+                f"{asset_id} actuator group {group_name!r} constructed selectors "
+                f"{selectors!r}; expected {expected.selectors!r}"
             )
         matched = [
             name
@@ -550,6 +667,7 @@ __all__ = [
     "AssetRegistry",
     "AssetResolver",
     "NATIVE_ASSET_API_VERSION",
+    "NativeActuatorGroup",
     "NativeAssetContractError",
     "NativeAssetDefinition",
     "asset_packages",

@@ -128,6 +128,9 @@ report = require_preflight(task, engine_name, selected_adapter=selected)
 if report["selected_components"] != {
     "asset_id": "fixture_bot/v1",
     "actuator_model_ids": ["fixture.stateful.v1"],
+    "actuator_groups": [
+        {"name": "joint", "model_id": "fixture.stateful.v1"}
+    ],
     "sensor_kinds": ["fixture.imu"],
     "terrain_kind": "fixture_plane",
     "sub_terrain_kinds": [],

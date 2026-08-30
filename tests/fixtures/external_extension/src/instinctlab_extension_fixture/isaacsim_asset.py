@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from instinctlab_engine.assets import NativeActuatorGroup
+
 from .asset_common import JOINT, NativeJoint, resource
 
 INSTINCTLAB_NATIVE_ASSET_API = "0.1"
@@ -27,6 +29,7 @@ class NativeConfig:
     actuator_delay: tuple[int, int]
     actuator_model_ids: tuple[str, ...]
     actuator_group_count: int
+    actuator_groups: tuple[NativeActuatorGroup, ...]
     length_unit: str
     angle_unit: str
     effort_unit: str
@@ -51,6 +54,13 @@ _CONFIG = NativeConfig(
     actuator_delay=(1, 1),
     actuator_model_ids=("fixture.stateful.v1",),
     actuator_group_count=1,
+    actuator_groups=(
+        NativeActuatorGroup(
+            name="joint",
+            model_id="fixture.stateful.v1",
+            selectors=("joint",),
+        ),
+    ),
     length_unit="m",
     angle_unit="rad",
     effort_unit="N*m",
@@ -85,6 +95,6 @@ def articulation(variant: str, robot):
         groups,
         tuple(robot.joint_names),
         selector_field="joint_names_expr",
-        expected_group_count=1,
+        expected_groups=config.actuator_groups,
     )
     return {"engine": "isaacsim", "robot": robot, "actuators": groups}

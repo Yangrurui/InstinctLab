@@ -429,8 +429,27 @@ def actuator_models(engine: str) -> Mapping[str, ActuatorRegistration]:
 
 
 def native_actuator_factory(engine: str, model_id: str) -> Callable[..., Any]:
-    """Resolve a selected native config factory after backend bootstrap."""
-    return ACTUATORS.config_factory(engine, model_id)
+    """Resolve a native config factory and retain its registered model identity."""
+    factory = ACTUATORS.config_factory(engine, model_id)
+
+    def build_config(*args: Any, **kwargs: Any) -> Any:
+        config = factory(*args, **kwargs)
+        declared = getattr(config, "instinctlab_model_id", model_id)
+        if declared != model_id:
+            raise ActuatorContractError(
+                f"Actuator config factory for {engine!r}:{model_id!r} returned a config "
+                f"claiming model {declared!r}."
+            )
+        try:
+            setattr(config, "instinctlab_model_id", model_id)
+        except (AttributeError, TypeError) as exc:
+            raise ActuatorContractError(
+                f"Actuator config for {engine!r}:{model_id!r} cannot retain its model "
+                "identity. Native config objects must allow instinctlab_model_id metadata."
+            ) from exc
+        return config
+
+    return build_config
 
 
 def requires_actuator_capabilities(*capabilities: str):

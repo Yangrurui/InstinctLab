@@ -14,9 +14,11 @@ import pytest
 
 from instinctlab_engine.assets import (
     AssetRegistry,
+    NativeActuatorGroup,
     NativeAssetContractError,
     native_asset_conformance_report,
     native_asset_definition,
+    validate_native_actuator_groups,
 )
 
 
@@ -51,6 +53,13 @@ class _NativeConfig:
     actuator_delay: tuple[int, int] = (0, 0)
     actuator_model_ids: tuple[str, ...] = ("mjlab.builtin_pd.v1",)
     actuator_group_count: int = 1
+    actuator_groups: tuple[NativeActuatorGroup, ...] = (
+        NativeActuatorGroup(
+            name="0",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("joint",),
+        ),
+    )
     length_unit: str = "m"
     angle_unit: str = "rad"
     effort_unit: str = "N*m"
@@ -148,6 +157,53 @@ def test_builtin_g1_asset_passes_sdk_free_conformance(engine: str) -> None:
     assert report["status"] == "ok"
     assert report["joint_count"] == 29
     assert report["units"] == {"length": "m", "angle": "rad", "effort": "N*m"}
+    assert len(report["actuator_groups"]) == report["actuator_group_count"]
+    assert {
+        joint
+        for group in report["actuator_groups"]
+        for joint in group["joint_names"]
+    } == set(
+        adapter(engine)
+        .robot_spec("unitree_g1/popsicle_torsobase_v1")
+        .joint_names
+    )
+
+
+@dataclass
+class _NativeActuatorCfg:
+    target_names_expr: tuple[str, ...]
+    instinctlab_model_id: str
+
+
+@pytest.mark.parametrize(
+    ("model_id", "selectors", "message"),
+    (
+        ("wrong.model", ("joint",), "was built by model"),
+        ("mjlab.builtin_pd.v1", ("other",), "constructed selectors"),
+    ),
+)
+def test_native_actuator_groups_reject_identity_or_selector_drift(
+    model_id: str,
+    selectors: tuple[str, ...],
+    message: str,
+) -> None:
+    expected = (
+        NativeActuatorGroup(
+            name="0",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("joint",),
+        ),
+    )
+    native = (_NativeActuatorCfg(selectors, model_id),)
+
+    with pytest.raises(NativeAssetContractError, match=message):
+        validate_native_actuator_groups(
+            "external_robot/standard",
+            native,
+            ("joint",),
+            selector_field="target_names_expr",
+            expected_groups=expected,
+        )
 
 
 def test_asset_conformance_does_not_import_torch_or_an_engine_sdk() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from instinctlab_engine.actuators import ACTUATORS
@@ -13,6 +13,7 @@ from instinctlab_engine.plugins import (
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
 from instinctlab_engine.sensors import SENSORS, required_sensor_capabilities
 from instinctlab_engine.spec.capability import Requirement
+from instinctlab_engine.spec.entity import EntityRef, resolve_entity_names
 
 if TYPE_CHECKING:
     from instinctlab_engine.base import EngineAdapter
@@ -32,6 +33,47 @@ class PreflightError(RuntimeError):
             f"Preflight failed for {report['task_id']!r} on {report['engine']!r}:\n"
             f"{details}"
         )
+
+
+def _entity_refs(value: Any) -> Iterable[EntityRef]:
+    if isinstance(value, EntityRef):
+        yield value
+    elif isinstance(value, Mapping):
+        for nested in value.values():
+            yield from _entity_refs(nested)
+    elif isinstance(value, (tuple, list)):
+        for nested in value:
+            yield from _entity_refs(nested)
+
+
+def _term_joint_names(
+    spec: TaskSpec,
+    engine: str,
+    term_key: str,
+) -> tuple[str, ...]:
+    """Resolve the canonical robot joints to which one actuator-aware term applies."""
+    term = spec.mdp.terms().get(term_key)
+    if term is None:
+        raise ValueError(f"actuator requirements reference unknown term {term_key!r}")
+    values = (term.target, term.resolved_params(engine))
+    joint_refs = [
+        ref
+        for value in values
+        for ref in _entity_refs(value)
+        if ref.entity == "robot" and ref.joints is not None
+    ]
+    if not joint_refs:
+        return tuple(spec.robot.joint_names)
+    selected: set[str] = set()
+    for ref in joint_refs:
+        selected.update(
+            resolve_entity_names(
+                ref.joints,
+                spec.robot.joint_names,
+                preserve_order=ref.preserve_order,
+            )
+        )
+    return tuple(name for name in spec.robot.joint_names if name in selected)
 
 
 def _provider_keys(
@@ -164,37 +206,67 @@ def preflight_report(
     except Exception as exc:  # noqa: BLE001
         actuator_by_term = {}
         incompatibilities.append(f"actuator term requirements: {exc}")
-    requested_actuator_capabilities = sorted(
-        {
-            capability
-            for capabilities in actuator_by_term.values()
-            for capability in capabilities
-        }
-    )
     actuator_model_ids = tuple(
         asset_report.get("actuator_model_ids", ()) if asset_report else ()
     )
+    actuator_groups = tuple(
+        asset_report.get("actuator_groups", ()) if asset_report else ()
+    )
     actuator_reports: list[dict[str, Any]] = []
+    joint_names_by_term: dict[str, tuple[str, ...]] = {}
     try:
         actuator_registrations = ACTUATORS.registrations(engine)
-        for model_id in actuator_model_ids:
+        if actuator_model_ids and not actuator_groups:
+            incompatibilities.append(
+                "native asset report has actuator models but no group-to-model metadata"
+            )
+        for term_key in actuator_by_term:
+            try:
+                joint_names_by_term[term_key] = _term_joint_names(
+                    spec, engine, term_key
+                )
+            except Exception as exc:  # noqa: BLE001
+                incompatibilities.append(
+                    f"actuator joint selection for {term_key}: {exc}"
+                )
+        for group in actuator_groups:
+            group_name = str(group["name"])
+            model_id = str(group["model_id"])
+            group_joints = tuple(group["joint_names"])
+            requirements_by_term = {
+                term_key: capabilities
+                for term_key, capabilities in actuator_by_term.items()
+                if set(group_joints).intersection(joint_names_by_term.get(term_key, ()))
+            }
+            requested = sorted(
+                {
+                    capability
+                    for capabilities in requirements_by_term.values()
+                    for capability in capabilities
+                }
+            )
             registration = actuator_registrations.get(model_id)
             if registration is None:
                 incompatibilities.append(
-                    f"actuator model {model_id!r} has no provider for {engine!r}"
+                    f"actuator group {group_name!r} model {model_id!r} has no provider "
+                    f"for {engine!r}"
                 )
                 continue
-            missing = set(requested_actuator_capabilities) - registration.capabilities
+            missing = set(requested) - registration.capabilities
             if missing:
                 incompatibilities.append(
-                    f"actuator model {model_id!r} lacks requested capabilities: "
-                    f"{', '.join(sorted(missing))}"
+                    f"actuator group {group_name!r} model {model_id!r} lacks requested "
+                    f"capabilities: {', '.join(sorted(missing))}"
                 )
             actuator_reports.append(
                 {
+                    "group": group_name,
                     "model_id": model_id,
+                    "selectors": list(group.get("selectors", ())),
+                    "joint_names": list(group_joints),
                     "capabilities": sorted(registration.capabilities),
-                    "requested_capabilities": requested_actuator_capabilities,
+                    "requirements_by_term": requirements_by_term,
+                    "requested_capabilities": requested,
                     "missing_capabilities": sorted(missing),
                 }
             )
@@ -301,6 +373,10 @@ def preflight_report(
         "requested_capabilities": {
             "engine_terms": contract.get("requested_capabilities", {}),
             "actuator_by_term": actuator_by_term,
+            "actuator_joint_names_by_term": {
+                term_key: list(joint_names)
+                for term_key, joint_names in joint_names_by_term.items()
+            },
             "native_sensors": {
                 report["name"]: report["requested_capabilities"]
                 for report in sensor_reports
@@ -315,6 +391,10 @@ def preflight_report(
         "selected_components": {
             "asset_id": spec.robot.asset_id,
             "actuator_model_ids": list(actuator_model_ids),
+            "actuator_groups": [
+                {"name": group["name"], "model_id": group["model_id"]}
+                for group in actuator_groups
+            ],
             "sensor_kinds": list(sensor_kinds),
             "terrain_kind": terrain_kind,
             "sub_terrain_kinds": list(sub_terrain_kinds),

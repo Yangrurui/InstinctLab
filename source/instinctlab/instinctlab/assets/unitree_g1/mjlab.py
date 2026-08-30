@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
+from instinctlab_engine.assets import NativeActuatorGroup
 from instinctlab_engine.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
@@ -51,6 +52,7 @@ class MjlabRobotCfg:
     actuator_delay: tuple[int, int]
     actuator_model_ids: tuple[str, ...]
     actuator_group_count: int
+    actuator_groups: tuple[NativeActuatorGroup, ...]
     length_unit: str
     angle_unit: str
     effort_unit: str
@@ -588,6 +590,49 @@ G1_29DOF_CFG = MjlabRobotCfg(
     actuator_delay=(0, 0),
     actuator_model_ids=("mjlab.builtin_pd.v1",),
     actuator_group_count=7,
+    actuator_groups=(
+        NativeActuatorGroup(
+            name="0",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
+        ),
+        NativeActuatorGroup(
+            name="1",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("waist_yaw_joint",),
+        ),
+        NativeActuatorGroup(
+            name="2",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_hip_roll_joint", ".*_knee_joint"),
+        ),
+        NativeActuatorGroup(
+            name="3",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
+        ),
+        NativeActuatorGroup(
+            name="4",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("waist_roll_joint", "waist_pitch_joint"),
+        ),
+        NativeActuatorGroup(
+            name="5",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+            ),
+        ),
+        NativeActuatorGroup(
+            name="6",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_wrist_pitch_joint", ".*_wrist_yaw_joint"),
+        ),
+    ),
     length_unit="m",
     angle_unit="rad",
     effort_unit="N*m",
@@ -616,6 +661,49 @@ G1_29DOF_SHADOWING_CFG = MjlabRobotCfg(
     actuator_delay=(0, 0),
     actuator_model_ids=("mjlab.builtin_pd.v1",),
     actuator_group_count=7,
+    actuator_groups=(
+        NativeActuatorGroup(
+            name="0",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
+        ),
+        NativeActuatorGroup(
+            name="1",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("waist_yaw_joint",),
+        ),
+        NativeActuatorGroup(
+            name="2",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_hip_roll_joint", ".*_knee_joint"),
+        ),
+        NativeActuatorGroup(
+            name="3",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
+        ),
+        NativeActuatorGroup(
+            name="4",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("waist_roll_joint", "waist_pitch_joint"),
+        ),
+        NativeActuatorGroup(
+            name="5",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+            ),
+        ),
+        NativeActuatorGroup(
+            name="6",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_wrist_pitch_joint", ".*_wrist_yaw_joint"),
+        ),
+    ),
     length_unit="m",
     angle_unit="rad",
     effort_unit="N*m",
@@ -646,6 +734,49 @@ G1_29DOF_PARKOUR_CFG = MjlabRobotCfg(
     actuator_delay=(0, 2),
     actuator_model_ids=("mjlab.builtin_pd.v1",),
     actuator_group_count=7,
+    actuator_groups=(
+        NativeActuatorGroup(
+            name="0",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
+        ),
+        NativeActuatorGroup(
+            name="1",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("waist_yaw_joint",),
+        ),
+        NativeActuatorGroup(
+            name="2",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_hip_roll_joint", ".*_knee_joint"),
+        ),
+        NativeActuatorGroup(
+            name="3",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
+        ),
+        NativeActuatorGroup(
+            name="4",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=("waist_roll_joint", "waist_pitch_joint"),
+        ),
+        NativeActuatorGroup(
+            name="5",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(
+                ".*_shoulder_pitch_joint",
+                ".*_shoulder_roll_joint",
+                ".*_shoulder_yaw_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+            ),
+        ),
+        NativeActuatorGroup(
+            name="6",
+            model_id="mjlab.builtin_pd.v1",
+            selectors=(".*_wrist_pitch_joint", ".*_wrist_yaw_joint"),
+        ),
+    ),
     length_unit="m",
     angle_unit="rad",
     effort_unit="N*m",
@@ -1023,7 +1154,7 @@ def entity(variant: str, robot: Any, *, actuator_order=None) -> Any:
         actuator_groups,
         robot.joint_names,
         selector_field="target_names_expr",
-        expected_group_count=NATIVE_CONFIGS[variant].actuator_group_count,
+        expected_groups=NATIVE_CONFIGS[variant].actuator_groups,
     )
     return EntityCfg(
         init_state=EntityCfg.InitialStateCfg(
