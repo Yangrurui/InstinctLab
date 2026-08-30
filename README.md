@@ -51,7 +51,7 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     cd instinctlab
     ```
 
-- Install InstinctLab **with both simulator backends** (recommended). This clones Isaac Lab (`f73c331738`) and MJLab (`v1.5.0`) next to this repo if they are missing, then `pip install -e` all three:
+- Install InstinctLab **with both simulator backends** (recommended). This clones Isaac Lab (`f73c331738`) and MJLab (`v1.5.0`) next to this repo if they are missing, then installs engine core, both backend packages, and the task application:
 
     ```bash
     python scripts/install.py
@@ -150,6 +150,30 @@ Both engines then use the same commands:
 python scripts/train.py --engine isaacsim --task Instinct-My-Task
 python scripts/train.py --engine mjlab --task Instinct-My-Task
 ```
+
+## Extend without editing a backend
+
+Portable observations, rewards, terminations, commands, and events carry their
+task-owned callable and need no backend registration. Native extensions ship as
+separate Python packages using entry points:
+
+```toml
+[project.entry-points."instinctlab.assets"]
+my_robot = "my_robot_assets.interface:native_module"
+
+[project.entry-points."instinctlab.engine_terms"]
+"mjlab.my_randomizer" = "my_extension.mjlab:register_terms"
+
+[project.entry-points."instinctlab.terrains"]
+my_terrain = "my_extension.terrain:register_terrains"
+
+[project.entry-points."instinctlab.engines"]
+myengine = "my_engine_backend:register"
+```
+
+An engine-term registrar receives the selected backend's `TermRegistry`; a
+terrain registrar receives the shared terrain registry. Keep simulator imports
+inside native builders so discovery remains SDK-free.
 
 ## Troubleshooting
 
