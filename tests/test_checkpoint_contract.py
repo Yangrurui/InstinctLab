@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import replace
 
 import pytest
@@ -16,6 +17,10 @@ from instinctlab.tasks import registry
 from tests.task_specs import task_spec
 
 PARKOUR_ID = "Instinct-Parkour-Target-G1"
+
+
+def _agent_config(spec) -> dict:
+    return spec.agent.resolve()(**dict(spec.agent.overrides)).to_dict()
 
 
 def test_task_contract_is_stable_and_backend_independent() -> None:
@@ -146,6 +151,55 @@ def test_checkpoint_contract_rejects_action_layout_drift(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="policy I/O contract mismatch"):
         validate_checkpoint_contract(checkpoint, changed)
+
+
+def test_checkpoint_contract_rejects_discriminator_topology_drift(tmp_path) -> None:
+    spec = task_spec(PARKOUR_ID)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    original = _agent_config(spec)
+    manifest = add_task_contract({}, spec, agent_config=original)
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+
+    changed = deepcopy(original)
+    changed["algorithm"]["discriminator_kwargs"]["hidden_sizes"] = [2048, 512]
+
+    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
+        validate_checkpoint_contract(
+            checkpoint,
+            spec,
+            agent_config=changed,
+            experiment_policy="ignore",
+        )
+
+
+def test_checkpoint_contract_rejects_vae_and_teacher_topology_drift(tmp_path) -> None:
+    spec = task_spec("Instinct-Perceptive-Vae-G1-v0")
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    original = _agent_config(spec)
+    manifest = add_task_contract({}, spec, agent_config=original)
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+
+    changed_vae = deepcopy(original)
+    changed_vae["policy"]["vae_latent_size"] = 32
+    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
+        validate_checkpoint_contract(
+            checkpoint,
+            spec,
+            agent_config=changed_vae,
+            experiment_policy="ignore",
+        )
+
+    changed_teacher = deepcopy(original)
+    changed_teacher["algorithm"]["teacher_policy"]["actor_hidden_dims"] = [1024, 256, 128]
+    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
+        validate_checkpoint_contract(
+            checkpoint,
+            spec,
+            agent_config=changed_teacher,
+            experiment_policy="ignore",
+        )
 
 
 def test_resume_requires_an_explicit_experiment_drift_override(tmp_path) -> None:

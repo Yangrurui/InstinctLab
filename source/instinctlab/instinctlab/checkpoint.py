@@ -7,6 +7,7 @@ import json
 import math
 import re
 import warnings
+from copy import deepcopy
 from collections.abc import Mapping
 from dataclasses import MISSING, fields, is_dataclass
 from enum import Enum
@@ -18,7 +19,7 @@ from instinctlab_engine.spec.robot import BackendAsset
 
 _CONTRACT_VERSION = "task_contract_v2"
 _LEGACY_CONTRACT_VERSION = "task_spec_v1"
-_POLICY_IO_VERSION = "policy_io_v1"
+_POLICY_IO_VERSION = "policy_io_v2"
 _EXPERIMENT_SEMANTICS_VERSION = "experiment_semantics_v1"
 _PROVENANCE_VERSION = "provenance_v1"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
@@ -164,34 +165,55 @@ def _fingerprint(version: str, payload: Any, **canonical_options: bool) -> dict[
     }
 
 
-def _agent_config(spec: TaskSpec) -> Mapping[str, Any]:
-    config = spec.agent.resolve()(**dict(spec.agent.overrides))
+_RUNNER_LIFECYCLE_FIELDS = frozenset(
+    {
+        "device",
+        "experiment_name",
+        "load_checkpoint",
+        "load_run",
+        "log_interval",
+        "max_iterations",
+        "num_steps_per_env",
+        "resume",
+        "run_name",
+        "save_interval",
+        "seed",
+    }
+)
+"""Runner controls that neither construct nor restore checkpoint state."""
+
+
+def _as_agent_config(config: Any) -> Mapping[str, Any]:
+    if isinstance(config, Mapping):
+        return deepcopy(dict(config))
     to_dict = getattr(config, "to_dict", None)
     if not callable(to_dict):
         raise TypeError(
             f"Agent config {type(config).__module__}.{type(config).__qualname__} "
-            "must expose to_dict() for checkpoint contracts."
+            "must be a mapping or expose to_dict() for checkpoint contracts."
         )
     return to_dict()
 
 
+def _agent_config(spec: TaskSpec) -> Mapping[str, Any]:
+    config = spec.agent.resolve()(**dict(spec.agent.overrides))
+    return _as_agent_config(config)
+
+
 def _policy_agent_contract(agent_config: Mapping[str, Any], runner: str) -> dict[str, Any]:
-    algorithm = agent_config.get("algorithm", {})
-    policy_algorithm_keys = (
-        "class_name",
-        "actor_state_key",
-        "reference_state_key",
-        "teacher_policy",
-        "teacher_policy_class_name",
-    )
+    """Configuration of every component whose tensors the runner restores.
+
+    This deliberately excludes only runner lifecycle controls. Policy, critic,
+    normalizers, algorithm-owned discriminators, teacher/student networks, VAE
+    modules, optimizer-sensitive topology, checkpoint manipulators, and future
+    auxiliary components therefore enter the mandatory hash automatically.
+    """
     return {
         "runner": runner,
-        "policy": agent_config.get("policy"),
-        "normalizers": agent_config.get("normalizers"),
-        "algorithm_interface": {
-            key: algorithm[key]
-            for key in policy_algorithm_keys
-            if isinstance(algorithm, Mapping) and key in algorithm
+        "restored_components": {
+            key: value
+            for key, value in agent_config.items()
+            if key not in _RUNNER_LIFECYCLE_FIELDS
         },
     }
 
@@ -250,9 +272,15 @@ def _experiment_semantics_payload(
     }
 
 
-def task_contract(spec: TaskSpec) -> dict[str, Any]:
+def task_contract(
+    spec: TaskSpec, *, agent_config: Mapping[str, Any] | object | None = None
+) -> dict[str, Any]:
     """Separate checkpoint compatibility, experiment semantics, and provenance."""
-    agent_config = _agent_config(spec)
+    resolved_agent_config = (
+        _agent_config(spec)
+        if agent_config is None
+        else _as_agent_config(agent_config)
+    )
     return {
         "version": _CONTRACT_VERSION,
         "task_id": spec.task_id,
@@ -263,26 +291,31 @@ def task_contract(spec: TaskSpec) -> dict[str, Any]:
         "portability": portability_report(spec),
         "policy_io": _fingerprint(
             _POLICY_IO_VERSION,
-            _policy_io_payload(spec, agent_config),
+            _policy_io_payload(spec, resolved_agent_config),
         ),
         "experiment_semantics": _fingerprint(
             _EXPERIMENT_SEMANTICS_VERSION,
-            _experiment_semantics_payload(spec, agent_config),
+            _experiment_semantics_payload(spec, resolved_agent_config),
         ),
         "provenance": _fingerprint(
             _PROVENANCE_VERSION,
-            {"spec": spec, "agent_config": agent_config},
+            {"spec": spec, "agent_config": resolved_agent_config},
             include_asset_paths=True,
             include_omitted_fields=True,
         ),
     }
 
 
-def add_task_contract(manifest: Mapping[str, Any], spec: TaskSpec) -> dict[str, Any]:
+def add_task_contract(
+    manifest: Mapping[str, Any],
+    spec: TaskSpec,
+    *,
+    agent_config: Mapping[str, Any] | object | None = None,
+) -> dict[str, Any]:
     """Return a compilation manifest carrying checkpoint compatibility metadata."""
     payload = dict(manifest)
     payload["portability"] = portability_report(spec, payload)
-    payload["task_contract"] = task_contract(spec)
+    payload["task_contract"] = task_contract(spec, agent_config=agent_config)
     return payload
 
 
@@ -342,6 +375,7 @@ def validate_checkpoint_contract(
     *,
     checkpoint_task_id: str | None = None,
     experiment_policy: Literal["require", "warn", "ignore"] = "require",
+    agent_config: Mapping[str, Any] | object | None = None,
 ) -> None:
     """Validate the manifest next to a checkpoint before loading its tensors.
 
@@ -375,7 +409,7 @@ def validate_checkpoint_contract(
             stacklevel=2,
         )
         return
-    current = task_contract(spec)
+    current = task_contract(spec, agent_config=agent_config)
     expected_task_id = checkpoint_task_id or current["task_id"]
     stored_version = stored.get("version")
     if stored.get("task_id") != expected_task_id:
