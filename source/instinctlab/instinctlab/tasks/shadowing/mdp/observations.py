@@ -31,6 +31,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
+from instinctlab.compat import robot as compat_robot
 from instinctlab.compat.env import RlEnv, get_command
 from instinctlab.compat.observation_terms import show_debug_image
 from instinctlab.compat.sensors import depth_image, ray_hits_w, ray_origin_z_w
@@ -44,8 +45,7 @@ def base_ang_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     avoid constructing the unused link linear velocity; mjlab exposes the equivalent link value.
     """
     asset = env.scene[_name(asset_cfg)]
-    com_ang_vel = getattr(asset.data, "root_com_ang_vel_b", None)
-    return asset.data.root_link_ang_vel_b if com_ang_vel is None else com_ang_vel
+    return compat_robot.root_angular_velocity_b(asset)
 
 
 def base_lin_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:

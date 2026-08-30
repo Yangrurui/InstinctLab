@@ -1,15 +1,15 @@
 """Shadowing observations, imitation rewards, and failure checks.
 
-Only public scene/data tensors are used.  The two adapters lower selectors to native entity
-configs; root-link naming is normalized here because MJLab intentionally distinguishes the root
-link from MuJoCo's free joint while Isaac's reference uses the older root aliases.
+Only public scene/data tensors are used. The two adapters lower selectors to native entity
+configs, and both expose the explicit ``root_link_*`` names used below.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 import torch.nn.functional as F
-from typing import Any
 
 from instinctlab.compat import math as math_utils
 from instinctlab.utils.math import quat_to_tan_norm
@@ -43,12 +43,6 @@ def depth_image(
     return processed
 
 
-def _field(data: Any, isaac: str, mjlab: str | None = None):
-    if mjlab and hasattr(data, mjlab):
-        return getattr(data, mjlab)
-    return getattr(data, isaac)
-
-
 def _name(cfg: Any, default: str) -> str:
     return cfg if isinstance(cfg, str) else getattr(cfg, "name", default)
 
@@ -76,8 +70,8 @@ def link_position(env, asset_cfg, *, in_base_frame: bool = True):
     pos = asset.data.body_link_pos_w[:, _ids(asset_cfg)]
     if in_base_frame:
         inv = math_utils.subtract_frame_transforms(
-            _field(asset.data, "root_pos_w", "root_link_pos_w"),
-            _field(asset.data, "root_quat_w", "root_link_quat_w"),
+            asset.data.root_link_pos_w,
+            asset.data.root_link_quat_w,
         )
         pos = math_utils.transform_points(pos, *inv)
     return pos
@@ -87,9 +81,7 @@ def link_rotation(env, asset_cfg, *, in_base_frame: bool = True):
     asset = env.scene[_name(asset_cfg, "robot")]
     quat = asset.data.body_link_quat_w[:, _ids(asset_cfg)]
     if in_base_frame:
-        root_inv = math_utils.quat_inv(
-            _field(asset.data, "root_quat_w", "root_link_quat_w")
-        )
+        root_inv = math_utils.quat_inv(asset.data.root_link_quat_w)
         quat = math_utils.quat_mul(
             root_inv.unsqueeze(1).expand(-1, quat.shape[1], -1), quat
         )
@@ -101,9 +93,7 @@ def base_position_imitation(
 ):
     reference = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     ref = reference.base_pos_w[:, 0]
-    pos = _field(
-        env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w"
-    )
+    pos = env.scene[_name(asset_cfg, "robot")].data.root_link_pos_w
     reward = torch.exp(-torch.square(pos - ref).sum(dim=-1) / (std * std))
     return reward * reference.validity[:, 0]
 
@@ -117,9 +107,7 @@ def base_rotation_imitation(
 ):
     reference = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     ref = reference.base_quat_w[:, 0]
-    quat = _field(
-        env.scene[_name(asset_cfg, "robot")].data, "root_quat_w", "root_link_quat_w"
-    )
+    quat = env.scene[_name(asset_cfg, "robot")].data.root_link_quat_w
     if difference_type == "axis_angle":
         error = math_utils.axis_angle_from_quat(
             math_utils.quat_mul(ref, math_utils.quat_conjugate(quat))
@@ -132,8 +120,8 @@ def base_rotation_imitation(
 
 
 def _relative_reference(asset, buffers):
-    robot_pos = _field(asset.data, "root_pos_w", "root_link_pos_w")
-    robot_quat = _field(asset.data, "root_quat_w", "root_link_quat_w")
+    robot_pos = asset.data.root_link_pos_w
+    robot_quat = asset.data.root_link_quat_w
     ref_pos = buffers.base_pos_w[:, 0]
     ref_quat = buffers.base_quat_w[:, 0]
     delta = math_utils.yaw_quat(
@@ -186,9 +174,7 @@ def link_rotation_imitation(
     buffers = env.scene[_name(reference_cfg, "motion_reference")].reference_frame
     actual = asset.data.body_link_quat_w[:, _ids(asset_cfg)]
     if in_base_frame:
-        root_inv = math_utils.quat_inv(
-            _field(asset.data, "root_quat_w", "root_link_quat_w")
-        )
+        root_inv = math_utils.quat_inv(asset.data.root_link_quat_w)
         actual = math_utils.quat_mul(
             root_inv.unsqueeze(1).expand(-1, actual.shape[1], -1), actual
         )
@@ -252,9 +238,7 @@ def base_position_too_far(
 ):
     reference = env.scene[_name(reference_cfg, "motion_reference")].data
     ref = reference.base_pos_w[:, 0]
-    pos = _field(
-        env.scene[_name(asset_cfg, "robot")].data, "root_pos_w", "root_link_pos_w"
-    )
+    pos = env.scene[_name(asset_cfg, "robot")].data.root_link_pos_w
     diff = (pos - ref).abs() if height_only else (pos - ref).norm(dim=-1)
     return (diff[:, 2] if height_only else diff) > distance_threshold
 
@@ -269,13 +253,12 @@ def projected_gravity_too_far(
     print_reason=False,
 ):
     asset = env.scene[_name(asset_cfg, "robot")]
-    quat = _field(asset.data, "root_quat_w", "root_link_quat_w")
+    quat = asset.data.root_link_quat_w
     reference = env.scene[_name(reference_cfg, "motion_reference")].data
     ref = reference.base_quat_w[:, 0]
-    gravity = _field(asset.data, "GRAVITY_VEC_W", "gravity_vec_w")
-    diff = math_utils.quat_apply_inverse(quat, gravity) - math_utils.quat_apply_inverse(
-        ref, gravity
-    )
+    projected_gravity = asset.data.projected_gravity_b
+    gravity_w = math_utils.quat_apply(quat, projected_gravity)
+    diff = projected_gravity - math_utils.quat_apply_inverse(ref, gravity_w)
     return (
         diff[:, 2].abs() if z_only else diff.norm(dim=-1)
     ) > projected_gravity_threshold

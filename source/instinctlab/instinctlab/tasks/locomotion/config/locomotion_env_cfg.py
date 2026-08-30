@@ -199,6 +199,7 @@ class LocomotionEnvCfg:
                     "rel_world_envs": 0.0,
                     "rel_forward_envs": 0.0,
                     "init_velocity_prob": 0.0,
+                    "metric_velocity_anchor": "com",
                 },
                 engine_params={
                     "mjlab": {
@@ -206,6 +207,7 @@ class LocomotionEnvCfg:
                         "rel_world_envs": 0.0,
                         "rel_forward_envs": 0.0,
                         "init_velocity_prob": 0.0,
+                        "metric_velocity_anchor": "link",
                     }
                 },
             )

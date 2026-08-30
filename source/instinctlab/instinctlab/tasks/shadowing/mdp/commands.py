@@ -13,15 +13,6 @@ from instinctlab.utils.math import quat_to_tan_norm
 from instinctlab.utils.name_order import resolve_name_indices
 
 
-def _root(data: Any, name: str) -> torch.Tensor:
-    """Resolve Isaac's root names and MJLab's explicit root-link names at one boundary."""
-    mj_name = name.replace("root_", "root_link_")
-    for candidate in (mj_name, name):
-        if hasattr(data, candidate):
-            return getattr(data, candidate)
-    raise AttributeError(f"robot data has neither {mj_name!r} nor {name!r}")
-
-
 class MotionReferenceCommand:
     """Common lifecycle for task-owned motion-reference commands."""
 
@@ -86,8 +77,8 @@ class PositionReference(MotionReferenceCommand):
             anchor_quat = current.base_quat_w[env_ids, 0]
         else:
             robot = self._env.scene[self.cfg.entity_name].data
-            anchor_pos = _root(robot, "root_pos_w")[env_ids]
-            anchor_quat = _root(robot, "root_quat_w")[env_ids]
+            anchor_pos = robot.root_link_pos_w[env_ids]
+            anchor_quat = robot.root_link_quat_w[env_ids]
         inv_pos, inv_quat = math_utils.subtract_frame_transforms(
             anchor_pos, anchor_quat
         )
@@ -115,9 +106,8 @@ class RotationReference(MotionReferenceCommand):
         reference = self._motion.data
         quat = reference.base_quat_w[env_ids]
         if self.cfg.in_base_frame:
-            robot_quat = _root(
-                self._env.scene[self.cfg.entity_name].data, "root_quat_w"
-            )[env_ids]
+            robot = self._env.scene[self.cfg.entity_name].data
+            robot_quat = robot.root_link_quat_w[env_ids]
             quat = math_utils.quat_mul(
                 math_utils.quat_inv(robot_quat).unsqueeze(1).expand_as(quat), quat
             )

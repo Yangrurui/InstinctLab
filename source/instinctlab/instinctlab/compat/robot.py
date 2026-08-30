@@ -12,7 +12,7 @@ engine implementation.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, Literal
 
 import torch
 
@@ -26,7 +26,8 @@ __all__ = [
     "joint_applied_torque",
     "joint_effort_limits",
     "joint_stiffness_groups",
-    "root_command_linear_velocity_b",
+    "root_angular_velocity_b",
+    "root_linear_velocity_b",
 ]
 
 
@@ -104,21 +105,47 @@ def body_angular_velocity_w(env: Any, asset: Any) -> torch.Tensor:
     return value
 
 
-def root_command_linear_velocity_b(env: Any, asset: Any) -> torch.Tensor:
-    """Return the native quantity historically used by velocity-command metrics.
+def root_angular_velocity_b(asset: Any) -> torch.Tensor:
+    """Return root angular velocity without constructing an unused link velocity.
 
-    Isaac Lab's stock command measures COM linear velocity; MJLab's measures the
-    root-link velocity. The command algorithm is portable, but silently changing
-    this diagnostic quantity would make its episode metrics incomparable.
+    Angular velocity is independent of the point on a rigid body. Isaac exposes
+    a direct COM property, while MJLab exposes the equivalent root-link value.
+    Prefer the direct property when available because Isaac's link-velocity
+    property also computes a linear COM-to-link correction.
     """
-    attribute = {
-        "isaacsim": "root_com_lin_vel_b",
-        "mjlab": "root_link_lin_vel_b",
-    }[_native_engine(env, asset)]
+    value = getattr(asset.data, "root_com_ang_vel_b", None)
+    if value is None:
+        value = getattr(asset.data, "root_link_ang_vel_b", None)
+    if value is None:
+        raise PortabilityError(
+            f"{type(asset).__name__} exposes neither root_com_ang_vel_b nor "
+            "root_link_ang_vel_b; root angular velocity is unavailable."
+        )
+    return value
+
+
+def root_linear_velocity_b(
+    asset: Any, *, anchor: Literal["com", "link"]
+) -> torch.Tensor:
+    """Return body-frame root linear velocity at the requested physical point.
+
+    Unlike angular velocity, COM and link-origin linear velocities differ by a
+    lever-arm term. The task must therefore state the anchor instead of asking
+    this compatibility layer to select one from the engine name.
+    """
+    try:
+        attribute = {
+            "com": "root_com_lin_vel_b",
+            "link": "root_link_lin_vel_b",
+        }[anchor]
+    except KeyError:
+        raise ValueError(
+            f"root linear velocity anchor must be 'com' or 'link', got {anchor!r}."
+        ) from None
     value = getattr(asset.data, attribute, None)
     if value is None:
         raise PortabilityError(
-            f"{type(asset).__name__} has no {attribute}; command tracking velocity is unavailable."
+            f"{type(asset).__name__} has no {attribute}; root {anchor} linear velocity is unavailable."
         )
     return value
 

@@ -9,7 +9,7 @@ from typing import Any
 import torch
 
 from instinctlab.compat.math import wrap_to_pi
-from instinctlab.compat.robot import root_command_linear_velocity_b
+from instinctlab.compat.robot import root_linear_velocity_b
 
 
 class UniformVelocityCommand:
@@ -54,7 +54,9 @@ class UniformVelocityCommand:
 
     def _update_metrics(self) -> None:
         max_command_step = self.cfg.resampling_time_range[1] / self._env.step_dt
-        linear_velocity = root_command_linear_velocity_b(self._env, self.robot)
+        linear_velocity = root_linear_velocity_b(
+            self.robot, anchor=self.cfg.metric_velocity_anchor
+        )
         angular_velocity = self.robot.data.root_link_ang_vel_b
         self.metrics["error_vel_xy"] += (
             torch.norm(
