@@ -401,7 +401,7 @@ def play_with_viser(
     from mjlab.viewer import ViserPlayViewer
     from mjlab.viewer.viser.viewer import CheckpointManager, format_time_ago
 
-    from instinctlab.compat.observation_terms import set_debug_image_sink
+    from instinctlab.utils.debug_image import set_debug_image_sink
 
     class _InstinctViserPlayViewer(ViserPlayViewer):
         def __init__(

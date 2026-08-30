@@ -60,7 +60,9 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
     ) -> None:
         import mjlab.envs.manager_based_rl_env as env_mod
 
-        from instinctlab.engines.diagnostics.contact_overflow import check_contact_overflow
+        from instinctlab.engines.diagnostics.contact_overflow import (
+            check_contact_overflow,
+        )
 
         previous = env_mod.Scene
         env_mod.Scene = TerrainAwareScene
@@ -72,7 +74,9 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
 
     def step(self, action):
         result = super().step(action)
-        from instinctlab.engines.diagnostics.contact_overflow import check_contact_overflow
+        from instinctlab.engines.diagnostics.contact_overflow import (
+            check_contact_overflow,
+        )
 
         check_contact_overflow(self, phase="step")
         return result
@@ -85,9 +89,9 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
             terrain.debug_vis(visualizer)
 
     def _reset_idx(self, env_ids=None) -> None:
-        from instinctlab.compat.observation_terms import (
-            clear_resettable_observation_histories,
+        from instinctlab.compat.observation_history import (
+            clear_observation_histories_on_reset,
         )
 
-        clear_resettable_observation_histories(self, env_ids)
+        clear_observation_histories_on_reset(self, env_ids)
         super()._reset_idx(env_ids)

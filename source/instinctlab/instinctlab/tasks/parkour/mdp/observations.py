@@ -33,9 +33,9 @@ import torch.nn.functional as F
 
 from instinctlab.compat import robot as compat_robot
 from instinctlab.compat.env import RlEnv, get_command
-from instinctlab.compat.observation_terms import show_debug_image
 from instinctlab.compat.sensors import depth_image
 from instinctlab.spec.sensor import RayCasterRef
+from instinctlab.utils.debug_image import show_debug_image
 
 
 def base_ang_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:

@@ -37,7 +37,7 @@ def depth_image(
         normalized.unsqueeze(1), size=resize_shape, mode="bilinear", align_corners=False
     )
     if debug_vis:
-        from instinctlab.compat.observation_terms import show_debug_image
+        from instinctlab.utils.debug_image import show_debug_image
 
         show_debug_image(processed, window_name="depth_image")
     return processed
