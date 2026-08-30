@@ -17,8 +17,16 @@ from instinctlab_engine.actuators import (
 )
 from instinctlab_engine.preflight import PreflightError, preflight_report, require_preflight
 from instinctlab_engine.spec import NativeSensorRef
+from instinctlab.tasks import registry
 
-from tests.task_specs import task_spec
+from tests.task_specs import task_spec, with_rigid_object_fixture
+
+
+REGISTERED_TASK_ENGINES = tuple(
+    (task_id, engine)
+    for task_id in registry.ids()
+    for engine in task_spec(task_id).engines
+)
 
 
 @pytest.mark.parametrize("engine", ("isaacsim", "mjlab"))
@@ -45,6 +53,35 @@ def test_builtin_flat_task_passes_preflight_with_exact_selected_components(
         "instinctlab.assets",
         "instinctlab.engines",
     } <= provider_groups
+
+
+def test_generated_terrain_preflight_uses_registered_tile_kinds() -> None:
+    task = task_spec("Instinct-Velocity-Rough-G1", "mjlab")
+
+    report = require_preflight(task, "mjlab")
+
+    assert report["selected_components"]["sub_terrain_kinds"] == [
+        tile.kind for tile in task.scene.terrain.generator.sub_terrains.values()
+    ]
+    assert "perlin_pyramid_stairs" in report["selected_components"][
+        "sub_terrain_kinds"
+    ]
+    assert "pyramid_stairs" not in report["selected_components"][
+        "sub_terrain_kinds"
+    ]
+
+
+@pytest.mark.parametrize(("task_id", "engine"), REGISTERED_TASK_ENGINES)
+def test_every_registered_task_passes_preflight_with_local_object_fixtures(
+    task_id: str,
+    engine: str,
+) -> None:
+    task = with_rigid_object_fixture(task_spec(task_id, engine))
+
+    report = require_preflight(task, engine)
+
+    assert report["status"] == "ok"
+    assert report["incompatibilities"] == []
 
 
 def test_preflight_report_imports_neither_engine_sdk() -> None:

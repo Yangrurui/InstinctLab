@@ -242,7 +242,11 @@ def preflight_report(
 
     terrain_kind = spec.scene.terrain.kind
     generator = spec.scene.terrain.generator
-    sub_terrain_kinds = tuple(generator.sub_terrains) if generator is not None else ()
+    sub_terrain_kinds = (
+        tuple(tile.kind for tile in generator.sub_terrains.values())
+        if generator is not None
+        else ()
+    )
     try:
         available_terrains = TERRAIN_EXTENSIONS.terrain_kinds(engine)
         if terrain_kind not in available_terrains:
