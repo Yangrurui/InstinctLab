@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current verified production code: `8195d3e`
+- Current verified production code: `f1ff261`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -842,14 +842,14 @@ fixture without an edit to engine core or an existing backend.
 
 | Capability | Current state | Boundary still missing |
 |---|---|---|
-| Backend | First-class plugin | Release/install matrix remains a publication gate |
+| Backend | First-class plugin; all isolated wheel matrices pass | Publication remains a release-process gate |
 | Terrain | First-class whole-terrain and tile plugin | Region semantics and dynamic/deformable terrain are optional later work |
 | Native task term | First-class engine-term plugin | Stateful controller timing must use an explicit lifecycle contract |
-| Robot asset | Package/variant resolver exists | Native asset module contract and external-robot conformance kit |
-| Actuator | Explicit values exist in native G1 assets | The actuator plugin protocol above is designed but not implemented |
-| Sensor | Fixed contact, ray, motion-reference, and volume-point families | Independently installed native sensor builders and sensor lifecycle |
-| Scene object | Minimal mesh-backed `RigidObjectRef` | Object asset routing, articulated objects, constraints, and robust HOI construction |
-| Collision/material | Terrain coefficients and native asset settings | Portable entity-pair filters, body material bindings, and contact relations |
+| Robot asset | Versioned native API, conformance command, and external wheel fixture | Object/articulation catalogs beyond the primary robot remain later work |
+| Actuator | Lazy native model registry, runtime capability adapters, and explicit asset-owned groups | Additional controller clock semantics belong to P1 |
+| Sensor | Built-in families plus lazy native builders with timing/reset capabilities | More native sensor families require their own fixed-state evidence |
+| Scene object | Production-valid mesh-backed rigid objects on both backends | Object asset routing, articulated objects, and full HOI behavioral evidence |
+| Collision/material | Portable entity-pair exclusions with native lowering | Body material bindings and broader contact/constraint relations |
 | Multiple articulations | One canonical `TaskSpec.robot` | Canonical schemas and action/observation targeting for additional articulations |
 | Time/lifecycle | Physics step, decimation, and selected sensor periods | Named clock domains, timestamps, latency, and per-environment component reset |
 | Record/replay | Diagnostics and run manifests exist | Episode trace and engine-native state snapshot/restore interfaces |
@@ -896,6 +896,73 @@ third-party ecosystem.
    incompatibilities. Test broken, duplicate, wrong-API, partial-registration,
    uninstall, and unselected-backend import cases consistently across every
    plugin group.
+
+P0 implementation is complete in the following independently verified changes:
+
+- `c7e18ea` and `e7573b0` added the transactional native actuator registry,
+  capability adapters, built-in registrations, exact native group validation,
+  and asset-owned model routing without moving parameters into engine core.
+- `d4462f2` defined native asset API `0.1` and added
+  `scripts/asset_conformance.py`; both G1 backends report canonical DFS order,
+  complete names/resources/units, and exact actuator-group coverage.
+- `44f1903` added selected-engine native sensor discovery and explicit
+  attachment, period, timestamp, latency/history, device, and partial-reset
+  capabilities.
+- `810af58` lowers portable `CollisionExclusionRef` pairs to Isaac USD
+  `FilteredPairs` relationships and MJLab excludes without naming Perceptive or
+  G1 in either scene builder. `2294868` verifies that Isaac cloning rewrites
+  every relationship target into the owning environment.
+- `e7cffb4` replaced the removed Isaac mesh-config path and made both rigid
+  object builders validate resources before SDK import, then apply explicit
+  spawn/reset, collision, mass, scale, friction, and kinematic semantics.
+- `88e286b` unified preflight across assets, actuators, sensors, terrain, rigid
+  objects, capabilities, omissions, incompatibilities, and selected-provider
+  provenance.
+- `ba6bfb3` added a separately built external fixture wheel. It installs one
+  robot, stateful actuator, delayed/history sensor, and terrain for both
+  backends without editing core or either backend; canonical group coverage,
+  actuator clipping/delay/partial reset, sensor timing/partial reset,
+  selected-provider provenance, unselected implementation imports, and clean
+  uninstall all pass.
+
+The production-scale Isaac relation probe in `6bc3b89` constructed and stepped
+4,096 Perceptive environments for five zero-action steps on CUDA 2. It checked
+16,384 cloned filtered-pair targets, found no cross-environment target, no
+contact-drop warning, and no overflow at reset or any step. Peak reported
+occupancy was 19,871,488 / 134,217,728 collision-stack bytes, 81,701 / 327,680
+rigid patches, and 216,777 rigid contacts. PhysX API constraint counters were
+also added in `d79d295`; this installed runtime returned zero for those optional
+counters, while the populated native contact buffers supplied the capacity
+evidence. The report is
+`logs/diagnostics/perceptive_collision_exclusions_4096_20260830.json` (ignored
+diagnostic output). No training process was stopped, restarted, or signaled.
+
+The production probe also exposed an import leak outside the relation code:
+the shared URDF motion-reference path entered `pytorch_kinematics`, whose eager
+MuJoCo import is invalid inside the selected Isaac runtime on this server.
+`3b7bd61` now uses a direct batched URDF fixed/revolute/prismatic FK path and
+retains the existing MJCF implementation. It imports neither MuJoCo nor
+`pytorch_kinematics` for URDF and agrees with the former G1 calculation within
+`1.79e-7` maximum matrix error.
+
+This closes the implementation work listed above, but does not by itself label
+the APIs stable 1.0. The external wheel probe materializes native configs and
+exercises deterministic lifecycle stand-ins rather than constructing a full
+third-party simulator scene. The user-facing minimal extension example and a
+live native external-asset construction gate are still release-hardening work.
+
+Current review verification:
+
+```text
+1349 passed, 3 skipped, 28 deselected (full tests/ suite)
+Parkour contract: 1 passed, 24 deselected
+MJLab Flat G1: 16 environments constructed/reset and stepped five times;
+  canonical DFS action order true, zero terminations
+core-only, Isaac-only, MJLab-only, and dual-backend built-wheel matrices passed
+external fixture wheel passed both engines and clean uninstall
+G1 native asset conformance reported status ok on both engines
+Isaac collision-relation live clone test and 4,096-environment probe passed
+```
 
 #### P1: make scenes and failures reproducible
 
@@ -2353,18 +2420,19 @@ Probe reports and logs are under
 start hashes, early force quantiles, top bodies, survival, reward, and causes.
 Commit `d8e8b24` fixes the Isaac profile interface so an explicit self-collision
 override reaches both URDF conversion and articulation properties; it does not
-change any task default. The next production experiment should reproduce the
-four MJCF pair exclusions in PhysX, verify force/contact behavior at 4,096
-environments, and only then run a fresh training A/B. Do not adopt global
-self-collision disablement as the final fix without that narrower test.
+change any task default. The four MJCF pair exclusions are now represented by
+portable entity-pair relations and passed the 4,096-environment PhysX probe
+recorded above. The next production experiment is therefore a fresh training
+A/B using these narrow exclusions; global self-collision disablement is not the
+production configuration.
 
 ## Open risks and next work
 
-1. Let the fresh GPU 5 Whole Body and GPU 6 Perceptive runs continue; do not
-   restart them or promote checkpoints yet. For the next Perceptive run, first
-   implement and validate the four MJCF-equivalent PhysX filtered pairs described
-   above. Global self-collision disablement is causal evidence, not the proposed
-   production configuration.
+1. Let the retained GPU 6 Perceptive run continue; do not restart it or promote
+   its checkpoint yet. The four MJCF-equivalent PhysX filtered pairs have passed
+   cloning and 4,096-environment capacity probes. A fresh A/B is still required
+   for training-behavior evidence; global self-collision disablement remains
+   diagnostic evidence only.
 2. The retained MJLab Whole Body CUDA 719 has no attributable source from the
    available log. A causal diagnosis requires an exact checkpoint/policy replay
    with synchronous CUDA diagnostics; do not blame the reported `nonzero()`
@@ -2388,10 +2456,12 @@ self-collision disablement as the final fix without that narrower test.
 7. Continue reducing engine-specific parameter overlays by translating shared
    semantic values in builders. Do not move task policy into an engine package
    to achieve this.
-8. Replace the HOI Isaac rigid-object spawn use of removed `sim.MeshFileCfg`
-   with the installed Isaac Lab 5.1 API, then repeat strict construction. This
-   blocks HOI before motion/object dataset availability is reached and predates
-   the engine/task isolation refactor.
+8. HOI rigid-object loading is now production-valid on Isaac Lab 5.1 and MJLab;
+   missing resources fail in unified preflight before either SDK constructs a
+   scene. Full HOI parity remains blocked by the absent OMOMO motion directories
+   and six object meshes. After installing them, repeat strict preflight,
+   construction, reset, object-reference, contact, and rollout probes on both
+   engines.
 ## Bring-up and verification
 
 Before starting a training run, inspect `pgrep -af scripts/train.py` and
