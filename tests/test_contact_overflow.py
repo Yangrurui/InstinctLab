@@ -99,6 +99,10 @@ def _fake_isaac_env(
             gpu_mem_collision_stack_size=needed_stack,
             gpu_mem_rigid_patch_count=needed_patches,
             gpu_mem_rigid_contact_count=needed_patches * 3,
+            nb_active_constraints=17,
+            nb_axis_solver_constaints=23,
+            nb_discrete_contact_pairs_with_contacts=7,
+            peak_constraint_memory=4096,
         ),
     )
     env.unwrapped = env
@@ -128,6 +132,10 @@ def test_isaac_clean_budget_does_not_raise(monkeypatch) -> None:
     assert snapshot is not None
     assert snapshot["any_overflow"] is False
     assert snapshot["gpu_mem_collision_stack_size"] == 912488
+    assert snapshot["active_constraints"] == 17
+    assert snapshot["axis_solver_constraints"] == 23
+    assert snapshot["contact_pairs"] == 7
+    assert snapshot["peak_constraint_memory"] == 4096
 
 
 def test_isaac_guard_wrapper_raises_after_step(monkeypatch) -> None:

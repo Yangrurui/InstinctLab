@@ -390,6 +390,16 @@ def _isaac_snapshot(env: Any) -> dict[str, Any] | None:
         "gpu_max_rigid_patch_count": allocated_patches,
         "gpu_mem_rigid_patch_count": needed_patches,
         "gpu_mem_rigid_contact_count": int(getattr(stats, "gpu_mem_rigid_contact_count", 0) or 0),
+        "active_constraints": int(getattr(stats, "nb_active_constraints", 0) or 0),
+        "axis_solver_constraints": int(
+            getattr(stats, "nb_axis_solver_constaints", 0) or 0
+        ),
+        "contact_pairs": int(
+            getattr(stats, "nb_discrete_contact_pairs_with_contacts", 0) or 0
+        ),
+        "peak_constraint_memory": int(
+            getattr(stats, "peak_constraint_memory", 0) or 0
+        ),
     }
 
 
