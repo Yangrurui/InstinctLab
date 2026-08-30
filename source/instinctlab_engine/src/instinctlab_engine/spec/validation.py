@@ -55,6 +55,14 @@ def _validate_engine_keys(spec: TaskSpec) -> None:
                 "otherwise, and the override never applies."
             )
 
+    for rigid_object in spec.scene.rigid_objects:
+        unknown = set(rigid_object.engine_meshes) - declared
+        if unknown:
+            raise ValueError(
+                f"Rigid object {rigid_object.name!r} has engine meshes for "
+                f"{sorted(unknown)}, which is not in engines={sorted(declared)}."
+            )
+
     for key, term in spec.mdp.terms().items():
         unknown = term.engines_named() - declared
         if unknown:

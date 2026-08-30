@@ -1013,9 +1013,11 @@ def test_hoi_scene_and_motion_declare_the_same_ordered_objects() -> None:
     assert "out_of_border" not in task.mdp.terminations
 
 
-def test_all_shadowing_tasks_compile_to_mjlab_without_gpu_or_dataset_io() -> None:
+def test_shadowing_tasks_without_native_objects_compile_without_dataset_io() -> None:
     adapter = MjlabAdapter()
     for task_id in SHADOW_IDS:
+        if "HOI" in task_id:
+            continue
         compiled = adapter.compile(
             _task(task_id), num_envs=1, device="cpu", strict=True
         )

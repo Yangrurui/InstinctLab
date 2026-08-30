@@ -334,24 +334,13 @@ def build_scene(
     scene.filter_collisions = True
     scene.terrain = _terrain(spec.terrain, profile)
     scene.robot = articulation_cfg.replace(prim_path=_ROBOT_PRIM, spawn=spawn)
-    for obj in spec.rigid_objects:
-        import isaaclab.sim as sim_utils
-        from isaaclab.assets import RigidObjectCfg
+    from .rigid_objects import rigid_object_cfg
 
-        resolved = obj.for_engine("isaacsim")
-        mesh = sim_utils.MeshFileCfg(
-            asset_path=resolved.mesh,
-            scale=resolved.scale,
-            mass_props=sim_utils.MassPropertiesCfg(mass=resolved.mass),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                kinematic_enabled=resolved.kinematic
-            ),
-        )
+    for obj in spec.rigid_objects:
         setattr(
             scene,
-            resolved.name,
-            RigidObjectCfg(prim_path=f"{{ENV_REGEX_NS}}/{resolved.name}", spawn=mesh),
+            obj.name,
+            rigid_object_cfg(obj, prim_path=f"{{ENV_REGEX_NS}}/{obj.name}"),
         )
     for sensor in spec.contact_sensors:
         cfg = _build_contact_sensor(sensor)

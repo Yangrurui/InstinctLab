@@ -177,33 +177,10 @@ def build_scene(
             build_entity(robot), spec.collision_exclusions
         )
     }
+    from .rigid_objects import rigid_object_cfg
+
     for obj in spec.rigid_objects:
-        import os
-
-        import mujoco
-        from mjlab.entity import EntityCfg
-
-        resolved = obj.for_engine("mjlab")
-
-        def object_spec(resolved=resolved):
-            native = mujoco.MjSpec()
-            mesh = native.add_mesh(
-                name="object_mesh",
-                file=os.path.expanduser(resolved.mesh),
-                scale=resolved.scale,
-            )
-            body = native.worldbody.add_body(name="object", mocap=resolved.kinematic)
-            body.add_geom(
-                name="object_geom",
-                type=mujoco.mjtGeom.mjGEOM_MESH,
-                meshname=mesh.name,
-                mass=resolved.mass,
-                group=2,
-                friction=(1.0, 0.005, 0.0001),
-            )
-            return native
-
-        entities[resolved.name] = EntityCfg(spec_fn=object_spec)
+        entities[obj.name] = rigid_object_cfg(obj)
     return SceneCfg(
         num_envs=num_envs,
         env_spacing=spec.env_spacing,
