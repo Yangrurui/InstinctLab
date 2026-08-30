@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-import torch
+if TYPE_CHECKING:
+    import torch
 
 
 class NameOrderError(ValueError):
@@ -50,6 +52,8 @@ def copy_named_columns_(
     target_names: Sequence[str],
 ) -> None:
     """Copy named ``values`` columns into a differently ordered target in-place."""
+    import torch
+
     column_ids = torch.tensor(
         resolve_name_indices(target_names, value_names),
         dtype=torch.long,

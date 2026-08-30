@@ -4,20 +4,28 @@ from __future__ import annotations
 
 from typing import Any
 
-from instinctlab_engine.assets import native_asset_module
+from instinctlab_engine.assets import (
+    native_asset_conformance_report,
+    native_asset_definition,
+)
 from instinctlab_engine.spec.robot import BackendAsset, JointProperties, RobotSpec
 
-__all__ = ["articulation", "robot_spec"]
+__all__ = ["articulation", "asset_conformance", "robot_spec"]
+
+
+def _definition(asset_id: str):
+    return native_asset_definition(
+        asset_id,
+        "isaacsim",
+        builder_name="articulation",
+        resource_field="urdf_path",
+        resource_kind="urdf",
+    )
 
 
 def robot_spec(asset_id: str) -> RobotSpec:
     """Normalize one Isaac-native robot configuration after engine selection."""
-    module, variant = native_asset_module(asset_id, "isaacsim")
-    native = module.native_config(variant)
-    if native.asset_id != asset_id:
-        raise ValueError(
-            f"Isaac native variant {variant!r} declares {native.asset_id!r}, expected {asset_id!r}"
-        )
+    native = _definition(asset_id).config
     robot = RobotSpec(
         name=native.name,
         schema_version=native.schema_version,
@@ -58,11 +66,10 @@ def robot_spec(asset_id: str) -> RobotSpec:
 
 
 def articulation(robot: RobotSpec) -> Any:
-    module, variant = native_asset_module(robot.asset_id, "isaacsim")
-    try:
-        builder = module.articulation
-    except AttributeError:
-        raise AttributeError(
-            f"Native asset module {module.__name__!r} does not define articulation(variant, robot)"
-        ) from None
-    return builder(variant, robot)
+    definition = _definition(robot.asset_id)
+    return definition.builder(definition.variant, robot)
+
+
+def asset_conformance(asset_id: str) -> dict[str, Any]:
+    """Return SDK-free onboarding evidence for one Isaac-native robot."""
+    return native_asset_conformance_report(_definition(asset_id))

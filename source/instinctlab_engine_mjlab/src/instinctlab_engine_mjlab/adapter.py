@@ -161,6 +161,11 @@ class MjlabAdapter:
 
         return robot_spec(asset_id)
 
+    def asset_conformance(self, asset_id: str) -> dict[str, Any]:
+        from .assets import asset_conformance
+
+        return asset_conformance(asset_id)
+
     def profile(self, spec: TaskSpec) -> dict[str, Any]:
         merged = dict(PROFILE_DEFAULTS)
         merged.update(spec.sim.profiles.get(self.name, {}))

@@ -15,6 +15,7 @@ from pathlib import Path
 from instinctlab_engine.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
+INSTINCTLAB_NATIVE_ASSET_API = "0.1"
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,11 @@ class IsaacRobotCfg:
     default_root_quat_wxyz: tuple[float, float, float, float]
     soft_joint_pos_limit_factor: float
     actuator_delay: tuple[int, int]
+    actuator_model_ids: tuple[str, ...]
+    actuator_group_count: int
+    length_unit: str
+    angle_unit: str
+    effort_unit: str
 
 ARMATURE_5020 = 0.003609725
 ARMATURE_7520_14 = 0.01017752
@@ -616,6 +622,11 @@ G1_29DOF_CFG = IsaacRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
+    actuator_model_ids=("isaaclab.implicit_pd.v1",),
+    actuator_group_count=5,
+    length_unit="m",
+    angle_unit="rad",
+    effort_unit="N*m",
 )
 
 
@@ -644,6 +655,11 @@ G1_29DOF_SHADOWING_CFG = IsaacRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
+    actuator_model_ids=("isaaclab.implicit_pd.v1",),
+    actuator_group_count=5,
+    length_unit="m",
+    angle_unit="rad",
+    effort_unit="N*m",
 )
 
 
@@ -674,6 +690,11 @@ G1_29DOF_PARKOUR_CFG = IsaacRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 2),
+    actuator_model_ids=("isaaclab.delayed_pd.v1",),
+    actuator_group_count=5,
+    length_unit="m",
+    angle_unit="rad",
+    effort_unit="N*m",
 )
 
 
@@ -1401,6 +1422,15 @@ def articulation(variant: str, robot) -> object:
             spawn_updates[name] = asset.import_options[name]
     cfg.spawn = cfg.spawn.replace(**spawn_updates)
     cfg.init_state = cfg.init_state.replace(pos=robot.default_root_pos)
+    from instinctlab_engine.assets import validate_native_actuator_groups
+
+    validate_native_actuator_groups(
+        robot.asset_id,
+        cfg.actuators,
+        robot.joint_names,
+        selector_field="joint_names_expr",
+        expected_group_count=NATIVE_CONFIGS[variant].actuator_group_count,
+    )
     return cfg
 
 

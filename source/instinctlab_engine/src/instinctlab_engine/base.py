@@ -298,6 +298,10 @@ class EngineAdapter(Protocol):
         """Convert this engine's native asset configuration to the shared runtime spec."""
         ...
 
+    def asset_conformance(self, asset_id: str) -> dict[str, Any]:
+        """Validate and report the SDK-free native robot onboarding contract."""
+        ...
+
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
         """Compile a task into this engine's native environment config."""
         ...

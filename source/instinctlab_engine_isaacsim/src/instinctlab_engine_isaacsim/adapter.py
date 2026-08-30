@@ -237,6 +237,11 @@ class IsaacSimAdapter:
 
         return robot_spec(asset_id)
 
+    def asset_conformance(self, asset_id: str) -> dict[str, Any]:
+        from .assets import asset_conformance
+
+        return asset_conformance(asset_id)
+
     def profile(self, spec: TaskSpec) -> dict[str, Any]:
         """This engine's solver settings, the task's overrides applied over the defaults."""
         merged = dict(PROFILE_DEFAULTS)

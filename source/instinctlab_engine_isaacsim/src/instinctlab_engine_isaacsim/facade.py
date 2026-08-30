@@ -86,6 +86,11 @@ class IsaacSimAdapter:
     def robot_spec(self, asset_id: str):
         return _implementation().robot_spec(asset_id)
 
+    def asset_conformance(self, asset_id: str):
+        from .assets import asset_conformance
+
+        return asset_conformance(asset_id)
+
     def profile(self, spec):
         return _implementation().profile(spec)
 

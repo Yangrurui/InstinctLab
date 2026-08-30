@@ -16,6 +16,7 @@ from xml.etree import ElementTree
 from instinctlab_engine.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
+INSTINCTLAB_NATIVE_ASSET_API = "0.1"
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,11 @@ class MjlabRobotCfg:
     default_root_quat_wxyz: tuple[float, float, float, float]
     soft_joint_pos_limit_factor: float
     actuator_delay: tuple[int, int]
+    actuator_model_ids: tuple[str, ...]
+    actuator_group_count: int
+    length_unit: str
+    angle_unit: str
+    effort_unit: str
 
 ARMATURE_5020 = 0.003609725
 ARMATURE_7520_14 = 0.01017752
@@ -580,6 +586,11 @@ G1_29DOF_CFG = MjlabRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
+    actuator_model_ids=("mjlab.builtin_pd.v1",),
+    actuator_group_count=7,
+    length_unit="m",
+    angle_unit="rad",
+    effort_unit="N*m",
 )
 
 
@@ -603,6 +614,11 @@ G1_29DOF_SHADOWING_CFG = MjlabRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 0),
+    actuator_model_ids=("mjlab.builtin_pd.v1",),
+    actuator_group_count=7,
+    length_unit="m",
+    angle_unit="rad",
+    effort_unit="N*m",
 )
 
 
@@ -628,6 +644,11 @@ G1_29DOF_PARKOUR_CFG = MjlabRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 2),
+    actuator_model_ids=("mjlab.builtin_pd.v1",),
+    actuator_group_count=7,
+    length_unit="m",
+    angle_unit="rad",
+    effort_unit="N*m",
 )
 
 
@@ -994,6 +1015,16 @@ def entity(variant: str, robot: Any, *, actuator_order=None) -> Any:
         raise FileNotFoundError(
             f"The MJLab asset for {robot.name!r} is missing: {path}"
         )
+    actuator_groups = ACTUATOR_CONFIGS[variant](BuiltinPdActuatorCfg)
+    from instinctlab_engine.assets import validate_native_actuator_groups
+
+    validate_native_actuator_groups(
+        robot.asset_id,
+        actuator_groups,
+        robot.joint_names,
+        selector_field="target_names_expr",
+        expected_group_count=NATIVE_CONFIGS[variant].actuator_group_count,
+    )
     return EntityCfg(
         init_state=EntityCfg.InitialStateCfg(
             pos=robot.default_root_pos,
@@ -1005,7 +1036,7 @@ def entity(variant: str, robot: Any, *, actuator_order=None) -> Any:
         ),
         spec_fn=lambda: _load_spec(path, asset.load_mode),
         articulation=EntityArticulationInfoCfg(
-            actuators=ACTUATOR_CONFIGS[variant](BuiltinPdActuatorCfg),
+            actuators=actuator_groups,
             soft_joint_pos_limit_factor=robot.soft_joint_pos_limit_factor,
         ),
     )
