@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from instinctlab.spec import (
+from instinctlab_engine.spec import (
     AgentSpec,
     MdpSpec,
     MotionReferenceRef,
@@ -11,7 +11,7 @@ from instinctlab.spec import (
     SimSpec,
     TaskSpec,
 )
-from instinctlab.spec.robot import RobotSpec
+from instinctlab_engine.spec.robot import RobotSpec
 from instinctlab.tasks.shadowing.perceptive.perceptive_env_cfg import (
     PerceptiveAdaptiveEventsCfg,
     PerceptiveCriticObsCfg,

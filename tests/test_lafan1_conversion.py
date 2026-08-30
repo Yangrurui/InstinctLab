@@ -12,7 +12,7 @@ from instinctlab.assets.unitree_g1.isaacsim import (
     G1_29DOF_DFS_JOINT_NAMES,
     RESOURCE_ROOT,
 )
-from instinctlab.motion_reference import load_retargetted_clip
+from instinctlab_engine.motion_reference import load_retargetted_clip
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts/lafan1_csv_to_instinct.py"
 SPEC = importlib.util.spec_from_file_location("lafan1_csv_to_instinct", SCRIPT_PATH)

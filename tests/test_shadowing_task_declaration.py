@@ -6,7 +6,7 @@ import ast
 from pathlib import Path
 
 import pytest
-from instinctlab import engines
+import instinctlab_engine as engines
 from instinctlab.tasks import registry
 
 from tests.test_shadowing_reference_inventory import COMMON_IDS, MJ_ONLY_IDS

@@ -5,9 +5,9 @@ Each of them retargets smpl poses to robot's base pose and joint positions
 import numpy as np
 import torch
 
-import instinctlab.compat.math as math_utils
+import instinctlab_engine.bridge.math as math_utils
 
-import instinctlab.utils.math as instinct_math
+import instinctlab_engine.math as instinct_math
 
 """
 refer to https://khanhha.github.io/posts/SMPL-model-introduction/ for SMPL joint definition.

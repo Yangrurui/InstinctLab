@@ -35,7 +35,7 @@ def _parse() -> argparse.Namespace:
     Two passes because the flags an engine wants are not knowable before the engine is. The first
     parser is deliberately incomplete and ignores what it does not recognise.
     """
-    from instinctlab.engines import names
+    from instinctlab_engine import names
 
     # Required rather than defaulted: a default would have to name one engine, and a run that
     # silently picks an engine is a run whose logs cannot be trusted to say what produced them.
@@ -89,7 +89,7 @@ def _parse() -> argparse.Namespace:
     )
 
     # Contributes the engine's launch flags, and ``--device``, which the engines insist on owning.
-    from instinctlab.engines import adapter as _adapter
+    from instinctlab_engine import adapter as _adapter
 
     _adapter(chosen.engine).add_cli_args(parser)
     return parser.parse_args()
@@ -237,7 +237,7 @@ def main() -> None:
     distributed = distributed_run(args.distributed, args.local_rank)
     args.device = rank_device(args.device, distributed)
 
-    from instinctlab.engines import adapter as engine_adapter
+    from instinctlab_engine import adapter as engine_adapter
 
     engine = engine_adapter(args.engine)
     with ExitStack() as resources:

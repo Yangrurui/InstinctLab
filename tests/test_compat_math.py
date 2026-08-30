@@ -1,4 +1,4 @@
-"""Guard: the vendored math in ``instinctlab.compat.math`` still equals both engines'.
+"""Guard: the vendored math in ``instinctlab_engine.bridge.math`` still equals both engines'.
 
 Isaac Lab owns the original ``utils/math.py`` and mjlab carries a copy of it. ``compat.math`` is a
 third copy, taken because importing either engine's version drags the engine in -- Isaac Lab's is
@@ -27,7 +27,7 @@ from collections.abc import Callable
 
 import pytest
 
-from instinctlab.compat import math as compat_math
+from instinctlab_engine.bridge import math as compat_math
 
 # Vendored from these two, so both are the reference. Names are the public surface of compat.math
 # minus the layout converters, which no engine exposes in this form.
@@ -239,7 +239,7 @@ def test_vendored_docstrings_state_wxyz() -> None:
 
 
 def test_utils_math_runs_without_an_engine() -> None:
-    """``instinctlab.utils.math`` was the first module ported off the engine; keep it that way.
+    """``instinctlab_engine.math`` was the first module ported off the engine; keep it that way.
 
     It reaches ``compat.math`` for seven functions and is otherwise pure torch, so it now imports
     with no simulator present. The six ``torch.jit.script`` functions are the fragile part: script
@@ -258,10 +258,10 @@ def test_utils_math_runs_without_an_engine() -> None:
     blocker = _Blocker()
     for name in [name for name in sys.modules if name.split(".")[0] in blocked]:
         del sys.modules[name]
-    sys.modules.pop("instinctlab.utils.math", None)
+    sys.modules.pop("instinctlab_engine.math", None)
     sys.meta_path.insert(0, blocker)
     try:
-        module = importlib.import_module("instinctlab.utils.math")
+        module = importlib.import_module("instinctlab_engine.math")
         scripted = [name for name, value in vars(module).items() if isinstance(value, torch.jit.ScriptFunction)]
         assert len(scripted) == 6, f"expected six scripted functions, found {scripted}"
         quat = torch.nn.functional.normalize(torch.randn(8, 4), dim=-1)

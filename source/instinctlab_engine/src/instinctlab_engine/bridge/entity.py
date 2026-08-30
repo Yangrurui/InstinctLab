@@ -1,4 +1,4 @@
-"""Lowering an :class:`~instinctlab.spec.entity.EntityRef` onto each engine's selector config.
+"""Lowering an :class:`~instinctlab_engine.spec.entity.EntityRef` onto each engine's selector config.
 
 Both engines converged on a class called ``SceneEntityCfg`` with the same shape -- ``name``,
 ``preserve_order``, and a ``<kind>_names`` / ``<kind>_ids`` pair per selector kind -- so lowering is
@@ -24,7 +24,7 @@ portable way to ask the question, and it happens to need no engine-specific bran
 
 This module imports no engine at module scope; each lowering imports its own engine when called.
 
-将 :class:`~instinctlab.spec.entity.EntityRef` 下降为各引擎的选择器配置。
+将 :class:`~instinctlab_engine.spec.entity.EntityRef` 下降为各引擎的选择器配置。
 
 两引擎均收敛到 ``SceneEntityCfg`` 形态——``name``、``preserve_order``、每种选择器的
 ``<kind>_names`` / ``<kind>_ids``——下降过程无需改名，只是字段映射。底层名解析共用
@@ -51,7 +51,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from instinctlab.spec.entity import UNIVERSAL_KINDS, EntityRef
+from instinctlab_engine.spec.entity import UNIVERSAL_KINDS, EntityRef
 
 from .errors import PortabilityError
 
@@ -92,8 +92,9 @@ def register(engine: str, *, kinds: Iterable[str], cfg: tuple[str, str], contain
     """Declare what ``engine`` can select. Called by that engine's package when it is imported.
 
     Args:
-        engine: The engine key, matching its entry in :data:`instinctlab.engines.ADAPTERS`.
-            引擎键，与 :data:`instinctlab.engines.ADAPTERS` 中的条目一致。
+        engine: The engine key, matching its entry in
+            :data:`instinctlab_engine.ADAPTERS`.
+            引擎键，与 :data:`instinctlab_engine.ADAPTERS` 中的条目一致。
         kinds: Selector kinds its ``SceneEntityCfg`` accepts. Kinds two engines spell the same are
             not assumed to mean the same thing -- Isaac Lab's ``fixed_tendon`` and mjlab's
             ``tendon`` are registered apart, because treating them as one would let a reference

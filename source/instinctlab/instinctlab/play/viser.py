@@ -15,12 +15,12 @@ from typing import Any
 
 import numpy as np
 
-from instinctlab.spec.robot import RobotSpec
+from instinctlab_engine.spec.robot import RobotSpec
 
 
 def build_viser_env(spec: Any, *, num_envs: int, device: str, strict: bool) -> Any:
     """Compile ``spec`` for the simulator used by the Viser viewer."""
-    from instinctlab.engines import adapter
+    from instinctlab_engine import adapter
     from instinctlab.play.env import PlayEnv
 
     viewer_engine = adapter("mjlab")

@@ -7,7 +7,7 @@ from typing import Any
 
 import torch
 
-from instinctlab.spec.sensor import Grid3dPointsRef
+from instinctlab_engine.spec.sensor import Grid3dPointsRef
 
 from ..errors import PortabilityError
 

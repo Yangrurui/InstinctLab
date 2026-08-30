@@ -6,7 +6,7 @@ import inspect
 
 from instinctlab.assets.unitree_g1 import isaacsim
 from instinctlab.engines.isaacsim import assets
-from instinctlab.assets.registry import native_asset_module
+from instinctlab_engine.assets import native_asset_module
 
 ASSET_IDS = (
     "unitree_g1/popsicle_torsobase_v1",

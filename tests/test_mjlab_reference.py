@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import reference_mjlab as reference
 
-from instinctlab.spec.capability import Requirement
+from instinctlab_engine.spec.capability import Requirement
 from tests.task_specs import task_spec
 
 pytestmark = pytest.mark.skipif(not reference.available(), reason="InstinctMJ is not checked out")

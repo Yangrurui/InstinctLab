@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from pathlib import Path
 
-from instinctlab.spec import EntityRef
+from instinctlab_engine.spec import EntityRef
 from instinctlab.tasks import registry
 from tests.task_specs import task_spec
 

@@ -5,7 +5,7 @@ these types and compiled to a native environment by the backend for whichever en
 so anything that reaches for an engine at this level has already lost the property that makes the
 declaration portable. Engine isolation is an explicit package boundary.
 
-:class:`~instinctlab.spec.task.TaskSpec` is the entry point: a whole task, produced by a frontend
+:class:`~instinctlab_engine.spec.task.TaskSpec` is the entry point: a whole task, produced by a frontend
 that read some project's native definition and consumed by the backend for the engine in use.
 """
 

@@ -7,7 +7,7 @@ to their native terrain implementation.
 
 from __future__ import annotations
 
-from instinctlab.spec import (
+from instinctlab_engine.spec import (
     SubTerrainSpec,
     TerrainGeneratorSpec,
     TerrainSpec,

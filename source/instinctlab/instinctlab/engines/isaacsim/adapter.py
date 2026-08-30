@@ -17,17 +17,17 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
-from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
-from instinctlab.engines.compile import (
+from instinctlab_engine.base import CompiledTask, Resolution, require_supported_version
+from instinctlab_engine.compile import (
     CompileCtx,
     compile_mdp,
     contract_report,
     flatten_reward_groups,
     observation_group_settings,
 )
-from instinctlab.spec.capability import CapabilitySet
-from instinctlab.spec.mdp import NoiseSpec
-from instinctlab.spec.task import TaskSpec
+from instinctlab_engine.spec.capability import CapabilitySet
+from instinctlab_engine.spec.mdp import NoiseSpec
+from instinctlab_engine.spec.task import TaskSpec
 
 from .scene import PROFILE_DEFAULTS, build_scene
 from .terms import TERMS
@@ -219,7 +219,7 @@ class IsaacSimAdapter:
         PhysX GPU overflow is checked here: construction first, then after every
         wrapped step. The log line PhysX already prints is not a failed run.
         """
-        from instinctlab.engines.diagnostics.contact_overflow import (
+        from instinctlab_engine.diagnostics.contact_overflow import (
             attach_overflow_guard,
             check_contact_overflow,
         )
@@ -293,7 +293,7 @@ class IsaacSimAdapter:
         env_cls = InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)
 
         def make_env() -> Any:
-            from instinctlab.motion_reference import (
+            from instinctlab_engine.motion_reference import (
                 bind_motion_reference_origins,
             )
 

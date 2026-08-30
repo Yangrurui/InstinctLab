@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from instinctlab.spec.sensor import MotionReferenceRef
+from instinctlab_engine.spec.sensor import MotionReferenceRef
 
 from .buffers import (
     MotionReferenceBuffers,

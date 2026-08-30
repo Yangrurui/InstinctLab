@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from instinctlab.spec.capability import (
+from instinctlab_engine.spec.capability import (
     CONTACT_AIR_TIME,
     DR_SLIDING_FRICTION,
     CapabilitySet,
@@ -78,7 +78,7 @@ def test_a_registered_id_the_backend_lacks_is_still_a_plain_refusal() -> None:
 
 def test_both_engines_declare_only_registered_capabilities() -> None:
     """The registries are built at import; this is where a typo in either terms.py surfaces."""
-    from instinctlab.engines import adapter, names
+    from instinctlab_engine import adapter, names
 
     for name in names():
         declared = adapter(name).capabilities().values

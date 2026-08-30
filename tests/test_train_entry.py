@@ -23,7 +23,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import instinctlab.engines as engines
+import instinctlab_engine as engines
 import instinctlab.tasks.registry as registry
 
 _SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
@@ -336,7 +336,7 @@ def test_the_registries_import_with_engines_blocked() -> None:
     sys.meta_path.insert(0, blocker)
     try:
         assert importlib.import_module("instinctlab.tasks.registry").ids()
-        assert importlib.import_module("instinctlab.engines").names()
+        assert importlib.import_module("instinctlab_engine").names()
     finally:
         sys.meta_path.remove(blocker)
         # Restore the originals, or later tests compare freshly imported classes by identity
@@ -422,7 +422,9 @@ def test_each_engine_reproduces_its_references_torch_settings() -> None:
     The flags stay in each adapter rather than the launcher: the launcher runs for both engines and
     would have to be wrong for one of them.
     """
-    engines_dir = pathlib.Path(engines.__file__).parent
+    import instinctlab
+
+    engines_dir = pathlib.Path(instinctlab.__file__).parent / "engines"
     isaac = _assignments(engines_dir / "isaacsim" / "adapter.py")
     mjlab_adapter = engines_dir / "mjlab" / "adapter.py"
 

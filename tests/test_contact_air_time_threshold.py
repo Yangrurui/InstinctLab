@@ -18,8 +18,8 @@ import torch
 
 import pytest
 
-from instinctlab.compat.sensors.contact import contact_from_force, step_contact_clock
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.bridge.sensors.contact import contact_from_force, step_contact_clock
+from instinctlab_engine.spec.sensor import ContactSensorRef
 
 
 def _flight_then(load: float) -> torch.Tensor:

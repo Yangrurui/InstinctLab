@@ -16,8 +16,8 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from instinctlab.spec import TaskSpec
-    from instinctlab.spec.robot import RobotSpec
+    from instinctlab_engine.spec import TaskSpec
+    from instinctlab_engine.spec.robot import RobotSpec
 
 TASKS: dict[str, str] = {
     "Instinct-Velocity-Flat-G1": "instinctlab.tasks.locomotion.config.g1:flat_g1",

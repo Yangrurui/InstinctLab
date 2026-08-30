@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from instinctlab.spec import (
+from instinctlab_engine.spec import (
     ContactSensorRef,
     EntityRef,
     MdpSpec,
     RewardTermSpec,
     TaskSpec,
 )
-from instinctlab.spec.capability import Requirement
-from instinctlab.spec.robot import RobotSpec
+from instinctlab_engine.spec.capability import Requirement
+from instinctlab_engine.spec.robot import RobotSpec
 from instinctlab.tasks.locomotion.config.g1.rl_cfgs import G1_LOCOMOTION_TRAINING_CFG
 from instinctlab.tasks.locomotion.config.locomotion_env_cfg import (
     LocomotionEnvCfg,

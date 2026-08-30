@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from instinctlab.utils.name_order import resolve_name_indices
+from instinctlab_engine.name_order import resolve_name_indices
 
 RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources" / "unitree_g1"
 

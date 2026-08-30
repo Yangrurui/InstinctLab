@@ -18,7 +18,7 @@ import pytest
 from instinctlab.engines.isaacsim.terms import TERMS as ISAAC_TERMS
 from instinctlab.engines.isaacsim.event_terms import merge_friction_params as isaac_merge_friction
 from instinctlab.engines.mjlab.native_event_functions import reset_joints_by_offset, reset_joints_by_scale
-from instinctlab.compat.robot import joint_effort_limits
+from instinctlab_engine.bridge.robot import joint_effort_limits
 from instinctlab.tasks.parkour.mdp.rewards import (
     applied_torque_limits_by_ratio,
     joint_torques_l2,
@@ -28,7 +28,7 @@ from instinctlab.tasks.parkour.mdp.rewards import (
 from instinctlab.tasks.parkour.mdp.terminations import illegal_contact_by_force
 from instinctlab.engines.mjlab.terms import TERMS as MJLAB_TERMS
 from instinctlab.engines.mjlab.event_terms import merge_friction_params as mjlab_merge_friction
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.spec.sensor import ContactSensorRef
 
 EVENTS = pathlib.Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/mjlab/native_event_functions.py"
 
@@ -231,7 +231,7 @@ class _MjlabContact:
 
 def test_mjlab_illegal_contact_thresholds_full_force_history() -> None:
     """1 N on ‖force‖, max over history. A 0.4 N brush must not terminate."""
-    from instinctlab.compat.sensors import forget
+    from instinctlab_engine.bridge.sensors import forget
 
     ref = ContactSensorRef(name="contact_forces", elements="torso_link", history_length=3)
     force = torch.zeros(2, 2, 3, 3)
@@ -247,7 +247,7 @@ def test_mjlab_illegal_contact_thresholds_full_force_history() -> None:
 
 
 def test_mjlab_undesired_contacts_counts_bodies_above_one_newton() -> None:
-    from instinctlab.compat.sensors import forget
+    from instinctlab_engine.bridge.sensors import forget
 
     ref = ContactSensorRef(name="contact_forces", elements="(?!.*_ankle_roll_link).*", history_length=3)
     force = torch.zeros(1, 3, 2, 3)
@@ -297,7 +297,7 @@ def test_mjlab_joint_resets_broadcast_model_defaults_to_arbitrary_env_ids(
     env = SimpleNamespace(num_envs=3, device="cpu", scene={"robot": asset})
     cfg = SimpleNamespace(name="robot", joint_ids=slice(None))
     monkeypatch.setattr(
-        "instinctlab.compat.math.sample_uniform",
+        "instinctlab_engine.bridge.math.sample_uniform",
         lambda lo, hi, shape, device: torch.full(shape, (lo + hi) / 2, device=device),
     )
 

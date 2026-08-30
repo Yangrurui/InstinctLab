@@ -6,8 +6,8 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat import robot as compat_robot
-from instinctlab.compat.env import RlEnv
+from instinctlab_engine.bridge import robot as compat_robot
+from instinctlab_engine.bridge.env import RlEnv
 
 from .observations import _joint_ids, _name
 

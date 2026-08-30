@@ -14,7 +14,7 @@ from mjlab.terrains import SubTerrainCfg as SubTerrainBaseCfg
 from mjlab.terrains import TerrainEntity as TerrainImporterBase
 from mjlab.terrains import TerrainGenerator
 
-from instinctlab.compat.terrain import even_column_assignment
+from instinctlab_engine.bridge.terrain import even_column_assignment
 
 from .height_field.utils import convert_height_field_to_mesh
 

@@ -31,10 +31,10 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from instinctlab.compat import robot as compat_robot
-from instinctlab.compat.env import RlEnv, get_command
-from instinctlab.compat.sensors import depth_image
-from instinctlab.spec.sensor import RayCasterRef
+from instinctlab_engine.bridge import robot as compat_robot
+from instinctlab_engine.bridge.env import RlEnv, get_command
+from instinctlab_engine.bridge.sensors import depth_image
+from instinctlab_engine.spec.sensor import RayCasterRef
 from instinctlab.utils.debug_image import show_debug_image
 
 
@@ -90,12 +90,12 @@ def joint_vel_rel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
 def last_action(env: RlEnv, action_name: str | None = None) -> torch.Tensor:
     """The previous action, either the whole vector or one term's raw input.
 
-    The named form goes through :func:`~instinctlab.compat.env.raw_action` because the two engines
+    The named form goes through :func:`~instinctlab_engine.bridge.env.raw_action` because the two engines
     spell the attribute differently -- ``raw_actions`` against ``raw_action``, a single character.
     """
     if action_name is None:
         return env.action_manager.action
-    from instinctlab.compat.env import raw_action
+    from instinctlab_engine.bridge.env import raw_action
 
     return raw_action(env, action_name)
 
@@ -315,7 +315,7 @@ def _gaussian_blur(image: torch.Tensor, kernel_size: int, sigma: float) -> torch
 def generated_commands(env: RlEnv, command_name: str) -> torch.Tensor:
     """The current command from the named generator.
 
-    Goes through :func:`~instinctlab.compat.env.get_command` rather than the manager directly,
+    Goes through :func:`~instinctlab_engine.bridge.env.get_command` rather than the manager directly,
     because a missing command is a ``KeyError`` on one engine and a silent ``None`` on the other.
     """
     return get_command(env, command_name)

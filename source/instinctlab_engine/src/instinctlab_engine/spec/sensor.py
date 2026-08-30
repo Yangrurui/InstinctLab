@@ -2,7 +2,7 @@
 
 These dataclasses describe what a task measures: contact subsets, ray patterns, motion-reference
 clips and body-local point clouds. Engine adapters own native sensor construction; shared MDP terms
-read normalized outputs through :mod:`instinctlab.compat.sensors`.
+read normalized outputs through :mod:`instinctlab_engine.bridge.sensors`.
 
 The contract intentionally stops where physical meanings diverge. Contact timing is portable, for
 example, while raw solver force is not. Unsupported semantics are rejected during compilation

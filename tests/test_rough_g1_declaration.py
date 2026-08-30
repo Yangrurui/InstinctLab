@@ -56,7 +56,7 @@ def test_locomotion_and_parkour_use_the_same_training_recipe() -> None:
 
 
 def test_the_curriculum_is_required_and_names_the_command(task) -> None:
-    from instinctlab.spec.capability import Requirement
+    from instinctlab_engine.spec.capability import Requirement
 
     term = task.mdp.curriculum["terrain_levels"]
     assert term.func is not None

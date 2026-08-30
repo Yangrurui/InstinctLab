@@ -29,10 +29,10 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat.env import RlEnv
-from instinctlab.compat.math import quat_apply, quat_apply_inverse
-from instinctlab.motion_reference import clip_frame
-from instinctlab.spec.sensor import MotionReferenceRef
+from instinctlab_engine.bridge.env import RlEnv
+from instinctlab_engine.bridge.math import quat_apply, quat_apply_inverse
+from instinctlab_engine.motion_reference import clip_frame
+from instinctlab_engine.spec.sensor import MotionReferenceRef
 
 AMP_TERM_ORDER = (
     "projected_gravity",

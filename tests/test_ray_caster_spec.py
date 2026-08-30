@@ -13,10 +13,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from instinctlab.compat import sensors as compat_sensors
-from instinctlab.compat.errors import PortabilityError
-from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, RayPatternRef
-from instinctlab.spec.task import SceneSpec
+from instinctlab_engine.bridge import sensors as compat_sensors
+from instinctlab_engine.bridge.errors import PortabilityError
+from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, RayPatternRef
+from instinctlab_engine.spec.task import SceneSpec
 
 
 def test_a_ray_caster_states_isaac_semantics_and_refuses_the_zero_miss() -> None:
@@ -141,7 +141,7 @@ def test_mjlab_terrain_height_mode_uses_the_native_ankle_query() -> None:
 
 def test_pinhole_yaw_is_refused_because_both_engines_ignore_it() -> None:
     """A pinhole + yaw would compile and look fine. The image would be full-R."""
-    from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
+    from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
 
     yaw_camera = RayCasterRef(
         name="camera",
@@ -224,8 +224,8 @@ def test_a_pitched_torso_makes_yaw_and_full_rotation_camera_poses_disagree() -> 
     and stays yaw-only under yaw. If a later edit dropped pitch/roll, this
     gap closes only when the torso is upright -- the silent parkour failure.
     """
-    from instinctlab.compat.math import quat_from_euler_xyz
-    from instinctlab.compat.sensors.ray import camera_pose_for_alignment
+    from instinctlab_engine.bridge.math import quat_from_euler_xyz
+    from instinctlab_engine.bridge.sensors.ray import camera_pose_for_alignment
     from tests.parkour_live_expect import (
         CAMERA_OFFSET,
         CAMERA_OFFSET_ROT,
@@ -256,7 +256,7 @@ def test_a_pitched_foot_makes_yaw_and_full_rotation_origins_disagree() -> None:
     under yaw. If a later edit applies the attach body's full R, this gap closes
     only when the foot is level again -- the silent parkour failure.
     """
-    from instinctlab.compat.math import quat_from_euler_xyz
+    from instinctlab_engine.bridge.math import quat_from_euler_xyz
     from tests.parkour_live_expect import SCANNER_OFFSET, scanner_origins_for_alignment
 
     pos = torch.zeros(1, 3)

@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 import torch
 import yaml
-from instinctlab import engines
-from instinctlab.motion_reference import (
+import instinctlab_engine as engines
+from instinctlab_engine.motion_reference import (
     ChainInventory,
     MotionClip,
     MotionInventoryEntry,
@@ -18,7 +18,7 @@ from instinctlab.motion_reference import (
     discover_motion_inventory,
     estimate_velocity,
 )
-from instinctlab.spec import MotionReferenceRef
+from instinctlab_engine.spec import MotionReferenceRef
 from instinctlab.tasks import registry
 from instinctlab.tasks.shadowing.mdp import events as shadowing_events
 
@@ -162,7 +162,7 @@ def test_multiclip_refresh_uses_one_packed_device_gather(monkeypatch) -> None:
         raise AssertionError("packed refresh converted device state to a Python scalar")
 
     with monkeypatch.context() as patch:
-        patch.setattr("instinctlab.motion_reference.runtime.sample_clip", refuse_per_clip_sampling)
+        patch.setattr("instinctlab_engine.motion_reference.runtime.sample_clip", refuse_per_clip_sampling)
         patch.setattr(torch.Tensor, "__bool__", refuse_scalar_conversion)
         patch.setattr(torch.Tensor, "__float__", refuse_scalar_conversion)
         patch.setattr(torch.Tensor, "__int__", refuse_scalar_conversion)

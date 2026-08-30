@@ -34,7 +34,7 @@ def test_guard_fires_on_a_real_device_overflow_bit() -> None:
     from mujoco_warp._src.types import OverflowType
 
     from instinctlab.engines.mjlab import MjlabAdapter
-    from instinctlab.engines.diagnostics.contact_overflow import ContactOverflowError, check_contact_overflow
+    from instinctlab_engine.diagnostics.contact_overflow import ContactOverflowError, check_contact_overflow
     from tests.task_specs import task_spec
 
     compiled = MjlabAdapter().compile(
@@ -74,7 +74,7 @@ def test_step_phase_reads_a_real_overflow_bit_after_physics() -> None:
     from mujoco_warp._src.types import OverflowType
 
     from instinctlab.engines.mjlab import MjlabAdapter
-    from instinctlab.engines.diagnostics.contact_overflow import (
+    from instinctlab_engine.diagnostics.contact_overflow import (
         ContactOverflowError,
         check_contact_overflow,
         overflow_bits_set,
@@ -106,7 +106,7 @@ def test_step_phase_reads_a_real_overflow_bit_after_physics() -> None:
 def test_parkour_shared_terrain_budget_stays_clean_over_150_zero_action_steps() -> None:
     """Exercise the unified 0.05 terrain budget for 150 zero-action steps."""
     from instinctlab.engines.mjlab import MjlabAdapter
-    from instinctlab.engines.diagnostics.contact_overflow import contact_budget_snapshot, overflow_bits_set
+    from instinctlab_engine.diagnostics.contact_overflow import contact_budget_snapshot, overflow_bits_set
     from tests.task_specs import task_spec
 
     device = resolve_live_device()

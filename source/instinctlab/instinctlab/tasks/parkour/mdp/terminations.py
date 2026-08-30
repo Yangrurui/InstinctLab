@@ -8,10 +8,10 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat import sensors as compat_sensors
-from instinctlab.compat.env import RlEnv
-from instinctlab.motion_reference import exhausted_envs
-from instinctlab.spec.sensor import ContactSensorRef, MotionReferenceRef
+from instinctlab_engine.bridge import sensors as compat_sensors
+from instinctlab_engine.bridge.env import RlEnv
+from instinctlab_engine.motion_reference import exhausted_envs
+from instinctlab_engine.spec.sensor import ContactSensorRef, MotionReferenceRef
 
 from .observations import _name
 

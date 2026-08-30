@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from instinctlab.engines.registry import TermRegistry
-from instinctlab.spec.capability import (
+from instinctlab_engine.registry import TermRegistry
+from instinctlab_engine.spec.capability import (
     BODY_MASS_PROPERTIES,
     DR_RESTITUTION,
     DR_SLIDING_FRICTION,
@@ -48,7 +48,7 @@ def randomize_default_joint_pos(
     import torch
     from isaaclab.envs.mdp.events import _randomize_prop_by_op
 
-    from instinctlab.utils.name_order import copy_named_columns_
+    from instinctlab_engine.name_order import copy_named_columns_
 
     asset = env.scene[asset_cfg.name]
     asset.data.default_joint_pos_nominal = torch.clone(

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from instinctlab.utils.wrappers.instinct_rl.termination_log import (
+from instinctlab_engine.rl.termination_log import (
     PortableTerminationLogger,
 )
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from instinctlab.engines.base import require_supported_version
+from instinctlab_engine.base import require_supported_version
 
 
 def test_installed_engine_versions_are_in_the_verified_ranges() -> None:
@@ -20,7 +20,7 @@ def test_installed_engine_versions_are_in_the_verified_ranges() -> None:
 
 
 def test_unverified_version_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("instinctlab.engines.base.version", lambda _distribution: "9.0.0")
+    monkeypatch.setattr("instinctlab_engine.base.version", lambda _distribution: "9.0.0")
     with pytest.raises(RuntimeError, match="verified with mjlab>=1.5,<1.6"):
         require_supported_version("mjlab", ">=1.5,<1.6", engine="mjlab")
 

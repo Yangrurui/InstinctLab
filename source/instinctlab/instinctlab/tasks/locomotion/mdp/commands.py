@@ -8,8 +8,8 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat.math import wrap_to_pi
-from instinctlab.compat.robot import root_linear_velocity_b
+from instinctlab_engine.bridge.math import wrap_to_pi
+from instinctlab_engine.bridge.robot import root_linear_velocity_b
 
 
 class UniformVelocityCommand:

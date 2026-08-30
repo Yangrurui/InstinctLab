@@ -13,7 +13,7 @@ BACKEND_PINS = toml.load(os.path.join(EXTENSION_PATH, "config", "backend_pins.to
 
 # Minimum dependencies required prior to installation
 INSTALL_REQUIRES = [
-    # NOTE: Add dependencies
+    "instinctlab-engine-core==0.1.0",
     "psutil",
     "pytorch_kinematics",
     "joblib",

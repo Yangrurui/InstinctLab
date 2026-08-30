@@ -749,7 +749,7 @@ def test_depth_history_reset_matches_instinctmj_sensor_buffer() -> None:
     from types import SimpleNamespace
 
     from instinctlab.tasks.parkour.mdp.observations import DelayedDepthImage
-    from instinctlab.spec.sensor import RayCasterRef, RayPatternRef
+    from instinctlab_engine.spec.sensor import RayCasterRef, RayPatternRef
 
     sensor = RayCasterRef(
         name="camera",
@@ -807,7 +807,7 @@ def test_depth_history_first_push_matches_instinctmj_sensor_buffer() -> None:
     from types import SimpleNamespace
 
     from instinctlab.tasks.parkour.mdp.observations import DelayedDepthImage
-    from instinctlab.spec.sensor import RayCasterRef, RayPatternRef
+    from instinctlab_engine.spec.sensor import RayCasterRef, RayPatternRef
 
     sensor = RayCasterRef(
         name="camera",

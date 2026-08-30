@@ -6,11 +6,11 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat import math as math_utils
-from instinctlab.compat import robot as compat_robot
-from instinctlab.compat import sensors as compat_sensors
-from instinctlab.compat.env import RlEnv, get_command
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.bridge import math as math_utils
+from instinctlab_engine.bridge import robot as compat_robot
+from instinctlab_engine.bridge import sensors as compat_sensors
+from instinctlab_engine.bridge.env import RlEnv, get_command
+from instinctlab_engine.spec.sensor import ContactSensorRef
 
 from .observations import _joint_ids, _name
 

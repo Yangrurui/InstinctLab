@@ -1,12 +1,9 @@
-"""Backend selection and engine-neutral extension registration.
+"""Stable task/engine contracts and lazy backend selection.
 
-``engines/base.py``, ``registry.py`` and ``compile.py`` are the shared machinery and stay
-engine-free, so a task's compilation can be checked against an engine that is not installed.
-The built-in engine-specific code lives in ``engines/<name>/`` and is imported only once an engine
-has been chosen. External terrain packages register lazy builder paths through this module and may
-import an SDK only inside those selected builders. Importing this package itself must never pull in
-Isaac Sim or MuJoCo, since the launcher has to inspect available adapters before deciding which one
-to bootstrap.
+This distribution owns the public boundary used by both task packages and
+native simulator backends. It deliberately contains no task declarations and
+imports no simulator SDK. Backends are resolved lazily after an application has
+selected one.
 """
 
 from __future__ import annotations
@@ -14,7 +11,7 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
-from instinctlab.compat import entity as _entity
+from instinctlab_engine.bridge import entity as _entity
 
 if TYPE_CHECKING:
     from .base import EngineAdapter
@@ -64,24 +61,24 @@ def adapter(engine: str) -> EngineAdapter:
 
 
 _SHARED_EXPORTS = {
-    "CompileCtx": ("instinctlab.engines.compile", "CompileCtx"),
-    "CompiledTask": ("instinctlab.engines.base", "CompiledTask"),
-    "EngineAdapter": ("instinctlab.engines.base", "EngineAdapter"),
-    "FAMILIES": ("instinctlab.engines.registry", "FAMILIES"),
-    "Resolution": ("instinctlab.engines.base", "Resolution"),
-    "TermRegistry": ("instinctlab.engines.registry", "TermRegistry"),
+    "CompileCtx": ("instinctlab_engine.compile", "CompileCtx"),
+    "CompiledTask": ("instinctlab_engine.base", "CompiledTask"),
+    "EngineAdapter": ("instinctlab_engine.base", "EngineAdapter"),
+    "FAMILIES": ("instinctlab_engine.registry", "FAMILIES"),
+    "Resolution": ("instinctlab_engine.base", "Resolution"),
+    "TermRegistry": ("instinctlab_engine.registry", "TermRegistry"),
     "TerrainExtensionRegistry": (
-        "instinctlab.engines.registry",
+        "instinctlab_engine.registry",
         "TerrainExtensionRegistry",
     ),
-    "UnsupportedTerm": ("instinctlab.engines.base", "UnsupportedTerm"),
-    "compile_family": ("instinctlab.engines.compile", "compile_family"),
-    "compile_mdp": ("instinctlab.engines.compile", "compile_mdp"),
+    "UnsupportedTerm": ("instinctlab_engine.base", "UnsupportedTerm"),
+    "compile_family": ("instinctlab_engine.compile", "compile_family"),
+    "compile_mdp": ("instinctlab_engine.compile", "compile_mdp"),
     "observation_group_settings": (
-        "instinctlab.engines.compile",
+        "instinctlab_engine.compile",
         "observation_group_settings",
     ),
-    "qualname_of": ("instinctlab.engines.compile", "qualname_of"),
+    "qualname_of": ("instinctlab_engine.compile", "qualname_of"),
 }
 
 

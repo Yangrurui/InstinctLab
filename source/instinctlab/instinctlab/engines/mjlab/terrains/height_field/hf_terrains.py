@@ -4,7 +4,7 @@ import numpy as np
 import scipy.interpolate as interpolate
 from typing import TYPE_CHECKING
 
-from instinctlab.utils.perlin import generate_fractal_noise_2d
+from instinctlab_engine.geometry.perlin import generate_fractal_noise_2d
 
 if TYPE_CHECKING:
     from . import hf_terrains_cfg

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from instinctlab.spec import (
+from instinctlab_engine.spec import (
     ActionTermSpec,
     AgentSpec,
     CommandTermSpec,
@@ -21,8 +21,8 @@ from instinctlab.spec import (
     SimSpec,
     TerrainSpec,
 )
-from instinctlab.spec.capability import Requirement
-from instinctlab.spec.robot import RobotSpec
+from instinctlab_engine.spec.capability import Requirement
+from instinctlab_engine.spec.robot import RobotSpec
 from instinctlab.tasks.shadowing.mdp import (
     commands,
     observations,

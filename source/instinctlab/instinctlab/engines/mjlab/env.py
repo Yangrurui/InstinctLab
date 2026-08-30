@@ -52,7 +52,7 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
 
     Construction and every ``step`` poll mujoco_warp ``d.overflow``. Overflow
     drops contacts without raising; a run that continues is a trained policy
-    on the wrong physics. See :mod:`instinctlab.engines.diagnostics.contact_overflow`.
+    on the wrong physics. See :mod:`instinctlab_engine.diagnostics.contact_overflow`.
     """
 
     def __init__(
@@ -60,7 +60,7 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
     ) -> None:
         import mjlab.envs.manager_based_rl_env as env_mod
 
-        from instinctlab.engines.diagnostics.contact_overflow import (
+        from instinctlab_engine.diagnostics.contact_overflow import (
             check_contact_overflow,
         )
 
@@ -74,7 +74,7 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
 
     def step(self, action):
         result = super().step(action)
-        from instinctlab.engines.diagnostics.contact_overflow import (
+        from instinctlab_engine.diagnostics.contact_overflow import (
             check_contact_overflow,
         )
 
@@ -89,7 +89,7 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
             terrain.debug_vis(visualizer)
 
     def _reset_idx(self, env_ids=None) -> None:
-        from instinctlab.compat.observation_history import (
+        from instinctlab_engine.bridge.observation_history import (
             clear_observation_histories_on_reset,
         )
 

@@ -114,7 +114,7 @@ def assert_parkour_live_invariants(
     env, spec, compiled, *, expected_columns: tuple[str, ...]
 ) -> None:
     """Shared L6 checks. Import this only after the engine is bootstrapped."""
-    from instinctlab.compat.terrain import actual_column_count
+    from instinctlab_engine.bridge.terrain import actual_column_count
 
     assert compiled.resolution.skipped == {}, compiled.resolution.skipped
     driven = driven_joint_names(env.action_manager.get_term("joint_pos"))
@@ -156,7 +156,7 @@ def assert_terrain_type_shares(
     A uniform 10% each means spawn fell through to 'one env per type' or
     'even across types' and must fail this check, not have its expectation edited.
     """
-    from instinctlab.compat.terrain import type_share_histogram
+    from instinctlab_engine.bridge.terrain import type_share_histogram
 
     hist = type_share_histogram(terrain_types, column_names)
     if "" in hist:
@@ -234,7 +234,7 @@ CAMERA_YAW_SEP_M = 0.15
 
 def assert_foot_scanner_shape(env) -> None:
     """The grid is two rays. A third ray is a silent observation-width change."""
-    from instinctlab.compat.sensors import ray_hits_w
+    from instinctlab_engine.bridge.sensors import ray_hits_w
 
     for name in SCANNER_NAMES:
         hits = ray_hits_w(env.scene.sensors[name])
@@ -263,7 +263,7 @@ def require_live_device() -> str:
 
 def scanner_origins_for_alignment(ankle_pos, ankle_quat, offset, alignment: str):
     """Declared ray-start of the sky scanner. ``yaw`` keeps the 20 m world-up."""
-    from instinctlab.compat.math import quat_apply, yaw_quat
+    from instinctlab_engine.bridge.math import quat_apply, yaw_quat
 
     rot = yaw_quat(ankle_quat) if alignment == "yaw" else ankle_quat
     shift = offset.to(dtype=ankle_pos.dtype, device=ankle_pos.device)
@@ -323,7 +323,7 @@ def assert_foot_scanner_uses_yaw_alignment(env, *, device: str) -> None:
         )
         starts = _scanner_ray_starts(env.scene.sensors[sensor_name])
         if starts is None:
-            from instinctlab.compat.sensors import ray_hits_w
+            from instinctlab_engine.bridge.sensors import ray_hits_w
 
             hits = ray_hits_w(env.scene.sensors[sensor_name])
             measured = hits[:, :, :2].mean(dim=1)
@@ -350,7 +350,7 @@ def assert_foot_scanner_sees_some_ground(env) -> None:
     """If every ray misses, the terrain-only filter is hitting nothing."""
     import torch
 
-    from instinctlab.compat.sensors import ray_hits_w
+    from instinctlab_engine.bridge.sensors import ray_hits_w
 
     finite = []
     for name in SCANNER_NAMES:
@@ -382,7 +382,7 @@ def assert_foot_scanner_miss_is_positive_infinity(env, *, device: str) -> None:
     """A miss is ``+inf``, not world-z=0. Parkour has gaps; this path is live."""
     import torch
 
-    from instinctlab.compat.sensors import ray_hits_w
+    from instinctlab_engine.bridge.sensors import ray_hits_w
 
     robot = env.scene["robot"]
     env_ids = torch.arange(env.num_envs, device=device)
@@ -435,7 +435,7 @@ def assert_depth_first_policy_obs_is_primed(env) -> None:
 
 def assert_depth_camera_shape(env) -> None:
     """Raw 36×64, processed 8×18×32. A dropped axis is a silent policy-width change."""
-    from instinctlab.compat.sensors import depth_image
+    from instinctlab_engine.bridge.sensors import depth_image
 
     raw = depth_image(env.scene.sensors[CAMERA_NAME])
     assert tuple(raw.shape[1:3]) == CAMERA_RAW_HW, tuple(raw.shape)
@@ -470,7 +470,7 @@ def assert_depth_camera_miss_is_positive_infinity(env, *, device: str) -> None:
     """
     import torch
 
-    from instinctlab.compat.sensors import depth_image
+    from instinctlab_engine.bridge.sensors import depth_image
 
     robot = env.scene["robot"]
     env_ids = torch.arange(env.num_envs, device=device)
@@ -533,8 +533,8 @@ def assert_depth_camera_uses_base_alignment(env, *, device: str) -> None:
     """
     import torch
 
-    from instinctlab.compat.math import quat_apply, quat_from_euler_xyz
-    from instinctlab.compat.sensors.ray import camera_pose_for_alignment
+    from instinctlab_engine.bridge.math import quat_apply, quat_from_euler_xyz
+    from instinctlab_engine.bridge.sensors.ray import camera_pose_for_alignment
 
     robot = env.scene["robot"]
     env_ids = torch.arange(env.num_envs, device=device)
@@ -846,7 +846,7 @@ def assert_amp_same_function(env, spec, *, device: str) -> None:
         robot.update(env.physics_dt)
 
     policy = amp_obs_from_robot_like(robot.data, joint_ids)
-    from instinctlab.compat.math import quat_apply
+    from instinctlab_engine.bridge.math import quat_apply
 
     gravity_w = quat_apply(robot.data.root_link_quat_w, robot.data.projected_gravity_b)
     reference = amp_obs_from_reference(
@@ -938,7 +938,7 @@ def _force_volume_refresh(env) -> None:
 
 def assert_volume_points_shape(env) -> None:
     """Two ankles, 100 local points each. A dropped body is a silent sum change."""
-    from instinctlab.compat.sensors import volume_points_penetration_offset
+    from instinctlab_engine.bridge.sensors import volume_points_penetration_offset
 
     sensor = env.scene.sensors[VOLUME_SENSOR_NAME]
     assert list(sensor.body_names) == list(VOLUME_BODIES), sensor.body_names
@@ -1018,7 +1018,7 @@ def pyramid_stairs_tile_aabb(terrain) -> tuple[float, float, float, float]:
     """XY box of row-0 / first ``pyramid_stairs`` column. Tiles are 8 m."""
     import torch
 
-    from instinctlab.compat.terrain import column_sub_terrain_names
+    from instinctlab_engine.bridge.terrain import column_sub_terrain_names
 
     origins = getattr(terrain, "terrain_origins", None)
     if origins is None:
@@ -1041,7 +1041,7 @@ def pyramid_stairs_tile_aabb(terrain) -> tuple[float, float, float, float]:
 
 def assert_volume_points_registered(env) -> dict[str, object]:
     """Startup registration must have run. Zero cylinders is the silent-zero failure."""
-    from instinctlab.compat.sensors import (
+    from instinctlab_engine.bridge.sensors import (
         registered_cylinder_count,
         require_volume_points_registered,
     )
@@ -1116,7 +1116,7 @@ def _pose_robot_standing(env, *, device: str, vel_x: float = 0.0):
 def _left_foot_points_fk(env, robot, *, device: str):
     import torch
 
-    from instinctlab.compat.math import quat_apply
+    from instinctlab_engine.bridge.math import quat_apply
     from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
 
     bodies = list(robot.body_names)
@@ -1144,7 +1144,7 @@ def assert_terrain_generated_cylinder_penetration(
     import torch
 
     from instinctlab.tasks.parkour.mdp import rewards as mdp
-    from instinctlab.compat.sensors import (
+    from instinctlab_engine.bridge.sensors import (
         volume_points_penetration_offset,
         volume_points_vel_w,
     )
@@ -1242,7 +1242,7 @@ class _KnownCylinder:
         import numpy as np
         import torch
 
-        from instinctlab.engines.geometry.cylinder import CylinderSpatialGrid
+        from instinctlab_engine.geometry.cylinder import CylinderSpatialGrid
 
         self.edges_pyt = torch.stack([torch.cat([start, end])], dim=0)
         self.cfg = type("Cfg", (), {"cylinder_radius": radius})()
@@ -1292,7 +1292,7 @@ def assert_known_volume_penetration(env, *, device: str) -> dict[str, float]:
     import torch
 
     from instinctlab.tasks.parkour.mdp import rewards as mdp
-    from instinctlab.compat.sensors import (
+    from instinctlab_engine.bridge.sensors import (
         volume_points_penetration_offset,
         volume_points_vel_w,
     )
@@ -1406,8 +1406,8 @@ def assert_known_volume_spin_velocity(env, *, device: str) -> dict[str, float]:
 
     import pytest
 
-    from instinctlab.compat.sensors import volume_points_vel_w
-    from instinctlab.compat.sensors.volume_points import point_velocity_from_link
+    from instinctlab_engine.bridge.sensors import volume_points_vel_w
+    from instinctlab_engine.bridge.sensors.volume_points import point_velocity_from_link
 
     robot, env_ids = _pose_robot_standing(env, device=device, vel_x=0.0)
     names = list(robot.joint_names)

@@ -359,7 +359,7 @@ def _terrain_curriculum_grid() -> dict[str, Any]:
 
 def terrain_column_maps() -> dict[str, Any]:
     """Column-to-sub-terrain names on the *built* grid, not the declared width alone."""
-    from instinctlab.compat.terrain import curriculum_column_indices
+    from instinctlab_engine.bridge.terrain import curriculum_column_indices
 
     grid = _terrain_curriculum_grid()
     names = grid["sub_terrain_names"]

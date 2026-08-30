@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 from instinct_rl.env import VecEnv
 
-from instinctlab.utils.wrappers.instinct_rl.termination_log import PortableTerminationLogger
+from instinctlab_engine.rl.termination_log import PortableTerminationLogger
 
 
 class InstinctRlVecEnvWrapper(VecEnv):

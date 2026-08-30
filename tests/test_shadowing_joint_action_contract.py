@@ -23,7 +23,7 @@ from instinctlab.tasks.shadowing.mdp.commands import (
 from instinctlab.engines.mjlab.assets import robot_spec
 from instinctlab.tasks import registry
 from instinctlab.tasks.shadowing.mdp.events import reset_robot_from_reference
-from instinctlab.utils.name_order import copy_named_columns_, resolve_name_indices
+from instinctlab_engine.name_order import copy_named_columns_, resolve_name_indices
 
 
 def _task(task_id: str):

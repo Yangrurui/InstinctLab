@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from instinctlab.spec.sensor import MotionReferenceRef
+from instinctlab_engine.spec.sensor import MotionReferenceRef
 
 
 @dataclass(frozen=True)

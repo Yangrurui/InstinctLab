@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from instinctlab.compat import math as math_utils
+from instinctlab_engine.bridge import math as math_utils
 
 
 def _method(asset, *names):

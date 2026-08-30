@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from instinctlab.compat.terrain import (
+from instinctlab_engine.bridge.terrain import (
     UnresolvableTerrainColumn,
     actual_column_count,
     column_sub_terrain_names,
@@ -83,7 +83,7 @@ def test_contract_report_is_clean_for_the_task_owned_command() -> None:
 def test_reset_joints_by_offset_provides_joint_state() -> None:
     from instinctlab.engines.isaacsim import TERMS as isaac_terms
     from instinctlab.engines.mjlab import TERMS as mjlab_terms
-    from instinctlab.spec.capability import JOINT_STATE
+    from instinctlab_engine.spec.capability import JOINT_STATE
 
     assert isaac_terms.provides()["event/reset_joints_by_offset"] == (JOINT_STATE,)
     assert mjlab_terms.provides()["event/reset_joints_by_offset"] == (JOINT_STATE,)
@@ -164,7 +164,7 @@ def test_actual_column_count_reads_the_grid_not_num_cols() -> None:
 
 
 def test_column_namer_lives_only_at_the_shared_compatibility_boundary() -> None:
-    assert column_sub_terrain_names.__module__ == "instinctlab.compat.terrain"
+    assert column_sub_terrain_names.__module__ == "instinctlab_engine.bridge.terrain"
     assert not (ENGINES / "pose_velocity.py").exists()
 
 

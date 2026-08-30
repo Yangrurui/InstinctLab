@@ -3,7 +3,7 @@
 ``edit_spec`` adds no MuJoCo sensors — the reference is dataset plus FK, same as
 InstinctMJ's manager. SDK imports stay inside :func:`build_motion_reference_sensor`. The clip
 clock and the 50% mirror mask live in
-:class:`~instinctlab.motion_reference.MotionReferenceRuntime`.
+:class:`~instinctlab_engine.motion_reference.MotionReferenceRuntime`.
 
 Only the MJLab lifecycle belongs here: ``Sensor`` construction, native update
 timestamps, and the ``SensorCfg`` returned to the scene.
@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from instinctlab.motion_reference import MotionReferenceRuntime
-from instinctlab.spec.sensor import MotionReferenceRef
+from instinctlab_engine.motion_reference import MotionReferenceRuntime
+from instinctlab_engine.spec.sensor import MotionReferenceRef
 
 __all__ = ["build_motion_reference_sensor"]
 

@@ -3,7 +3,7 @@ import torch
 
 import warp as wp
 
-from instinctlab.compat.math import quat_wxyz_to_xyzw
+from instinctlab_engine.bridge.math import quat_wxyz_to_xyzw
 
 # disable warp module initialization messages
 wp.config.quiet = True

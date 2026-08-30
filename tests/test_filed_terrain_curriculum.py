@@ -16,10 +16,10 @@ pytest.importorskip("mjlab")
 
 from mjlab.terrains.primitive_terrains import BoxFlatTerrainCfg
 
-from instinctlab.compat.terrain import curriculum_column_indices, even_column_assignment
+from instinctlab_engine.bridge.terrain import curriculum_column_indices, even_column_assignment
 from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
 from instinctlab.engines.mjlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
-from instinctlab.spec import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
+from instinctlab_engine.spec import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
 
 
 def _cfg(*, num_rows=3, num_cols=6, curriculum=True):

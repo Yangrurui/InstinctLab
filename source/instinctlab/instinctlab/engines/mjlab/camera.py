@@ -20,9 +20,9 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat.math import quat_apply, quat_from_euler_xyz, quat_inv, quat_mul
-from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
-from instinctlab.spec.sensor import RayCasterRef
+from instinctlab_engine.bridge.math import quat_apply, quat_from_euler_xyz, quat_inv, quat_mul
+from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
+from instinctlab_engine.spec.sensor import RayCasterRef
 
 __all__ = [
     "pinhole_camera_effective_semantics",
@@ -307,7 +307,7 @@ def pinhole_ray_caster(sensor: RayCasterRef, profile: Mapping[str, Any] | None =
             self._cached_world_origins = starts
             self._cached_world_rays = dirs
             self._cached_frame_pos = cam_pos.unsqueeze(1)
-            from instinctlab.compat.math import matrix_from_quat
+            from instinctlab_engine.bridge.math import matrix_from_quat
 
             self._cached_frame_mat = matrix_from_quat(cam_quat).unsqueeze(1)
 

@@ -17,11 +17,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from instinctlab.compat import entity as compat_entity
-from instinctlab.spec.capability import CapabilitySet, Requirement
-from instinctlab.spec.entity import EntityRef, resolve_entity_names
-from instinctlab.spec.mdp import MdpSpec, NoiseSpec, TermSpec
-from instinctlab.spec.task import TaskSpec
+from instinctlab_engine.bridge import entity as compat_entity
+from instinctlab_engine.spec.capability import CapabilitySet, Requirement
+from instinctlab_engine.spec.entity import EntityRef, resolve_entity_names
+from instinctlab_engine.spec.mdp import MdpSpec, NoiseSpec, TermSpec
+from instinctlab_engine.spec.task import TaskSpec
 
 from .base import Resolution, UnsupportedTerm
 from .registry import TermRegistry
@@ -88,7 +88,7 @@ class CompileCtx:
 
         The single point where a canonical selector becomes a native one, and therefore the single
         place D1's joint-order decision is applied. Raises
-        :class:`~instinctlab.compat.entity.UnsupportedSelector` when the engine has no selector for
+        :class:`~instinctlab_engine.bridge.entity.UnsupportedSelector` when the engine has no selector for
         a kind the reference names, rather than dropping that selector -- a reference that asked
         for geoms and got bodies selects the wrong things and reports nothing.
         """
@@ -155,7 +155,7 @@ def compile_family(
     """Build one family's terms, recording every outcome on ``ctx.resolution``.
 
     Args:
-        family: Term family, one of :data:`~instinctlab.engines.registry.FAMILIES`.
+        family: Term family, one of :data:`~instinctlab_engine.registry.FAMILIES`.
         specs: The family's terms, keyed by name. Iteration order is preserved, which matters for
             observation groups, where it is the concatenation order.
         ctx: Compilation context.
@@ -238,7 +238,7 @@ def observation_group_settings(source: Any) -> dict[str, Any]:
     override terms and an ``int`` (including ``0``) when it does. Both engines'
     managers do ``if group_cfg.history_length is not None``, so the IR uses that
     sentinel rather than leaving each adapter to guess whether ``0`` means
-    "unset". Accepts an :class:`~instinctlab.spec.mdp.ObsGroupSpec` or the
+    "unset". Accepts an :class:`~instinctlab_engine.spec.mdp.ObsGroupSpec` or the
     compiled mapping ``compile_mdp`` emits from one.
     """
     get = source.__getitem__ if isinstance(source, Mapping) else lambda key: getattr(source, key)
@@ -364,7 +364,7 @@ def compile_mdp(mdp: MdpSpec, ctx: CompileCtx, registry: TermRegistry) -> dict[s
     """Compile every family of an MDP, preserving group structure.
 
     Returns:
-        A mapping with the same shape as :class:`~instinctlab.spec.mdp.MdpSpec` -- grouped
+        A mapping with the same shape as :class:`~instinctlab_engine.spec.mdp.MdpSpec` -- grouped
         observations and rewards, flat everything else -- holding native term configs. The backend
         assembles these into its own env config; what that assembly looks like is the one thing
         that genuinely differs per engine.

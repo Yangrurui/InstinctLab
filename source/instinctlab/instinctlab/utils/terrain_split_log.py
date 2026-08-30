@@ -8,7 +8,7 @@ parameters are shared, not that the resulting meshes or returns must match.
 Attach only when asked: the per-step cost is the Python bookkeeping over
 named types (measured ~2.7 ms / ~9% of a wrapped step at 16 envs), not the
 overflow poll. Overflow refusal lives in
-:mod:`instinctlab.engines.diagnostics.contact_overflow`
+:mod:`instinctlab_engine.diagnostics.contact_overflow`
 and is on by default.
 """
 
@@ -20,7 +20,7 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat.terrain import column_sub_terrain_names
+from instinctlab_engine.bridge.terrain import column_sub_terrain_names
 from instinctlab.tasks.terrain import rough_terrain
 
 _ROUGH_GENERATOR = rough_terrain().generator

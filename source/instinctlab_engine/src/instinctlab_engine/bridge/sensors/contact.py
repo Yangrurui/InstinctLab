@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.spec.sensor import ContactSensorRef
 
 from ..errors import PortabilityError
 

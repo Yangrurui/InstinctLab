@@ -119,7 +119,7 @@ def reset_joints_by_offset(
     """
     from mjlab.managers import SceneEntityCfg
 
-    from instinctlab.compat.math import sample_uniform
+    from instinctlab_engine.bridge.math import sample_uniform
 
     if asset_cfg is None:
         asset_cfg = SceneEntityCfg("robot")
@@ -160,7 +160,7 @@ def reset_joints_by_scale(
     """Reset joints to their default state scaled by a uniform sample, clamped to the soft limits."""
     from mjlab.managers import SceneEntityCfg
 
-    from instinctlab.compat.math import sample_uniform
+    from instinctlab_engine.bridge.math import sample_uniform
 
     if asset_cfg is None:
         asset_cfg = SceneEntityCfg("robot")
@@ -200,7 +200,7 @@ def uniform_mass_scale_distribution() -> Any:
     """
     from mjlab.envs.mdp import dr
 
-    from instinctlab.compat.math import sample_uniform
+    from instinctlab_engine.bridge.math import sample_uniform
 
     return dr.Distribution(
         name="uniform_mass_scale_to_alpha",

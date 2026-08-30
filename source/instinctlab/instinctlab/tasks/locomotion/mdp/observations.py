@@ -6,8 +6,8 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat import robot as compat_robot
-from instinctlab.compat.env import RlEnv, get_command
+from instinctlab_engine.bridge import robot as compat_robot
+from instinctlab_engine.bridge.env import RlEnv, get_command
 
 
 def base_ang_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
@@ -39,7 +39,7 @@ def joint_vel(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
 def last_action(env: RlEnv, action_name: str | None = None) -> torch.Tensor:
     if action_name is None:
         return env.action_manager.action
-    from instinctlab.compat.env import raw_action
+    from instinctlab_engine.bridge.env import raw_action
 
     return raw_action(env, action_name)
 

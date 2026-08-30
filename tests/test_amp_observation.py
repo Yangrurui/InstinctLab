@@ -21,8 +21,8 @@ from instinctlab.assets.unitree_g1.isaacsim import (
     G1_29DOF_DFS_JOINT_NAMES,
     G1_29DOF_ISAAC_BFS_JOINT_NAMES,
 )
-from instinctlab.compat.math import quat_apply_inverse
-from instinctlab.motion_reference import clip_frame, make_buffers
+from instinctlab_engine.bridge.math import quat_apply_inverse
+from instinctlab_engine.motion_reference import clip_frame, make_buffers
 from instinctlab.tasks.parkour.mdp.amp import (
     AMP_TERM_ORDER,
     GRAVITY_DOWN_W,
@@ -146,7 +146,7 @@ def test_amp_joints_are_canonical_names_not_bfs_or_clip_order() -> None:
     """
     import os
 
-    from instinctlab.motion_reference import (
+    from instinctlab_engine.motion_reference import (
         load_retargetted_clip,
         remap_by_name,
     )

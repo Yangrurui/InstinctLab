@@ -18,7 +18,7 @@ from dataclasses import replace
 
 import pytest
 
-from instinctlab.engines import (
+from instinctlab_engine import (
     CompileCtx,
     Resolution,
     TermRegistry,
@@ -27,16 +27,16 @@ from instinctlab.engines import (
     compile_mdp,
     observation_group_settings,
 )
-from instinctlab.engines.compile import (
+from instinctlab_engine.compile import (
     contract_report,
     flatten_reward_groups,
     joint_position_target,
     qualname_of,
     record_reward_omissions,
 )
-from instinctlab.spec.capability import CONTACT_FORCE_VECTOR, DR_RESTITUTION, DR_SLIDING_FRICTION, EXTERNAL_WRENCH
-from instinctlab.spec.robot import BackendAsset
-from instinctlab.spec import (
+from instinctlab_engine.spec.capability import CONTACT_FORCE_VECTOR, DR_RESTITUTION, DR_SLIDING_FRICTION, EXTERNAL_WRENCH
+from instinctlab_engine.spec.robot import BackendAsset
+from instinctlab_engine.spec import (
     ActionTermSpec,
     CommandTermSpec,
     DoneTermSpec,
@@ -274,7 +274,7 @@ def test_an_entity_ref_in_nested_params_is_lowered_without_changing_the_shape():
 
 def test_a_selector_the_engine_cannot_express_is_refused_rather_than_dropped():
     pytest.importorskip("mjlab")
-    from instinctlab.compat.entity import UnsupportedSelector
+    from instinctlab_engine.bridge.entity import UnsupportedSelector
 
     ctx = _ctx(engine="mjlab")
     with pytest.raises(UnsupportedSelector):

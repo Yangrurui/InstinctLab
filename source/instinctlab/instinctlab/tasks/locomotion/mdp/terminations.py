@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import torch
 
-from instinctlab.compat import sensors as compat_sensors
-from instinctlab.compat.env import RlEnv
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.bridge import sensors as compat_sensors
+from instinctlab_engine.bridge.env import RlEnv
+from instinctlab_engine.spec.sensor import ContactSensorRef
 
 
 def time_out(env: RlEnv) -> torch.Tensor:

@@ -13,9 +13,9 @@ from typing import Any, Literal
 import numpy as np
 import torch
 
-from instinctlab.compat.math import combine_frame_transforms, quat_from_matrix
-from instinctlab.utils.math import quat_angular_velocity, quat_slerp_batch
-from instinctlab.utils.name_order import NameOrderError, resolve_name_indices
+from instinctlab_engine.bridge.math import combine_frame_transforms, quat_from_matrix
+from instinctlab_engine.math import quat_angular_velocity, quat_slerp_batch
+from instinctlab_engine.name_order import NameOrderError, resolve_name_indices
 
 
 class JointNameMappingError(ValueError):

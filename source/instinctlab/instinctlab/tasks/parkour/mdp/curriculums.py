@@ -11,10 +11,10 @@ from __future__ import annotations
 import torch
 from typing import TYPE_CHECKING
 
-from instinctlab.compat.env import get_command
+from instinctlab_engine.bridge.env import get_command
 
 if TYPE_CHECKING:
-    from instinctlab.compat.env import RlEnv
+    from instinctlab_engine.bridge.env import RlEnv
 
 
 def terrain_levels_vel(

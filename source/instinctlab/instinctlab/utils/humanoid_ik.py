@@ -6,9 +6,9 @@ from typing import Dict, Literal
 
 import pytorch_kinematics as pk
 
-import instinctlab.compat.math as math_utils
+import instinctlab_engine.bridge.math as math_utils
 
-import instinctlab.utils.math as intinct_math
+import instinctlab_engine.math as intinct_math
 
 from .retarget_smpl_to_joint import retarget_smpl_to_g1_29dof_joints
 

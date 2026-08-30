@@ -18,7 +18,7 @@ from numpy.linalg import norm
 from pxr import UsdGeom, UsdPhysics
 from sklearn.cluster import DBSCAN
 
-from instinctlab.engines.geometry.cylinder import CylinderSpatialGrid
+from instinctlab_engine.geometry.cylinder import CylinderSpatialGrid
 
 from .virtual_obstacle_base import VirtualObstacleBase
 

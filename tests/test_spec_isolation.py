@@ -1,4 +1,4 @@
-"""Guard: ``instinctlab.spec`` imports with no physics engine installed.
+"""Guard: ``instinctlab_engine.spec`` imports with no physics engine installed.
 
 A task declared in ``spec/`` is supposed to be readable, comparable and compilable without deciding
 which engine will run it. The moment anything under ``spec/`` imports an engine -- even for a type
@@ -25,13 +25,13 @@ import sys
 import pytest
 
 import instinctlab
-import instinctlab.spec
+import instinctlab_engine.spec
 
 _ENGINE_ROOTS = frozenset({"isaaclab", "isaacsim", "mjlab", "omni", "pxr", "carb", "mujoco", "warp", "usd"})
 
 
 def _spec_modules() -> list[pathlib.Path]:
-    root = pathlib.Path(instinctlab.spec.__file__).parent
+    root = pathlib.Path(instinctlab_engine.spec.__file__).parent
     return sorted(root.rglob("*.py"))
 
 
@@ -72,13 +72,13 @@ def test_spec_imports_with_engines_blocked() -> None:
     evicted = {
         name: module
         for name, module in sys.modules.items()
-        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith("instinctlab.spec")
+        if name.split(".")[0] in _ENGINE_ROOTS or name.startswith("instinctlab_engine.spec")
     }
     for name in evicted:
         del sys.modules[name]
     sys.meta_path.insert(0, blocker)
     try:
-        module = importlib.import_module("instinctlab.spec")
+        module = importlib.import_module("instinctlab_engine.spec")
         ref = module.EntityRef(bodies=".*_ankle_roll_link", preserve_order=True)
         assert ref.kinds() == {"body"}
     finally:
@@ -94,7 +94,7 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
 
     Isaac Lab is installed on every machine these tests run on, so an accidental dependency on it
     would pass here and fail on a machine that has only mjlab -- the worst place to find out. The
-    import is therefore done with both engines cut off, the same way ``instinctlab.spec`` is above.
+    import is therefore done with both engines cut off, the same way ``instinctlab_engine.spec`` is above.
 
     Shadowing is part of the shared declarations too. There is no engine-specific registration
     fallback: every active task must pass through this same import-safe registry.
@@ -145,9 +145,9 @@ def test_the_task_declaration_loads_without_an_engine() -> None:
 
 def _engine_machinery() -> list[pathlib.Path]:
     """The engine-free part of ``engines/``: its top-level modules, not the per-engine packages."""
-    import instinctlab.engines
+    import instinctlab_engine
 
-    root = pathlib.Path(instinctlab.engines.__file__).parent
+    root = pathlib.Path(instinctlab_engine.__file__).parent
     return sorted(path for path in root.glob("*.py"))
 
 
@@ -188,7 +188,7 @@ def test_engine_implementations_do_not_import_tasks_concrete_assets_or_each_othe
                     or name == "instinctlab.assets"
                     or (
                         name.startswith("instinctlab.assets.")
-                        and name != "instinctlab.assets.registry"
+                        and name != "instinctlab_engine.assets"
                     )
                 or name == f"instinctlab.engines.{other}"
                 or name.startswith(f"instinctlab.engines.{other}.")
@@ -199,30 +199,29 @@ def test_engine_implementations_do_not_import_tasks_concrete_assets_or_each_othe
 
 
 def _shared_layer() -> list[pathlib.Path]:
-    """Everything an engine may not be named in: the IR, the portable terms, compat, the launcher.
-
-    ``sim/`` belongs here too and was missing. It holds the capability registry that exists so
-    shared code does not have to ask which engine it is on. The scan currently finds nothing
-    there, which is the point of adding it before it does. ``sim/spawners/`` is excluded: it is
-    Isaac Lab's own, loaded lazily, and not shared code. G1 native configurations live in
-    ``assets/unitree_g1/isaacsim.py`` and ``assets/unitree_g1/mjlab.py`` with SDK objects
-    loaded only by their builders, so those files are not in this scan.
-    """
+    """Task-facing contracts, portable terms, engine core, and launchers."""
     import instinctlab
+    import instinctlab_engine
 
     root = pathlib.Path(instinctlab.__file__).parent
-    paths = [p for package in ("spec", "mdp", "compat") for p in (root / package).rglob("*.py")]
-    paths += [p for p in (root / "sim").glob("*.py")]
+    core_root = pathlib.Path(instinctlab_engine.__file__).parent
+    paths = list(core_root.glob("*.py"))
+    paths += [
+        path
+        for package in ("bridge", "motion_reference", "spec")
+        for path in (core_root / package).rglob("*.py")
+    ]
+    paths += list((root / "tasks").rglob("*.py"))
     play = root / "play"
     paths += [p for p in play.rglob("*.py")] if play.is_dir() else []
     scripts = pathlib.Path(__file__).resolve().parents[1] / "scripts"
-    return sorted([*paths, *_engine_machinery(), scripts / "train.py", scripts / "play.py"])
+    return sorted([*paths, scripts / "train.py", scripts / "play.py"])
 
 
 def _engine_names() -> frozenset[str]:
-    import instinctlab.engines
+    import instinctlab_engine
 
-    return frozenset(instinctlab.engines.ADAPTERS)
+    return frozenset(instinctlab_engine.ADAPTERS)
 
 
 @pytest.mark.parametrize("source", _shared_layer(), ids=lambda p: p.name)

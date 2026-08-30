@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from instinctlab.spec.sensor import MotionReferenceRef
+from instinctlab_engine.spec.sensor import MotionReferenceRef
 
 
 def _ref(**overrides) -> MotionReferenceRef:

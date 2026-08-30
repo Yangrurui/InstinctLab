@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from instinctlab.engines.diagnostics.contact_overflow import (
+from instinctlab_engine.diagnostics.contact_overflow import (
     ALLOW_ENV,
     ContactOverflowError,
     attach_overflow_guard,
@@ -262,7 +262,7 @@ def test_epa_horizon_alongside_a_budget_bit_is_still_fatal(monkeypatch) -> None:
 
 def test_escape_hatch_warns_and_does_not_raise(monkeypatch, capsys) -> None:
     monkeypatch.setenv(ALLOW_ENV, "1")
-    import instinctlab.engines.diagnostics.contact_overflow as mod
+    import instinctlab_engine.diagnostics.contact_overflow as mod
 
     mod._warned_allow = False
     assert overflow_allowed() is True

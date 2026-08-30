@@ -12,7 +12,7 @@ class InstinctManagerBasedRLEnv:
 
     @classmethod
     def wrap(cls, base_cls: type) -> type:
-        from instinctlab.compat.observation_history import (
+        from instinctlab_engine.bridge.observation_history import (
             clear_observation_histories_on_reset,
         )
 

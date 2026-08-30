@@ -10,6 +10,7 @@ Uses pip only (never uv). Sibling checkouts are reused when present:
 Example:
 
     python scripts/install.py
+    python -m pip install -e source/instinctlab_engine
     python -m pip install -e "source/instinctlab[all]"
 """
 
@@ -143,11 +144,24 @@ def main() -> None:
     if not args.skip_mjlab:
         _install_mjlab(workspace, pins, force=args.force)
 
+    # Install the stable task/engine contract before the application. Keeping it
+    # as a separate editable distribution exercises the same package boundary as
+    # published wheels while preserving one-command development setup.
+    engine_core_src = REPO_ROOT / "source" / "instinctlab_engine"
+    _pip_editable(
+        "instinctlab-engine-core",
+        engine_core_src,
+        force=args.force,
+    )
+
     # Refresh InstinctLab in place. --no-deps avoids re-resolving Isaac/MJLab pins.
     instinctlab_src = REPO_ROOT / "source" / "instinctlab"
     extra = ("--no-deps",) if _editable_location("instinctlab") == instinctlab_src.resolve() else ()
     _pip("-e", str(instinctlab_src), *extra)
-    print("[INFO] InstinctLab, Isaac Lab, and MJLab are installed.", flush=True)
+    print(
+        "[INFO] InstinctLab Engine Core, InstinctLab, Isaac Lab, and MJLab are installed.",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

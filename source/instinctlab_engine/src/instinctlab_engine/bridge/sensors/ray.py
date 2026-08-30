@@ -6,14 +6,14 @@ from typing import Any
 
 import torch
 
-from instinctlab.spec.sensor import RayCasterRef
+from instinctlab_engine.spec.sensor import RayCasterRef
 
 from ..errors import PortabilityError
 
 
 def camera_pose_for_alignment(torso_pos, torso_quat, offset, offset_rot, alignment: str):
     """Return an attached camera pose using either yaw-only or full-body rotation."""
-    from instinctlab.compat.math import quat_apply, quat_mul, yaw_quat
+    from instinctlab_engine.bridge.math import quat_apply, quat_mul, yaw_quat
 
     rot = yaw_quat(torso_quat) if alignment == "yaw" else torso_quat
     shift = offset.to(dtype=torso_pos.dtype, device=torso_pos.device)

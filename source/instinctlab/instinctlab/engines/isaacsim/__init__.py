@@ -5,8 +5,8 @@ time so the engine's capabilities are known, while every builder body defers its
 what lets a task be checked against this engine on a machine that cannot run it.
 """
 
-from instinctlab.compat import entity as _entity
-from instinctlab.engines import register_sub_terrain, register_terrain
+from instinctlab_engine.bridge import entity as _entity
+from instinctlab_engine import register_sub_terrain, register_terrain
 
 register_terrain(
     "isaacsim", "plane", "instinctlab.engines.isaacsim.terrain_builders:build_plane"

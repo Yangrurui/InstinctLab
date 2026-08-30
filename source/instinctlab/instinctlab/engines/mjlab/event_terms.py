@@ -13,8 +13,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from instinctlab.engines.registry import TermRegistry
-from instinctlab.spec.capability import (
+from instinctlab_engine.registry import TermRegistry
+from instinctlab_engine.spec.capability import (
     BODY_MASS_PROPERTIES,
     DR_SLIDING_FRICTION,
     EXTERNAL_WRENCH,

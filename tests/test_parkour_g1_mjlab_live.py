@@ -46,7 +46,7 @@ pytestmark = pytest.mark.mjlab
 def test_mjlab_parkour_target_g1_constructs_and_steps() -> None:
     device = require_live_device()
 
-    from instinctlab.compat.terrain import column_sub_terrain_names
+    from instinctlab_engine.bridge.terrain import column_sub_terrain_names
     from instinctlab.engines.mjlab import MjlabAdapter
     from tests.task_specs import task_spec
 

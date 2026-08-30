@@ -1,6 +1,6 @@
 import torch
 
-import instinctlab.compat.math as math_utils
+import instinctlab_engine.bridge.math as math_utils
 
 
 @torch.jit.script

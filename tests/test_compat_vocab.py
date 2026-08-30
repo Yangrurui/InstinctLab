@@ -12,9 +12,9 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-import instinctlab.compat as compat
-from instinctlab.compat import robot as compat_robot
-from instinctlab.compat.errors import PortabilityError
+import instinctlab_engine.bridge as compat
+from instinctlab_engine.bridge import robot as compat_robot
+from instinctlab_engine.bridge.errors import PortabilityError
 
 
 def _asset(**data):

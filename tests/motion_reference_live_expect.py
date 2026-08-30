@@ -9,8 +9,8 @@ def motion_only_parkour_task(engine: str) -> Any:
     """Parkour's robot and AMP terms on a plane, without camera or terrain setup."""
     from dataclasses import replace
 
-    from instinctlab.spec.mdp import MdpSpec
-    from instinctlab.spec.task import SceneSpec, TerrainSpec
+    from instinctlab_engine.spec.mdp import MdpSpec
+    from instinctlab_engine.spec.task import SceneSpec, TerrainSpec
     from tests.task_specs import task_spec
 
     task = task_spec("Instinct-Parkour-Target-G1", engine)

@@ -28,8 +28,8 @@ import torch
 import pytest
 
 from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_DFS_JOINT_NAMES
-from instinctlab.compat.math import quat_error_magnitude
-from instinctlab.motion_reference import (
+from instinctlab_engine.bridge.math import quat_error_magnitude
+from instinctlab_engine.motion_reference import (
     build_kinematics_chain,
     chain_inventory,
     load_retargetted_clip,

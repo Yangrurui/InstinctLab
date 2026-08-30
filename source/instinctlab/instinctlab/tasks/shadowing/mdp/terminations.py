@@ -8,9 +8,9 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat.env import RlEnv
-from instinctlab.motion_reference import exhausted_envs
-from instinctlab.spec.sensor import MotionReferenceRef
+from instinctlab_engine.bridge.env import RlEnv
+from instinctlab_engine.motion_reference import exhausted_envs
+from instinctlab_engine.spec.sensor import MotionReferenceRef
 
 from .observations import _name
 

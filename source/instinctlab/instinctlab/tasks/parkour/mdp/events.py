@@ -11,11 +11,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from instinctlab.compat.sensors import (
+from instinctlab_engine.bridge.sensors import (
     registered_cylinder_count,
     require_volume_points_registered,
 )
-from instinctlab.spec.sensor import VolumePointsRef
+from instinctlab_engine.spec.sensor import VolumePointsRef
 
 
 def _sensor_name(sensor: VolumePointsRef | str) -> str:

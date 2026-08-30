@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 import torch
 
-from instinctlab.spec.sensor import SymmetricAugmentationSpec
-from instinctlab.utils.name_order import NameOrderError, resolve_name_indices
+from instinctlab_engine.spec.sensor import SymmetricAugmentationSpec
+from instinctlab_engine.name_order import NameOrderError, resolve_name_indices
 
 from .buffers import MotionReferenceBuffers
 

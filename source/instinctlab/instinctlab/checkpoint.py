@@ -13,14 +13,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from instinctlab.spec import TaskSpec
-from instinctlab.spec.robot import BackendAsset
+from instinctlab_engine.spec import TaskSpec
+from instinctlab_engine.spec.robot import BackendAsset
 
 _CONTRACT_VERSION = "task_spec_v1"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
 _PUBLIC_TYPE_MODULES = {
-    "instinctlab.spec.motion_reference": "instinctlab.spec.sensor",
-    "instinctlab.spec.volume": "instinctlab.spec.sensor",
+    "instinctlab_engine.spec.motion_reference": "instinctlab_engine.spec.sensor",
+    "instinctlab_engine.spec.volume": "instinctlab_engine.spec.sensor",
 }
 
 

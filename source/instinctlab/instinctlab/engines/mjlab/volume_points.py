@@ -15,7 +15,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from instinctlab.spec.sensor import VolumePointsRef
+from instinctlab_engine.spec.sensor import VolumePointsRef
 
 __all__ = ["build_sensor"]
 

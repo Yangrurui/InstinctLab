@@ -37,7 +37,7 @@ from collections.abc import Callable, Iterable, Mapping
 from importlib import import_module, metadata
 from typing import Any
 
-from instinctlab.spec.capability import CapabilitySet
+from instinctlab_engine.spec.capability import CapabilitySet
 
 __all__ = [
     "FAMILIES",
@@ -56,7 +56,7 @@ FAMILIES: tuple[str, ...] = (
     "command",
     "curriculum",
 )
-"""Term families, matching the fields of :class:`~instinctlab.spec.mdp.MdpSpec`."""
+"""Term families, matching the fields of :class:`~instinctlab_engine.spec.mdp.MdpSpec`."""
 
 TermBuilder = Callable[..., Any]
 """``(spec, ctx) -> native term config``."""

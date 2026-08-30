@@ -6,7 +6,7 @@ import inspect
 import torch
 from types import SimpleNamespace
 
-from instinctlab.engines import adapter
+from instinctlab_engine import adapter
 from instinctlab.play import viser as play_viser
 from instinctlab.play.viser import _pin_velocity_command, visual_asset_path, visual_meshes_from_mjcf
 
@@ -158,7 +158,7 @@ def test_volume_points_debug_vis_draws_free_and_penetrated_spheres() -> None:
     import torch
 
     from instinctlab.engines.mjlab.volume_points import build_sensor
-    from instinctlab.spec.sensor import Grid3dPointsRef, VolumePointsRef
+    from instinctlab_engine.spec.sensor import Grid3dPointsRef, VolumePointsRef
 
     class _Vis:
         def __init__(self) -> None:

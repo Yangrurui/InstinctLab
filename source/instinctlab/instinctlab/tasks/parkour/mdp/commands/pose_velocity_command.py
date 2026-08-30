@@ -26,13 +26,13 @@ from typing import Any
 import numpy as np
 import torch
 
-from instinctlab.compat.math import (
+from instinctlab_engine.bridge.math import (
     euler_xyz_from_quat,
     quat_apply_inverse,
     wrap_to_pi,
     yaw_quat,
 )
-from instinctlab.compat.terrain import column_sub_terrain_names, resolve_named_columns
+from instinctlab_engine.bridge.terrain import column_sub_terrain_names, resolve_named_columns
 
 __all__ = [
     "POSE_VELOCITY_PARAM_KEYS",

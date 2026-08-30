@@ -11,7 +11,7 @@ import trimesh
 from mjlab.terrains import SubTerrainCfg as SubTerrainBaseCfg
 from mjlab.terrains import TerrainGenerator
 
-from instinctlab.compat.terrain import curriculum_column_indices
+from instinctlab_engine.bridge.terrain import curriculum_column_indices
 
 if TYPE_CHECKING:
     from .terrain_generator_cfg import FiledTerrainGeneratorCfg

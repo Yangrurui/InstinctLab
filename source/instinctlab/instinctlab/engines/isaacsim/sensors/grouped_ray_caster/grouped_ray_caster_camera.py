@@ -14,7 +14,7 @@ from isaaclab.sensors.ray_caster import RayCasterCamera
 from isaaclab.sensors.ray_caster.ray_cast_utils import obtain_world_pose_from_view
 from isaacsim.core.prims import XFormPrim
 
-from instinctlab.engines.geometry.raycast import raycast_mesh_grouped
+from instinctlab_engine.geometry.raycast import raycast_mesh_grouped
 
 from . import GroupedRayCaster
 

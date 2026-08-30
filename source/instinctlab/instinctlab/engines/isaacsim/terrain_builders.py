@@ -6,8 +6,8 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.engines.registry import TERRAIN_EXTENSIONS
-from instinctlab.spec.task import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
+from instinctlab_engine.registry import TERRAIN_EXTENSIONS
+from instinctlab_engine.spec.task import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
 
 
 def _physics_material(spec: TerrainSpec) -> Any:

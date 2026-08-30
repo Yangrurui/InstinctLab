@@ -8,19 +8,24 @@ from types import SimpleNamespace
 
 import torch
 
-from instinctlab import engines
-from instinctlab.engines.registry import FAMILIES
+import instinctlab_engine as engines
+from instinctlab_engine.registry import FAMILIES
 from instinctlab.engines.isaacsim.terms import TERMS as ISAAC_TERMS
 from instinctlab.engines.mjlab.terms import TERMS as MJLAB_TERMS
-from instinctlab.motion_reference import clip_frame, exhausted_envs
+from instinctlab_engine.motion_reference import clip_frame, exhausted_envs
 from instinctlab.tasks import registry
 
 ROOT = Path("source/instinctlab/instinctlab")
+ENGINE_CORE_ROOT = Path(engines.__file__).parent
 ENGINE_ROOTS = (ROOT / "engines" / "isaacsim", ROOT / "engines" / "mjlab")
 ENGINE_TREE = ROOT / "engines"
 TASK_ROOT = ROOT / "tasks"
-SHARED_ROOTS = tuple(
-    ROOT / name for name in ("assets", "compat", "motion_reference", "spec", "tasks")
+SHARED_ROOTS = (
+    ROOT / "assets",
+    ROOT / "tasks",
+    ENGINE_CORE_ROOT / "bridge",
+    ENGINE_CORE_ROOT / "motion_reference",
+    ENGINE_CORE_ROOT / "spec",
 )
 
 
@@ -35,9 +40,14 @@ def _imports(path: Path) -> tuple[str, ...]:
     return tuple(names)
 
 
-def test_engine_root_contains_only_adapter_infrastructure() -> None:
-    files = {path.name for path in (ROOT / "engines").glob("*.py")}
-    assert files == {"__init__.py", "base.py", "compile.py", "registry.py"}
+def test_engine_core_owns_adapter_infrastructure() -> None:
+    import instinctlab_engine
+
+    backend_root_files = {path.name for path in (ROOT / "engines").glob("*.py")}
+    core_root = Path(instinctlab_engine.__file__).parent
+    core_files = {path.name for path in core_root.glob("*.py")}
+    assert backend_root_files == set()
+    assert {"__init__.py", "base.py", "compile.py", "registry.py"} <= core_files
 
 
 def test_shared_packages_do_not_import_engine_implementations() -> None:

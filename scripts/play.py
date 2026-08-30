@@ -26,7 +26,7 @@ from pathlib import Path
 
 
 def _parse() -> argparse.Namespace:
-    from instinctlab.engines import names
+    from instinctlab_engine import names
 
     chooser = argparse.ArgumentParser(add_help=False)
     chooser.add_argument("--engine", type=str, required=True, choices=names())
@@ -67,7 +67,7 @@ def _parse() -> argparse.Namespace:
         help="Fail instead of skipping when the engine cannot express an optional term.",
     )
 
-    from instinctlab.engines import adapter as _adapter
+    from instinctlab_engine import adapter as _adapter
 
     _adapter(chosen.engine).add_cli_args(parser)
     return parser.parse_args()
@@ -222,7 +222,7 @@ def main() -> None:
     args = _parse()
     _validate_args(args)
 
-    from instinctlab.engines import adapter as engine_adapter
+    from instinctlab_engine import adapter as engine_adapter
 
     engine = engine_adapter(args.engine)
     # Viser must be imported before Isaac Sim's AppLauncher prepends Kit's pip_prebundle:

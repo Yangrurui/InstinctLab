@@ -12,12 +12,12 @@ import os
 import numpy as np
 import pytest
 import torch
-from instinctlab import engines
+import instinctlab_engine as engines
 from instinctlab.assets.unitree_g1.isaacsim import (
     G1_29DOF_DFS_JOINT_NAMES,
     G1_29DOF_ISAAC_BFS_JOINT_NAMES,
 )
-from instinctlab.motion_reference import (
+from instinctlab_engine.motion_reference import (
     JointNameMappingError,
     envs_due_for_update,
     fill_buffers,
@@ -145,7 +145,7 @@ def test_length_equality_is_not_a_name_check(raw_clip) -> None:
 
 def _tiny_clip(nframes: int = 5, fps: float = 50.0):
     """A packed clip without FK, so exhaustion can be tested without 19k frames."""
-    from instinctlab.motion_reference import ChainInventory, MotionClip
+    from instinctlab_engine.motion_reference import ChainInventory, MotionClip
 
     n_joints, n_links = 2, 1
     joint_pos = torch.arange(nframes, dtype=torch.float32).unsqueeze(-1).expand(nframes, n_joints)

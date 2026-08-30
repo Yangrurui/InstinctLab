@@ -24,9 +24,9 @@ import torch
 
 import pytest
 
-from instinctlab.compat import robot as compat_robot
-from instinctlab.compat.errors import PortabilityError
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.bridge import robot as compat_robot
+from instinctlab_engine.bridge.errors import PortabilityError
+from instinctlab_engine.spec.sensor import ContactSensorRef
 from instinctlab.tasks.locomotion.mdp import (
     commands,
     curriculums,

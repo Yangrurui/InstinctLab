@@ -12,8 +12,8 @@ from dataclasses import replace
 
 import pytest
 
-from instinctlab.spec.robot import BackendAsset, JointProperties, RobotSpec
-from instinctlab.spec import (
+from instinctlab_engine.spec.robot import BackendAsset, JointProperties, RobotSpec
+from instinctlab_engine.spec import (
     ActionTermSpec,
     AgentSpec,
     CommandTermSpec,
@@ -80,7 +80,7 @@ def _task(**overrides) -> TaskSpec:
             terminations={"time_out": DoneTermSpec(_observed, time_out=True)},
             commands={"base_velocity": CommandTermSpec(_observed)},
         ),
-        agent=AgentSpec(runner="instinctlab.spec.task:AgentSpec"),
+        agent=AgentSpec(runner="instinctlab_engine.spec.task:AgentSpec"),
         engines=("isaacsim", "mjlab"),
     )
     fields.update(overrides)
@@ -591,7 +591,7 @@ def test_profiles_carry_only_overrides_and_are_empty_by_default():
 
 def test_the_agent_is_imported_only_when_asked_for():
     """Runner configs are built on ``isaaclab.utils.configclass``; naming one must not import it."""
-    agent = AgentSpec(runner="instinctlab.spec.task:SimSpec", engine_overrides={"mjlab": {"num_steps": 24}})
+    agent = AgentSpec(runner="instinctlab_engine.spec.task:SimSpec", engine_overrides={"mjlab": {"num_steps": 24}})
     assert agent.resolve() is SimSpec
     assert agent.resolved_overrides("mjlab") == {"num_steps": 24}
     assert agent.resolved_overrides("isaacsim") == {}

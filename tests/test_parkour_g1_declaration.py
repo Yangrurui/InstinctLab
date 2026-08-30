@@ -16,7 +16,7 @@ import pytest
 
 from instinctlab.tasks.parkour.mdp import rewards as parkour_rewards
 from instinctlab.tasks.parkour.mdp import terminations
-from instinctlab.spec.capability import Requirement
+from instinctlab_engine.spec.capability import Requirement
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 
 REPO = Path(__file__).resolve().parent.parent
@@ -133,7 +133,7 @@ def test_all_reward_formulas_are_owned_by_the_task(task) -> None:
 
 def test_the_foot_scanners_are_declared_and_feet_at_plane_is_required(task) -> None:
     """Absence of this reward silently drops a stance-height penalty; it is not optional."""
-    from instinctlab.spec.sensor import RayCasterRef
+    from instinctlab_engine.spec.sensor import RayCasterRef
 
     names = [sensor.name for sensor in task.scene.ray_casters]
     assert names[:2] == ["left_height_scanner", "right_height_scanner"]
@@ -230,8 +230,8 @@ def test_observation_group_order(task) -> None:
 
 def test_volume_points_and_edge_cylinders_are_declared_and_required(task) -> None:
     """Absence of this penalty is a robot that never learns to avoid edges."""
-    from instinctlab.spec.capability import Requirement
-    from instinctlab.spec.sensor import VirtualObstacleRef, VolumePointsRef
+    from instinctlab_engine.spec.capability import Requirement
+    from instinctlab_engine.spec.sensor import VirtualObstacleRef, VolumePointsRef
 
     sensor = task.scene.volume_point("leg_volume_points")
     assert isinstance(sensor, VolumePointsRef)
@@ -267,7 +267,7 @@ def test_volume_points_and_edge_cylinders_are_declared_and_required(task) -> Non
 def test_the_depth_camera_is_declared_and_required(task) -> None:
     """Absence of this observation silently drops the policy's exteroception."""
     from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
-    from instinctlab.spec.capability import Requirement
+    from instinctlab_engine.spec.capability import Requirement
 
     camera = task.scene.ray_caster("camera")
     assert camera.pattern.kind == "pinhole"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from instinctlab.spec import (
+from instinctlab_engine.spec import (
     AgentSpec,
     ContactSensorRef,
     EntityRef,
@@ -18,8 +18,8 @@ from instinctlab.spec import (
     TaskSpec,
     VolumePointsRef,
 )
-from instinctlab.spec.capability import Requirement
-from instinctlab.spec.robot import RobotSpec
+from instinctlab_engine.spec.capability import Requirement
+from instinctlab_engine.spec.robot import RobotSpec
 from instinctlab.tasks.parkour.config.parkour_env_cfg import (
     ParkourEnvCfg,
 )

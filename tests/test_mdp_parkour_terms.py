@@ -13,8 +13,8 @@ import torch
 from types import SimpleNamespace
 
 import pytest
-from instinctlab.compat.observation_history import clear_observation_histories_on_reset
-from instinctlab.spec.sensor import (
+from instinctlab_engine.bridge.observation_history import clear_observation_histories_on_reset
+from instinctlab_engine.spec.sensor import (
     ContactSensorRef,
     RayCasterRef,
     RayPatternRef,

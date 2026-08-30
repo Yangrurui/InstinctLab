@@ -83,7 +83,7 @@ contracts. A new independent terrain does not require editing an existing
 engine scene builder. Register lazy native builders instead:
 
 ```python
-from instinctlab.engines import register_sub_terrain, register_terrain
+from instinctlab_engine import register_sub_terrain, register_terrain
 
 register_terrain(
     "isaacsim",

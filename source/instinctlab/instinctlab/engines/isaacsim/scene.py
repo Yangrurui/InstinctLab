@@ -16,10 +16,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
-from instinctlab.engines.registry import TERRAIN_EXTENSIONS
-from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
-from instinctlab.spec.task import SceneSpec, TerrainSpec
+from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
+from instinctlab_engine.registry import TERRAIN_EXTENSIONS
+from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
+from instinctlab_engine.spec.task import SceneSpec, TerrainSpec
 
 from .assets import articulation
 

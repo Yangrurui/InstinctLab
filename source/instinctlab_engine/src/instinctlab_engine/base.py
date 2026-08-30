@@ -29,11 +29,11 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
-from instinctlab.spec.capability import CapabilitySet
-from instinctlab.spec.task import TaskSpec
+from instinctlab_engine.spec.capability import CapabilitySet
+from instinctlab_engine.spec.task import TaskSpec
 
 if TYPE_CHECKING:
-    from instinctlab.spec.robot import RobotSpec
+    from instinctlab_engine.spec.robot import RobotSpec
 
 __all__ = [
     "CompiledTask",

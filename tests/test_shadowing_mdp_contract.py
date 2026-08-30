@@ -13,7 +13,7 @@ import pytest
 import torch
 import trimesh
 import yaml
-from instinctlab.compat import math as math_utils
+from instinctlab_engine.bridge import math as math_utils
 from instinctlab.utils.debug_image import set_debug_image_sink
 from instinctlab.engines.isaacsim import terms as isaac_terms
 from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
@@ -21,8 +21,8 @@ from instinctlab.engines.mjlab import terms as mjlab_terms
 from instinctlab.engines.mjlab.adapter import MjlabAdapter
 from instinctlab.engines.mjlab.assets import robot_spec
 from instinctlab.engines.mjlab.native_event_functions import randomize_default_joint_pos
-from instinctlab.motion_reference.buffers import fill_buffers, make_buffers
-from instinctlab.motion_reference.clip import MotionSample
+from instinctlab_engine.motion_reference.buffers import fill_buffers, make_buffers
+from instinctlab_engine.motion_reference.clip import MotionSample
 from instinctlab.tasks import registry
 from instinctlab.tasks.shadowing.mdp import commands as shadowing_commands
 from instinctlab.tasks.shadowing.mdp import observations as shadowing_observations
@@ -333,7 +333,7 @@ def test_shadowing_position_command_reads_the_explicit_root_link_pose() -> None:
 def test_shadowing_depth_clamps_before_resizing_like_both_references(
     monkeypatch,
 ) -> None:
-    from instinctlab.compat import sensors as compat_sensors
+    from instinctlab_engine.bridge import sensors as compat_sensors
 
     raw = torch.tensor([[[[0.0], [4.0], [0.0], [4.0]]]])
     sensor_ref = SimpleNamespace(name="camera", crop=None)
@@ -348,7 +348,7 @@ def test_shadowing_depth_clamps_before_resizing_like_both_references(
 
 
 def test_shadowing_depth_image_accepts_play_debug_vis(monkeypatch) -> None:
-    from instinctlab.compat import sensors as compat_sensors
+    from instinctlab_engine.bridge import sensors as compat_sensors
 
     raw = torch.tensor([[[[0.0], [2.0], [0.0], [2.0]]]])
     sensor_ref = SimpleNamespace(name="camera", crop=None)
@@ -548,7 +548,7 @@ def test_shadowing_failure_terms_match_reference_fixed_state() -> None:
 def test_shadowing_illegal_reset_contact_matches_reference_temporal_gate(
     monkeypatch,
 ) -> None:
-    from instinctlab.compat import sensors as compat_sensors
+    from instinctlab_engine.bridge import sensors as compat_sensors
 
     env = SimpleNamespace(
         num_envs=2,

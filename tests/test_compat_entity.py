@@ -19,8 +19,8 @@ import pathlib
 
 import pytest
 
-from instinctlab import engines
-from instinctlab.compat.entity import (
+import instinctlab_engine as engines
+from instinctlab_engine.bridge.entity import (
     UnsupportedSelector,
     lower,
     resolved_names,
@@ -28,7 +28,7 @@ from instinctlab.compat.entity import (
     selector_kinds,
     universal,
 )
-from instinctlab.spec.entity import UNIVERSAL_KINDS, EntityRef
+from instinctlab_engine.spec.entity import UNIVERSAL_KINDS, EntityRef
 
 
 def _isaac_cfg_fields() -> list[str]:

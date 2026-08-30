@@ -19,7 +19,7 @@ import torch
 
 import pytest
 
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.spec.sensor import ContactSensorRef
 
 pytest.importorskip("mjlab")
 
@@ -46,7 +46,7 @@ def test_standing_on_the_ground_registers_as_contact() -> None:
     the feet have accumulated contact time and are reported as touching. Both statements come from
     the same timers that ``illegal_contact`` and ``feet_air_time`` consult.
     """
-    from instinctlab.compat import sensors as compat_sensors
+    from instinctlab_engine.bridge import sensors as compat_sensors
     from instinctlab.engines.mjlab.adapter import MjlabAdapter
     from tests.task_specs import task_spec
 

@@ -21,8 +21,8 @@ import torch
 
 import pytest
 
-from instinctlab.compat.errors import PortabilityError
-from instinctlab.compat.sensors import (
+from instinctlab_engine.bridge.errors import PortabilityError
+from instinctlab_engine.bridge.sensors import (
     air_time,
     contact_force_history,
     contact_time,
@@ -32,7 +32,7 @@ from instinctlab.compat.sensors import (
     in_contact,
     sensor_engine,
 )
-from instinctlab.spec.sensor import ContactSensorRef
+from instinctlab_engine.spec.sensor import ContactSensorRef
 
 _TIMING_ATTRS = ("current_air_time", "last_air_time", "current_contact_time", "last_contact_time")
 _SHAPE = re.compile(r"Shape is \(([^)]*)\)")

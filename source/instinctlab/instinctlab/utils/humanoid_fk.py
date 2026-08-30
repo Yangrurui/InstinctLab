@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Sequence, Tuple
 
 import pytorch_kinematics as pk
 
-import instinctlab.compat.math as math_utils
+import instinctlab_engine.bridge.math as math_utils
 
 
 def export_forward_kinematics_as_onnx(

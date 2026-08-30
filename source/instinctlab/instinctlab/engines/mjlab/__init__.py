@@ -5,8 +5,8 @@ and for the same reason: the registry's keys have to exist for ``contract_report
 the builders' bodies must not, so a task can be checked against this engine anywhere.
 """
 
-from instinctlab.compat import entity as _entity
-from instinctlab.engines import register_sub_terrain, register_terrain
+from instinctlab_engine.bridge import entity as _entity
+from instinctlab_engine import register_sub_terrain, register_terrain
 
 register_terrain(
     "mjlab", "plane", "instinctlab.engines.mjlab.terrain_builders:build_plane"

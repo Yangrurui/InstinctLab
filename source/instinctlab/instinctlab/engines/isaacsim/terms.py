@@ -14,8 +14,8 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from instinctlab.engines.compile import joint_position_target
-from instinctlab.engines.registry import TermRegistry
+from instinctlab_engine.compile import joint_position_target
+from instinctlab_engine.registry import TermRegistry
 
 from .event_terms import register_event_terms
 

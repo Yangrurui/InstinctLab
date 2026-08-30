@@ -13,7 +13,7 @@ from instinctlab.engines.mjlab.camera import (
     pinhole_camera_geom_groups,
     pinhole_camera_hop_params,
 )
-from instinctlab.spec.sensor import RayCasterRef, RayPatternRef
+from instinctlab_engine.spec.sensor import RayCasterRef, RayPatternRef
 
 from tests.camera_ray_kernel_harness import (
     assert_hit_match,
@@ -122,7 +122,7 @@ def test_hop_params_read_from_instinctmj_source() -> None:
 
 
 def test_calibration_noise_mutates_local_rays_like_instinctmj(device) -> None:
-    from instinctlab.compat.math import quat_apply, quat_from_euler_xyz, quat_mul
+    from instinctlab_engine.bridge.math import quat_apply, quat_from_euler_xyz, quat_mul
     from instinctlab.engines.mjlab.camera import pinhole_ray_caster
 
     offset = (0.2, -0.1, 0.3)

@@ -16,8 +16,8 @@ import pathlib
 
 import pytest
 
-from instinctlab.compat.errors import PortabilityError
-from instinctlab.compat.env import (
+from instinctlab_engine.bridge.errors import PortabilityError
+from instinctlab_engine.bridge.env import (
     ENV_TYPE_NAMES,
     PHYSICS_DT_CFG_PATH,
     command_names,

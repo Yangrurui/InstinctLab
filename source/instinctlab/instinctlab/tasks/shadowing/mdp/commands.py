@@ -8,9 +8,9 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat import math as math_utils
-from instinctlab.utils.math import quat_to_tan_norm
-from instinctlab.utils.name_order import resolve_name_indices
+from instinctlab_engine.bridge import math as math_utils
+from instinctlab_engine.math import quat_to_tan_norm
+from instinctlab_engine.name_order import resolve_name_indices
 
 
 class MotionReferenceCommand:

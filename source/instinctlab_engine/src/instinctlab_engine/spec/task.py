@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from instinctlab.spec.robot import RobotSpec
+from instinctlab_engine.spec.robot import RobotSpec
 
 from .mdp import MdpSpec
 from .rigid_object import RigidObjectRef

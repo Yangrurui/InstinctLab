@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from instinctlab.compat.env import RlEnv, get_command
+from instinctlab_engine.bridge.env import RlEnv, get_command
 
 
 def terrain_levels_vel(

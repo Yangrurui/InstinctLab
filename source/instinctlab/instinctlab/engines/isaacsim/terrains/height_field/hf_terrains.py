@@ -6,7 +6,7 @@ import numpy as np
 import scipy.interpolate as interpolate
 from isaaclab.terrains.height_field.utils import height_field_to_mesh
 
-from instinctlab.utils.perlin import generate_fractal_noise_2d
+from instinctlab_engine.geometry.perlin import generate_fractal_noise_2d
 
 if TYPE_CHECKING:
     from . import hf_terrains_cfg

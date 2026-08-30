@@ -1,8 +1,8 @@
 """Parkour reward formulas called directly by both engines.
 
 The task owns every aggregation, threshold and normalization below.  Quantities that genuinely
-differ between engines are read through :mod:`instinctlab.compat.robot` and
-:mod:`instinctlab.compat.sensors`; that compatibility boundary preserves the established native
+differ between engines are read through :mod:`instinctlab_engine.bridge.robot` and
+:mod:`instinctlab_engine.bridge.sensors`; that compatibility boundary preserves the established native
 quantity instead of pretending the engines are physically identical.  For example, joint
 acceleration remains finite-differenced on Isaac and analytic MuJoCo ``qacc`` on MJLab, while
 joint effort remains Isaac ``applied_torque`` versus MJLab ``qfrc_actuator``.
@@ -10,8 +10,8 @@ joint effort remains Isaac ``applied_torque`` versus MJLab ``qfrc_actuator``.
 ``joint_vel_limits`` reads its ordered limits from the task's ``RobotSpec`` rather than from an
 engine-derived value, because MJLab exposes no equivalent of Isaac's ``soft_joint_vel_limits``.
 
-Contact rewards go through :mod:`instinctlab.compat.sensors` and take a
-:class:`~instinctlab.spec.sensor.ContactSensorRef` in place of Isaac Lab's ``sensor_cfg``. That is
+Contact rewards go through :mod:`instinctlab_engine.bridge.sensors` and take a
+:class:`~instinctlab_engine.spec.sensor.ContactSensorRef` in place of Isaac Lab's ``sensor_cfg``. That is
 the one signature change a migrated task has to make, and it is unavoidable: Isaac Lab declares one
 broad sensor that terms slice, mjlab declares narrow sensors that terms read whole, so there is no
 single native object to pass.
@@ -24,11 +24,11 @@ from typing import Any
 
 import torch
 
-from instinctlab.compat import math as math_utils
-from instinctlab.compat import robot as compat_robot
-from instinctlab.compat import sensors as compat_sensors
-from instinctlab.compat.env import RlEnv, get_command
-from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
+from instinctlab_engine.bridge import math as math_utils
+from instinctlab_engine.bridge import robot as compat_robot
+from instinctlab_engine.bridge import sensors as compat_sensors
+from instinctlab_engine.bridge.env import RlEnv, get_command
+from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 
 from .observations import _body_index_list, _joint_ids, _name
 
@@ -232,7 +232,7 @@ def joint_vel_limits(
 ) -> torch.Tensor:
     """Penalise joint velocities past a catalog-stated soft cap.
 
-    Limits come from the task declaration, which reads them off :class:`~instinctlab.spec.robot.RobotSpec`.
+    Limits come from the task declaration, which reads them off :class:`~instinctlab_engine.spec.robot.RobotSpec`.
     Reading the catalog is what makes this portable: Isaac Lab's original reads
     ``soft_joint_vel_limits`` from engine data, and mjlab's ``EntityData`` has no equivalent
     field. It also removes a dependency on an engine-derived value that the two engines
@@ -449,7 +449,7 @@ def link_orientation(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     ``body_link_quat_w``. The raw gravity vectors are denylisted — different spelling and different
     behaviour under non-default gravity — so this reconstructs world gravity from the hub pair
     ``root_link_quat_w`` / ``projected_gravity_b`` and rotates it into the link with
-    :func:`instinctlab.compat.math.quat_apply_inverse`.
+    :func:`instinctlab_engine.bridge.math.quat_apply_inverse`.
     """
     asset = env.scene[_name(asset_cfg)]
     ids = _body_index_list(asset_cfg, asset.data.body_link_quat_w.shape[1])
@@ -472,7 +472,7 @@ def feet_orientation_contact(
 
     Isaac Lab gated on ``‖net_forces_w‖ > 1`` N (world-frame normal only). That threshold is
     forbidden here: mjlab's ``force`` is a different physical quantity. Contact is
-    :func:`instinctlab.compat.sensors.in_contact`, so a light touch now counts where the 1 N
+    :func:`instinctlab_engine.bridge.sensors.in_contact`, so a light touch now counts where the 1 N
     threshold would not. Gravity for each foot is reconstructed the same way as
     :func:`link_orientation`.
     """
@@ -509,10 +509,10 @@ def feet_at_plane(
     Both parkour references converted a ray miss into ``hit_z = 0``. That is the silent
     failure this term exists to refuse: a miss then means "ground at world height zero",
     which is a number the clamp happily eats. The IR's ``miss="infinity"`` comes through
-    :func:`instinctlab.compat.sensors.ray_hits_w` as ``+inf``; ``foot_z - inf`` clamps to
+    :func:`instinctlab_engine.bridge.sensors.ray_hits_w` as ``+inf``; ``foot_z - inf`` clamps to
     zero, so a gap contributes nothing instead of a fake plane.
 
-    Contact is :func:`instinctlab.compat.sensors.in_contact`, not a newton threshold.
+    Contact is :func:`instinctlab_engine.bridge.sensors.in_contact`, not a newton threshold.
     Foot height is ``body_link_pos_w`` of the first two selected bodies (left, then right).
     """
     asset = env.scene[_name(asset_cfg)]
@@ -565,7 +565,7 @@ def undesired_contacts(env: RlEnv, sensor: ContactSensorRef) -> torch.Tensor:
 
     Isaac Lab's original thresholds ``‖net_forces_w‖`` at 1 N. That is forbidden here: Isaac Lab's
     ``net_forces_w`` is world-frame normal-only, mjlab's ``force`` is full 3-D in the contact frame.
-    Contact is :func:`instinctlab.compat.sensors.in_contact`. A light touch now counts as contact
+    Contact is :func:`instinctlab_engine.bridge.sensors.in_contact`. A light touch now counts as contact
     where the newton threshold would not; a task that needs the threshold should use the
     task-owned :func:`undesired_contacts_by_force`, whose compat read preserves each engine's
     native force quantity.

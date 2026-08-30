@@ -15,14 +15,14 @@ from types import SimpleNamespace
 import pytest
 from test_mdp_terms import _Env
 
-from instinctlab.compat.errors import PortabilityError
-from instinctlab.compat.sensors import (
+from instinctlab_engine.bridge.errors import PortabilityError
+from instinctlab_engine.bridge.sensors import (
     registered_cylinder_count,
     require_volume_points_registered,
     volume_points_penetration_offset,
     volume_points_vel_w,
 )
-from instinctlab.compat.sensors.volume_points import (
+from instinctlab_engine.bridge.sensors.volume_points import (
     cylinder_penetration_offset,
     grid3d_points,
     link_linear_velocity_from_com,
@@ -30,7 +30,7 @@ from instinctlab.compat.sensors.volume_points import (
 )
 from instinctlab.tasks.parkour.mdp.events import register_virtual_obstacles
 from instinctlab.tasks.parkour.mdp.rewards import penetration_reward, volume_points_penetration
-from instinctlab.spec.sensor import Grid3dPointsRef, VirtualObstacleRef, VolumePointsRef
+from instinctlab_engine.spec.sensor import Grid3dPointsRef, VirtualObstacleRef, VolumePointsRef
 
 SHOE = Grid3dPointsRef(
     x_min=-0.025,
@@ -457,7 +457,7 @@ def test_warp_kernel_on_axis_is_finite_and_has_depth_radius() -> None:
     import numpy as np
     import os
 
-    from instinctlab.engines.geometry.cylinder import CylinderSpatialGrid
+    from instinctlab_engine.geometry.cylinder import CylinderSpatialGrid
 
     device = os.environ.get("INSTINCTLAB_LIVE_DEVICE", "cuda:2")
     grid = CylinderSpatialGrid(

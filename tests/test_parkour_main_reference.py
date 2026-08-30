@@ -687,7 +687,7 @@ def test_camera_ray_alignment_config_differs_and_mjlab_honors_the_task_value(
     task,
 ) -> None:
     """Main writes yaw; the portable declaration intentionally asks MJLab for base."""
-    from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
+    from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
 
     camera = task.scene.ray_caster("camera").for_engine("mjlab")
     assert main_ref.camera_ray_alignment() == "yaw"

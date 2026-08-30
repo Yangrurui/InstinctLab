@@ -18,7 +18,7 @@ import torch
 from dataclasses import dataclass
 from typing import Any
 
-from instinctlab.spec.sensor import RayCasterRef
+from instinctlab_engine.spec.sensor import RayCasterRef
 
 __all__ = ["terrain_height_scanner", "terrain_ray_caster"]
 

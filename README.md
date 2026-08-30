@@ -63,15 +63,18 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     the same training plant. The shared Isaac/MJLab environment keeps its existing
     compatible Torch build; Torch is not upgraded by these pins.
 
-    Equivalent pip-only extra (no sibling checkouts; Isaac Lab comes from git):
+    Equivalent pip-only installation (no sibling checkouts; Isaac Lab comes
+    from git):
 
     ```bash
+    python -m pip install -e source/instinctlab_engine
     python -m pip install -e "source/instinctlab[all]"
     ```
 
     Install a single backend extra if needed:
 
     ```bash
+    python -m pip install -e source/instinctlab_engine
     python -m pip install -e "source/instinctlab[isaaclab]"
     python -m pip install -e "source/instinctlab[mjlab]"
     ```
@@ -152,7 +155,8 @@ In some VsCode versions, the indexing of part of the extensions is missing. In t
 ```json
 {
     "python.analysis.extraPaths": [
-        "<path-to-ext-repo>/source/instinctlab"
+        "<path-to-ext-repo>/source/instinctlab",
+        "<path-to-ext-repo>/source/instinctlab_engine/src"
     ]
 }
 ```

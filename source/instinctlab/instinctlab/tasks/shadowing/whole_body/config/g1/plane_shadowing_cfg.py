@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from instinctlab.spec import AgentSpec, MdpSpec, MotionReferenceRef, TaskSpec
-from instinctlab.spec.robot import RobotSpec
+from instinctlab_engine.spec import AgentSpec, MdpSpec, MotionReferenceRef, TaskSpec
+from instinctlab_engine.spec.robot import RobotSpec
 from instinctlab.tasks.shadowing.whole_body.shadowing_env_cfg import (
     ShadowingCurriculumCfg,
     ShadowingEnvCfg,

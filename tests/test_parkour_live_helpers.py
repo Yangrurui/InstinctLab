@@ -212,7 +212,7 @@ def test_reward_helper_passes_when_rewards_are_finite_and_nonzero() -> None:
 
 def _tilted_scanner_env(*, starts_alignment: str):
     """A pitched ankle plus ray starts from one alignment, for mutation checks."""
-    from instinctlab.compat.math import quat_from_euler_xyz
+    from instinctlab_engine.bridge.math import quat_from_euler_xyz
 
     pos = torch.tensor([[0.0, 0.0, 0.1], [0.0, 0.0, 0.1]])
     quat = quat_from_euler_xyz(
@@ -273,8 +273,8 @@ def test_yaw_helper_rejects_a_full_rotation_start() -> None:
 
 def _tilted_camera_env(*, pose_alignment: str):
     """A pitched torso plus a camera pose from one alignment, for mutation checks."""
-    from instinctlab.compat.math import quat_from_euler_xyz
-    from instinctlab.compat.sensors.ray import camera_pose_for_alignment
+    from instinctlab_engine.bridge.math import quat_from_euler_xyz
+    from instinctlab_engine.bridge.sensors.ray import camera_pose_for_alignment
 
     pos = torch.tensor([[0.0, 0.0, 0.82], [0.0, 0.0, 0.82]])
     quat = quat_from_euler_xyz(

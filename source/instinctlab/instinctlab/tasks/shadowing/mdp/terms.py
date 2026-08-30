@@ -11,8 +11,8 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from instinctlab.compat import math as math_utils
-from instinctlab.utils.math import quat_to_tan_norm
+from instinctlab_engine.bridge import math as math_utils
+from instinctlab_engine.math import quat_to_tan_norm
 
 
 def depth_image(
@@ -23,7 +23,7 @@ def depth_image(
     ``debug_vis`` is training-off and play-on. Viser patches it onto the live observation
     params; without this keyword MJLab's ``**term_cfg.params`` call crashes on step.
     """
-    from instinctlab.compat.sensors import depth_image as read_depth
+    from instinctlab_engine.bridge.sensors import depth_image as read_depth
 
     raw = read_depth(env.scene.sensors[sensor.name]).squeeze(-1)
     lo, hi = normalization_range
@@ -295,7 +295,7 @@ class IllegalResetContact:
         self.counter[slice(None) if env_ids is None else env_ids] = 0
 
     def __call__(self, env, sensor, threshold=500.0, episode_length_threshold=2):
-        from instinctlab.compat.sensors import contact_force_history
+        from instinctlab_engine.bridge.sensors import contact_force_history
 
         history = contact_force_history(env.scene.sensors[sensor.name], sensor)
         contacts = torch.norm(history, dim=-1).amax(dim=1).gt(threshold).any(dim=-1)
@@ -307,7 +307,7 @@ class IllegalResetContact:
 
 def undesired_contacts(env, sensor, threshold=1.0):
     """Count native-force threshold violations after normalizing only the history axes."""
-    from instinctlab.compat.sensors import contact_force_history
+    from instinctlab_engine.bridge.sensors import contact_force_history
 
     history = contact_force_history(env.scene.sensors[sensor.name], sensor)
     return torch.norm(history, dim=-1).amax(dim=1).gt(threshold).float().sum(dim=-1)

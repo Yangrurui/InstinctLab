@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from instinctlab.compat.sensors.contact import contact_from_force, step_contact_clock
+from instinctlab_engine.bridge.sensors.contact import contact_from_force, step_contact_clock
 
 __all__ = ["thresholded_contact_sensor_cfg"]
 

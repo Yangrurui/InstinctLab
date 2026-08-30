@@ -1,5 +1,3 @@
-"""Robot asset packages and engine-neutral native-module routing."""
+"""Concrete asset packages supplied by the InstinctLab application."""
 
-from .registry import native_asset_module
-
-__all__ = ["native_asset_module"]
+__all__: list[str] = []
