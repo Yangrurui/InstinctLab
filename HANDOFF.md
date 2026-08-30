@@ -439,61 +439,53 @@ subprocess tests asserting that all three stages -- `import instinctlab_engine`,
 neither `torch` nor a simulator SDK. For Isaac, only `bootstrap()` may cross that
 barrier.
 
-#### 2. P1: policy-I/O compatibility does not cover every loaded tensor
+#### 2. P1: checkpoint loading should not be hash-driven
 
-The checkpoint split is directionally correct, but `policy_io_v1` is narrower
-than the state that `OnPolicyRunner.load()` restores. `_policy_agent_contract()`
-includes the policy, normalizers, and five selected algorithm fields. Parkour's
-`WasabiPPO` discriminator architecture lives in
-`algorithm.discriminator_kwargs`; the runner saves and strictly reloads both
-the discriminator and its optimizer, but those fields do not affect the
-mandatory policy-I/O hash.
+The project decision is that a checkpoint does not require a file-content hash
+or a `TaskSpec`-derived compatibility hash. The current `policy_io`,
+`experiment_semantics`, and `provenance` fingerprints therefore should not be
+expanded into a complete model-state hashing system. Doing so would duplicate
+the runner's native state contract, couple checkpoint reuse to declaration
+serialization, and still require special rules for inference-only, AMP, VAE,
+teacher/student, and future auxiliary state.
 
-A fixed-input probe changed the real Parkour AMP discriminator hidden sizes
-from `[1024, 512]` to `[768, 384]`. The `policy_io` hash stayed equal while the
-experiment-semantics hash changed. Normal resume rejects that semantics drift,
-but `--allow-experiment-drift` permits it, and play deliberately uses
-`experiment_policy="ignore"` before loading the complete runner state. The
-mandatory compatibility gate can therefore approve a checkpoint whose next
-operation fails on tensor shapes.
+Use an explicit checkpoint format version and narrowly scoped schema/version
+fields only where a migration needs them. Let the runner's normal strict tensor
+loading report module, key, and shape incompatibility. Task identity, experiment
+configuration, and source provenance may remain readable manifest metadata for
+operators, but they should not be hash gates on checkpoint loading. If play only
+needs an inference policy, a policy-only load/export path is still preferable to
+constructing and restoring unrelated training state.
 
-Define compatibility from every tensor-bearing component that the chosen load
-path restores, not from a hand-selected list of algorithm keys. Prefer a small
-runner-owned, deterministic checkpoint-state schema covering actor/critic,
-normalizers, discriminator, teacher/student, VAE, optimizer-sensitive module
-topology, and future auxiliary modules. If inference-only loading is meant to
-have a narrower contract, make it a distinct policy-only load path instead of
-constructing and restoring a complete training runner. Add negative contract
-tests for AMP discriminator and VAE/teacher topology changes.
+This decision supersedes the earlier follow-up recommendation to enlarge
+`policy_io_v1`; the observed AMP discriminator omission is evidence that the
+hash is the wrong ownership boundary, not a request to add more fields to it.
 
-#### 3. P1: hash the effective run configuration, not only declaration defaults
+#### 3. P1: record the effective run configuration as data
 
 `task_contract(spec)` reconstructs the runner config from
 `spec.agent.overrides`. The adapters, however, construct the actual runner with
 `spec.agent.resolved_overrides(engine)`, and `train.py` then applies CLI seed,
 maximum-iteration, device, resume, run, and checkpoint values directly to
 `compiled.agent_cfg`. The manifest still calls `add_task_contract(..., spec)`,
-so its compatibility and experiment hashes describe the declaration defaults,
-not necessarily the runner that produced the checkpoint.
+so its embedded declaration fingerprints describe defaults rather than
+necessarily describing the runner that produced the checkpoint.
 
 No registered task currently uses `AgentSpec.engine_overrides`, but the public
 contract explicitly supports it and validation does not restrict the override
-keys to rollout length. A synthetic, valid `isaacsim` override changing
-`num_steps_per_env` from 24 to 48 left both policy-I/O and experiment-semantics
-hashes unchanged; only audit provenance changed. The current CLI path already
-has the same class of issue for `--seed` and `--max_iterations`. `agent.json`
-records the effective config separately, but checkpoint validation does not
-consume it.
+keys to rollout length. The current CLI path already creates this difference
+for `--seed` and `--max_iterations`. `agent.json` records the effective config
+separately, but the primary manifest does not identify it as the authoritative
+run configuration.
 
-Build the run contract from the selected engine's resolved `agent_cfg` after
-all CLI and distributed-rank overrides, and pass that same snapshot to manifest
-creation and resume validation. Keep the portable policy-interface hash
-separate so intentional cross-engine policy reuse remains possible. The run
-manifest should also record normalized `argv`, environment count, Python and
-installed package versions, torch/CUDA/driver/device information, source commit
-and dirty state, and declared dataset paths/checksums where available. The
-runner's later Git diff capture is useful evidence but is not a structured,
-complete run contract.
+After engine, CLI, and distributed-rank overrides, serialize the selected
+runner configuration directly into the run manifest as readable data. Do not
+turn it into a checkpoint load gate. The manifest should also record normalized
+`argv`, environment count, Python and installed package versions,
+torch/CUDA/driver/device information, source commit and dirty state, and
+declared dataset identifiers and versions where available. The runner's later
+Git diff capture is useful evidence but is not a structured, complete run
+record.
 
 #### 4. P2: keep process lifecycle and fail-fast behavior behind the adapter
 
@@ -508,9 +500,10 @@ Move exceptional process-finalization policy into an adapter-owned lifecycle
 hook or bootstrap resource without adding an engine branch to the launcher.
 Normal backends should return normally; a backend that demonstrably requires a
 hard exit should own and test that behavior. In play, also resolve and validate
-a trained-agent checkpoint before `compiled.make_env()`: the current order
-constructs the expensive native environment before reporting a missing or
-incompatible checkpoint, whereas train already validates before construction.
+a trained-agent checkpoint path, readability, and explicit format version
+before `compiled.make_env()`: the current order constructs the expensive native
+environment before reporting even a missing checkpoint. Tensor compatibility
+remains the runner loader's responsibility.
 
 #### 5. P2: consolidate catalog records and state the registry concurrency model
 
@@ -532,10 +525,10 @@ state and add a concurrent discovery test.
 Recommended remediation order:
 
 1. Re-establish and test the pre-bootstrap `torch` barrier.
-2. Derive mandatory checkpoint compatibility from the complete restored tensor
-   schema.
-3. Generate checkpoint and run contracts from one effective, post-override
-   agent configuration and add structured runtime provenance.
+2. Remove checkpoint hash gates; retain only explicit format/schema versions
+   and the runner's strict tensor loading.
+3. Record one effective, post-override agent configuration and structured
+   runtime provenance as readable manifest data.
 4. Move hard-exit policy behind the backend lifecycle and validate play
    checkpoints before environment construction.
 5. Consolidate task registration records and define the concurrency contract
@@ -547,10 +540,8 @@ Read-only evidence collected for this follow-up:
 fresh process: import instinctlab_engine -> torch imported
 fresh process: names() -> ('isaacsim', 'mjlab'); torch imported;
                neither isaaclab nor mjlab imported
-Parkour AMP discriminator hidden sizes [1024, 512] -> [768, 384]:
-               policy_io equal; experiment_semantics different
-synthetic Isaac AgentSpec num_steps_per_env override 24 -> 48:
-               policy_io equal; experiment_semantics equal; provenance different
+code inspection: task_contract rebuilds declaration defaults while train mutates
+                 and writes the effective runner configuration separately
 ```
 
 No training process was started, stopped, or signaled during this assessment,
