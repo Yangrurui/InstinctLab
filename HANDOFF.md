@@ -347,6 +347,57 @@ These checks support the dependency and contract assessment. They do not add
 new live-physics, rollout-parity, or convergence evidence beyond the results
 recorded elsewhere in this handoff.
 
+### Architecture assessment remediation (2026-08-30)
+
+The six release-hardening priorities above are now implemented:
+
+- `725ac33` split checkpoint metadata into mandatory policy-I/O compatibility,
+  explicitly governed experiment semantics, and audit-only full provenance.
+  Observation/action drift has negative load tests; legacy v1 manifests remain
+  loadable with a warning.
+- `6e7e3fc` made production train/play compilation strict and clean by default.
+  Skips, emulations, and profile omissions require the explicit
+  `--allow-nonclean-resolution` override and remain recorded in the manifest.
+- `c77fab9` made engine, asset, terrain, and native-term discovery transactional,
+  cached the first failure, added core-API constraints, attributed conflicts to
+  both distributions, and recorded distribution/version/entry-point/key
+  provenance. `96e6ea9` scoped that provenance to one compilation so a long-lived
+  process cannot leak plugins used by an earlier task into a later manifest.
+- `a3ea9d2` added the deep immutable `TaskSpec` snapshot at the application
+  registry boundary. Configuration classes remain mutable while assembled;
+  validation, checkpoint hashing, and compilation consume the same frozen copy.
+- `40e4e03` aligned application/extension/backend metadata with Project Instinct
+  and CC BY-NC 4.0, corrected the README factory signature, and included the G1
+  native resources in the application wheel. `scripts/verify_wheel_matrix.py`
+  builds from temporary source copies and verifies core-only, Isaac-only,
+  MJLab-only, and dual-backend installations without consulting editable source
+  entry points.
+- `60b4403` reports contract portability, semantic overlays, native extras, and
+  clean compilation separately in checkpoint manifests. The reviewed source
+  overlay budget is 40 use sites: 25 `engine_params`, 11 `profiles`, and 4
+  `engine_overrides`; `engine_extras` remains zero. The CI budget may decrease
+  without review but cannot increase silently. Current registered tasks report
+  2--6 semantic overlay sites each and no native extras.
+
+Final architecture verification:
+
+```text
+1278 passed, 3 skipped, 26 deselected (full tests/ suite)
+1 passed, 24 deselected (Parkour contract subset)
+four built-wheel matrices passed:
+  core only             -> no backend discovered
+  application + Isaac   -> only isaacsim; Flat G1 materialized from wheel assets
+  application + MJLab   -> only mjlab; Flat G1 materialized from wheel assets
+  application + both    -> both backends; both Flat G1 variants materialized
+all matrix discovery phases imported no simulator SDK module
+```
+
+No simulator physics, task term, or native actuator value changed in this
+remediation, so no new rollout-parity or convergence claim is made. The
+GPU-dependent construction checks were not rerun while the live experiments
+below remain active; the wheel matrices stop at native asset/task materialization
+and engine contract reports.
+
 ### Compat boundary cleanup (2026-08-30)
 
 The isolated `codex/compat-boundary-cleanup` worktree branch was fast-forwarded
