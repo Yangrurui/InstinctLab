@@ -26,7 +26,7 @@ Source = "https://github.com/project-instinct/instinctlab"
 Issues = "https://github.com/project-instinct/instinctlab/issues"
 
 [project.entry-points."instinctlab.engines"]
-mjlab = "instinctlab_engine_mjlab:register"
+mjlab = "instinctlab_engine_mjlab.plugin:register"
 
 [tool.setuptools.packages.find]
 where = ["src"]

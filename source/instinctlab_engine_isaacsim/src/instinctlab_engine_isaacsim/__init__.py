@@ -1,118 +1,40 @@
-"""Isaac Sim backend.
+"""Isaac Sim backend public package.
 
-Importing this module imports nothing from ``isaaclab``: the registry's decorators run at import
-time so the engine's capabilities are known, while every builder body defers its imports. That is
-what lets a task be checked against this engine on a machine that cannot run it.
+The package root intentionally exposes only lazy attributes. Backend discovery and
+argument parsing happen before Isaac Sim starts, so importing this module must not
+import torch, Isaac Lab, or compile-time scene implementations.
 """
 
-from instinctlab_engine import register_adapter, register_sub_terrain, register_terrain
-from instinctlab_engine.bridge import entity as _entity
+from __future__ import annotations
 
-register_terrain(
-    "isaacsim", "plane", "instinctlab_engine_isaacsim.terrain_builders:build_plane"
-)
-register_terrain(
-    "isaacsim",
-    "generator",
-    "instinctlab_engine_isaacsim.terrain_builders:build_generator",
-)
-register_terrain(
-    "isaacsim", "rough", "instinctlab_engine_isaacsim.terrain_builders:build_rough"
-)
-register_terrain(
-    "isaacsim",
-    "motion_matched",
-    "instinctlab_engine_isaacsim.terrain_builders:build_motion_matched",
-)
-
-register_sub_terrain(
-    "isaacsim",
-    "pyramid_stairs",
-    "instinctlab_engine_isaacsim.terrain_builders:build_standard_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "pyramid_stairs_inv",
-    "instinctlab_engine_isaacsim.terrain_builders:build_standard_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "boxes",
-    "instinctlab_engine_isaacsim.terrain_builders:build_standard_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "random_rough",
-    "instinctlab_engine_isaacsim.terrain_builders:build_standard_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "hf_pyramid_slope",
-    "instinctlab_engine_isaacsim.terrain_builders:build_standard_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "hf_pyramid_slope_inv",
-    "instinctlab_engine_isaacsim.terrain_builders:build_standard_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "perlin_plane",
-    "instinctlab_engine_isaacsim.terrain_builders:build_rough_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "perlin_square_gap",
-    "instinctlab_engine_isaacsim.terrain_builders:build_rough_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "perlin_pyramid_stairs",
-    "instinctlab_engine_isaacsim.terrain_builders:build_rough_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "perlin_pyramid_stairs_inv",
-    "instinctlab_engine_isaacsim.terrain_builders:build_rough_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "perlin_discrete_obstacles",
-    "instinctlab_engine_isaacsim.terrain_builders:build_rough_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "perlin_random_multi_box",
-    "instinctlab_engine_isaacsim.terrain_builders:build_rough_tile",
-)
-register_sub_terrain(
-    "isaacsim",
-    "perlin_pyramid_slope_inv",
-    "instinctlab_engine_isaacsim.terrain_builders:build_rough_tile",
-)
-
-from .adapter import IsaacSimAdapter, IsaacSimCompileCtx
-from .terms import TERMS
-
-# Decision S2: see the note in the mjlab package. ``fixed_tendon`` stays distinct from mjlab's
-# ``tendon`` because the two are not known to select the same elements.
-_entity.register(
-    "isaacsim",
-    kinds=("joint", "body", "fixed_tendon", "object_collection"),
-    cfg=("isaaclab.managers", "SceneEntityCfg"),
-    container=list,
-)
+from importlib import import_module
+from typing import Any
 
 
 def register() -> None:
-    """Register this backend through the engine-core plugin interface."""
-    register_adapter(
-        "isaacsim",
-        "instinctlab_engine_isaacsim.adapter:IsaacSimAdapter",
-    )
+    """Register the lightweight backend facade and lazy native builders."""
+    from .plugin import register as register_plugin
+
+    register_plugin()
 
 
 register.instinctlab_engine_api = ">=0.1,<0.2"
-register()
+
+_EXPORTS = {
+    "IsaacSimAdapter": ("adapter", "IsaacSimAdapter"),
+    "IsaacSimCompileCtx": ("adapter", "IsaacSimCompileCtx"),
+    "TERMS": ("terms", "TERMS"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attribute = _EXPORTS[name]
+    except KeyError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+    value = getattr(import_module(f"{__name__}.{module_name}"), attribute)
+    globals()[name] = value
+    return value
+
 
 __all__ = ["TERMS", "IsaacSimAdapter", "IsaacSimCompileCtx", "register"]

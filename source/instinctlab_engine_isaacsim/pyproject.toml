@@ -26,7 +26,7 @@ Source = "https://github.com/project-instinct/instinctlab"
 Issues = "https://github.com/project-instinct/instinctlab/issues"
 
 [project.entry-points."instinctlab.engines"]
-isaacsim = "instinctlab_engine_isaacsim:register"
+isaacsim = "instinctlab_engine_isaacsim.plugin:register"
 
 [tool.setuptools.packages.find]
 where = ["src"]

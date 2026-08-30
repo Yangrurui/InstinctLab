@@ -5,9 +5,10 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import torch
+if TYPE_CHECKING:
+    import torch
 
 _ALLOWED_LOAD_MODES = frozenset({"default", "strip_visual_meshes"})
 
@@ -170,8 +171,12 @@ class RobotSpec:
         self,
         *,
         device: torch.device | str,
-        dtype: torch.dtype = torch.float32,
+        dtype: torch.dtype | None = None,
     ) -> dict[str, torch.Tensor]:
+        import torch
+
+        if dtype is None:
+            dtype = torch.float32
         fields = (
             "default_pos",
             "stiffness",

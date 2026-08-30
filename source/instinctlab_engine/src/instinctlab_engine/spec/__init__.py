@@ -11,44 +11,56 @@ that read some project's native definition and consumed by the backend for the e
 
 from __future__ import annotations
 
-from .capability import Requirement
-from .entity import UNIVERSAL_KINDS, EntityRef
-from .freeze import freeze_task_spec
-from .mdp import (
-    ActionTermSpec,
-    CommandTermSpec,
-    CurriculumTermSpec,
-    DoneTermSpec,
-    EventTermSpec,
-    MdpSpec,
-    NoiseSpec,
-    ObsGroupSpec,
-    ObsTermSpec,
-    RewardTermSpec,
-    TermSpec,
-)
-from .portability import portability_report
-from .rigid_object import RigidObjectRef
-from .robot import BackendAsset, JointProperties, RobotSpec
-from .sensor import (
-    ContactSensorRef,
-    Grid3dPointsRef,
-    MotionReferenceRef,
-    RayCasterRef,
-    RayPatternRef,
-    SymmetricAugmentationSpec,
-    VirtualObstacleRef,
-    VolumePointsRef,
-)
-from .task import (
-    AgentSpec,
-    SceneSpec,
-    SimSpec,
-    SubTerrainSpec,
-    TaskSpec,
-    TerrainGeneratorSpec,
-    TerrainSpec,
-)
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "Requirement": ("capability", "Requirement"),
+    "UNIVERSAL_KINDS": ("entity", "UNIVERSAL_KINDS"),
+    "EntityRef": ("entity", "EntityRef"),
+    "freeze_task_spec": ("freeze", "freeze_task_spec"),
+    "ActionTermSpec": ("mdp", "ActionTermSpec"),
+    "CommandTermSpec": ("mdp", "CommandTermSpec"),
+    "CurriculumTermSpec": ("mdp", "CurriculumTermSpec"),
+    "DoneTermSpec": ("mdp", "DoneTermSpec"),
+    "EventTermSpec": ("mdp", "EventTermSpec"),
+    "MdpSpec": ("mdp", "MdpSpec"),
+    "NoiseSpec": ("mdp", "NoiseSpec"),
+    "ObsGroupSpec": ("mdp", "ObsGroupSpec"),
+    "ObsTermSpec": ("mdp", "ObsTermSpec"),
+    "RewardTermSpec": ("mdp", "RewardTermSpec"),
+    "TermSpec": ("mdp", "TermSpec"),
+    "portability_report": ("portability", "portability_report"),
+    "RigidObjectRef": ("rigid_object", "RigidObjectRef"),
+    "BackendAsset": ("robot", "BackendAsset"),
+    "JointProperties": ("robot", "JointProperties"),
+    "RobotSpec": ("robot", "RobotSpec"),
+    "ContactSensorRef": ("sensor", "ContactSensorRef"),
+    "Grid3dPointsRef": ("sensor", "Grid3dPointsRef"),
+    "MotionReferenceRef": ("sensor", "MotionReferenceRef"),
+    "RayCasterRef": ("sensor", "RayCasterRef"),
+    "RayPatternRef": ("sensor", "RayPatternRef"),
+    "SymmetricAugmentationSpec": ("sensor", "SymmetricAugmentationSpec"),
+    "VirtualObstacleRef": ("sensor", "VirtualObstacleRef"),
+    "VolumePointsRef": ("sensor", "VolumePointsRef"),
+    "AgentSpec": ("task", "AgentSpec"),
+    "SceneSpec": ("task", "SceneSpec"),
+    "SimSpec": ("task", "SimSpec"),
+    "SubTerrainSpec": ("task", "SubTerrainSpec"),
+    "TaskSpec": ("task", "TaskSpec"),
+    "TerrainGeneratorSpec": ("task", "TerrainGeneratorSpec"),
+    "TerrainSpec": ("task", "TerrainSpec"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attribute = _EXPORTS[name]
+    except KeyError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+    value = getattr(import_module(f"{__name__}.{module_name}"), attribute)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "UNIVERSAL_KINDS",

@@ -356,6 +356,41 @@ def test_the_registries_import_with_engines_blocked() -> None:
         sys.modules.update(evicted)
 
 
+@pytest.mark.parametrize(
+    "operation",
+    (
+        "import instinctlab_engine",
+        "import instinctlab_engine; instinctlab_engine.names()",
+        (
+            "import argparse, instinctlab_engine; "
+            "[instinctlab_engine.adapter(name).add_cli_args(argparse.ArgumentParser()) "
+            "for name in instinctlab_engine.names()]"
+        ),
+    ),
+    ids=("import", "discovery", "adapter-cli"),
+)
+def test_prebootstrap_engine_api_imports_neither_torch_nor_an_sdk(operation: str) -> None:
+    """Exercise the real installed entry points in a genuinely fresh interpreter."""
+    probe = f"""
+import sys
+{operation}
+forbidden = ("torch", "isaaclab", "isaacsim", "mjlab", "mujoco", "warp", "omni", "pxr", "carb")
+leaked = sorted(
+    name for name in sys.modules
+    if any(name == root or name.startswith(root + ".") for root in forbidden)
+)
+if leaked:
+    raise SystemExit("pre-bootstrap imports: " + ", ".join(leaked))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=pathlib.Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_the_agent_config_resolves_without_an_engine() -> None:
     """The D4 boundary: hyperparameters are engine-independent, so reading them must be too."""
     from tests.task_specs import task_spec
