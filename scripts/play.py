@@ -61,10 +61,12 @@ def _parse() -> argparse.Namespace:
     )
     parser.add_argument("--export-only", action="store_true", help="Exit after ONNX export without opening a viewer.")
     parser.add_argument(
-        "--strict",
+        "--allow-nonclean-resolution",
         action="store_true",
-        default=False,
-        help="Fail instead of skipping when the engine cannot express an optional term.",
+        help=(
+            "Allow skipped, emulated, or profile-omitted terms. Playback defaults to a clean "
+            "strict compilation."
+        ),
     )
 
     from instinctlab_engine import adapter as _adapter
@@ -114,7 +116,15 @@ def _play(args, engine, resources: ExitStack) -> None:
 
     robot = engine.robot_spec(asset_id(args.task))
     spec = task_spec(args.task, robot)
-    compiled = engine.compile(spec, num_envs=args.num_envs, device=args.device, strict=args.strict)
+    compiled = engine.compile(
+        spec,
+        num_envs=args.num_envs,
+        device=args.device,
+        strict=not args.allow_nonclean_resolution,
+    )
+    compiled.resolution.require_clean(
+        allow_nonclean=args.allow_nonclean_resolution
+    )
     _silence_observation_noise(compiled.env_cfg)
     compiled.env_cfg.seed = compiled.agent_cfg.seed
     print(compiled.resolution.summary_table())
@@ -184,6 +194,9 @@ def _play(args, engine, resources: ExitStack) -> None:
                         "checkpoint": str(checkpoint),
                         "checkpoint_task_id": checkpoint_task_id(args.task),
                         "task_contract": task_contract(spec),
+                        "allow_nonclean_resolution": bool(
+                            args.allow_nonclean_resolution
+                        ),
                     },
                     handle,
                     indent=2,
@@ -217,7 +230,7 @@ def _play(args, engine, resources: ExitStack) -> None:
         port=args.port,
         reload_policy=reload_policy,
         checkpoint_dir=checkpoint_dir,
-        strict=args.strict,
+        strict=not args.allow_nonclean_resolution,
     )
 
 

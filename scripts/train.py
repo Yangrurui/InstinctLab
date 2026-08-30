@@ -68,10 +68,12 @@ def _parse() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--strict",
+        "--allow-nonclean-resolution",
         action="store_true",
-        default=False,
-        help="Fail instead of skipping when the engine cannot express an optional term.",
+        help=(
+            "Allow skipped, emulated, or profile-omitted terms. Production defaults to a clean "
+            "strict compilation and records this override in manifest.json."
+        ),
     )
     parser.add_argument(
         "--log_terrain_split",
@@ -156,7 +158,15 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
 
     robot = engine.robot_spec(asset_id(args.task))
     spec = task_spec(args.task, robot)
-    compiled = engine.compile(spec, num_envs=args.num_envs, device=args.device, strict=args.strict)
+    compiled = engine.compile(
+        spec,
+        num_envs=args.num_envs,
+        device=args.device,
+        strict=not args.allow_nonclean_resolution,
+    )
+    compiled.resolution.require_clean(
+        allow_nonclean=args.allow_nonclean_resolution
+    )
 
     agent_cfg = compiled.agent_cfg
     if args.seed is not None:
@@ -201,6 +211,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
         "checkpoint": str(resume_path) if resume_path is not None else None,
         "allow_experiment_drift": bool(args.allow_experiment_drift),
     }
+    manifest["allow_nonclean_resolution"] = bool(args.allow_nonclean_resolution)
     if distributed.is_primary:
         with open(manifest_path, "w") as handle:
             json.dump(manifest, handle, indent=2, sort_keys=True, default=str)

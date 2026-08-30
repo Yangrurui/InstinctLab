@@ -134,6 +134,23 @@ class Resolution:
             lines.append(f"  engine_extras used (task is not portable): {', '.join(self.engine_extras_used)}")
         return "\n".join(lines)
 
+    def require_clean(self, *, allow_nonclean: bool = False) -> None:
+        """Reject skipped, emulated, or profile-omitted terms in production.
+
+        Strict compilation catches missing OPTIONAL builders while they are
+        resolved. This post-compilation gate also catches successful emulation
+        and explicit profile omissions, which strict capability lookup alone
+        cannot reject.
+        """
+        if self.is_clean or allow_nonclean:
+            return
+        raise RuntimeError(
+            f"Production compilation for {self.task_id!r} on {self.engine!r} "
+            "did not resolve cleanly. Re-run with --allow-nonclean-resolution "
+            "only after reviewing the recorded differences.\n"
+            f"{self.summary_table()}"
+        )
+
     def manifest(self) -> dict[str, Any]:
         """The part of this that belongs beside the checkpoint.
 

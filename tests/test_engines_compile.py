@@ -384,6 +384,19 @@ def test_strict_mode_is_recorded_in_the_report():
     assert "strict" in Resolution("mock", "T", strict=True).summary_table()
 
 
+def test_production_clean_gate_rejects_emulation_and_omission() -> None:
+    resolution = Resolution(
+        "mock",
+        "T",
+        emulated={"event/gravity": "mock.gravity"},
+        omitted={"reward/rewards/native": "profile omission"},
+        strict=True,
+    )
+    with pytest.raises(RuntimeError, match="--allow-nonclean-resolution"):
+        resolution.require_clean()
+    resolution.require_clean(allow_nonclean=True)
+
+
 def test_qualname_reports_the_function_rather_than_the_container():
     assert qualname_of(_NativeTerm(_term)).endswith("._term")
     assert qualname_of(_NativeTerm()).endswith("._NativeTerm")

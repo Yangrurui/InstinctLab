@@ -277,6 +277,17 @@ def test_the_launcher_does_not_construct_the_environment_itself(entry_source: st
     assert "env_cls(" not in entry_source
 
 
+@pytest.mark.parametrize("launcher", _LAUNCHERS, ids=lambda p: p.name)
+def test_production_launchers_require_a_clean_resolution_by_default(
+    launcher: pathlib.Path,
+) -> None:
+    source = launcher.read_text()
+    assert '"--strict"' not in source
+    assert '"--allow-nonclean-resolution"' in source
+    assert "strict=not args.allow_nonclean_resolution" in source
+    assert "compiled.resolution.require_clean(" in source
+
+
 def test_every_registered_engine_resolves_to_an_adapter() -> None:
     """Importing an adapter must work without its engine; the SDK import is deferred to bootstrap."""
     for name in engines.names():
