@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Any, Literal
 
 from ._names import as_name_tuple
 from .motion_reference import MotionReferenceRef, SymmetricAugmentationSpec
@@ -24,6 +24,7 @@ __all__ = [
     "ContactSensorRef",
     "Grid3dPointsRef",
     "MotionReferenceRef",
+    "NativeSensorRef",
     "RayCasterRef",
     "RayPatternRef",
     "SymmetricAugmentationSpec",
@@ -36,6 +37,64 @@ _TERRAIN_HIT = "terrain"
 
 def _normalise(patterns: str | Sequence[str]) -> tuple[str, ...]:
     return as_name_tuple(patterns)
+
+
+@dataclass(frozen=True)
+class NativeSensorRef:
+    """Lifecycle contract for an additively installed native sensor.
+
+    ``kind`` names shared physical meaning such as ``"imu"``. A selected
+    backend supplies the SDK implementation lazily through
+    ``instinctlab.sensors``; this reference states only portable attachment,
+    pose, sample-time, latency, history, device, and partial-reset meaning.
+    """
+
+    name: str
+    kind: str
+    attach: str
+    entity: str = "robot"
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    offset_rot: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
+    pose_convention: Literal["body"] = "body"
+    update_period: float = 0.02
+    timestamp: Literal["sample_time"] = "sample_time"
+    latency: float = 0.0
+    history_length: int = 0
+    device: str = "simulation"
+    partial_reset: bool = True
+    params: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "params", dict(self.params))
+        if not self.name or not self.entity or not self.attach:
+            raise ValueError("Native sensor name, entity, and attach frame must be non-empty.")
+        if not self.kind or any(not part.isidentifier() for part in self.kind.split(".")):
+            raise ValueError(
+                f"Native sensor kind must be dotted identifiers, got {self.kind!r}."
+            )
+        if self.pose_convention != "body":
+            raise ValueError(
+                f"Native sensor {self.name!r} supports only body-frame pose convention."
+            )
+        if self.timestamp != "sample_time":
+            raise ValueError(
+                f"Native sensor {self.name!r} timestamp must mean physical sample_time."
+            )
+        if not math.isfinite(self.update_period) or self.update_period <= 0.0:
+            raise ValueError(f"Native sensor {self.name!r} has invalid update_period.")
+        if not math.isfinite(self.latency) or self.latency < 0.0:
+            raise ValueError(f"Native sensor {self.name!r} has invalid latency.")
+        if self.history_length < 0:
+            raise ValueError(f"Native sensor {self.name!r} has negative history_length.")
+        if not self.device:
+            raise ValueError(f"Native sensor {self.name!r} has an empty device.")
+        if not all(math.isfinite(value) for value in (*self.offset, *self.offset_rot)):
+            raise ValueError(f"Native sensor {self.name!r} has non-finite pose values.")
+        quaternion_norm = math.sqrt(sum(value * value for value in self.offset_rot))
+        if not math.isclose(quaternion_norm, 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise ValueError(
+                f"Native sensor {self.name!r} offset quaternion must be unit length."
+            )
 
 
 @dataclass(frozen=True)

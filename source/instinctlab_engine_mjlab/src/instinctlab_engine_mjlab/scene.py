@@ -21,6 +21,7 @@ from typing import Any
 
 from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
+from instinctlab_engine.sensors import NativeSensorBuildContext, native_sensor_builder
 from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 from instinctlab_engine.spec.task import SceneSpec, TerrainSpec
 
@@ -53,6 +54,32 @@ def _build_volume_points(sensor: VolumePointsRef) -> Any:
     from .volume_points import build_sensor
 
     return build_sensor(sensor)
+
+
+def _build_native_sensor(
+    sensor: Any,
+    robot: Any,
+    profile: Mapping[str, Any],
+    *,
+    sensor_period: float,
+    num_envs: int,
+) -> Any:
+    builder = native_sensor_builder("mjlab", sensor)
+    native = builder(
+        sensor,
+        NativeSensorBuildContext(
+            engine="mjlab",
+            robot=robot,
+            sensor_period=sensor_period,
+            profile=profile,
+            num_envs=num_envs,
+        ),
+    )
+    if native is None:
+        raise RuntimeError(
+            f"Native sensor builder for {sensor.kind!r} returned no config for {sensor.name!r}."
+        )
+    return native
 
 
 def _build_contact_sensor(sensor: ContactSensorRef) -> Any:
@@ -115,7 +142,12 @@ def _build_ray_caster(
 
 
 def build_scene(
-    spec: SceneSpec, robot: Any, profile: Mapping[str, Any], *, num_envs: int
+    spec: SceneSpec,
+    robot: Any,
+    profile: Mapping[str, Any],
+    *,
+    num_envs: int,
+    sensor_period: float,
 ) -> Any:
     """A ``SceneCfg`` holding the robot, terrain and sensors."""
     from mjlab.scene import SceneCfg
@@ -127,6 +159,16 @@ def build_scene(
             _build_motion_reference(sensor, robot) for sensor in spec.motion_references
         )
         + tuple(_build_volume_points(sensor) for sensor in spec.volume_points)
+        + tuple(
+            _build_native_sensor(
+                sensor,
+                robot,
+                profile,
+                sensor_period=sensor_period,
+                num_envs=num_envs,
+            )
+            for sensor in spec.native_sensors
+        )
     )
     entities = {"robot": build_entity(robot)}
     for obj in spec.rigid_objects:

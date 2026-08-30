@@ -33,6 +33,7 @@ from .rigid_object import RigidObjectRef
 from .sensor import (
     ContactSensorRef,
     MotionReferenceRef,
+    NativeSensorRef,
     RayCasterRef,
     VirtualObstacleRef,
     VolumePointsRef,
@@ -215,6 +216,9 @@ class SceneSpec:
     motion_references: tuple[MotionReferenceRef, ...] = ()
     """Clip-backed motion references. A new sensor family, not a ray or a contact."""
     volume_points: tuple[VolumePointsRef, ...] = ()
+    native_sensors: tuple[NativeSensorRef, ...] = field(
+        default=(), metadata={"contract_omit_if_default": True}
+    )
     rigid_objects: tuple[RigidObjectRef, ...] = field(default=(), metadata={"contract_omit_if_default": True})
     """Ankle (or other) volume-point clouds. Penetration is not a raycast."""
     env_spacing: float = 2.5
@@ -224,12 +228,14 @@ class SceneSpec:
         object.__setattr__(self, "ray_casters", tuple(self.ray_casters))
         object.__setattr__(self, "motion_references", tuple(self.motion_references))
         object.__setattr__(self, "volume_points", tuple(self.volume_points))
+        object.__setattr__(self, "native_sensors", tuple(self.native_sensors))
         object.__setattr__(self, "rigid_objects", tuple(self.rigid_objects))
         names = (
             [sensor.name for sensor in self.contact_sensors]
             + [sensor.name for sensor in self.ray_casters]
             + [sensor.name for sensor in self.motion_references]
             + [sensor.name for sensor in self.volume_points]
+            + [sensor.name for sensor in self.native_sensors]
         )
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:

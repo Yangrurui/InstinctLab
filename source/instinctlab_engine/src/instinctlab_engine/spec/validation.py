@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING, Any
 
 from .entity import EntityRef, resolve_entity_names
 from .mdp import walk_parameter_values
-from .sensor import ContactSensorRef, MotionReferenceRef, RayCasterRef, VolumePointsRef
+from .sensor import (
+    ContactSensorRef,
+    MotionReferenceRef,
+    NativeSensorRef,
+    RayCasterRef,
+    VolumePointsRef,
+)
 
 if TYPE_CHECKING:
     from .task import TaskSpec
@@ -69,6 +75,7 @@ def _validate_scene_bindings(spec: TaskSpec) -> None:
         *scene.ray_casters,
         *scene.motion_references,
         *scene.volume_points,
+        *scene.native_sensors,
     )
     collisions = sorted({sensor.name for sensor in all_sensors} & _RESERVED_SCENE_NAMES)
     if collisions:
@@ -121,6 +128,13 @@ def _validate_scene_bindings(spec: TaskSpec) -> None:
                 f"entity={sensor.entity!r}, unknown bodies={unknown_bodies}."
             )
 
+    for sensor in scene.native_sensors:
+        if sensor.entity != "robot" or sensor.attach not in body_name_set:
+            raise ValueError(
+                f"Native sensor {sensor.name!r} attaches to "
+                f"{sensor.entity!r}/{sensor.attach!r}, which is not a declared robot frame."
+            )
+
 
 def _sensor_maps(spec: TaskSpec) -> dict[type, Mapping[str, Any]]:
     scene = spec.scene
@@ -129,6 +143,7 @@ def _sensor_maps(spec: TaskSpec) -> dict[type, Mapping[str, Any]]:
         RayCasterRef: {sensor.name: sensor for sensor in scene.ray_casters},
         MotionReferenceRef: {sensor.name: sensor for sensor in scene.motion_references},
         VolumePointsRef: {sensor.name: sensor for sensor in scene.volume_points},
+        NativeSensorRef: {sensor.name: sensor for sensor in scene.native_sensors},
     }
 
 
@@ -160,6 +175,7 @@ def _validate_sensor_reference(
         RayCasterRef: "ray caster",
         MotionReferenceRef: "motion reference",
         VolumePointsRef: "volume-points sensor",
+        NativeSensorRef: "native sensor",
     }
     value_type = type(value)
     declared_by_name = sensors.get(value_type)

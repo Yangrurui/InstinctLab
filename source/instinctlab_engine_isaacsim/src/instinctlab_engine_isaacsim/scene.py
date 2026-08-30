@@ -18,6 +18,7 @@ from typing import Any
 
 from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
+from instinctlab_engine.sensors import NativeSensorBuildContext, native_sensor_builder
 from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
 from instinctlab_engine.spec.task import SceneSpec, TerrainSpec
 
@@ -64,6 +65,32 @@ def _build_volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> An
     from instinctlab_engine_isaacsim.sensors.volume_points.points_generator_cfg import (
         Grid3dPointsGeneratorCfg,
     )
+
+
+def _build_native_sensor(
+    sensor: Any,
+    robot: Any,
+    profile: Mapping[str, Any],
+    *,
+    sensor_period: float,
+    num_envs: int,
+) -> Any:
+    builder = native_sensor_builder("isaacsim", sensor)
+    native = builder(
+        sensor,
+        NativeSensorBuildContext(
+            engine="isaacsim",
+            robot=robot,
+            sensor_period=sensor_period,
+            profile=profile,
+            num_envs=num_envs,
+        ),
+    )
+    if native is None:
+        raise RuntimeError(
+            f"Native sensor builder for {sensor.kind!r} returned no config for {sensor.name!r}."
+        )
+    return native
     from instinctlab_engine_isaacsim.sensors.volume_points.volume_points_cfg import (
         VolumePointsCfg,
     )
@@ -341,6 +368,18 @@ def build_scene(
             scene,
             sensor.name,
             _build_volume_points(sensor, sensor_period=sensor_period),
+        )
+    for sensor in spec.native_sensors:
+        setattr(
+            scene,
+            sensor.name,
+            _build_native_sensor(
+                sensor,
+                robot,
+                profile,
+                sensor_period=sensor_period,
+                num_envs=num_envs,
+            ),
         )
     scene.sky_light = _sky_light()
     return scene

@@ -243,7 +243,13 @@ class MjlabAdapter:
         from .env import TerrainAwareRlEnv
 
         env_cfg = ManagerBasedRlEnvCfg(
-            scene=build_scene(spec.scene, spec.robot, profile, num_envs=num_envs),
+            scene=build_scene(
+                spec.scene,
+                spec.robot,
+                profile,
+                num_envs=num_envs,
+                sensor_period=spec.sim.physics_dt,
+            ),
             observations=_observation_groups(mdp["observations"]),
             actions=mdp["actions"],
             rewards=_rewards(mdp["rewards"], omitted_rewards),

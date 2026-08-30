@@ -228,6 +228,24 @@ def register_actuator(
     )
 
 
+def register_sensor(
+    engine: str,
+    kind: str,
+    builder: Any,
+    *,
+    capabilities: Any,
+) -> None:
+    """Register one lazy engine-native sensor builder."""
+    from .sensors import register_sensor as _register_sensor
+
+    _register_sensor(
+        engine,
+        kind,
+        builder,
+        capabilities=capabilities,
+    )
+
+
 def __getattr__(name: str) -> Any:
     try:
         module_name, attribute = _SHARED_EXPORTS[name]
@@ -257,5 +275,6 @@ __all__ = [
     "register_adapter",
     "register_actuator",
     "register_sub_terrain",
+    "register_sensor",
     "register_terrain",
 ]
