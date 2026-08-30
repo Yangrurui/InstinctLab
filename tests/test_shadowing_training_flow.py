@@ -20,7 +20,7 @@ from instinctlab.training import (
     load_runner_checkpoint,
     rank_device,
 )
-from tests.task_specs import task_spec
+from tests.task_specs import task_spec, with_rigid_object_fixture
 
 SHADOW_IDS = tuple(
     task_id for task_id in registry.ids() if any(token in task_id for token in ("Shadowing", "Mimic", "Vae"))
@@ -89,7 +89,12 @@ def test_train_and_play_compile_the_same_shadowing_contract() -> None:
             assert task_contract(spec) == fingerprint
             expected_agent = spec.agent.resolve()(**spec.agent.resolved_overrides(adapter.name)).to_dict()
             if adapter.name == "mjlab":
-                compiled = adapter.compile(spec, num_envs=1, device="cpu", strict=True)
+                compiled = adapter.compile(
+                    with_rigid_object_fixture(spec),
+                    num_envs=1,
+                    device="cpu",
+                    strict=True,
+                )
                 assert compiled.resolution.task_id == task_id
                 assert compiled.agent_cfg.to_dict()["policy"] == expected_agent["policy"]
 

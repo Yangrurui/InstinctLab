@@ -10,6 +10,7 @@ import instinctlab_engine as engines
 from instinctlab.tasks import registry
 
 from tests.test_shadowing_reference_inventory import COMMON_IDS, MJ_ONLY_IDS
+from tests.task_specs import with_rigid_object_fixture
 
 SHADOW_IDS = COMMON_IDS | MJ_ONLY_IDS
 ROOT = Path("source/instinctlab/instinctlab/tasks/shadowing")
@@ -176,7 +177,8 @@ def test_compiled_mjlab_shadowing_capacities_match_instinctmj(
     pytest.importorskip("mjlab")
     from instinctlab_engine_mjlab import MjlabAdapter
 
-    cfg = MjlabAdapter().compile(_task(task_id), num_envs=2, device="cpu").env_cfg
+    task = with_rigid_object_fixture(_task(task_id))
+    cfg = MjlabAdapter().compile(task, num_envs=2, device="cpu").env_cfg
     actual = (
         cfg.sim.nconmax,
         cfg.sim.njmax,
