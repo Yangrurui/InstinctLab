@@ -254,27 +254,6 @@ class EngineAdapter(Protocol):
         """
         ...
 
-    def play(
-        self,
-        env: Any,
-        policy: Any,
-        *,
-        viewer: str,
-        robot: Any,
-        spec: Any | None = None,
-        port: int = 8080,
-        reload_policy: Callable[[str], Any] | None = None,
-        checkpoint_dir: Any | None = None,
-        strict: bool = False,
-    ) -> None:
-        """Run ``policy`` with this engine's viewer.
-
-        ``viser`` is mjlab's ``ViserPlayViewer`` -- the same one training uses. An engine that
-        already has a MuJoCo ``Simulation`` hands that env over; one that does not compiles the
-        same ``spec`` onto an engine that does. ``native`` stays this engine's own viewport.
-        """
-        ...
-
     def contract_report(self, spec: TaskSpec) -> dict[str, Any]:
         """What would happen to this task here, without compiling or starting the engine.
 

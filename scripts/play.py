@@ -1,10 +1,10 @@
 """Play one checkpoint on whichever engine ``--engine`` names.
 
 Same ordering rules as ``scripts/train.py``: choose the engine, let it add its flags, bootstrap,
-then import the rest. The launcher does not name an engine in its own logic, and it does not
-construct a viewer -- each adapter decides how ``--viewer viser`` is implemented on that engine.
+then import the rest. Environment compilation belongs to the selected adapter; viewer dispatch is
+an application-level extension under ``instinctlab.play``.
 
-Isaac Sim has no native Viser backend. Its adapter plays the checkpoint in mjlab's
+Isaac Sim has no native Viser backend. The playback layer runs that checkpoint in mjlab's
 ``ViserPlayViewer`` -- the same viewer mjlab training uses.
 
 Usage::
@@ -202,10 +202,13 @@ def _play(args, engine, resources: ExitStack) -> None:
     enable_volume_points_debug_vis(env)
     enable_camera_debug_vis(env)
     print(f"[INFO] Playing {args.task} on {args.engine} with {viewer}", flush=True)
-    engine.play(
+    from instinctlab.play import play
+
+    play(
+        args.engine,
+        viewer,
         PlayEnv(env),
         policy,
-        viewer=viewer,
         robot=spec.robot,
         spec=spec,
         port=args.port,

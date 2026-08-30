@@ -32,6 +32,12 @@ task config and task-local MDP
 The shared launchers are `scripts/train.py` and `scripts/play.py`. They select
 the engine before importing its SDK.
 
+Playback is an application layer, not part of `EngineAdapter`. Native and
+Viser handlers are registered lazily under `instinctlab.play`; therefore an
+engine adapter can be packaged and used for compilation or training without
+depending on the playback UI. An external viewer can register a handler with
+`register_player(engine, viewer, "module:function")`.
+
 ## Task ownership
 
 Every active task ID is registered in

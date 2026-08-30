@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, ClassVar
 
 from instinctlab.engines.base import CompiledTask, Resolution, require_supported_version
 from instinctlab.engines.compile import (
@@ -97,7 +97,7 @@ class MjlabAdapter:
 
     name = "mjlab"
     SUPPORTED_VERSIONS = "==1.5.0"
-    RUNTIME_VERSIONS = {
+    RUNTIME_VERSIONS: ClassVar[dict[str, str]] = {
         "mujoco": "==3.10.0",
         "mujoco-warp": "==3.10.0.1",
         "warp-lang": "==1.14.0",
@@ -273,39 +273,6 @@ class MjlabAdapter:
                 **spec.agent.resolved_overrides(self.name)
             ),
         )
-
-    def play(
-        self,
-        env: Any,
-        policy: Any,
-        *,
-        viewer: str,
-        robot: Any,
-        spec: Any | None = None,
-        port: int = 8080,
-        reload_policy: Any | None = None,
-        checkpoint_dir: Any | None = None,
-        strict: bool = False,
-    ) -> None:
-        """mjlab already has Viser and a native MuJoCo viewer; use those."""
-        del robot, spec, strict
-        if viewer == "viser":
-            from instinctlab.play.viser import play_with_viser
-
-            play_with_viser(
-                env,
-                policy,
-                port=port,
-                reload_policy=reload_policy,
-                checkpoint_dir=checkpoint_dir,
-            )
-            return
-        if viewer == "native":
-            from mjlab.viewer import NativeMujocoViewer
-
-            NativeMujocoViewer(env, policy).run()
-            return
-        raise ValueError(f"unsupported viewer {viewer!r}")
 
     def contract_report(self, spec: TaskSpec) -> dict[str, Any]:
         profile = self.profile(spec)

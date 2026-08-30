@@ -1,8 +1,7 @@
 """Build and launch a Viser playback environment.
 
 Viser is backed by MJLab, but that implementation choice belongs to the playback layer rather
-than to either simulator adapter. An adapter can request a Viser environment without importing or
-selecting another engine. The mesh helpers below are catalog checks, not a second viewer.
+than to either simulator adapter. The mesh helpers below are catalog checks, not a second viewer.
 """
 
 from __future__ import annotations

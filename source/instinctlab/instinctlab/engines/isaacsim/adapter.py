@@ -100,17 +100,6 @@ def _validate_scene_sensor_names(spec: TaskSpec) -> None:
         )
 
 
-def _play_native(env: Any, policy: Any) -> None:
-    """Step the policy in Isaac's own viewport, if the app was launched with one."""
-    obs = env.get_observations()
-    try:
-        while True:
-            result = env.step(policy(obs))
-            obs = result[0]
-    except KeyboardInterrupt:
-        return
-
-
 class IsaacSimCompileCtx(CompileCtx):
     """Compilation context carrying Isaac Lab's noise classes."""
 
@@ -320,49 +309,6 @@ class IsaacSimAdapter:
             agent_factory=lambda: spec.agent.resolve()(**spec.agent.resolved_overrides(self.name)),
             env_factory=make_env,
         )
-
-    def play(
-        self,
-        env: Any,
-        policy: Any,
-        *,
-        viewer: str,
-        robot: Any,
-        spec: Any | None = None,
-        port: int = 8080,
-        reload_policy: Any | None = None,
-        checkpoint_dir: Any | None = None,
-        strict: bool = False,
-    ) -> None:
-        """Isaac has no Viser backend; ``viser`` plays the policy in mjlab's ``ViserPlayViewer``.
-
-        That is the same viewer mjlab training uses, and the same path the earlier Isaac play
-        script took. The policy is unchanged -- both engines already share the catalog joint order.
-        """
-        del robot
-        if viewer == "viser":
-            if spec is None:
-                raise ValueError("viser playback needs the task spec")
-            from instinctlab.play.viser import build_viser_env, play_with_viser
-
-            play_env = build_viser_env(spec, num_envs=env.num_envs, device=str(env.device), strict=strict)
-            print(
-                "[INFO] Isaac Sim has no Viser backend; playing this checkpoint in mjlab's ViserPlayViewer",
-                flush=True,
-            )
-            play_with_viser(
-                play_env,
-                policy,
-                port=port,
-                reload_policy=reload_policy,
-                checkpoint_dir=checkpoint_dir,
-            )
-            play_env.close()
-            return
-        if viewer == "native":
-            _play_native(env, policy)
-            return
-        raise ValueError(f"unsupported viewer {viewer!r}")
 
     def contract_report(self, spec: TaskSpec) -> dict[str, Any]:
         """What this engine would and would not provide, without importing it.
