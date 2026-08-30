@@ -14,7 +14,8 @@ just passes ``EntityRef`` around.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from copy import copy
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import Any
 
 from instinctlab_engine.bridge import entity as compat_entity
@@ -121,9 +122,26 @@ class CompileCtx:
         return {name: self._lower_parameter(value) for name, value in spec.resolved_params(self.engine).items()}
 
     def _lower_parameter(self, value: Any) -> Any:
-        """Lower entity references without disturbing a term's nested parameter shape."""
+        """Lower references and thaw declaration containers for native configs.
+
+        Registered ``TaskSpec`` objects are deeply immutable, so nested mappings
+        are ``mappingproxy`` instances. Native managers deepcopy their term
+        configs; give them detached dataclass copies containing ordinary dicts
+        while leaving the registry snapshot untouched.
+        """
         if isinstance(value, EntityRef):
             return self.entity(value)
+        if is_dataclass(value) and not isinstance(value, type):
+            lowered = copy(value)
+            for declaration_field in fields(value):
+                object.__setattr__(
+                    lowered,
+                    declaration_field.name,
+                    self._lower_parameter(
+                        getattr(value, declaration_field.name)
+                    ),
+                )
+            return lowered
         if isinstance(value, Mapping):
             return {key: self._lower_parameter(item) for key, item in value.items()}
         if isinstance(value, tuple):

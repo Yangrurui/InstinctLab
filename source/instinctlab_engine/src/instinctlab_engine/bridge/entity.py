@@ -152,6 +152,13 @@ def _ensure_registered() -> None:
     导入 adapter 包以触发注册副作用。adapter 不在模块级 import SDK，
     故在未安装任一引擎的机器上仍安全——本层即为此设计。
     """
+    # CompileCtx may be used directly by an offline contract test without a
+    # launcher first calling ``instinctlab_engine.names()``. Discover the
+    # SDK-free backend registrars here so selector availability never depends
+    # on import or test order.
+    from instinctlab_engine import names
+
+    names()
     for engine, package in _PACKAGES.items():
         if engine not in _ENGINES:
             importlib.import_module(package)

@@ -37,4 +37,6 @@ def __getattr__(name: str) -> Any:
     return value
 
 
+register()
+
 __all__ = ["TERMS", "IsaacSimAdapter", "IsaacSimCompileCtx", "register"]

@@ -14,7 +14,10 @@ config is not something a mock can honestly stand in for.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import dataclass, replace
+from types import MappingProxyType
 
 import pytest
 
@@ -59,6 +62,11 @@ class _NativeTerm:
         self.kwargs = kwargs
 
 
+@dataclass(frozen=True)
+class _NestedParameter:
+    settings: Mapping[str, object]
+
+
 def _mock_registry() -> TermRegistry:
     registry = TermRegistry("mock")
 
@@ -99,6 +107,21 @@ def _ctx(*, engine: str = "mock", strict: bool = False, profile: dict | None = N
         profile=profile or {},
         strict=strict,
     )
+
+
+def test_lowering_thaws_frozen_dataclass_mappings_for_native_deepcopy() -> None:
+    frozen = _NestedParameter(
+        settings=MappingProxyType(
+            {"nested": MappingProxyType({"threshold": 1.0})}
+        )
+    )
+
+    lowered = _ctx()._lower_parameter(frozen)
+
+    copied = deepcopy(lowered)
+    assert copied.settings == {"nested": {"threshold": 1.0}}
+    assert isinstance(frozen.settings, MappingProxyType)
+    assert isinstance(frozen.settings["nested"], MappingProxyType)
 
 
 def _term(env, asset_cfg=None, std=None):  # noqa: ANN001 - a stand-in for a portable term
