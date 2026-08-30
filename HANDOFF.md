@@ -398,6 +398,164 @@ GPU-dependent construction checks were not rerun while the live experiments
 below remain active; the wheel matrices stop at native asset/task materialization
 and engine contract reports.
 
+### Architecture assessment follow-up: startup and runtime lifecycle (2026-08-30)
+
+This second pass reviews failure paths after the six remediations above. The
+main `TaskSpec -> compiler -> adapter` structure remains the right design; the
+new findings are boundary-contract gaps, not a reason to reorganize the task or
+engine layers. They should nevertheless be resolved before treating the split
+packages and checkpoint format as a stable 1.0 platform.
+
+#### 1. P0: restore the pre-bootstrap import barrier
+
+The shared launchers and `EngineAdapter.bootstrap()` explicitly require Isaac
+Sim's `AppLauncher` to run before `torch` is imported. The current implementation
+violates that invariant during the first argument-parse pass: a fresh process
+that only imports `instinctlab_engine` already has `torch` in `sys.modules`, and
+calling `names()` retains that state even though neither simulator SDK has been
+imported.
+
+There are two pre-bootstrap import paths to remove:
+
+- the engine-core package imports `bridge.entity`; importing its
+  `instinctlab_engine.spec.entity` dependency first initializes
+  `spec/__init__.py`, which imports `spec.robot`, whose module imports `torch` at
+  top level;
+- installed backend entry points target each backend package root. Those roots
+  import the full adapter and term registry, and the adapters import scene
+  modules whose shared sensor bridges also import `torch`.
+
+The fact that no `isaaclab` or `mjlab` module is imported is not sufficient:
+the documented ordering contract specifically includes `torch`. Existing wheel
+isolation tests therefore guard too weak a boundary.
+
+Make backend discovery and the CLI/bootstrap facade a genuinely lightweight
+layer. Backend entry points should target a registrar that stores lazy dotted
+paths without importing the package root, and adapter imports needed only for
+compilation should move behind post-bootstrap methods or local imports. Remove
+the eager `torch` dependency from declaration-only robot imports. Add fresh
+subprocess tests asserting that all three stages -- `import instinctlab_engine`,
+`names()`, and selecting an adapter plus adding its CLI arguments -- import
+neither `torch` nor a simulator SDK. For Isaac, only `bootstrap()` may cross that
+barrier.
+
+#### 2. P1: policy-I/O compatibility does not cover every loaded tensor
+
+The checkpoint split is directionally correct, but `policy_io_v1` is narrower
+than the state that `OnPolicyRunner.load()` restores. `_policy_agent_contract()`
+includes the policy, normalizers, and five selected algorithm fields. Parkour's
+`WasabiPPO` discriminator architecture lives in
+`algorithm.discriminator_kwargs`; the runner saves and strictly reloads both
+the discriminator and its optimizer, but those fields do not affect the
+mandatory policy-I/O hash.
+
+A fixed-input probe changed the real Parkour AMP discriminator hidden sizes
+from `[1024, 512]` to `[768, 384]`. The `policy_io` hash stayed equal while the
+experiment-semantics hash changed. Normal resume rejects that semantics drift,
+but `--allow-experiment-drift` permits it, and play deliberately uses
+`experiment_policy="ignore"` before loading the complete runner state. The
+mandatory compatibility gate can therefore approve a checkpoint whose next
+operation fails on tensor shapes.
+
+Define compatibility from every tensor-bearing component that the chosen load
+path restores, not from a hand-selected list of algorithm keys. Prefer a small
+runner-owned, deterministic checkpoint-state schema covering actor/critic,
+normalizers, discriminator, teacher/student, VAE, optimizer-sensitive module
+topology, and future auxiliary modules. If inference-only loading is meant to
+have a narrower contract, make it a distinct policy-only load path instead of
+constructing and restoring a complete training runner. Add negative contract
+tests for AMP discriminator and VAE/teacher topology changes.
+
+#### 3. P1: hash the effective run configuration, not only declaration defaults
+
+`task_contract(spec)` reconstructs the runner config from
+`spec.agent.overrides`. The adapters, however, construct the actual runner with
+`spec.agent.resolved_overrides(engine)`, and `train.py` then applies CLI seed,
+maximum-iteration, device, resume, run, and checkpoint values directly to
+`compiled.agent_cfg`. The manifest still calls `add_task_contract(..., spec)`,
+so its compatibility and experiment hashes describe the declaration defaults,
+not necessarily the runner that produced the checkpoint.
+
+No registered task currently uses `AgentSpec.engine_overrides`, but the public
+contract explicitly supports it and validation does not restrict the override
+keys to rollout length. A synthetic, valid `isaacsim` override changing
+`num_steps_per_env` from 24 to 48 left both policy-I/O and experiment-semantics
+hashes unchanged; only audit provenance changed. The current CLI path already
+has the same class of issue for `--seed` and `--max_iterations`. `agent.json`
+records the effective config separately, but checkpoint validation does not
+consume it.
+
+Build the run contract from the selected engine's resolved `agent_cfg` after
+all CLI and distributed-rank overrides, and pass that same snapshot to manifest
+creation and resume validation. Keep the portable policy-interface hash
+separate so intentional cross-engine policy reuse remains possible. The run
+manifest should also record normalized `argv`, environment count, Python and
+installed package versions, torch/CUDA/driver/device information, source commit
+and dirty state, and declared dataset paths/checksums where available. The
+runner's later Git diff capture is useful evidence but is not a structured,
+complete run contract.
+
+#### 4. P2: keep process lifecycle and fail-fast behavior behind the adapter
+
+Both shared launchers unconditionally call `os._exit(0)` after their
+`ExitStack` closes. The train comment attributes this to an Isaac Sim shutdown
+hang, but the hard exit also applies to MJLab. It bypasses normal interpreter
+and `atexit` teardown, flushes stdout but not every other buffered producer, and
+places an Isaac-specific lifecycle workaround in an otherwise engine-neutral
+entry point.
+
+Move exceptional process-finalization policy into an adapter-owned lifecycle
+hook or bootstrap resource without adding an engine branch to the launcher.
+Normal backends should return normally; a backend that demonstrably requires a
+hard exit should own and test that behavior. In play, also resolve and validate
+a trained-agent checkpoint before `compiled.make_env()`: the current order
+constructs the expensive native environment before reporting a missing or
+incompatible checkpoint, whereas train already validates before construction.
+
+#### 5. P2: consolidate catalog records and state the registry concurrency model
+
+The task catalog repeats each task id across `TASKS`, `TASK_ASSETS`, and, for
+play variants, `PLAY_CHECKPOINT_TASKS`. Tests catch several consistency errors,
+but adding or renaming a task still requires coordinated edits to parallel
+maps. Replace them with one immutable `TaskRegistration` record containing the
+factory path, asset id, and optional checkpoint task id; compatibility views can
+preserve the current public helpers.
+
+Engine and plugin discovery also mutate process-global dictionaries, one-time
+flags, active-plugin markers, and provenance cursors without a synchronization
+contract. Current CLI launch is single-threaded, so this is not a production
+fault today. Before advertising the plugin layer for concurrent service or
+notebook orchestration, either document single-threaded discovery/compilation as
+part of the API or protect discovery and provenance with locks/context-local
+state and add a concurrent discovery test.
+
+Recommended remediation order:
+
+1. Re-establish and test the pre-bootstrap `torch` barrier.
+2. Derive mandatory checkpoint compatibility from the complete restored tensor
+   schema.
+3. Generate checkpoint and run contracts from one effective, post-override
+   agent configuration and add structured runtime provenance.
+4. Move hard-exit policy behind the backend lifecycle and validate play
+   checkpoints before environment construction.
+5. Consolidate task registration records and define the concurrency contract
+   before a 1.0 plugin API commitment.
+
+Read-only evidence collected for this follow-up:
+
+```text
+fresh process: import instinctlab_engine -> torch imported
+fresh process: names() -> ('isaacsim', 'mjlab'); torch imported;
+               neither isaaclab nor mjlab imported
+Parkour AMP discriminator hidden sizes [1024, 512] -> [768, 384]:
+               policy_io equal; experiment_semantics different
+synthetic Isaac AgentSpec num_steps_per_env override 24 -> 48:
+               policy_io equal; experiment_semantics equal; provenance different
+```
+
+No training process was started, stopped, or signaled during this assessment,
+and no simulator physics, task declaration, or production behavior was changed.
+
 ### Compat boundary cleanup (2026-08-30)
 
 The isolated `codex/compat-boundary-cleanup` worktree branch was fast-forwarded
