@@ -215,6 +215,9 @@ def test_runtime_capability_is_checked_against_the_matched_model(
         def matches(self, actuator: object) -> bool:
             return isinstance(actuator, NativeActuator)
 
+        def stiffness_groups(self, _actuator: object):
+            return (((0,), 1.0),)
+
     provider.Config = type("Config", (), {})
     provider.RUNTIME = RuntimeAdapter()
     monkeypatch.setitem(sys.modules, provider.__name__, provider)
@@ -248,3 +251,37 @@ def test_runtime_capability_is_checked_against_the_matched_model(
         )
     assert "test.runtime.v1" in str(error.value)
     assert "joint_torque_limit" in str(error.value)
+
+
+def test_runtime_capability_requires_its_declared_adapter_method(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ModuleType("test_incomplete_runtime_actuator")
+
+    class NativeActuator:
+        instinctlab_model_id = "test.incomplete.v1"
+
+    class RuntimeAdapter:
+        def matches(self, actuator: object) -> bool:
+            return isinstance(actuator, NativeActuator)
+
+    provider.Config = type("Config", (), {})
+    provider.RUNTIME = RuntimeAdapter()
+    monkeypatch.setitem(sys.modules, provider.__name__, provider)
+    registry = ActuatorRegistry(load_entry_points=False)
+    registry.register(
+        engine="mjlab",
+        model_id="test.incomplete.v1",
+        config_factory="test_incomplete_runtime_actuator:Config",
+        runtime_adapter="test_incomplete_runtime_actuator:RUNTIME",
+        capabilities={EFFORT_LIMITS},
+    )
+
+    with pytest.raises(RuntimeError, match="effort_limit_for_joint"):
+        registry.runtime_adapter(
+            "mjlab",
+            NativeActuator(),
+            capability=EFFORT_LIMITS,
+            native_group="joint",
+            requesting_term="joint effort limit reader",
+        )

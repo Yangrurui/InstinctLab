@@ -184,7 +184,20 @@ def joint_stiffness_groups(
                 f"Engine {engine!r} actuator adapter for group {native_group!r} "
                 f"declares {STIFFNESS!r} but does not implement stiffness_groups()."
             ) from None
-        yield from groups
+        try:
+            iterator = iter(groups)
+        except TypeError:
+            raise RuntimeError(
+                f"Engine {engine!r} actuator adapter for group {native_group!r} "
+                "must return an iterable of (joint_ids, stiffness) pairs."
+            ) from None
+        for group in iterator:
+            if not isinstance(group, (tuple, list)) or len(group) != 2:
+                raise RuntimeError(
+                    f"Engine {engine!r} actuator adapter for group {native_group!r} "
+                    "must return (joint_ids, stiffness) pairs."
+                )
+            yield group[0], group[1]
 
 
 def joint_effort_limits(env: Any, asset: Any, joint_ids: Any) -> torch.Tensor:
@@ -231,6 +244,19 @@ def joint_effort_limits(env: Any, asset: Any, joint_ids: Any) -> torch.Tensor:
                     f"declares {EFFORT_LIMITS!r} but does not implement "
                     "effort_limit_for_joint()."
                 ) from None
+            effort_limit = torch.as_tensor(
+                effort_limit,
+                device=all_limits.device,
+                dtype=all_limits.dtype,
+            )
+            if effort_limit.ndim > 1 or (
+                effort_limit.ndim == 1
+                and effort_limit.shape[0] not in (1, all_limits.shape[0])
+            ):
+                raise RuntimeError(
+                    f"Engine {engine!r} actuator adapter for group {native_group!r} "
+                    "must return a scalar or one effort limit per environment."
+                )
             all_limits[:, joint_id] = torch.maximum(
                 all_limits[:, joint_id], effort_limit
             )

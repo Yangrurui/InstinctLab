@@ -65,6 +65,9 @@ import importlib.metadata as metadata
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import torch
 
 engine_name = sys.argv[1]
 environment_root = Path(sys.prefix).resolve()
@@ -85,6 +88,7 @@ metadata.entry_points = isolated_entry_points
 
 from instinctlab_engine import adapter
 from instinctlab_engine.preflight import require_preflight
+from instinctlab_engine.bridge.robot import joint_effort_limits, joint_stiffness_groups
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
 from instinctlab_engine.sensors import NativeSensorBuildContext, native_sensor_builder
 from instinctlab_engine.spec import (
@@ -148,11 +152,39 @@ if actuator.compute([2.0, -2.0]) != [3.0, -3.0]:
 actuator.reset([1])
 if actuator.compute([0.0, 0.0]) != [3.0, 0.0]:
     raise AssertionError("stateful actuator partial reset leaked across environments")
-runtime_adapter = importlib.import_module(
-    f"instinctlab_extension_fixture.{engine_name}_implementation"
-).RUNTIME_ADAPTER
-if not runtime_adapter.matches(actuator):
-    raise AssertionError("runtime actuator capability adapter did not resolve")
+
+effort = torch.tensor([[2.0], [3.0]])
+data_kwargs = {
+    "joint_vel": torch.tensor([[4.0], [5.0]]),
+    "qfrc_actuator" if engine_name == "mjlab" else "applied_torque": effort,
+}
+asset = SimpleNamespace(
+    actuators={"joint": actuator},
+    data=SimpleNamespace(**data_kwargs),
+    joint_names=("joint",),
+    num_joints=1,
+)
+env = SimpleNamespace(scene={"robot": asset})
+stiffness = list(
+    joint_stiffness_groups(env, asset, requesting_term="fixture power reward")
+)
+if stiffness != [((0,), 2.0)]:
+    raise AssertionError(f"runtime stiffness contract is wrong: {stiffness}")
+limits = joint_effort_limits(env, asset, [0])
+torch.testing.assert_close(limits, torch.full((2, 1), 3.0))
+
+from instinctlab.tasks.parkour.mdp.rewards import (
+    applied_torque_limits_by_ratio,
+    motors_power_square,
+)
+
+asset_cfg = SimpleNamespace(name="robot", joint_ids=[0])
+power = motors_power_square(env, asset_cfg=asset_cfg)
+torch.testing.assert_close(power, torch.tensor([16.0, 56.25]))
+limit_penalty = applied_torque_limits_by_ratio(
+    env, asset_cfg=asset_cfg, limit_ratio=0.8
+)
+torch.testing.assert_close(limit_penalty, torch.tensor([0.0, 0.36]))
 
 sensor = native_sensor_builder(engine_name, sensor_ref)(
     sensor_ref,
@@ -216,6 +248,8 @@ print(json.dumps({
     "engine": engine_name,
     "asset": report["asset"],
     "actuator_output": actuator.applied_effort,
+    "power_reward": power.tolist(),
+    "limit_reward": limit_penalty.tolist(),
     "sensor_timestamp": sensor.timestamp,
     "fixture_provider_groups": sorted(fixture_groups),
 }, sort_keys=True))

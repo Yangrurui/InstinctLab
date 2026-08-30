@@ -54,6 +54,26 @@ class ActuatorRuntimeAdapter(Protocol):
     def matches(self, actuator: object) -> bool: ...
 
 
+@runtime_checkable
+class StiffnessRuntimeAdapter(ActuatorRuntimeAdapter, Protocol):
+    """Runtime surface required by the ``stiffness`` capability."""
+
+    def stiffness_groups(self, actuator: object) -> Iterable[tuple[Any, Any]]: ...
+
+
+@runtime_checkable
+class EffortLimitsRuntimeAdapter(ActuatorRuntimeAdapter, Protocol):
+    """Runtime surface required by the ``effort_limits`` capability."""
+
+    def effort_limit_for_joint(
+        self,
+        env: object,
+        asset: object,
+        actuator: object,
+        local_index: int,
+    ) -> Any: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ActuatorRegistration:
     """SDK-free metadata for one engine-native actuator model."""
@@ -309,8 +329,30 @@ class ActuatorRegistry:
     ) -> tuple[ActuatorRegistration, ActuatorRuntimeAdapter]:
         if capability not in ACTUATOR_CAPABILITIES:
             raise ValueError(f"unknown actuator runtime capability {capability!r}")
+        registrations = self.registrations(engine)
+        declared_model_id = getattr(actuator, "instinctlab_model_id", None)
+        if declared_model_id is None:
+            declared_model_id = getattr(
+                getattr(actuator, "cfg", None), "instinctlab_model_id", None
+            )
+        if declared_model_id is not None:
+            if not isinstance(declared_model_id, str):
+                raise TypeError(
+                    f"Engine {engine!r} native actuator group {native_group!r} has "
+                    "a non-string instinctlab_model_id"
+                )
+            try:
+                candidates = (registrations[declared_model_id],)
+            except KeyError:
+                raise RuntimeError(
+                    f"Engine {engine!r} native actuator group {native_group!r} declares "
+                    f"unknown model id {declared_model_id!r}."
+                ) from None
+        else:
+            candidates = tuple(registrations.values())
+
         matches: list[tuple[ActuatorRegistration, ActuatorRuntimeAdapter]] = []
-        for registration in self.registrations(engine).values():
+        for registration in candidates:
             if registration.runtime_adapter is None:
                 continue
             adapter = _resolve(registration.runtime_adapter)
@@ -341,6 +383,18 @@ class ActuatorRegistry:
                 f"Engine {engine!r} actuator model {registration.model_id!r}, native "
                 f"group {native_group!r}, does not declare capability {capability!r} "
                 f"required by term {requesting_term!r}."
+            )
+        required_method = {
+            STIFFNESS: "stiffness_groups",
+            EFFORT_LIMITS: "effort_limit_for_joint",
+        }.get(capability)
+        if required_method is not None and not callable(
+            getattr(adapter, required_method, None)
+        ):
+            raise RuntimeError(
+                f"Engine {engine!r} actuator model {registration.model_id!r}, native "
+                f"group {native_group!r}, declares {capability!r} but its runtime "
+                f"adapter does not implement {required_method}()."
             )
         mark_plugin_used(
             self.ENTRY_POINT_GROUP, f"{engine}:{registration.model_id}"
@@ -424,10 +478,12 @@ __all__ = [
     "ActuatorRegistry",
     "ActuatorRuntimeAdapter",
     "EFFORT_LIMITS",
+    "EffortLimitsRuntimeAdapter",
     "GAIN_RANDOMIZATION",
     "JOINT_POSITION_COMMAND",
     "STATEFUL_RESET",
     "STIFFNESS",
+    "StiffnessRuntimeAdapter",
     "actuator_models",
     "native_actuator_factory",
     "register_actuator",

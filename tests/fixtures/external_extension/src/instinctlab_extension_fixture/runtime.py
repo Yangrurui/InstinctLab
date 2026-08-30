@@ -29,6 +29,10 @@ class StatefulActuator:
     """One-step delayed proportional effort with partial reset."""
 
     def __init__(self, *, num_envs: int, stiffness: float, effort_limit: float):
+        self.instinctlab_model_id = "fixture.stateful.v1"
+        self.transmission_type = "joint"
+        self.target_names = ("joint",)
+        self.target_ids = (0,)
         self.stiffness = float(stiffness)
         self.effort_limit = float(effort_limit)
         self._pending = [0.0] * num_envs
@@ -56,10 +60,19 @@ class RuntimeAdapter:
         return isinstance(actuator, StatefulActuator)
 
     def stiffness_groups(self, actuator: StatefulActuator):
-        return (actuator.stiffness,)
+        return ((actuator.target_ids, actuator.stiffness),)
 
-    def effort_limits(self, _env, _asset, actuator: StatefulActuator):
-        return (actuator.effort_limit,)
+    def effort_limit_for_joint(
+        self, _env, asset, actuator: StatefulActuator, _local_index: int
+    ):
+        import torch
+
+        return torch.full(
+            (asset.data.joint_vel.shape[0],),
+            actuator.effort_limit,
+            device=asset.data.joint_vel.device,
+            dtype=asset.data.joint_vel.dtype,
+        )
 
 
 class ImuRuntime:
