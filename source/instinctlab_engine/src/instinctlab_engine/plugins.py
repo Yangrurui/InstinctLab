@@ -128,6 +128,8 @@ def _provenance(
             return engine in keys
         if record["group"] == "instinctlab.engine_terms":
             return any(key.startswith(f"{engine}:") for key in keys)
+        if record["group"] == "instinctlab.actuators":
+            return any(key.startswith(f"{engine}:") for key in keys)
         if record["group"] == "instinctlab.terrains":
             return any(f":{engine}:" in key for key in keys)
         return True

@@ -208,6 +208,26 @@ def register_sub_terrain(engine: str, kind: str, builder: Any) -> None:
     TERRAIN_EXTENSIONS.register_sub_terrain(engine, kind, builder)
 
 
+def register_actuator(
+    engine: str,
+    model_id: str,
+    config_factory: Any,
+    *,
+    runtime_adapter: Any | None = None,
+    capabilities: Any = (),
+) -> None:
+    """Register one lazy engine-native actuator model."""
+    from .actuators import register_actuator as _register_actuator
+
+    _register_actuator(
+        engine,
+        model_id,
+        config_factory,
+        runtime_adapter=runtime_adapter,
+        capabilities=capabilities,
+    )
+
+
 def __getattr__(name: str) -> Any:
     try:
         module_name, attribute = _SHARED_EXPORTS[name]
@@ -235,6 +255,7 @@ __all__ = [
     "observation_group_settings",
     "qualname_of",
     "register_adapter",
+    "register_actuator",
     "register_sub_terrain",
     "register_terrain",
 ]
