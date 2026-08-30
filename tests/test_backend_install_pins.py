@@ -26,7 +26,7 @@ def _install_module():
 
 
 def test_mjlab_physics_stack_is_exactly_pinned() -> None:
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     cfg = _pins()["mjlab"]
     assert cfg["pypi"] == "mjlab==1.5.0"

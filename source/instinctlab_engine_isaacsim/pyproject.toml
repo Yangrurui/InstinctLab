@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools<82.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "instinctlab-engine-isaacsim"
+version = "0.1.0"
+description = "Isaac Sim backend for InstinctLab Engine Core"
+requires-python = ">=3.11"
+dependencies = [
+    "instinctlab-engine-core[geometry]==0.1.0",
+    "isaaclab @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab",
+    "isaaclab_assets @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab_assets",
+    "isaaclab_mimic @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab_mimic",
+    "isaaclab_rl @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab_rl",
+    "isaaclab_tasks @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab_tasks",
+]
+
+[project.entry-points."instinctlab.engines"]
+isaacsim = "instinctlab_engine_isaacsim:register"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["instinctlab_engine_isaacsim*"]

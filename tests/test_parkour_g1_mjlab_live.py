@@ -47,7 +47,7 @@ def test_mjlab_parkour_target_g1_constructs_and_steps() -> None:
     device = require_live_device()
 
     from instinctlab_engine.bridge.terrain import column_sub_terrain_names
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
     from tests.task_specs import task_spec
 
     spec = task_spec("Instinct-Parkour-Target-G1", "mjlab")

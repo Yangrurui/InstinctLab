@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
+ISAACSIM_ENGINE = REPO / "source/instinctlab_engine_isaacsim/src/instinctlab_engine_isaacsim"
+MJLAB_ENGINE = REPO / "source/instinctlab_engine_mjlab/src/instinctlab_engine_mjlab"
 
 PARKOUR_CFG = "source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py"
 G1_CFG = "source/instinctlab/instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py"
@@ -405,11 +407,11 @@ def volume_points_point_velocity() -> dict[str, bool]:
 def wrapper_sets_missing_step_dict() -> bool:
     """Whether both current engine wrappers fill infos['step'] for the shared runner."""
     wrappers = (
-        "source/instinctlab/instinctlab/engines/isaacsim/rl_wrapper.py",
-        "source/instinctlab/instinctlab/engines/mjlab/rl_wrapper.py",
+        ISAACSIM_ENGINE / "rl_wrapper.py",
+        MJLAB_ENGINE / "rl_wrapper.py",
     )
     return all(
-        'setdefault("step", {})' in Path(REPO, wrapper).read_text()
+        'setdefault("step", {})' in wrapper.read_text()
         for wrapper in wrappers
     )
 

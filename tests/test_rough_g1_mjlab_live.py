@@ -24,9 +24,9 @@ pytestmark = pytest.mark.mjlab
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="stepping mjlab needs a GPU")
 def test_mjlab_rough_constructs_the_filed_generator_and_steps() -> None:
-    from instinctlab.engines.mjlab import MjlabAdapter
-    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
-    from instinctlab.engines.mjlab.terrains.terrain_importer import TerrainImporter
+    from instinctlab_engine_mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
+    from instinctlab_engine_mjlab.terrains.terrain_importer import TerrainImporter
     from tests.task_specs import task_spec
 
     compiled = MjlabAdapter().compile(

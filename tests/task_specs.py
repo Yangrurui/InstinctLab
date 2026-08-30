@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from instinctlab.engines.isaacsim.assets import robot_spec as isaac_robot_spec
-from instinctlab.engines.mjlab.assets import robot_spec as mjlab_robot_spec
+from instinctlab_engine_isaacsim.assets import robot_spec as isaac_robot_spec
+from instinctlab_engine_mjlab.assets import robot_spec as mjlab_robot_spec
 from instinctlab.tasks import registry
 
 

@@ -26,7 +26,7 @@ pytest.importorskip("mjlab")
 
 def test_the_sensor_requests_the_field_its_timers_are_built_from() -> None:
     """``track_air_time`` without ``found`` is accepted by mjlab and does nothing."""
-    from instinctlab.engines.mjlab.scene import _build_contact_sensor
+    from instinctlab_engine_mjlab.scene import _build_contact_sensor
 
     cfg = _build_contact_sensor(ContactSensorRef(name="contact_forces", elements=".*", track_air_time=True))
 
@@ -47,7 +47,7 @@ def test_standing_on_the_ground_registers_as_contact() -> None:
     the same timers that ``illegal_contact`` and ``feet_air_time`` consult.
     """
     from instinctlab_engine.bridge import sensors as compat_sensors
-    from instinctlab.engines.mjlab.adapter import MjlabAdapter
+    from instinctlab_engine_mjlab.adapter import MjlabAdapter
     from tests.task_specs import task_spec
 
     feet = ContactSensorRef(name="contact_forces", elements=".*_ankle_roll_link")

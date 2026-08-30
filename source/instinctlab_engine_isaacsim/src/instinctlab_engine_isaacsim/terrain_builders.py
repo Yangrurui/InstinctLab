@@ -73,7 +73,7 @@ def _flat_patches(value: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _perlin(value: Mapping[str, Any]) -> Any:
-    import instinctlab.engines.isaacsim.terrains as terrain_gen
+    import instinctlab_engine_isaacsim.terrains as terrain_gen
 
     return terrain_gen.PerlinPlaneTerrainCfg(**dict(value))
 
@@ -81,7 +81,7 @@ def _perlin(value: Mapping[str, Any]) -> Any:
 def build_rough_tile(tile: SubTerrainSpec, generator: TerrainGeneratorSpec) -> Any:
     """Lower one shared rough-terrain tile to its Isaac implementation."""
     del generator
-    import instinctlab.engines.isaacsim.terrains as terrain_gen
+    import instinctlab_engine_isaacsim.terrains as terrain_gen
 
     fields = dict(tile.params)
     if flat_patches := fields.get("flat_patch_sampling"):

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from instinctlab.engines.mjlab.scene import _build_ray_caster
+from instinctlab_engine_mjlab.scene import _build_ray_caster
 from instinctlab.tasks import registry
 from tests.task_specs import task_spec
 

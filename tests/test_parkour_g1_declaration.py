@@ -106,7 +106,7 @@ ISAAC_RESTITUTION = {
 
 @pytest.fixture(scope="module")
 def task():
-    from instinctlab.engines.mjlab.assets import robot_spec
+    from instinctlab_engine_mjlab.assets import robot_spec
     from instinctlab.tasks import registry
 
     task_id = "Instinct-Parkour-Target-G1"
@@ -451,8 +451,8 @@ def test_the_declaration_imports_with_both_engines_blocked(monkeypatch) -> None:
     for name in list(sys.modules):
         if name.startswith(
             (
-                "instinctlab.engines.isaacsim",
-                "instinctlab.engines.mjlab",
+                "instinctlab_engine_isaacsim",
+                "instinctlab_engine_mjlab",
                 "isaaclab",
                 "mjlab",
             )
@@ -483,8 +483,8 @@ def test_the_declaration_imports_with_both_engines_blocked(monkeypatch) -> None:
 
 
 def test_task_contract_materializes_for_both_backends() -> None:
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
     from instinctlab.tasks import registry
 
     task_id = "Instinct-Parkour-Target-G1"
@@ -507,7 +507,7 @@ def test_mjlab_compilation_preserves_declared_observation_history(task) -> None:
     the term still says 8 while the group silently zeros it at env init.
     """
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     compiled = MjlabAdapter().compile(task, num_envs=1, device="cpu")
     for group_name, group_spec in task.mdp.observations.items():
@@ -534,7 +534,7 @@ def test_mjlab_compilation_preserves_reward_dt_scaling_switch(task) -> None:
     from dataclasses import replace
 
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     unscaled = replace(task, sim=replace(task.sim, scale_rewards_by_dt=False))
     compiled = MjlabAdapter().compile(unscaled, num_envs=1, device="cpu")
@@ -545,7 +545,7 @@ def test_isaac_rejects_the_reward_scaling_mode_its_manager_cannot_disable(task) 
     """Isaac's RewardManager always multiplies by dt; accepting False would lie in the manifest."""
     from dataclasses import replace
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
 
     unscaled = replace(task, sim=replace(task.sim, scale_rewards_by_dt=False))
     with pytest.raises(ValueError, match="always scales reward terms by step_dt"):
@@ -564,8 +564,8 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     pytest.importorskip("mjlab")
     from mjlab.envs.mdp import dr, reset_root_state_uniform
 
-    from instinctlab.engines.mjlab import MjlabAdapter
-    from instinctlab.engines.mjlab.native_event_functions import reset_joints_by_offset
+    from instinctlab_engine_mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab.native_event_functions import reset_joints_by_offset
     from instinctlab.tasks.parkour.mdp.rewards import (
         applied_torque_limits_by_ratio,
         contact_slide,
@@ -665,7 +665,7 @@ def test_mjlab_compiles_every_kind_this_task_declares(task) -> None:
     assert camera.image_plane_max == 2.5
     assert camera.min_distance == 0.1
     assert camera.origin_offset_rot[0] == pytest.approx(0.9135367613482678)
-    from instinctlab.engines.mjlab.camera import pinhole_camera_geom_groups
+    from instinctlab_engine_mjlab.camera import pinhole_camera_geom_groups
 
     assert camera.include_geom_groups == pinhole_camera_geom_groups()
     depth = compiled.env_cfg.observations["policy"].terms["depth_image"]

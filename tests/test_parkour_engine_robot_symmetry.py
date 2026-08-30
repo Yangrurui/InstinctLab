@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 
 from instinctlab.assets.unitree_g1.isaacsim import G1_29DOF_LINKS
-from instinctlab.engines.isaacsim.assets import robot_spec as isaac_robot_spec
-from instinctlab.engines.mjlab.assets import robot_spec as mjlab_robot_spec
+from instinctlab_engine_isaacsim.assets import robot_spec as isaac_robot_spec
+from instinctlab_engine_mjlab.assets import robot_spec as mjlab_robot_spec
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 from tests.g1_specs import paired_robot_spec
 
@@ -75,7 +75,7 @@ def mjlab_spec():
 @pytest.fixture(scope="module")
 def mjlab_robot(mjlab_spec):
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     compiled = MjlabAdapter().compile(mjlab_spec, num_envs=16, device="cpu")
     return compiled.env_cfg.scene.entities["robot"]
@@ -139,7 +139,7 @@ def test_mjlab_uses_only_the_reference_pd_actuators(mjlab_robot) -> None:
 
 def test_undesired_contacts_uses_the_task_owned_force_threshold_term_on_mjlab(mjlab_spec) -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
     from instinctlab.tasks.parkour.mdp.rewards import undesired_contacts_by_force
 
     compiled = MjlabAdapter().compile(mjlab_spec, num_envs=1, device="cpu")
@@ -316,7 +316,7 @@ def test_shoe_geometry_hangs_off_a_camera_hit_body(spec) -> None:
 def test_mjlab_camera_uses_geom_groups_not_body_mask() -> None:
     """Production mjlab camera hits geom groups (0,1,2), not the Isaac G1 link list."""
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.engines.mjlab.camera import geom_groups_camera_mask, pinhole_camera_geom_groups
+    from instinctlab_engine_mjlab.camera import geom_groups_camera_mask, pinhole_camera_geom_groups
 
     shoe_xml = SHOE_MJCF_PATH
     try:
@@ -371,7 +371,7 @@ def test_isaac_compiled_robot_matches_mjlab_on_the_actuation_axes(spec) -> None:
     device = resolve_live_device()
     ensure_isaac_app(device=device)
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
 
     isaac_spec = parkour_target_g1(isaac_robot_spec(PARKOUR_ASSET_ID))
     compiled_robot = IsaacSimAdapter().compile(

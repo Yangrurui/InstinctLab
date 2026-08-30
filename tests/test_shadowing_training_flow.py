@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 import torch
 from instinctlab.checkpoint import task_contract
-from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
-from instinctlab.engines.mjlab.adapter import MjlabAdapter
+from instinctlab_engine_isaacsim.adapter import IsaacSimAdapter
+from instinctlab_engine_mjlab.adapter import MjlabAdapter
 from instinctlab.shadowing_probe import shadowing_task_with_motion
 from instinctlab.tasks import registry
 from instinctlab.training import (

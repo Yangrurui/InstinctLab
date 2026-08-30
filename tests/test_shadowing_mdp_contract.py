@@ -15,12 +15,12 @@ import trimesh
 import yaml
 from instinctlab_engine.bridge import math as math_utils
 from instinctlab.utils.debug_image import set_debug_image_sink
-from instinctlab.engines.isaacsim import terms as isaac_terms
-from instinctlab.engines.isaacsim.adapter import IsaacSimAdapter
-from instinctlab.engines.mjlab import terms as mjlab_terms
-from instinctlab.engines.mjlab.adapter import MjlabAdapter
-from instinctlab.engines.mjlab.assets import robot_spec
-from instinctlab.engines.mjlab.native_event_functions import randomize_default_joint_pos
+from instinctlab_engine_isaacsim import terms as isaac_terms
+from instinctlab_engine_isaacsim.adapter import IsaacSimAdapter
+from instinctlab_engine_mjlab import terms as mjlab_terms
+from instinctlab_engine_mjlab.adapter import MjlabAdapter
+from instinctlab_engine_mjlab.assets import robot_spec
+from instinctlab_engine_mjlab.native_event_functions import randomize_default_joint_pos
 from instinctlab_engine.motion_reference.buffers import fill_buffers, make_buffers
 from instinctlab_engine.motion_reference.clip import MotionSample
 from instinctlab.tasks import registry
@@ -788,7 +788,7 @@ def test_domain_randomization_and_reset_order_match_effective_sources() -> None:
 
 def test_isaac_perceptive_terrain_matches_main_zero_border_height(monkeypatch) -> None:
     """Do not inherit Isaac Lab's non-zero terrain border-height default."""
-    from instinctlab.engines.isaacsim import terrain_builders
+    from instinctlab_engine_isaacsim import terrain_builders
 
     class Config:
         def __init__(self, **kwargs):
@@ -796,20 +796,20 @@ def test_isaac_perceptive_terrain_matches_main_zero_border_height(monkeypatch) -
 
     fake_isaaclab_terrains = types.ModuleType("isaaclab.terrains")
     fake_isaaclab_terrains.TerrainImporterCfg = Config
-    fake_instinctlab_terrains = types.ModuleType("instinctlab.engines.isaacsim.terrains")
+    fake_instinctlab_terrains = types.ModuleType("instinctlab_engine_isaacsim.terrains")
     fake_instinctlab_terrains.TerrainImporterCfg = Config
-    fake_generator_cfg = types.ModuleType("instinctlab.engines.isaacsim.terrains.terrain_generator_cfg")
+    fake_generator_cfg = types.ModuleType("instinctlab_engine_isaacsim.terrains.terrain_generator_cfg")
     fake_generator_cfg.FiledTerrainGeneratorCfg = Config
-    fake_mesh_cfg = types.ModuleType("instinctlab.engines.isaacsim.terrains.trimesh.mesh_terrains_cfg")
+    fake_mesh_cfg = types.ModuleType("instinctlab_engine_isaacsim.terrains.trimesh.mesh_terrains_cfg")
     fake_mesh_cfg.MotionMatchedTerrainCfg = Config
 
     monkeypatch.setitem(sys.modules, "isaaclab.terrains", fake_isaaclab_terrains)
-    monkeypatch.setitem(sys.modules, "instinctlab.engines.isaacsim.terrains", fake_instinctlab_terrains)
+    monkeypatch.setitem(sys.modules, "instinctlab_engine_isaacsim.terrains", fake_instinctlab_terrains)
     monkeypatch.setitem(
-        sys.modules, "instinctlab.engines.isaacsim.terrains.terrain_generator_cfg", fake_generator_cfg
+        sys.modules, "instinctlab_engine_isaacsim.terrains.terrain_generator_cfg", fake_generator_cfg
     )
     monkeypatch.setitem(
-        sys.modules, "instinctlab.engines.isaacsim.terrains.trimesh.mesh_terrains_cfg", fake_mesh_cfg
+        sys.modules, "instinctlab_engine_isaacsim.terrains.trimesh.mesh_terrains_cfg", fake_mesh_cfg
     )
     monkeypatch.setattr(terrain_builders, "_physics_material", lambda _spec: object())
     monkeypatch.setattr(terrain_builders, "_visual_material", lambda: object())
@@ -1044,7 +1044,7 @@ def test_mjlab_motion_matched_terrain_uses_instinctmj_coacd_profile() -> None:
 
 
 def test_mjlab_motion_matched_coacd_builds_collision_hulls(tmp_path) -> None:
-    from instinctlab.engines.mjlab.motion_matched_terrain import motion_matched_terrain
+    from instinctlab_engine_mjlab.motion_matched_terrain import motion_matched_terrain
 
     mesh_path = tmp_path / "room.stl"
     trimesh.creation.box(extents=(2.0, 2.0, 0.2)).export(mesh_path)

@@ -28,6 +28,7 @@ from instinctlab_engine.bridge.sensors.volume_points import (
     link_linear_velocity_from_com,
     point_velocity_from_link,
 )
+from tests.engine_packages import MJLAB_ENGINE
 from instinctlab.tasks.parkour.mdp.events import register_virtual_obstacles
 from instinctlab.tasks.parkour.mdp.rewards import penetration_reward, volume_points_penetration
 from instinctlab_engine.spec.sensor import Grid3dPointsRef, VirtualObstacleRef, VolumePointsRef
@@ -208,12 +209,7 @@ def test_cvel_at_the_body_subtree_adds_the_pelvis_lever() -> None:
 
 def test_mjlab_sensor_transports_cvel_from_the_tree_root() -> None:
     """Reverting to per-body subtree would pass every cheap test and fail live ω ≠ 0."""
-    from pathlib import Path
-
-    text = (
-        Path(__file__).resolve().parents[1]
-        / "source/instinctlab/instinctlab/engines/mjlab/volume_points.py"
-    ).read_text()
+    text = (MJLAB_ENGINE / "volume_points.py").read_text()
     assert "_cvel_frame_ids" in text
     assert "body_rootid" in text
     assert "free-joint subtree COM" in text
@@ -372,10 +368,10 @@ def test_collinear_gap_merge_is_why_the_cylinder_sets_cannot_match() -> None:
     """
     import random
 
-    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder import (
+    from instinctlab_engine_mjlab.terrains.virtual_obstacle.edge_cylinder import (
         GreedyconcatEdgeCylinder,
     )
-    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder_cfg import (
+    from instinctlab_engine_mjlab.terrains.virtual_obstacle.edge_cylinder_cfg import (
         GreedyconcatEdgeCylinderCfg,
     )
 
@@ -407,10 +403,10 @@ def test_a_box_mesh_yields_the_same_raw_edge_count_before_merge() -> None:
     import random
     import trimesh
 
-    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder import (
+    from instinctlab_engine_mjlab.terrains.virtual_obstacle.edge_cylinder import (
         GreedyconcatEdgeCylinder,
     )
-    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder_cfg import (
+    from instinctlab_engine_mjlab.terrains.virtual_obstacle.edge_cylinder_cfg import (
         GreedyconcatEdgeCylinderCfg,
     )
 
@@ -440,12 +436,7 @@ def test_mjlab_obstacle_bridge_records_that_penetration_is_not_a_parity_signal()
     None
 ):
     """A reader comparing training curves must see the remaining native extraction drift."""
-    from pathlib import Path
-
-    text = (
-        Path(__file__).resolve().parents[1]
-        / "source/instinctlab/instinctlab/engines/mjlab/terrain_builders.py"
-    ).read_text()
+    text = (MJLAB_ENGINE / "terrain_builders.py").read_text()
     assert "penetration penalty is therefore not" in text
     assert "repairs a height-field surface" in text
 

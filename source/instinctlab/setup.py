@@ -9,7 +9,6 @@ from setuptools import find_packages, setup
 EXTENSION_PATH = os.path.dirname(os.path.realpath(__file__))
 # Read the extension.toml file
 EXTENSION_TOML_DATA = toml.load(os.path.join(EXTENSION_PATH, "config", "extension.toml"))
-BACKEND_PINS = toml.load(os.path.join(EXTENSION_PATH, "config", "backend_pins.toml"))
 
 # Minimum dependencies required prior to installation
 INSTALL_REQUIRES = [
@@ -26,15 +25,8 @@ INSTALL_REQUIRES = [
     "pyvista",
 ]
 
-_ISAACLAB_GIT = "git+{git}@{commit}".format(**BACKEND_PINS["isaaclab"])
-ISAACLAB_REQUIRES = [
-    f"{name} @ {_ISAACLAB_GIT}#subdirectory=source/{name}" for name in BACKEND_PINS["isaaclab"]["packages"]
-]
-MJLAB_REQUIRES = [
-    BACKEND_PINS["mjlab"]["pypi"],
-    *BACKEND_PINS["mjlab"]["runtime"],
-    "coacd==1.0.7",
-]
+ISAACLAB_REQUIRES = ["instinctlab-engine-isaacsim==0.1.0"]
+MJLAB_REQUIRES = ["instinctlab-engine-mjlab==0.1.0"]
 EXTRAS_REQUIRE = {
     "isaaclab": ISAACLAB_REQUIRES,
     "mjlab": MJLAB_REQUIRES,

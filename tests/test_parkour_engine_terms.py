@@ -15,9 +15,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from instinctlab.engines.isaacsim.terms import TERMS as ISAAC_TERMS
-from instinctlab.engines.isaacsim.event_terms import merge_friction_params as isaac_merge_friction
-from instinctlab.engines.mjlab.native_event_functions import reset_joints_by_offset, reset_joints_by_scale
+from instinctlab_engine_isaacsim.terms import TERMS as ISAAC_TERMS
+from instinctlab_engine_isaacsim.event_terms import merge_friction_params as isaac_merge_friction
+from instinctlab_engine_mjlab.native_event_functions import reset_joints_by_offset, reset_joints_by_scale
 from instinctlab_engine.bridge.robot import joint_effort_limits
 from instinctlab.tasks.parkour.mdp.rewards import (
     applied_torque_limits_by_ratio,
@@ -26,11 +26,12 @@ from instinctlab.tasks.parkour.mdp.rewards import (
     undesired_contacts_by_force,
 )
 from instinctlab.tasks.parkour.mdp.terminations import illegal_contact_by_force
-from instinctlab.engines.mjlab.terms import TERMS as MJLAB_TERMS
-from instinctlab.engines.mjlab.event_terms import merge_friction_params as mjlab_merge_friction
+from instinctlab_engine_mjlab.terms import TERMS as MJLAB_TERMS
+from instinctlab_engine_mjlab.event_terms import merge_friction_params as mjlab_merge_friction
 from instinctlab_engine.spec.sensor import ContactSensorRef
+from tests.engine_packages import MJLAB_ENGINE
 
-EVENTS = pathlib.Path(__file__).resolve().parents[1] / "source/instinctlab/instinctlab/engines/mjlab/native_event_functions.py"
+EVENTS = MJLAB_ENGINE / "native_event_functions.py"
 
 
 def _function(path: pathlib.Path, name: str) -> ast.FunctionDef:

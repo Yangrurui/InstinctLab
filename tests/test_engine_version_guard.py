@@ -8,8 +8,8 @@ from instinctlab_engine.base import require_supported_version
 
 
 def test_installed_engine_versions_are_in_the_verified_ranges() -> None:
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     assert require_supported_version(
         "isaaclab", IsaacSimAdapter.SUPPORTED_VERSIONS, engine=IsaacSimAdapter.name
@@ -26,7 +26,7 @@ def test_unverified_version_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_mjlab_bootstrap_checks_the_complete_physics_stack(monkeypatch: pytest.MonkeyPatch) -> None:
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     checked: list[tuple[str, str]] = []
 
@@ -35,7 +35,7 @@ def test_mjlab_bootstrap_checks_the_complete_physics_stack(monkeypatch: pytest.M
         checked.append((distribution, supported))
         return supported.removeprefix("==")
 
-    monkeypatch.setattr("instinctlab.engines.mjlab.adapter.require_supported_version", record)
+    monkeypatch.setattr("instinctlab_engine_mjlab.adapter.require_supported_version", record)
 
     import sys
     from types import ModuleType

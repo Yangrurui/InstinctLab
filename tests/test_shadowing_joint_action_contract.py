@@ -20,7 +20,7 @@ from instinctlab.tasks.shadowing.mdp.commands import (
     PositionReference,
     RotationReference,
 )
-from instinctlab.engines.mjlab.assets import robot_spec
+from instinctlab_engine_mjlab.assets import robot_spec
 from instinctlab.tasks import registry
 from instinctlab.tasks.shadowing.mdp.events import reset_robot_from_reference
 from instinctlab_engine.name_order import copy_named_columns_, resolve_name_indices
@@ -474,7 +474,7 @@ def test_shadowing_checkpoint_rejects_a_joint_order_drift(tmp_path) -> None:
 
 def test_mjlab_builtin_pd_matches_the_shared_plant_without_delay() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.assets import entity
+    from instinctlab_engine_mjlab.assets import entity
 
     task = _task("Instinct-Shadowing-WholeBody-Plane-G1-v0")
     actuators = entity(task.robot).articulation.actuators

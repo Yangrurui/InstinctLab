@@ -259,7 +259,7 @@ def test_a_task_refuses_an_engine_it_did_not_declare():
 
 
 def test_isaac_contract_rejects_observation_names_that_are_group_settings():
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
 
     task = _task(
         robot=_robot("isaacsim"),
@@ -423,7 +423,7 @@ def test_scene_sensor_names_may_not_shadow_scene_entities_or_isaac_fields():
     with pytest.raises(ValueError, match="collide with scene entities"):
         _task(scene=SceneSpec(contact_sensors=(ContactSensorRef(name="robot", elements="foot"),))).validate()
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
 
     task = _task(
         robot=_robot("isaacsim"),

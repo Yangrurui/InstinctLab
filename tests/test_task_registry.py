@@ -137,7 +137,7 @@ def test_task_configs_use_env_cfg_classes_instead_of_make_task() -> None:
 
 
 def test_locomotion_and_parkour_can_change_one_reward() -> None:
-    from instinctlab.engines.mjlab.assets import robot_spec
+    from instinctlab_engine_mjlab.assets import robot_spec
     from instinctlab.tasks import registry
     from instinctlab.tasks.locomotion.config.g1.flat_env_cfg import G1LocomotionFlatEnvCfg
     from instinctlab.tasks.parkour.config.g1.g1_parkour_target_amp_cfg import (

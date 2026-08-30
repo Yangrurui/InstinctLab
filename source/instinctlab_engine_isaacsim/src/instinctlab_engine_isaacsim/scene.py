@@ -61,10 +61,10 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
 
 
 def _build_volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
-    from instinctlab.engines.isaacsim.sensors.volume_points.points_generator_cfg import (
+    from instinctlab_engine_isaacsim.sensors.volume_points.points_generator_cfg import (
         Grid3dPointsGeneratorCfg,
     )
-    from instinctlab.engines.isaacsim.sensors.volume_points.volume_points_cfg import (
+    from instinctlab_engine_isaacsim.sensors.volume_points.volume_points_cfg import (
         VolumePointsCfg,
     )
 
@@ -188,10 +188,10 @@ def _build_pinhole_camera(sensor: RayCasterRef, *, sensor_period: float) -> Any:
     """
     from isaaclab.sensors.ray_caster.patterns import PinholeCameraPatternCfg
 
-    from instinctlab.engines.isaacsim.sensors.grouped_ray_caster.grouped_ray_caster_camera_cfg import (
+    from instinctlab_engine_isaacsim.sensors.grouped_ray_caster.grouped_ray_caster_camera_cfg import (
         GroupedRayCasterCameraCfg,
     )
-    from instinctlab.engines.isaacsim.sensors.grouped_ray_caster.grouped_ray_caster_cfg import (
+    from instinctlab_engine_isaacsim.sensors.grouped_ray_caster.grouped_ray_caster_cfg import (
         get_link_prim_targets,
     )
 

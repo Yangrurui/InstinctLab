@@ -12,12 +12,13 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 
-from instinctlab.engines.isaacsim.adapter import _configure_sim_contact_budget
+from instinctlab_engine_isaacsim.adapter import _configure_sim_contact_budget
 
 from tests import reference_main_parkour as main_ref
+from tests.engine_packages import ISAACSIM_ENGINE
 from tests.test_parkour_main_reference import KNOWN_DRIFTS
 
-ADAPTER = Path("source/instinctlab/instinctlab/engines/isaacsim/adapter.py")
+ADAPTER = ISAACSIM_ENGINE / "adapter.py"
 
 
 def _isaaclab_simulation_cfg() -> Path:

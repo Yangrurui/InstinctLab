@@ -116,7 +116,7 @@ KNOWN_DRIFTS: dict[str, tuple[str, str, str]] = {
 
 @pytest.fixture(scope="module")
 def task():
-    from instinctlab.engines.mjlab.assets import robot_spec
+    from instinctlab_engine_mjlab.assets import robot_spec
     from instinctlab.tasks import registry
 
     task_id = "Instinct-Parkour-Target-G1"
@@ -126,7 +126,7 @@ def task():
 @pytest.fixture(scope="module")
 def compiled(task):
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     return MjlabAdapter().compile(task, num_envs=16, device="cpu")
 
@@ -513,7 +513,7 @@ def test_train_pipeline_configures_torch_like_instinctmj() -> None:
     import inspect
 
     assert mj_ref.train_script_calls_configure_torch_backends()
-    from instinctlab.engines.mjlab import adapter as mj_adapter
+    from instinctlab_engine_mjlab import adapter as mj_adapter
 
     assert "configure_torch_backends" in inspect.getsource(
         mj_adapter.MjlabAdapter.bootstrap
@@ -699,7 +699,7 @@ def test_isaac_and_mjlab_agree_on_the_motor_buses() -> None:
     fail here instead of silently changing lag correlation on one engine.
     """
     from instinctlab.assets.unitree_g1 import isaacsim as isaac_asset
-    from instinctlab.engines.mjlab.assets import robot_spec
+    from instinctlab_engine_mjlab.assets import robot_spec
 
     robot = robot_spec("unitree_g1/popsicle_torsobase_parkour_v1")
     tree = ast.parse(Path(isaac_asset.__file__).read_text())
@@ -886,7 +886,7 @@ def test_dof_vel_limits_tracks_each_engine_reference(task, compiled) -> None:
 
 def test_mjlab_camera_hit_semantics_match_instinctmj(task, compiled) -> None:
     """mjlab production uses InstinctMJ geom groups (0,1,2) + min_distance hop."""
-    from instinctlab.engines.mjlab.camera import (
+    from instinctlab_engine_mjlab.camera import (
         pinhole_camera_effective_semantics,
         pinhole_camera_geom_groups,
     )
@@ -929,7 +929,7 @@ def test_camera_hit_mutation_min_distance_no_hop_would_fail() -> None:
     hop = mj_ref.grouped_ray_caster_hop_defaults()
     assert hop["filter"] == "geom_groups_min_distance_hop"
     assert hop["hop_max"] > 0
-    from instinctlab.engines.mjlab.camera import pinhole_camera_hop_params
+    from instinctlab_engine_mjlab.camera import pinhole_camera_hop_params
 
     assert pinhole_camera_hop_params()["hop_max"] == hop["hop_max"]
 

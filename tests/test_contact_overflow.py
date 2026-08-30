@@ -31,6 +31,7 @@ from tests.isaacsim_app import (
     isaacsim_module_paths,
     selects_isaacsim_session,
 )
+from tests.engine_packages import ISAACSIM_ENGINE, MJLAB_ENGINE
 
 REPO = Path(__file__).resolve().parent.parent
 ENTRY = REPO / "scripts" / "train.py"
@@ -146,7 +147,7 @@ def test_isaac_guard_wrapper_raises_after_step(monkeypatch) -> None:
 
 
 def test_isaac_adapter_wrap_for_rl_checks_overflow() -> None:
-    source = (REPO / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py").read_text()
+    source = (ISAACSIM_ENGINE / "adapter.py").read_text()
     tree = ast.parse(source)
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "IsaacSimAdapter")
     wrap = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "wrap_for_rl")
@@ -362,7 +363,7 @@ def _assign_is_under_log_terrain_split(tree: ast.AST, target: ast.AST) -> bool:
 
 def test_mjlab_env_checks_overflow_at_construction_and_after_step() -> None:
     """The live hook is two calls. A unit test that only sees a fake env cannot drop them."""
-    source = (REPO / "source/instinctlab/instinctlab/engines/mjlab/env.py").read_text()
+    source = (MJLAB_ENGINE / "env.py").read_text()
     tree = ast.parse(source)
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "TerrainAwareRlEnv")
     init = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "__init__")

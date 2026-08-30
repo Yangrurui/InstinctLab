@@ -209,7 +209,7 @@ def test_the_timing_matches(spec):
 
 def test_the_solver_settings_live_in_the_profile_not_the_task(spec):
     """A task states none of these, and the mjlab profile states all of them at the reference's values."""
-    from instinctlab.engines.mjlab.scene import PROFILE_DEFAULTS
+    from instinctlab_engine_mjlab.scene import PROFILE_DEFAULTS
 
     timing = reference.timing()
     for field in ("solver", "iterations", "ls_iterations", "ccd_iterations"):
@@ -328,7 +328,7 @@ def test_the_mjlab_backend_can_be_imported_without_mjlab(monkeypatch):
     """Registry keys must exist without mjlab, so a task can be checked against this engine anywhere."""
     import importlib
 
-    for name in [name for name in sys.modules if name.startswith(("mjlab", "instinctlab.engines.mjlab"))]:
+    for name in [name for name in sys.modules if name.startswith(("mjlab", "instinctlab_engine_mjlab"))]:
         monkeypatch.delitem(sys.modules, name, raising=False)
 
     real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
@@ -339,13 +339,13 @@ def test_the_mjlab_backend_can_be_imported_without_mjlab(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", blocked)
-    module = importlib.import_module("instinctlab.engines.mjlab")
+    module = importlib.import_module("instinctlab_engine_mjlab")
     assert module.MjlabAdapter().capabilities().values
 
 
 def test_the_backend_reports_that_it_can_run_this_task(spec):
     """No term unsupported, no term emulated: the report is empty or it is not the same task."""
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     report = MjlabAdapter().contract_report(spec)
     assert report["missing"] == {}

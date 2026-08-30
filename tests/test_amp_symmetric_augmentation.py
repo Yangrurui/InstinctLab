@@ -35,6 +35,7 @@ from instinctlab_engine.motion_reference import (
 )
 from instinctlab_engine.spec.sensor import MotionReferenceRef, SymmetricAugmentationSpec
 from instinctlab.tasks import registry
+from tests.engine_packages import ENGINE_ROOTS
 
 _ADAPTER = engines.adapter("mjlab")
 _ROBOT = _ADAPTER.robot_spec(registry.asset_id("Instinct-Parkour-Target-G1"))
@@ -522,11 +523,8 @@ def test_disabled_runtime_never_mirrors() -> None:
 
 
 def test_both_engines_delegate_to_the_shared_runtime() -> None:
-    import instinctlab
-
-    root = Path(instinctlab.__file__).parent / "engines"
     for name in ("isaacsim", "mjlab"):
-        source = (root / name / "motion_reference_sensor.py").read_text()
+        source = (ENGINE_ROOTS[name] / "motion_reference_sensor.py").read_text()
         tree = ast.parse(source)
         imported: set[str] = set()
         for node in ast.walk(tree):

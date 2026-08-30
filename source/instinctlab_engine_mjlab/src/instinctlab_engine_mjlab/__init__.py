@@ -6,89 +6,89 @@ the builders' bodies must not, so a task can be checked against this engine anyw
 """
 
 from instinctlab_engine.bridge import entity as _entity
-from instinctlab_engine import register_sub_terrain, register_terrain
+from instinctlab_engine import register_adapter, register_sub_terrain, register_terrain
 
 register_terrain(
-    "mjlab", "plane", "instinctlab.engines.mjlab.terrain_builders:build_plane"
+    "mjlab", "plane", "instinctlab_engine_mjlab.terrain_builders:build_plane"
 )
 register_terrain(
     "mjlab",
     "generator",
-    "instinctlab.engines.mjlab.terrain_builders:build_generator",
+    "instinctlab_engine_mjlab.terrain_builders:build_generator",
 )
 register_terrain(
-    "mjlab", "rough", "instinctlab.engines.mjlab.terrain_builders:build_rough"
+    "mjlab", "rough", "instinctlab_engine_mjlab.terrain_builders:build_rough"
 )
 register_terrain(
     "mjlab",
     "motion_matched",
-    "instinctlab.engines.mjlab.terrain_builders:build_motion_matched",
+    "instinctlab_engine_mjlab.terrain_builders:build_motion_matched",
 )
 
 register_sub_terrain(
     "mjlab",
     "pyramid_stairs",
-    "instinctlab.engines.mjlab.terrain_builders:build_standard_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_standard_tile",
 )
 register_sub_terrain(
     "mjlab",
     "pyramid_stairs_inv",
-    "instinctlab.engines.mjlab.terrain_builders:build_standard_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_standard_tile",
 )
 register_sub_terrain(
     "mjlab",
     "boxes",
-    "instinctlab.engines.mjlab.terrain_builders:build_standard_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_standard_tile",
 )
 register_sub_terrain(
     "mjlab",
     "random_rough",
-    "instinctlab.engines.mjlab.terrain_builders:build_standard_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_standard_tile",
 )
 register_sub_terrain(
     "mjlab",
     "hf_pyramid_slope",
-    "instinctlab.engines.mjlab.terrain_builders:build_standard_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_standard_tile",
 )
 register_sub_terrain(
     "mjlab",
     "hf_pyramid_slope_inv",
-    "instinctlab.engines.mjlab.terrain_builders:build_standard_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_standard_tile",
 )
 register_sub_terrain(
     "mjlab",
     "perlin_plane",
-    "instinctlab.engines.mjlab.terrain_builders:build_rough_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
 )
 register_sub_terrain(
     "mjlab",
     "perlin_square_gap",
-    "instinctlab.engines.mjlab.terrain_builders:build_rough_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
 )
 register_sub_terrain(
     "mjlab",
     "perlin_pyramid_stairs",
-    "instinctlab.engines.mjlab.terrain_builders:build_rough_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
 )
 register_sub_terrain(
     "mjlab",
     "perlin_pyramid_stairs_inv",
-    "instinctlab.engines.mjlab.terrain_builders:build_rough_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
 )
 register_sub_terrain(
     "mjlab",
     "perlin_discrete_obstacles",
-    "instinctlab.engines.mjlab.terrain_builders:build_rough_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
 )
 register_sub_terrain(
     "mjlab",
     "perlin_random_multi_box",
-    "instinctlab.engines.mjlab.terrain_builders:build_rough_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
 )
 register_sub_terrain(
     "mjlab",
     "perlin_pyramid_slope_inv",
-    "instinctlab.engines.mjlab.terrain_builders:build_rough_tile",
+    "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
 )
 
 from .adapter import MjlabAdapter, MjlabCompileCtx
@@ -105,4 +105,15 @@ _entity.register(
     container=tuple,
 )
 
-__all__ = ["TERMS", "MjlabAdapter", "MjlabCompileCtx"]
+
+def register() -> None:
+    """Register this backend through the engine-core plugin interface."""
+    register_adapter(
+        "mjlab",
+        "instinctlab_engine_mjlab.adapter:MjlabAdapter",
+    )
+
+
+register()
+
+__all__ = ["TERMS", "MjlabAdapter", "MjlabCompileCtx", "register"]

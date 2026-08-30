@@ -9,14 +9,15 @@ from pathlib import Path
 import pytest
 
 from instinctlab.tasks.terrain import rough_terrain
+from tests.engine_packages import ISAACSIM_ENGINE, MJLAB_ENGINE
 from tests.task_specs import task_spec
 
 REPO = Path(__file__).resolve().parent.parent
 DECLARATION = REPO / "source/instinctlab/instinctlab/tasks/locomotion/config/g1/rough_env_cfg.py"
 RECIPE = REPO / "source/instinctlab/instinctlab/tasks/terrain.py"
-ISAAC_ROUGH = REPO / "source/instinctlab/instinctlab/engines/isaacsim/terrain_builders.py"
-MJLAB_ROUGH = REPO / "source/instinctlab/instinctlab/engines/mjlab/terrain_builders.py"
-MJLAB_INIT = REPO / "source/instinctlab/instinctlab/engines/mjlab/__init__.py"
+ISAAC_ROUGH = ISAACSIM_ENGINE / "terrain_builders.py"
+MJLAB_ROUGH = MJLAB_ENGINE / "terrain_builders.py"
+MJLAB_INIT = MJLAB_ENGINE / "__init__.py"
 
 TERRAIN_NAMES = (
     "perlin_rough",
@@ -104,8 +105,8 @@ def test_the_mjlab_package_front_does_not_load_the_terrain_stack() -> None:
 
 
 def test_both_backends_report_that_they_can_run_this_task(task) -> None:
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     for adapter in (IsaacSimAdapter(), MjlabAdapter()):
         report = adapter.contract_report(
@@ -117,11 +118,11 @@ def test_both_backends_report_that_they_can_run_this_task(task) -> None:
 
 def test_mjlab_compiles_the_shared_recipe_and_rough_capacity_profile(task) -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
-    from instinctlab.engines.mjlab.env import TerrainAwareRlEnv
-    from instinctlab.engines.mjlab.terrains.mesh_terrains_cfg import PerlinMeshRandomMultiBoxTerrainCfg
-    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
-    from instinctlab.engines.mjlab.terrains.terrain_importer import TerrainImporter
+    from instinctlab_engine_mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab.env import TerrainAwareRlEnv
+    from instinctlab_engine_mjlab.terrains.mesh_terrains_cfg import PerlinMeshRandomMultiBoxTerrainCfg
+    from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
+    from instinctlab_engine_mjlab.terrains.terrain_importer import TerrainImporter
 
     compiled = MjlabAdapter().compile(task, num_envs=16, device="cpu")
     terrain = compiled.env_cfg.scene.terrain
@@ -144,9 +145,9 @@ def test_mjlab_compiles_the_shared_recipe_and_rough_capacity_profile(task) -> No
 def test_mjlab_effective_heightfield_scale_comes_from_the_shared_recipe(task) -> None:
     """Mutation guard: the bridge must propagate the declared value into every native hfield tile."""
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.terrain_builders import build_rough
-    from instinctlab.engines.mjlab.terrains.height_field.hf_terrains_cfg import HfTerrainBaseCfg
-    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
+    from instinctlab_engine_mjlab.terrain_builders import build_rough
+    from instinctlab_engine_mjlab.terrains.height_field.hf_terrains_cfg import HfTerrainBaseCfg
+    from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
 
     declared = task.scene.terrain.generator
     mutated = replace(declared, horizontal_scale=0.08)
@@ -163,8 +164,8 @@ def test_mjlab_constructs_a_five_centimeter_native_heightfield(task) -> None:
     import mujoco
     import numpy as np
 
-    from instinctlab.engines.mjlab.terrain_builders import build_rough
-    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
+    from instinctlab_engine_mjlab.terrain_builders import build_rough
+    from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
 
     declared = task.scene.terrain.generator
     native = build_rough(task.scene.terrain, {}).terrain_generator
@@ -184,8 +185,8 @@ def test_mjlab_mesh_boxes_build_native_collision_and_target_patches(task) -> Non
     import mujoco
     import numpy as np
 
-    from instinctlab.engines.mjlab.terrain_builders import build_rough
-    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
+    from instinctlab_engine_mjlab.terrain_builders import build_rough
+    from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
 
     native = build_rough(task.scene.terrain, {}).terrain_generator
     effective = FiledTerrainGenerator(native, device="cpu").cfg
@@ -207,9 +208,9 @@ def test_mjlab_hfield_repair_mapping_skips_mesh_only_cells(task) -> None:
     import mujoco
     from types import SimpleNamespace
 
-    from instinctlab.engines.mjlab.terrain_builders import build_rough
-    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
-    from instinctlab.engines.mjlab.terrains.terrain_importer import TerrainImporter
+    from instinctlab_engine_mjlab.terrain_builders import build_rough
+    from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
+    from instinctlab_engine_mjlab.terrains.terrain_importer import TerrainImporter
 
     native = build_rough(task.scene.terrain, {}).terrain_generator
     native.num_rows = 1
@@ -235,7 +236,7 @@ def test_mjlab_hfield_repair_mapping_skips_mesh_only_cells(task) -> None:
 
 def test_the_mjlab_importer_exposes_variant_metadata() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.terrains.terrain_importer_cfg import TerrainImporterCfg
+    from instinctlab_engine_mjlab.terrains.terrain_importer_cfg import TerrainImporterCfg
 
     terrain = TerrainImporterCfg(terrain_type="plane").class_type(
         TerrainImporterCfg(terrain_type="plane"), device="cpu"

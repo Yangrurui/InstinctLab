@@ -508,7 +508,7 @@ def test_both_native_actuator_tables_are_explicit_and_cover_the_robot_spec() -> 
 def test_native_actuator_builders_do_not_infer_groups_from_the_shared_contract() -> None:
     """Guard the boundary: native tables may be validated against RobotSpec, not generated from it."""
     from instinctlab.assets.unitree_g1.mjlab import beyondmimic_actuator_cfgs
-    from instinctlab.engines.mjlab import assets as mjlab_assets
+    from instinctlab_engine_mjlab import assets as mjlab_assets
 
     source = inspect.getsource(beyondmimic_actuator_cfgs)
     assert "joint_properties" not in source

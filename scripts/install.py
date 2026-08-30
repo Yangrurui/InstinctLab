@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install InstinctLab together with Isaac Lab and MJLab.
+"""Install InstinctLab, its engine packages, Isaac Lab, and MJLab.
 
 Uses pip only (never uv). Sibling checkouts are reused when present:
 
@@ -60,13 +60,20 @@ def _editable_location(name: str) -> Path | None:
     return Path(url.removeprefix("file://")).resolve()
 
 
-def _pip_editable(name: str, path: Path, *, force: bool) -> None:
+def _pip_editable(
+    name: str,
+    path: Path,
+    *,
+    force: bool,
+    no_deps: bool = False,
+) -> None:
     target = path.resolve()
     current = _editable_location(name)
     if not force and current == target:
         print(f"[INFO] Already installed: {name} -> {target}", flush=True)
         return
-    _pip("-e", str(target))
+    args = ("--no-deps",) if no_deps else ()
+    _pip("-e", str(target), *args)
 
 
 def _git_head(repo: Path) -> str:
@@ -154,10 +161,24 @@ def main() -> None:
         force=args.force,
     )
 
+    if not args.skip_isaaclab:
+        _pip_editable(
+            "instinctlab-engine-isaacsim",
+            REPO_ROOT / "source" / "instinctlab_engine_isaacsim",
+            force=args.force,
+            no_deps=True,
+        )
+    if not args.skip_mjlab:
+        _pip_editable(
+            "instinctlab-engine-mjlab",
+            REPO_ROOT / "source" / "instinctlab_engine_mjlab",
+            force=args.force,
+            no_deps=True,
+        )
+
     # Refresh InstinctLab in place. --no-deps avoids re-resolving Isaac/MJLab pins.
     instinctlab_src = REPO_ROOT / "source" / "instinctlab"
-    extra = ("--no-deps",) if _editable_location("instinctlab") == instinctlab_src.resolve() else ()
-    _pip("-e", str(instinctlab_src), *extra)
+    _pip("-e", str(instinctlab_src), "--no-deps")
     print(
         "[INFO] InstinctLab Engine Core, InstinctLab, Isaac Lab, and MJLab are installed.",
         flush=True,

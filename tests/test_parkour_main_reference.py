@@ -22,6 +22,7 @@ import pytest
 from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 from instinctlab.utils.configclass import class_to_dict
 from tests import reference_main_parkour as main_ref
+from tests.engine_packages import ISAACSIM_ENGINE
 
 REPO = Path(__file__).resolve().parents[1]
 MAIN_AGENT = "source/instinctlab/instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py"
@@ -151,7 +152,7 @@ def _load_main_agent() -> dict:
 
 @pytest.fixture(scope="module")
 def task():
-    from instinctlab.engines.isaacsim.assets import robot_spec
+    from instinctlab_engine_isaacsim.assets import robot_spec
     from instinctlab.tasks import registry
 
     task_id = "Instinct-Parkour-Target-G1"
@@ -355,9 +356,7 @@ def test_main_used_instinct_rl_env_with_single_reward_group() -> None:
 def test_env_entry_class_drift_is_guarded_without_isaacsim() -> None:
     """KNOWN_DRIFTS['env/entry_class']: main InstinctRlEnv vs our ManagerBasedRLEnv compile path."""
     assert main_ref.uses_instinct_rl_env()
-    isaac_adapter = (
-        REPO / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py"
-    ).read_text()
+    isaac_adapter = (ISAACSIM_ENGINE / "adapter.py").read_text()
     assert "InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)" in isaac_adapter
     assert "InstinctRlEnv" not in isaac_adapter
     train = (REPO / "scripts/train.py").read_text()
@@ -467,10 +466,7 @@ def test_documented_drifts_are_still_present(task) -> None:
     # green if main grew one too, which is precisely how this row got written backwards.
     assert task.robot.actuator_delay == (0, 2)
     assert main_ref.effective_robot_actuators()["delayed"] is False
-    isaac_adapter = (
-        Path(__file__).resolve().parents[1]
-        / "source/instinctlab/instinctlab/engines/isaacsim/adapter.py"
-    ).read_text()
+    isaac_adapter = (ISAACSIM_ENGINE / "adapter.py").read_text()
     assert main_ref.uses_instinct_rl_env()
     assert "InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)" in isaac_adapter
     assert "InstinctRlEnv" not in isaac_adapter
@@ -726,9 +722,7 @@ def test_train_scripts_agree_on_seed_num_envs_and_tf32() -> None:
     """CLI defaults, seed hand-off, and the optional resume path."""
     theirs = main_ref.train_script_facts()
     ours = Path("/root/InstinctLab/scripts/train.py").read_text()
-    adapter = Path(
-        "/root/InstinctLab/source/instinctlab/instinctlab/engines/isaacsim/adapter.py"
-    ).read_text()
+    adapter = (ISAACSIM_ENGINE / "adapter.py").read_text()
     assert theirs["sets_env_seed_from_agent"] is True
     assert "compiled.env_cfg.seed = distributed.seed(agent_cfg.seed)" in ours
     assert theirs["num_envs_default"] is None
@@ -768,7 +762,7 @@ def test_wrapper_setdefault_step_does_not_change_plain_ppo_rewards() -> None:
 def test_single_reward_group_keeps_num_rewards_one() -> None:
     assert main_ref.uses_multi_reward_cfg()
     assert main_ref.uses_instinct_rl_env()
-    from instinctlab.engines.isaacsim.assets import robot_spec
+    from instinctlab_engine_isaacsim.assets import robot_spec
     from instinctlab.tasks import registry
     from instinctlab.tasks.parkour.config.g1 import parkour_target_g1
 
@@ -801,7 +795,7 @@ def test_compiled_isaac_robot_matches_main_plant_and_keeps_documented_sim_drifts
     device = resolve_live_device()
     ensure_isaac_app(device=device)
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from tests.task_specs import task_spec
 
     spec = task_spec("Instinct-Parkour-Target-G1", "isaacsim")

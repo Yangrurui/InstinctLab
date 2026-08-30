@@ -65,7 +65,7 @@ def _assert_depth_stack_primed(
 @pytest.mark.mjlab
 def test_mjlab_reset_idx_clears_subset_before_first_post_reset_obs() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
     from tests.task_specs import task_spec
 
     compiled = MjlabAdapter().compile(
@@ -104,7 +104,7 @@ def test_mjlab_auto_reset_256_subset_clears_depth_via_reset_idx() -> None:
     from tests.parkour_live_expect import require_live_device
 
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
     from tests.task_specs import task_spec
 
     device = require_live_device()
@@ -150,7 +150,7 @@ def test_isaac_reset_idx_clears_subset_before_first_post_reset_obs() -> None:
     device = resolve_live_device()
     ensure_isaac_app(device=device)
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from tests.task_specs import task_spec
 
     compiled = IsaacSimAdapter().compile(
@@ -188,7 +188,7 @@ def test_isaac_step_auto_reset_clears_depth_via_reset_idx() -> None:
     device = resolve_live_device()
     ensure_isaac_app(device=device)
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from tests.task_specs import task_spec
 
     compiled = IsaacSimAdapter().compile(

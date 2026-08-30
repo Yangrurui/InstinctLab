@@ -12,7 +12,7 @@ pytestmark = pytest.mark.mjlab
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="stepping mjlab needs a GPU")
 def test_mjlab_motion_clock_and_exhaustion() -> None:
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
     from tests.live_device import resolve_live_device
     from tests.motion_reference_live_expect import assert_motion_clock_and_exhaustion, motion_only_parkour_task
     from tests.parkour_live_expect import assert_amp_same_function

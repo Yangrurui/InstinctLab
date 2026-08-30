@@ -13,6 +13,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 REFERENCE = Path("/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py")
 AGENT = Path("/root/InstinctMJ/src/instinct_mj/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py")
 ASSET = Path("/root/InstinctMJ/src/instinct_mj/assets/unitree_g1.py")
@@ -35,8 +37,9 @@ SCANNER_ORIGIN_OFFSET = (0.0, 0.0, 0.0)
 MJLAB_RAYCAST_SENSOR = Path("/root/mjlab/src/mjlab/sensor/raycast_sensor.py")
 MJLAB_TERRAIN_GENERATOR = Path("/root/mjlab/src/mjlab/terrains/terrain_generator.py")
 INSTINCTMJ_TERRAIN_GENERATOR = Path("/root/InstinctMJ/src/instinct_mj/terrains/terrain_generator.py")
-OURS_MJLAB_TERRAIN_GENERATOR = Path(
-    "/root/InstinctLab/source/instinctlab/instinctlab/engines/mjlab/terrains/terrain_generator.py"
+OURS_MJLAB_TERRAIN_GENERATOR = (
+    REPO_ROOT
+    / "source/instinctlab_engine_mjlab/src/instinctlab_engine_mjlab/terrains/terrain_generator.py"
 )
 
 
@@ -295,7 +298,7 @@ def camera_include_geom_groups() -> tuple[int, ...] | None:
 
 def grouped_ray_caster_hop_defaults() -> dict[str, int | float | str]:
     """GroupedRayCasterCfg hop defaults read from InstinctMJ source, not transcribed."""
-    from instinctlab.engines.mjlab.camera import pinhole_camera_hop_params
+    from instinctlab_engine_mjlab.camera import pinhole_camera_hop_params
 
     return pinhole_camera_hop_params()
 

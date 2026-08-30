@@ -17,8 +17,8 @@ pytest.importorskip("mjlab")
 from mjlab.terrains.primitive_terrains import BoxFlatTerrainCfg
 
 from instinctlab_engine.bridge.terrain import curriculum_column_indices, even_column_assignment
-from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
-from instinctlab.engines.mjlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
+from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
+from instinctlab_engine_mjlab.terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
 from instinctlab_engine.spec import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
 
 
@@ -79,8 +79,8 @@ def test_curriculum_compile_writes_proportion_columns_and_identical_row_difficul
 
 
 def test_importer_rejects_type_level_spawn_weights() -> None:
-    from instinctlab.engines.mjlab.terrains.terrain_importer import TerrainImporter
-    from instinctlab.engines.mjlab.terrains.terrain_importer_cfg import TerrainImporterCfg
+    from instinctlab_engine_mjlab.terrains.terrain_importer import TerrainImporter
+    from instinctlab_engine_mjlab.terrains.terrain_importer_cfg import TerrainImporterCfg
 
     importer = TerrainImporter(TerrainImporterCfg(terrain_type="plane", num_envs=8), device="cpu")
     origins = torch.zeros(2, 4, 3)
@@ -91,8 +91,8 @@ def test_importer_rejects_type_level_spawn_weights() -> None:
 
 
 def test_portable_generator_uses_filed_width_and_applies_terrain_friction() -> None:
-    from instinctlab.engines.mjlab.scene import _terrain
-    from instinctlab.engines.mjlab.terrains.terrain_generator import FiledTerrainGenerator
+    from instinctlab_engine_mjlab.scene import _terrain
+    from instinctlab_engine_mjlab.terrains.terrain_generator import FiledTerrainGenerator
 
     generator = TerrainGeneratorSpec(
         num_rows=2,
@@ -117,7 +117,7 @@ def test_portable_generator_uses_filed_width_and_applies_terrain_friction() -> N
 
 
 def test_mjlab_refuses_terrain_material_semantics_it_cannot_represent() -> None:
-    from instinctlab.engines.mjlab.scene import _terrain
+    from instinctlab_engine_mjlab.scene import _terrain
 
     with pytest.raises(ValueError, match="one sliding-friction"):
         _terrain(TerrainSpec(static_friction=0.9, dynamic_friction=0.7), {})

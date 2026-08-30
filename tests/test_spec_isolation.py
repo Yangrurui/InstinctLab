@@ -26,6 +26,7 @@ import pytest
 
 import instinctlab
 import instinctlab_engine.spec
+from tests.engine_packages import ENGINE_ROOTS as ENGINE_ROOTS_BY_NAME
 
 _ENGINE_ROOTS = frozenset({"isaaclab", "isaacsim", "mjlab", "omni", "pxr", "carb", "mujoco", "warp", "usd"})
 
@@ -167,7 +168,12 @@ def test_tasks_do_not_import_engine_implementations() -> None:
     root = pathlib.Path(instinctlab.__file__).parent / "tasks"
     violations = {
         str(path.relative_to(root)): sorted(
-            name for name in _imports(path) if name == "instinctlab.engines" or name.startswith("instinctlab.engines.")
+            name
+            for name in _imports(path)
+            if name == "instinctlab_engine_isaacsim"
+            or name.startswith("instinctlab_engine_isaacsim.")
+            or name == "instinctlab_engine_mjlab"
+            or name.startswith("instinctlab_engine_mjlab.")
         )
         for path in root.rglob("*.py")
     }
@@ -176,22 +182,19 @@ def test_tasks_do_not_import_engine_implementations() -> None:
 
 
 def test_engine_implementations_do_not_import_tasks_concrete_assets_or_each_other() -> None:
-    root = pathlib.Path(instinctlab.__file__).parent / "engines"
     violations: dict[str, list[str]] = {}
     for engine, other in (("isaacsim", "mjlab"), ("mjlab", "isaacsim")):
-        for path in (root / engine).rglob("*.py"):
+        root = ENGINE_ROOTS_BY_NAME[engine]
+        for path in root.rglob("*.py"):
             forbidden = [
                 name
                 for name in _imports(path)
                 if name == "instinctlab.tasks"
                 or name.startswith("instinctlab.tasks.")
-                    or name == "instinctlab.assets"
-                    or (
-                        name.startswith("instinctlab.assets.")
-                        and name != "instinctlab_engine.assets"
-                    )
-                or name == f"instinctlab.engines.{other}"
-                or name.startswith(f"instinctlab.engines.{other}.")
+                or name == "instinctlab.assets"
+                or name.startswith("instinctlab.assets.")
+                or name == f"instinctlab_engine_{other}"
+                or name.startswith(f"instinctlab_engine_{other}.")
             ]
             if forbidden:
                 violations[str(path.relative_to(root))] = sorted(forbidden)
@@ -221,7 +224,7 @@ def _shared_layer() -> list[pathlib.Path]:
 def _engine_names() -> frozenset[str]:
     import instinctlab_engine
 
-    return frozenset(instinctlab_engine.ADAPTERS)
+    return frozenset(instinctlab_engine.names())
 
 
 @pytest.mark.parametrize("source", _shared_layer(), ids=lambda p: p.name)

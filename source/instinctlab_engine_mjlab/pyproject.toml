@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools<82.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "instinctlab-engine-mjlab"
+version = "0.1.0"
+description = "MJLab backend for InstinctLab Engine Core"
+requires-python = ">=3.11"
+dependencies = [
+    "instinctlab-engine-core[geometry]==0.1.0",
+    "mjlab==1.5.0",
+    "mujoco==3.10.0",
+    "mujoco-warp==3.10.0.1",
+    "warp-lang==1.14.0",
+    "coacd==1.0.7",
+]
+
+[project.entry-points."instinctlab.engines"]
+mjlab = "instinctlab_engine_mjlab:register"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["instinctlab_engine_mjlab*"]

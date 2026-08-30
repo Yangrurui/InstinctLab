@@ -101,7 +101,7 @@ def test_the_isaac_backend_can_be_imported_without_isaac(monkeypatch) -> None:
     outright is the only honest way to test that, since the machine running this may have them.
     """
     for name in list(sys.modules):
-        if name.startswith(("instinctlab.engines.isaacsim", "isaaclab")):
+        if name.startswith(("instinctlab_engine_isaacsim", "isaaclab")):
             monkeypatch.delitem(sys.modules, name, raising=False)
 
     class Blocker:
@@ -110,14 +110,14 @@ def test_the_isaac_backend_can_be_imported_without_isaac(monkeypatch) -> None:
                 raise AssertionError(f"Importing the Isaac Sim backend pulled in {name!r}.")
 
     monkeypatch.setattr(sys, "meta_path", [Blocker(), *sys.meta_path])
-    import instinctlab.engines.isaacsim as backend
+    import instinctlab_engine_isaacsim as backend
 
     assert backend.TERMS.capabilities(), "The registry advertises no capabilities at all."
     assert "joint_position" in backend.TERMS.kinds("action")
 
 
 def test_the_backend_reports_that_it_can_run_this_task(task) -> None:
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from tests.task_specs import task_spec
 
     report = IsaacSimAdapter().contract_report(

@@ -68,15 +68,20 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
 
     ```bash
     python -m pip install -e source/instinctlab_engine
-    python -m pip install -e "source/instinctlab[all]"
+    python -m pip install -e source/instinctlab_engine_isaacsim
+    python -m pip install -e source/instinctlab_engine_mjlab
+    python -m pip install -e source/instinctlab
     ```
 
     Install a single backend extra if needed:
 
     ```bash
     python -m pip install -e source/instinctlab_engine
-    python -m pip install -e "source/instinctlab[isaaclab]"
-    python -m pip install -e "source/instinctlab[mjlab]"
+    python -m pip install -e source/instinctlab_engine_isaacsim
+    python -m pip install -e source/instinctlab  # Isaac only
+
+    python -m pip install -e source/instinctlab_engine_mjlab
+    python -m pip install -e source/instinctlab  # MJLab only
     ```
 
 - Train any registered unified task on either engine. One declaration, compiled by the chosen engine's
@@ -156,7 +161,9 @@ In some VsCode versions, the indexing of part of the extensions is missing. In t
 {
     "python.analysis.extraPaths": [
         "<path-to-ext-repo>/source/instinctlab",
-        "<path-to-ext-repo>/source/instinctlab_engine/src"
+        "<path-to-ext-repo>/source/instinctlab_engine/src",
+        "<path-to-ext-repo>/source/instinctlab_engine_isaacsim/src",
+        "<path-to-ext-repo>/source/instinctlab_engine_mjlab/src"
     ]
 }
 ```

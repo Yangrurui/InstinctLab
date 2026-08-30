@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("mjlab")
 
-from instinctlab.engines.mjlab.actions import PreservingJointPositionAction, PreservingJointPositionActionCfg
+from instinctlab_engine_mjlab.actions import PreservingJointPositionAction, PreservingJointPositionActionCfg
 
 
 class _Entity:

@@ -26,7 +26,7 @@ def test_guard_fires_on_real_physx_collision_stack_overflow() -> None:
     device = resolve_live_device()
     ensure_isaac_app(device=device)
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from instinctlab_engine.diagnostics.contact_overflow import (
         ContactOverflowError,
         check_contact_overflow,

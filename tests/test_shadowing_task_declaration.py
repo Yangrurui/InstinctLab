@@ -174,7 +174,7 @@ def test_compiled_mjlab_shadowing_capacities_match_instinctmj(
     task_id: str, expected: tuple
 ) -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     cfg = MjlabAdapter().compile(_task(task_id), num_envs=2, device="cpu").env_cfg
     actual = (

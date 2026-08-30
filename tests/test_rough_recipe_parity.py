@@ -8,11 +8,12 @@ from typing import Any
 
 from instinctlab.tasks.terrain import rough_terrain
 from instinctlab.utils.terrain_split_log import ALIGNED_TERRAINS, EXCLUDED_TERRAINS
+from tests.engine_packages import ISAACSIM_ENGINE, MJLAB_ENGINE
 
 REPO = Path(__file__).resolve().parent.parent
 MAIN_PARKOUR = Path("/root/InstinctLab-main/source/instinctlab/instinctlab/tasks/parkour/config/parkour_env_cfg.py")
-ISAAC_BRIDGE = REPO / "source/instinctlab/instinctlab/engines/isaacsim/terrain_builders.py"
-MJLAB_BRIDGE = REPO / "source/instinctlab/instinctlab/engines/mjlab/terrain_builders.py"
+ISAAC_BRIDGE = ISAACSIM_ENGINE / "terrain_builders.py"
+MJLAB_BRIDGE = MJLAB_ENGINE / "terrain_builders.py"
 
 TYPE_TO_KIND = {
     "PerlinPlaneTerrainCfg": "perlin_plane",

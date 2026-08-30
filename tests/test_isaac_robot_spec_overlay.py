@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 
 from instinctlab.assets.unitree_g1 import isaacsim
-from instinctlab.engines.isaacsim import assets
+from instinctlab_engine_isaacsim import assets
 from instinctlab_engine.assets import native_asset_module
 
 ASSET_IDS = (

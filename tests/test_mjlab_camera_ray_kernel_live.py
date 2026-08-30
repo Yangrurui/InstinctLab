@@ -9,7 +9,7 @@ from pathlib import Path
 import mujoco
 import pytest
 import torch
-from instinctlab.engines.mjlab.camera import (
+from instinctlab_engine_mjlab.camera import (
     pinhole_camera_geom_groups,
     pinhole_camera_hop_params,
 )
@@ -41,7 +41,7 @@ def _require_instinctmj() -> None:
 
 
 def _ours_sensor_cfg(name: str = "ours", *, perceptive: bool = False):
-    from instinctlab.engines.mjlab.camera import pinhole_ray_caster
+    from instinctlab_engine_mjlab.camera import pinhole_ray_caster
 
     ref = RayCasterRef(
         name=name,
@@ -123,7 +123,7 @@ def test_hop_params_read_from_instinctmj_source() -> None:
 
 def test_calibration_noise_mutates_local_rays_like_instinctmj(device) -> None:
     from instinctlab_engine.bridge.math import quat_apply, quat_from_euler_xyz, quat_mul
-    from instinctlab.engines.mjlab.camera import pinhole_ray_caster
+    from instinctlab_engine_mjlab.camera import pinhole_ray_caster
 
     offset = (0.2, -0.1, 0.3)
     offset_rot = (0.9393727, 0.0, 0.3428978, 0.0)

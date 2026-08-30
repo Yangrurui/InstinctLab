@@ -25,6 +25,7 @@ import pytest
 
 import instinctlab_engine as engines
 import instinctlab.tasks.registry as registry
+from tests.engine_packages import ISAACSIM_ENGINE, MJLAB_ENGINE
 
 _SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 _ENTRY = _SCRIPTS / "train.py"
@@ -325,7 +326,7 @@ def test_the_registries_import_with_engines_blocked() -> None:
             raise ImportError(f"the launcher must not need {name}")
 
     blocker = _Blocker()
-    watched = ("instinctlab.tasks", "instinctlab.engines")
+    watched = ("instinctlab.tasks", "instinctlab_engine_isaacsim", "instinctlab_engine_mjlab")
     evicted = {
         name: module
         for name, module in sys.modules.items()
@@ -422,11 +423,8 @@ def test_each_engine_reproduces_its_references_torch_settings() -> None:
     The flags stay in each adapter rather than the launcher: the launcher runs for both engines and
     would have to be wrong for one of them.
     """
-    import instinctlab
-
-    engines_dir = pathlib.Path(instinctlab.__file__).parent / "engines"
-    isaac = _assignments(engines_dir / "isaacsim" / "adapter.py")
-    mjlab_adapter = engines_dir / "mjlab" / "adapter.py"
+    isaac = _assignments(ISAACSIM_ENGINE / "adapter.py")
+    mjlab_adapter = MJLAB_ENGINE / "adapter.py"
 
     assert isaac == TORCH_BACKEND_FLAGS, f"the Isaac adapter sets {isaac}, main sets {TORCH_BACKEND_FLAGS}"
     assert not _assignments(mjlab_adapter), (
@@ -446,7 +444,7 @@ def test_mjlab_bootstrap_actually_turns_tf32_matmul_on() -> None:
     import torch
 
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
 
     before = (
         torch.backends.cuda.matmul.allow_tf32,

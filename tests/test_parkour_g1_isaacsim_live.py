@@ -22,7 +22,7 @@ def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
     ensure_isaac_app(device=device)
 
     from instinctlab_engine.bridge.terrain import column_sub_terrain_names
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from tests.parkour_live_expect import (
         assert_amp_same_function,
         assert_depth_camera_miss_is_positive_infinity,

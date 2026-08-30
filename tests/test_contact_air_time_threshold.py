@@ -104,7 +104,7 @@ def test_contact_sensor_resolves_a_reference_specific_threshold() -> None:
 
 def test_mjlab_builds_a_sensor_that_clocks_off_force() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _build_contact_sensor
+    from instinctlab_engine_mjlab.scene import _build_contact_sensor
 
     ref = ContactSensorRef(
         name="contact_forces",
@@ -125,7 +125,7 @@ def test_mjlab_builds_a_sensor_that_clocks_off_force() -> None:
 def test_the_mjlab_sensor_refuses_to_clock_without_the_force_field() -> None:
     """Silence here would mean timers pinned at zero for a whole run, as ``found`` once did."""
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.contact_sensor import _classes
+    from instinctlab_engine_mjlab.contact_sensor import _classes
 
     sensor_type, cfg_type = _classes()
     from mjlab.sensor.contact_sensor import _AirTimeState
@@ -161,7 +161,7 @@ def test_isaac_carries_the_declared_threshold_onto_its_own_field() -> None:
 
     ensure_isaac_app()
 
-    from instinctlab.engines.isaacsim.scene import _build_contact_sensor
+    from instinctlab_engine_isaacsim.scene import _build_contact_sensor
 
     ref = ContactSensorRef(
         name="contact_forces",

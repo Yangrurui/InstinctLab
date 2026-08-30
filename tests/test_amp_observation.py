@@ -150,7 +150,7 @@ def test_amp_joints_are_canonical_names_not_bfs_or_clip_order() -> None:
         load_retargetted_clip,
         remap_by_name,
     )
-    from instinctlab.engines.mjlab.assets import robot_spec
+    from instinctlab_engine_mjlab.assets import robot_spec
     from instinctlab.tasks import registry
 
     task_id = "Instinct-Parkour-Target-G1"

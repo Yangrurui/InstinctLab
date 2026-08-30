@@ -17,7 +17,7 @@ def test_isaacsim_shadowing_short_rollout() -> None:
     pytest.importorskip("isaaclab")
     ensure_isaac_app(device=device)
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from instinctlab.shadowing_probe import collect_shadowing_rollout, shadowing_task_with_motion
     from tests.parkour_live_expect import assert_policy_joint_dfs_runtime_semantics
     from tests.shadowing_live import resolve_shadowing_motion

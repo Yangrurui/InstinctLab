@@ -10,15 +10,15 @@ import torch
 
 import instinctlab_engine as engines
 from instinctlab_engine.registry import FAMILIES
-from instinctlab.engines.isaacsim.terms import TERMS as ISAAC_TERMS
-from instinctlab.engines.mjlab.terms import TERMS as MJLAB_TERMS
+from instinctlab_engine_isaacsim.terms import TERMS as ISAAC_TERMS
+from instinctlab_engine_mjlab.terms import TERMS as MJLAB_TERMS
 from instinctlab_engine.motion_reference import clip_frame, exhausted_envs
 from instinctlab.tasks import registry
+from tests.engine_packages import ENGINE_ROOTS as ENGINE_ROOTS_BY_NAME
 
 ROOT = Path("source/instinctlab/instinctlab")
 ENGINE_CORE_ROOT = Path(engines.__file__).parent
-ENGINE_ROOTS = (ROOT / "engines" / "isaacsim", ROOT / "engines" / "mjlab")
-ENGINE_TREE = ROOT / "engines"
+ENGINE_ROOTS = tuple(ENGINE_ROOTS_BY_NAME.values())
 TASK_ROOT = ROOT / "tasks"
 SHARED_ROOTS = (
     ROOT / "assets",
@@ -57,7 +57,10 @@ def test_shared_packages_do_not_import_engine_implementations() -> None:
             forbidden = tuple(
                 name
                 for name in _imports(path)
-                if name == "instinctlab.engines" or name.startswith("instinctlab.engines.")
+                if name == "instinctlab_engine_isaacsim"
+                or name.startswith("instinctlab_engine_isaacsim.")
+                or name == "instinctlab_engine_mjlab"
+                or name.startswith("instinctlab_engine_mjlab.")
             )
             if forbidden:
                 offenders.append(f"{path}: {', '.join(forbidden)}")
@@ -66,35 +69,37 @@ def test_shared_packages_do_not_import_engine_implementations() -> None:
 
 def test_engine_implementations_do_not_import_task_packages() -> None:
     offenders: list[str] = []
-    for path in ENGINE_TREE.rglob("*.py"):
-        forbidden = tuple(
-            name
-            for name in _imports(path)
-            if name == "instinctlab.tasks" or name.startswith("instinctlab.tasks.")
-        )
-        if forbidden:
-            offenders.append(f"{path}: {', '.join(forbidden)}")
+    for engine_root in ENGINE_ROOTS:
+        for path in engine_root.rglob("*.py"):
+            forbidden = tuple(
+                name
+                for name in _imports(path)
+                if name == "instinctlab.tasks" or name.startswith("instinctlab.tasks.")
+            )
+            if forbidden:
+                offenders.append(f"{path}: {', '.join(forbidden)}")
     assert not offenders, f"engine modules import task packages: {sorted(offenders)}"
 
 
 def test_engine_implementations_do_not_import_playback_application() -> None:
     offenders: list[str] = []
-    for path in ENGINE_TREE.rglob("*.py"):
-        forbidden = tuple(
-            name
-            for name in _imports(path)
-            if name == "instinctlab.play" or name.startswith("instinctlab.play.")
-        )
-        if forbidden:
-            offenders.append(f"{path}: {', '.join(forbidden)}")
+    for engine_root in ENGINE_ROOTS:
+        for path in engine_root.rglob("*.py"):
+            forbidden = tuple(
+                name
+                for name in _imports(path)
+                if name == "instinctlab.play" or name.startswith("instinctlab.play.")
+            )
+            if forbidden:
+                offenders.append(f"{path}: {', '.join(forbidden)}")
     assert not offenders, f"engine modules import playback application: {sorted(offenders)}"
 
 
 def test_backends_do_not_import_one_another() -> None:
     for engine, forbidden_engine in (("isaacsim", "mjlab"), ("mjlab", "isaacsim")):
         offenders: list[str] = []
-        prefix = f"instinctlab.engines.{forbidden_engine}"
-        for path in (ENGINE_TREE / engine).rglob("*.py"):
+        prefix = f"instinctlab_engine_{forbidden_engine}"
+        for path in ENGINE_ROOTS_BY_NAME[engine].rglob("*.py"):
             forbidden = tuple(name for name in _imports(path) if name == prefix or name.startswith(prefix + "."))
             if forbidden:
                 offenders.append(f"{path}: {', '.join(forbidden)}")
@@ -111,7 +116,7 @@ def test_sdk_imports_outside_engine_library_are_explicit_boundaries() -> None:
     }
     offenders: list[str] = []
     for path in ROOT.rglob("*.py"):
-        if path.is_relative_to(ENGINE_TREE) or path in allowed:
+        if path in allowed:
             continue
         forbidden = tuple(name for name in _imports(path) if name.split(".")[0] in sdk_roots)
         if forbidden:
@@ -124,7 +129,7 @@ def test_retired_runtime_packages_are_absent() -> None:
         ROOT / "envs",
         ROOT / "managers",
         ROOT / "monitors",
-        ROOT / "engines" / "isaacsim" / "legacy_motion_reference",
+        ENGINE_ROOTS_BY_NAME["isaacsim"] / "legacy_motion_reference",
     )
     assert not [str(path) for path in retired if path.exists()]
 
@@ -143,7 +148,7 @@ def test_scene_modules_do_not_dispatch_concrete_terrain_kinds() -> None:
 
 def test_isaac_engine_does_not_import_the_legacy_global_mdp_catalog() -> None:
     offenders: list[str] = []
-    for path in (ROOT / "engines" / "isaacsim").rglob("*.py"):
+    for path in ENGINE_ROOTS_BY_NAME["isaacsim"].rglob("*.py"):
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -172,7 +177,10 @@ def test_task_modules_do_not_import_engine_implementations() -> None:
             forbidden = tuple(
                 name
                 for name in names
-                if name == "instinctlab.engines" or name.startswith("instinctlab.engines.")
+                if name == "instinctlab_engine_isaacsim"
+                or name.startswith("instinctlab_engine_isaacsim.")
+                or name == "instinctlab_engine_mjlab"
+                or name.startswith("instinctlab_engine_mjlab.")
             )
             if forbidden:
                 offenders.append(f"{path}: {', '.join(forbidden)}")
@@ -195,7 +203,7 @@ def test_reward_and_termination_formulas_are_not_registered_by_engines() -> None
         assert terms.kinds("reward") == set()
         assert terms.kinds("termination") == set()
 
-    assert not (ROOT / "engines" / "mjlab" / "rewards.py").exists()
+    assert not (ENGINE_ROOTS_BY_NAME["mjlab"] / "rewards.py").exists()
 
 
 def test_task_owned_native_choices_are_explicit() -> None:

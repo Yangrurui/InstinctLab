@@ -79,7 +79,7 @@ def test_the_grid_this_increment_uses_is_two_rays() -> None:
 
 
 def test_isaac_refuses_against_rather_than_emitting_an_unfiltered_sensor() -> None:
-    from instinctlab.engines.isaacsim.scene import _build_contact_sensor
+    from instinctlab_engine_isaacsim.scene import _build_contact_sensor
 
     with pytest.raises(ValueError, match="cannot honor ContactSensorRef.against"):
         _build_contact_sensor(
@@ -89,7 +89,7 @@ def test_isaac_refuses_against_rather_than_emitting_an_unfiltered_sensor() -> No
 
 def test_mjlab_still_passes_against_as_a_secondary_match() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _build_contact_sensor
+    from instinctlab_engine_mjlab.scene import _build_contact_sensor
 
     cfg = _build_contact_sensor(
         ContactSensorRef(name="contact_forces", elements=".*", against="terrain")
@@ -100,7 +100,7 @@ def test_mjlab_still_passes_against_as_a_secondary_match() -> None:
 
 def test_mjlab_ray_caster_cfg_is_sky_origin_and_not_the_stock_group_mask() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _build_ray_caster
+    from instinctlab_engine_mjlab.scene import _build_ray_caster
 
     cfg = _build_ray_caster(
         RayCasterRef(
@@ -121,7 +121,7 @@ def test_mjlab_ray_caster_cfg_is_sky_origin_and_not_the_stock_group_mask() -> No
 
 def test_mjlab_terrain_height_mode_uses_the_native_ankle_query() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _build_ray_caster
+    from instinctlab_engine_mjlab.scene import _build_ray_caster
 
     cfg = _build_ray_caster(
         RayCasterRef(
@@ -162,11 +162,11 @@ def test_pinhole_yaw_is_refused_because_both_engines_ignore_it() -> None:
                 ray_alignment="world",
             )
         )
-    from instinctlab.engines.isaacsim.scene import _build_ray_caster as isaac_ray_caster
+    from instinctlab_engine_isaacsim.scene import _build_ray_caster as isaac_ray_caster
 
     with pytest.raises(ValueError, match="silently ignored"):
         isaac_ray_caster(yaw_camera, sensor_period=0.02)
-    from instinctlab.engines.mjlab.scene import _build_ray_caster as mjlab_ray_caster
+    from instinctlab_engine_mjlab.scene import _build_ray_caster as mjlab_ray_caster
 
     with pytest.raises(ValueError, match="silently ignored"):
         mjlab_ray_caster(yaw_camera, {})
@@ -202,7 +202,7 @@ def test_pinhole_yaw_is_refused_because_both_engines_ignore_it() -> None:
 def test_mjlab_grid_passes_base_alignment_through() -> None:
     """Grid + base is honoured on both engines; do not start refusing it."""
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.scene import _build_ray_caster
+    from instinctlab_engine_mjlab.scene import _build_ray_caster
 
     cfg = _build_ray_caster(
         RayCasterRef(
@@ -273,7 +273,7 @@ def test_a_pitched_foot_makes_yaw_and_full_rotation_origins_disagree() -> None:
 
 
 def test_ensure_warp_ray_on_device_is_a_no_op_on_cpu() -> None:
-    from instinctlab.engines.mjlab.ray_device import ensure_warp_ray_on_device
+    from instinctlab_engine_mjlab.ray_device import ensure_warp_ray_on_device
 
     ensure_warp_ray_on_device("cpu")
     ensure_warp_ray_on_device("cpu:0")
@@ -341,7 +341,7 @@ def test_scene_lists_ray_casters() -> None:
 def test_terrain_mask_is_the_terrain_body_not_a_group_number() -> None:
     """Group 2 on the G1 is the visual shoe. A group mask is not terrain-only."""
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.engines.mjlab.raycast import _terrain_geom_mask
+    from instinctlab_engine_mjlab.raycast import _terrain_geom_mask
 
     model = mujoco.MjModel.from_xml_string("""
         <mujoco>
@@ -444,8 +444,8 @@ def test_depth_image_does_not_convert_device_state_to_a_python_bool(
 
 def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
     pytest.importorskip("mjlab")
-    from instinctlab.engines.mjlab.camera import pinhole_camera_geom_groups
-    from instinctlab.engines.mjlab.scene import _build_ray_caster
+    from instinctlab_engine_mjlab.camera import pinhole_camera_geom_groups
+    from instinctlab_engine_mjlab.scene import _build_ray_caster
     from tests.task_specs import task_spec
 
     expected = pinhole_camera_geom_groups()
@@ -478,7 +478,7 @@ def test_mjlab_camera_cfg_uses_instinctmj_geom_groups() -> None:
 def test_geom_groups_mask_includes_all_group012_geoms() -> None:
     """Group 2 is the visual shoe; the mask is by group number, not body name."""
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.engines.mjlab.camera import (
+    from instinctlab_engine_mjlab.camera import (
         geom_groups_camera_mask,
         pinhole_camera_geom_groups,
     )
@@ -515,7 +515,7 @@ def test_geom_groups_mask_includes_all_group012_geoms() -> None:
 
 def test_geom_groups_mask_rejects_empty_groups() -> None:
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.engines.mjlab.camera import geom_groups_camera_mask
+    from instinctlab_engine_mjlab.camera import geom_groups_camera_mask
 
     model = mujoco.MjModel.from_xml_string("""
         <mujoco>
@@ -553,7 +553,7 @@ def test_processed_depth_turns_infinity_into_the_normalisation_ceiling() -> None
 
 def test_terrain_mask_refuses_a_non_terrain_geom_in_the_same_group() -> None:
     mujoco = pytest.importorskip("mujoco")
-    from instinctlab.engines.mjlab.raycast import _terrain_geom_mask
+    from instinctlab_engine_mjlab.raycast import _terrain_geom_mask
 
     model = mujoco.MjModel.from_xml_string("""
         <mujoco>

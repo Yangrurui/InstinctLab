@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
-from instinctlab.engines.isaacsim.scene import PROFILE_DEFAULTS, _spawn_overrides
+from instinctlab_engine_isaacsim.scene import PROFILE_DEFAULTS, _spawn_overrides
 
 
 @dataclass(frozen=True)

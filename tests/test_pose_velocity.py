@@ -25,9 +25,9 @@ from instinctlab.tasks.parkour.mdp.commands.pose_velocity_command import (
     PoseVelocityCommand,
     command_params,
 )
+from tests.engine_packages import ENGINE_ROOTS
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-ENGINES = REPO / "source/instinctlab/instinctlab/engines"
 POSE_VELOCITY = REPO / "source/instinctlab/instinctlab/tasks/parkour/mdp/commands/pose_velocity_command.py"
 _ENGINE_ROOTS = frozenset({"isaaclab", "isaacsim", "mjlab", "omni", "pxr", "carb", "mujoco", "warp", "usd"})
 _COMMAND_ARITHMETIC = frozenset(
@@ -58,8 +58,8 @@ Registration and isolation.
 
 
 def test_both_engines_use_the_generic_portable_command_boundary() -> None:
-    from instinctlab.engines.isaacsim import TERMS as isaac_terms
-    from instinctlab.engines.mjlab import TERMS as mjlab_terms
+    from instinctlab_engine_isaacsim import TERMS as isaac_terms
+    from instinctlab_engine_mjlab import TERMS as mjlab_terms
 
     for terms in (isaac_terms, mjlab_terms):
         assert "pose_velocity" not in terms.kinds("command")
@@ -68,8 +68,8 @@ def test_both_engines_use_the_generic_portable_command_boundary() -> None:
 
 
 def test_contract_report_is_clean_for_the_task_owned_command() -> None:
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
-    from instinctlab.engines.mjlab import MjlabAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
+    from instinctlab_engine_mjlab import MjlabAdapter
     from instinctlab.tasks import registry
 
     for adapter in (IsaacSimAdapter(), MjlabAdapter()):
@@ -81,8 +81,8 @@ def test_contract_report_is_clean_for_the_task_owned_command() -> None:
 
 
 def test_reset_joints_by_offset_provides_joint_state() -> None:
-    from instinctlab.engines.isaacsim import TERMS as isaac_terms
-    from instinctlab.engines.mjlab import TERMS as mjlab_terms
+    from instinctlab_engine_isaacsim import TERMS as isaac_terms
+    from instinctlab_engine_mjlab import TERMS as mjlab_terms
     from instinctlab_engine.spec.capability import JOINT_STATE
 
     assert isaac_terms.provides()["event/reset_joints_by_offset"] == (JOINT_STATE,)
@@ -112,7 +112,7 @@ def test_the_task_class_holds_all_pose_velocity_arithmetic() -> None:
     command = _class_def(POSE_VELOCITY, "PoseVelocityCommand")
     assert _COMMAND_ARITHMETIC <= _methods(command)
     for engine in ("isaacsim", "mjlab"):
-        assert not (ENGINES / engine / "pose_velocity.py").exists()
+        assert not (ENGINE_ROOTS[engine] / "pose_velocity.py").exists()
 
 
 def test_task_pose_velocity_module_has_no_engine_or_sdk_import() -> None:
@@ -128,7 +128,7 @@ def test_task_pose_velocity_module_has_no_engine_or_sdk_import() -> None:
         for node in tree.body
         if isinstance(node, ast.ImportFrom) and node.module
     )
-    assert not any(name.startswith("instinctlab.engines") for name in imported)
+    assert not any(name.startswith(("instinctlab_engine_isaacsim", "instinctlab_engine_mjlab")) for name in imported)
     assert not ({name.split(".")[0] for name in imported} & _ENGINE_ROOTS)
 
 
@@ -165,7 +165,9 @@ def test_actual_column_count_reads_the_grid_not_num_cols() -> None:
 
 def test_column_namer_lives_only_at_the_shared_compatibility_boundary() -> None:
     assert column_sub_terrain_names.__module__ == "instinctlab_engine.bridge.terrain"
-    assert not (ENGINES / "pose_velocity.py").exists()
+    assert not (
+        REPO / "source/instinctlab/instinctlab/engines/pose_velocity.py"
+    ).exists()
 
 
 def test_isaac_columns_follow_proportion() -> None:

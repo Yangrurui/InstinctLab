@@ -8,7 +8,7 @@ selected one.
 
 from __future__ import annotations
 
-from importlib import import_module
+from importlib import import_module, metadata
 from typing import TYPE_CHECKING, Any
 
 from instinctlab_engine.bridge import entity as _entity
@@ -36,12 +36,29 @@ def register_adapter(engine: str, path: str) -> None:
     _entity.register_packages({engine: module.rpartition(".")[0]})
 
 
-register_adapter("isaacsim", "instinctlab.engines.isaacsim.adapter:IsaacSimAdapter")
-register_adapter("mjlab", "instinctlab.engines.mjlab.adapter:MjlabAdapter")
+_ENGINE_ENTRY_POINT_GROUP = "instinctlab.engines"
+_engine_entry_points_loaded = False
+
+
+def _load_installed_engines() -> None:
+    """Load installed backend registrars without importing a simulator SDK."""
+    global _engine_entry_points_loaded
+    if _engine_entry_points_loaded:
+        return
+    _engine_entry_points_loaded = True
+    entry_points = metadata.entry_points(group=_ENGINE_ENTRY_POINT_GROUP)
+    for entry_point in sorted(entry_points, key=lambda item: item.name):
+        registrar = entry_point.load()
+        if not callable(registrar):
+            raise TypeError(
+                f"engine entry point {entry_point.name!r} must load a callable registrar"
+            )
+        registrar()
 
 
 def names() -> tuple[str, ...]:
     """Every engine with an adapter, whether or not it is installed here."""
+    _load_installed_engines()
     return tuple(sorted(ADAPTERS))
 
 
@@ -52,6 +69,7 @@ def adapter(engine: str) -> EngineAdapter:
     SDK inside ``bootstrap`` and ``compile``, never at module level -- so this also serves the
     checks that report what an engine would do with a task it will never run.
     """
+    _load_installed_engines()
     try:
         path = ADAPTERS[engine]
     except KeyError:

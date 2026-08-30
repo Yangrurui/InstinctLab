@@ -15,7 +15,7 @@ def test_isaac_motion_clock_and_exhaustion() -> None:
     pytest.importorskip("isaaclab")
     ensure_isaac_app(device=device)
 
-    from instinctlab.engines.isaacsim import IsaacSimAdapter
+    from instinctlab_engine_isaacsim import IsaacSimAdapter
     from tests.motion_reference_live_expect import assert_motion_clock_and_exhaustion, motion_only_parkour_task
     from tests.parkour_live_expect import assert_amp_same_function
 

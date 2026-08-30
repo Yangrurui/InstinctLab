@@ -157,7 +157,7 @@ def test_play_enables_volume_points_debug_vis_on_the_live_sensor() -> None:
 def test_volume_points_debug_vis_draws_free_and_penetrated_spheres() -> None:
     import torch
 
-    from instinctlab.engines.mjlab.volume_points import build_sensor
+    from instinctlab_engine_mjlab.volume_points import build_sensor
     from instinctlab_engine.spec.sensor import Grid3dPointsRef, VolumePointsRef
 
     class _Vis:
@@ -225,8 +225,8 @@ def test_play_patches_pose_command_debug_vis_on_the_live_term() -> None:
 def test_edge_cylinder_debug_vis_draws_cylinders() -> None:
     import torch
 
-    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder import EdgeCylinder
-    from instinctlab.engines.mjlab.terrains.virtual_obstacle.edge_cylinder_cfg import EdgeCylinderCfg
+    from instinctlab_engine_mjlab.terrains.virtual_obstacle.edge_cylinder import EdgeCylinder
+    from instinctlab_engine_mjlab.terrains.virtual_obstacle.edge_cylinder_cfg import EdgeCylinderCfg
 
     class _Vis:
         def __init__(self) -> None:
