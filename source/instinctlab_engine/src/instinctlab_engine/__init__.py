@@ -16,6 +16,7 @@ from instinctlab_engine.plugins import (
     PluginDiscoveryError,
     _restore_provenance,
     _snapshot_provenance,
+    _plugin_locked,
     entry_point_description,
     load_plugin_callable,
     mark_plugin_used,
@@ -36,6 +37,7 @@ _ADAPTER_SOURCES: dict[str, str] = {}
 _active_engine_plugin: str | None = None
 
 
+@_plugin_locked
 def register_adapter(engine: str, path: str) -> None:
     """Register an engine plugin without editing the shared compiler."""
     module, separator, attribute = path.partition(":")
@@ -65,6 +67,7 @@ _engine_entry_points_loaded = False
 _engine_entry_point_error: PluginDiscoveryError | None = None
 
 
+@_plugin_locked
 def _load_installed_engines() -> None:
     """Load installed backend registrars without importing a simulator SDK."""
     global _active_engine_plugin, _engine_entry_points_loaded, _engine_entry_point_error
@@ -142,12 +145,14 @@ def _load_installed_engines() -> None:
     _engine_entry_points_loaded = True
 
 
+@_plugin_locked
 def names() -> tuple[str, ...]:
     """Every engine with an adapter, whether or not it is installed here."""
     _load_installed_engines()
     return tuple(sorted(ADAPTERS))
 
 
+@_plugin_locked
 def adapter(engine: str) -> EngineAdapter:
     """Import ``engine``'s adapter and return an instance of it.
 

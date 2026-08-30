@@ -8,8 +8,10 @@ from types import ModuleType
 
 from instinctlab_engine.plugins import (
     PluginDiscoveryError,
+    _PLUGIN_LOCK,
     _restore_provenance,
     _snapshot_provenance,
+    _plugin_locked,
     entry_point_description,
     load_plugin_callable,
     mark_plugin_used,
@@ -49,6 +51,7 @@ class AssetRegistry:
         if not package or not package.isidentifier():
             raise ValueError(f"invalid asset package name {package!r}")
 
+    @_plugin_locked
     def register(self, package: str, resolver: AssetResolver) -> None:
         """Register one asset package resolver without importing an engine SDK."""
         self._validate_package(package)
@@ -66,6 +69,7 @@ class AssetRegistry:
         if existing is None and self._active_plugin is not None:
             self._resolver_sources[package] = self._active_plugin
 
+    @_plugin_locked
     def _load_installed_assets(self) -> None:
         if self._entry_point_error is not None:
             raise self._entry_point_error
@@ -117,8 +121,9 @@ class AssetRegistry:
 
     def packages(self) -> tuple[str, ...]:
         """Return every registered or installed asset package name."""
-        self._load_installed_assets()
-        return tuple(sorted(self._resolvers))
+        with _PLUGIN_LOCK:
+            self._load_installed_assets()
+            return tuple(sorted(self._resolvers))
 
     def native_module(self, asset_id: str, engine: str) -> tuple[ModuleType, str]:
         """Resolve ``package/variant`` through its neutral asset resolver."""
@@ -129,14 +134,15 @@ class AssetRegistry:
             )
         if not engine.isidentifier():
             raise ValueError(f"engine must be a Python module name, got {engine!r}")
-        self._load_installed_assets()
-        try:
-            resolver = self._resolvers[package]
-        except KeyError:
-            known = ", ".join(sorted(self._resolvers)) or "none"
-            raise KeyError(
-                f"unknown asset package {package!r}; installed packages are {known}"
-            ) from None
+        with _PLUGIN_LOCK:
+            self._load_installed_assets()
+            try:
+                resolver = self._resolvers[package]
+            except KeyError:
+                known = ", ".join(sorted(self._resolvers)) or "none"
+                raise KeyError(
+                    f"unknown asset package {package!r}; installed packages are {known}"
+                ) from None
         mark_plugin_used(self.ENTRY_POINT_GROUP, package)
         return resolver(engine, variant)
 

@@ -52,6 +52,7 @@ from types import MappingProxyType
 from typing import Any
 
 from instinctlab_engine.spec.entity import UNIVERSAL_KINDS, EntityRef
+from instinctlab_engine.plugins import _PLUGIN_LOCK, _plugin_locked
 
 from .errors import PortabilityError
 
@@ -83,16 +84,19 @@ _ENGINES: dict[str, _Selectors] = {}
 _PACKAGES: dict[str, str] = {}
 
 
+@_plugin_locked
 def register_packages(packages: Mapping[str, str]) -> None:
     """Register lazy engine packages without making compat import the engine registry."""
     _PACKAGES.update(packages)
 
 
+@_plugin_locked
 def _snapshot_registrations() -> tuple[dict[str, _Selectors], dict[str, str]]:
     """Internal transaction snapshot used while backend plugins are discovered."""
     return dict(_ENGINES), dict(_PACKAGES)
 
 
+@_plugin_locked
 def _restore_registrations(
     snapshot: tuple[dict[str, _Selectors], dict[str, str]],
 ) -> None:
@@ -104,6 +108,7 @@ def _restore_registrations(
     _PACKAGES.update(packages)
 
 
+@_plugin_locked
 def register(engine: str, *, kinds: Iterable[str], cfg: tuple[str, str], container: type) -> None:
     """Declare what ``engine`` can select. Called by that engine's package when it is imported.
 
@@ -137,6 +142,7 @@ def register(engine: str, *, kinds: Iterable[str], cfg: tuple[str, str], contain
     _ENGINES[engine] = _Selectors(frozenset(kinds), cfg, container)
 
 
+@_plugin_locked
 def _ensure_registered() -> None:
     """Import registered adapter packages so their selector declarations run.
 
@@ -156,8 +162,11 @@ def selector_kinds() -> Mapping[str, frozenset[str]]:
 
     各已知引擎接受的选择器种类，以引擎名为键。
     """
-    _ensure_registered()
-    return MappingProxyType({engine: entry.kinds for engine, entry in _ENGINES.items()})
+    with _PLUGIN_LOCK:
+        _ensure_registered()
+        return MappingProxyType(
+            {engine: entry.kinds for engine, entry in _ENGINES.items()}
+        )
 
 
 class UnsupportedSelector(PortabilityError):
@@ -179,11 +188,14 @@ def selector_field(kind: str) -> str:
 
 
 def _registered(engine: str) -> _Selectors:
-    _ensure_registered()
-    try:
-        return _ENGINES[engine]
-    except KeyError:
-        raise KeyError(f"unknown engine {engine!r}; known engines are {sorted(_ENGINES)}") from None
+    with _PLUGIN_LOCK:
+        _ensure_registered()
+        try:
+            return _ENGINES[engine]
+        except KeyError:
+            raise KeyError(
+                f"unknown engine {engine!r}; known engines are {sorted(_ENGINES)}"
+            ) from None
 
 
 def lower(ref: EntityRef, engine: str) -> Any:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from copy import deepcopy
+from functools import wraps
+from threading import RLock, local
 from typing import Any
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
@@ -18,7 +20,27 @@ class PluginDiscoveryError(RuntimeError):
 
 _records: dict[str, dict[str, Any]] = {}
 _key_origins: dict[tuple[str, str], str] = {}
-_usage_log: list[str] = []
+_PLUGIN_LOCK = RLock()
+_usage_state = local()
+
+
+def _usage_log() -> list[str]:
+    log = getattr(_usage_state, "log", None)
+    if log is None:
+        log = []
+        _usage_state.log = log
+    return log
+
+
+def _plugin_locked(function):
+    """Serialize discovery transactions and their shared provenance state."""
+
+    @wraps(function)
+    def locked(*args, **kwargs):
+        with _PLUGIN_LOCK:
+            return function(*args, **kwargs)
+
+    return locked
 
 
 def _distribution_details(entry_point: Any) -> tuple[str, str]:
@@ -66,6 +88,7 @@ def load_plugin_callable(group: str, entry_point: Any) -> Any:
         ) from exc
 
 
+@_plugin_locked
 def record_plugin(group: str, entry_point: Any, keys: Iterable[str]) -> str:
     """Record keys attributed to an entry point and return its stable record ID."""
     distribution, version = _distribution_details(entry_point)
@@ -85,11 +108,12 @@ def record_plugin(group: str, entry_point: Any, keys: Iterable[str]) -> str:
     return record_id
 
 
+@_plugin_locked
 def mark_plugin_used(group: str, key: str) -> None:
-    """Mark the plugin that owns ``group/key`` as affecting the current process."""
+    """Mark the plugin that owns ``group/key`` as used by the current thread."""
     record_id = _key_origins.get((group, key))
     if record_id is not None:
-        _usage_log.append(record_id)
+        _usage_log().append(record_id)
 
 
 def _provenance(
@@ -115,16 +139,19 @@ def _provenance(
     ]
 
 
+@_plugin_locked
 def plugin_provenance(*, engine: str | None = None) -> list[dict[str, Any]]:
-    """Metadata for plugins used anywhere in the current process."""
-    return _provenance(set(_usage_log), engine=engine)
+    """Metadata for plugins used by the current compilation thread."""
+    return _provenance(set(_usage_log()), engine=engine)
 
 
+@_plugin_locked
 def plugin_usage_snapshot() -> int:
-    """Return a cursor used to scope provenance to one compilation."""
-    return len(_usage_log)
+    """Return a thread-local cursor used to scope one compilation's provenance."""
+    return len(_usage_log())
 
 
+@_plugin_locked
 def plugin_provenance_since(
     usage_start: int,
     *,
@@ -132,7 +159,7 @@ def plugin_provenance_since(
     include_keys: Iterable[tuple[str, str]] = (),
 ) -> list[dict[str, Any]]:
     """Metadata for uses after ``usage_start`` plus explicitly selected keys."""
-    record_ids = set(_usage_log[usage_start:])
+    record_ids = set(_usage_log()[usage_start:])
     record_ids.update(
         record_id
         for group, key in include_keys
@@ -141,18 +168,21 @@ def plugin_provenance_since(
     return _provenance(record_ids, engine=engine)
 
 
+@_plugin_locked
 def _snapshot_provenance() -> tuple[dict, dict, list]:
-    return dict(_records), dict(_key_origins), list(_usage_log)
+    return dict(_records), dict(_key_origins), list(_usage_log())
 
 
+@_plugin_locked
 def _restore_provenance(snapshot: tuple[dict, dict, list]) -> None:
     records, origins, used = snapshot
     _records.clear()
     _records.update(records)
     _key_origins.clear()
     _key_origins.update(origins)
-    _usage_log.clear()
-    _usage_log.extend(used)
+    log = _usage_log()
+    log.clear()
+    log.extend(used)
 
 
 __all__ = [

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from types import ModuleType
 
 import instinctlab_engine as engine_module
@@ -78,6 +80,58 @@ def test_asset_package_is_resolved_from_an_entry_point(
     )
     assert assets.packages() == ("external_robot",)
     assert entry_point.loads == 1
+
+
+def test_concurrent_asset_discovery_runs_one_atomic_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native = ModuleType("concurrent_robot_assets.mjlab")
+
+    def resolve(engine: str, variant: str):
+        return native, f"{engine}_{variant}"
+
+    entry_point = _EntryPoint("concurrent_robot", resolve)
+    monkeypatch.setattr(
+        asset_module.metadata,
+        "entry_points",
+        lambda *, group: [entry_point] if group == "instinctlab.assets" else [],
+    )
+    assets = AssetRegistry()
+    start = Barrier(2)
+
+    def discover() -> tuple[str, ...]:
+        start.wait()
+        return assets.packages()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _index: discover(), range(2)))
+
+    assert results == [("concurrent_robot",), ("concurrent_robot",)]
+    assert entry_point.loads == 1
+
+
+def test_plugin_usage_ledgers_are_isolated_between_compilation_threads() -> None:
+    alpha = _EntryPoint("alpha", lambda: None, distribution="alpha-provider")
+    beta = _EntryPoint("beta", lambda: None, distribution="beta-provider")
+    plugin_module.record_plugin("test.concurrent", alpha, ("alpha",))
+    plugin_module.record_plugin("test.concurrent", beta, ("beta",))
+    used = Barrier(2)
+
+    def compile_with(key: str) -> list[str]:
+        usage_start = plugin_usage_snapshot()
+        plugin_module.mark_plugin_used("test.concurrent", key)
+        used.wait()
+        return [
+            record["distribution"]
+            for record in plugin_provenance_since(usage_start)
+        ]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        alpha_result = executor.submit(compile_with, "alpha")
+        beta_result = executor.submit(compile_with, "beta")
+
+    assert alpha_result.result() == ["alpha-provider"]
+    assert beta_result.result() == ["beta-provider"]
 
 
 def test_asset_registry_reports_an_uninstalled_package() -> None:

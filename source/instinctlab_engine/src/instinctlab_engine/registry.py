@@ -39,8 +39,10 @@ from typing import Any
 
 from instinctlab_engine.plugins import (
     PluginDiscoveryError,
+    _PLUGIN_LOCK,
     _restore_provenance,
     _snapshot_provenance,
+    _plugin_locked,
     entry_point_description,
     load_plugin_callable,
     mark_plugin_used,
@@ -100,6 +102,7 @@ class TerrainExtensionRegistry:
         self._origins: dict[tuple[str, str], str] = {}
         self._active_plugin: str | None = None
 
+    @_plugin_locked
     def _snapshot(
         self,
     ) -> tuple[dict, dict, dict, str | None, bool, PluginDiscoveryError | None]:
@@ -112,6 +115,7 @@ class TerrainExtensionRegistry:
             self._entry_point_error,
         )
 
+    @_plugin_locked
     def _restore(
         self,
         snapshot: tuple[
@@ -149,6 +153,7 @@ class TerrainExtensionRegistry:
                 f"invalid terrain builder {builder!r}; expected a callable or 'module:attribute'"
             )
 
+    @_plugin_locked
     def _register(
         self,
         table: dict[tuple[str, str], TerrainBuilder | str],
@@ -185,6 +190,7 @@ class TerrainExtensionRegistry:
         """Register one native tile builder for generated terrain."""
         self._register(self._sub_terrains, engine, kind, builder, scope="sub")
 
+    @_plugin_locked
     def _load_installed_extensions(self) -> None:
         if self._entry_point_error is not None:
             raise self._entry_point_error
@@ -250,35 +256,39 @@ class TerrainExtensionRegistry:
 
     def terrain(self, engine: str, kind: str) -> TerrainBuilder | None:
         """Return a registered whole-terrain builder, loading plugins once."""
-        self._load_installed_extensions()
-        builder = self._terrains.get((engine, kind))
+        with _PLUGIN_LOCK:
+            self._load_installed_extensions()
+            builder = self._terrains.get((engine, kind))
         if builder is not None:
             mark_plugin_used(self.ENTRY_POINT_GROUP, f"whole:{engine}:{kind}")
         return None if builder is None else self._resolve(builder)
 
     def sub_terrain(self, engine: str, kind: str) -> TerrainBuilder | None:
         """Return a registered tile builder, loading plugins once."""
-        self._load_installed_extensions()
-        builder = self._sub_terrains.get((engine, kind))
+        with _PLUGIN_LOCK:
+            self._load_installed_extensions()
+            builder = self._sub_terrains.get((engine, kind))
         if builder is not None:
             mark_plugin_used(self.ENTRY_POINT_GROUP, f"sub:{engine}:{kind}")
         return None if builder is None else self._resolve(builder)
 
     def terrain_kinds(self, engine: str) -> frozenset[str]:
-        self._load_installed_extensions()
-        return frozenset(
-            kind
-            for registered_engine, kind in self._terrains
-            if registered_engine == engine
-        )
+        with _PLUGIN_LOCK:
+            self._load_installed_extensions()
+            return frozenset(
+                kind
+                for registered_engine, kind in self._terrains
+                if registered_engine == engine
+            )
 
     def sub_terrain_kinds(self, engine: str) -> frozenset[str]:
-        self._load_installed_extensions()
-        return frozenset(
-            kind
-            for registered_engine, kind in self._sub_terrains
-            if registered_engine == engine
-        )
+        with _PLUGIN_LOCK:
+            self._load_installed_extensions()
+            return frozenset(
+                kind
+                for registered_engine, kind in self._sub_terrains
+                if registered_engine == engine
+            )
 
 
 TERRAIN_EXTENSIONS = TerrainExtensionRegistry()
@@ -316,6 +326,7 @@ class TermRegistry:
                 f"Unknown term family {family!r}; known families are {list(FAMILIES)}."
             )
 
+    @_plugin_locked
     def _load_installed_extensions(self) -> None:
         if self._entry_point_error is not None:
             raise self._entry_point_error
@@ -396,6 +407,7 @@ class TermRegistry:
             raise error
         self._entry_points_loaded = True
 
+    @_plugin_locked
     def register(
         self,
         family: str,
@@ -431,21 +443,22 @@ class TermRegistry:
         """Register the wrapper this engine uses for portable terms of ``family``."""
 
         def decorate(builder: TermBuilder) -> TermBuilder:
-            self._check_family(family)
-            if family in self._portable:
-                existing_source = self._origins.get(
-                    ("portable", family, ""), "a built-in registration"
-                )
-                incoming_source = self._active_plugin or "a direct registration"
-                raise ValueError(
-                    f"{self.engine}: a portable builder for {family!r} is already "
-                    f"registered by {existing_source}; conflicting registration is "
-                    f"from {incoming_source}"
-                )
-            self._portable[family] = builder
-            if self._active_plugin is not None:
-                self._origins[("portable", family, "")] = self._active_plugin
-            return builder
+            with _PLUGIN_LOCK:
+                self._check_family(family)
+                if family in self._portable:
+                    existing_source = self._origins.get(
+                        ("portable", family, ""), "a built-in registration"
+                    )
+                    incoming_source = self._active_plugin or "a direct registration"
+                    raise ValueError(
+                        f"{self.engine}: a portable builder for {family!r} is already "
+                        f"registered by {existing_source}; conflicting registration is "
+                        f"from {incoming_source}"
+                    )
+                self._portable[family] = builder
+                if self._active_plugin is not None:
+                    self._origins[("portable", family, "")] = self._active_plugin
+                return builder
 
         return decorate
 
@@ -491,9 +504,10 @@ class TermRegistry:
 
     def lookup(self, family: str, kind: str) -> TermBuilder | None:
         """The builder for a named kind, or ``None`` when this engine has none."""
-        self._check_family(family)
-        self._load_installed_extensions()
-        builder = self._builders.get((family, kind))
+        with _PLUGIN_LOCK:
+            self._check_family(family)
+            self._load_installed_extensions()
+            builder = self._builders.get((family, kind))
         if builder is not None:
             mark_plugin_used(
                 self.ENTRY_POINT_GROUP,
@@ -503,9 +517,10 @@ class TermRegistry:
 
     def lookup_portable(self, family: str) -> TermBuilder | None:
         """The wrapper for portable terms of ``family``, or ``None``."""
-        self._check_family(family)
-        self._load_installed_extensions()
-        builder = self._portable.get(family)
+        with _PLUGIN_LOCK:
+            self._check_family(family)
+            self._load_installed_extensions()
+            builder = self._portable.get(family)
         if builder is not None:
             mark_plugin_used(
                 self.ENTRY_POINT_GROUP,
@@ -515,9 +530,10 @@ class TermRegistry:
 
     def lookup_emulation(self, family: str, kind: str) -> TermBuilder | None:
         """The stand-in for a named kind, or ``None``."""
-        self._check_family(family)
-        self._load_installed_extensions()
-        builder = self._emulations.get((family, kind))
+        with _PLUGIN_LOCK:
+            self._check_family(family)
+            self._load_installed_extensions()
+            builder = self._emulations.get((family, kind))
         if builder is not None:
             mark_plugin_used(
                 self.ENTRY_POINT_GROUP,
@@ -527,11 +543,12 @@ class TermRegistry:
 
     def kinds(self, family: str) -> frozenset[str]:
         """Kinds this engine implements in ``family``."""
-        self._check_family(family)
-        self._load_installed_extensions()
-        return frozenset(
-            kind for registered, kind in self._builders if registered == family
-        )
+        with _PLUGIN_LOCK:
+            self._check_family(family)
+            self._load_installed_extensions()
+            return frozenset(
+                kind for registered, kind in self._builders if registered == family
+            )
 
     def capabilities(self) -> CapabilitySet:
         """Every capability the registered builders claim, and nothing else.
@@ -541,13 +558,17 @@ class TermRegistry:
         at startup with a fixable message instead of a backend quietly doing something a task
         believed it could not.
         """
-        self._load_installed_extensions()
-        return CapabilitySet.of(cap for caps in self._provides.values() for cap in caps)
+        with _PLUGIN_LOCK:
+            self._load_installed_extensions()
+            return CapabilitySet.of(
+                cap for caps in self._provides.values() for cap in caps
+            )
 
     def provides(self) -> Mapping[str, tuple[str, ...]]:
         """``family/kind`` -> the capabilities it claims, for the contract report."""
-        self._load_installed_extensions()
-        return {
-            f"{family}/{kind}": caps
-            for (family, kind), caps in sorted(self._provides.items())
-        }
+        with _PLUGIN_LOCK:
+            self._load_installed_extensions()
+            return {
+                f"{family}/{kind}": caps
+                for (family, kind), caps in sorted(self._provides.items())
+            }
