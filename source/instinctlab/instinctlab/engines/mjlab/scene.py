@@ -22,28 +22,11 @@ from typing import Any
 from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab.engines.registry import TERRAIN_EXTENSIONS
 from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
-from instinctlab.spec.task import (
-    SceneSpec,
-    SubTerrainSpec,
-    TerrainGeneratorSpec,
-    TerrainSpec,
-)
+from instinctlab.spec.task import SceneSpec, TerrainSpec
 
 from .assets import entity as build_entity
 
-__all__ = ["GENERATOR_KINDS", "PROFILE_DEFAULTS", "build_scene"]
-
-GENERATOR_KINDS: frozenset[str] = frozenset(
-    {
-        "pyramid_stairs",
-        "pyramid_stairs_inv",
-        "boxes",
-        "random_rough",
-        "hf_pyramid_slope",
-        "hf_pyramid_slope_inv",
-    }
-)
-"""Semantic tile kinds this adapter can lower onto mjlab terrain configs."""
+__all__ = ["PROFILE_DEFAULTS", "build_scene"]
 
 PROFILE_DEFAULTS: Mapping[str, Any] = {
     "solver": "newton",
@@ -55,189 +38,15 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
 """Native simulator defaults shared by every task unless its profile overrides them."""
 
 
-def _sub_terrain(tile: SubTerrainSpec, generator: TerrainGeneratorSpec) -> Any:
-    """One mjlab tile config. Imports stay in the function so the module stays engine-free."""
-    extension = TERRAIN_EXTENSIONS.sub_terrain("mjlab", tile.kind)
-    if extension is not None:
-        return extension(tile, generator)
-
-    import mjlab.terrains as terrain_gen
-
-    fields = dict(tile.params)
-    if tile.kind in {"random_rough", "hf_pyramid_slope", "hf_pyramid_slope_inv"}:
-        fields.setdefault("horizontal_scale", generator.horizontal_scale)
-        fields.setdefault("vertical_scale", generator.vertical_scale)
-    if tile.kind == "hf_pyramid_slope_inv":
-        fields["inverted"] = True
-        return terrain_gen.HfPyramidSlopedTerrainCfg(proportion=tile.proportion, **fields)
-    classes = {
-        "pyramid_stairs": terrain_gen.BoxPyramidStairsTerrainCfg,
-        "pyramid_stairs_inv": terrain_gen.BoxInvertedPyramidStairsTerrainCfg,
-        "boxes": terrain_gen.BoxRandomGridTerrainCfg,
-        "random_rough": terrain_gen.HfRandomUniformTerrainCfg,
-        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg,
-    }
-    try:
-        cls = classes[tile.kind]
-    except KeyError:
-        available = sorted(
-            set(GENERATOR_KINDS) | set(TERRAIN_EXTENSIONS.sub_terrain_kinds("mjlab"))
-        )
-        raise NotImplementedError(
-            f"The mjlab adapter has no generator tile {tile.kind!r}. It builds {available}."
-        ) from None
-    return cls(proportion=tile.proportion, **fields)
-
-
-def _generator(spec: TerrainGeneratorSpec) -> Any:
-    from .terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
-
-    return FiledTerrainGeneratorCfg(
-        seed=spec.seed,
-        curriculum=spec.curriculum,
-        size=spec.size,
-        border_width=spec.border_width,
-        num_rows=spec.num_rows,
-        num_cols=spec.num_cols,
-        horizontal_scale=spec.horizontal_scale,
-        vertical_scale=spec.vertical_scale,
-        slope_threshold=spec.slope_threshold,
-        add_lights=True,
-        sub_terrains={
-            name: _sub_terrain(tile, spec)
-            for name, tile in spec.sub_terrains.items()
-        },
-    )
-
-
 def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
-    built_in_kinds = {"plane", "generator", "rough", "motion_matched"}
-    if spec.kind not in built_in_kinds:
-        extension = TERRAIN_EXTENSIONS.terrain("mjlab", spec.kind)
-        if extension is not None:
-            return extension(spec, profile)
-        available = sorted(
-            built_in_kinds | set(TERRAIN_EXTENSIONS.terrain_kinds("mjlab"))
-        )
+    builder = TERRAIN_EXTENSIONS.terrain("mjlab", spec.kind)
+    if builder is None:
+        available = sorted(TERRAIN_EXTENSIONS.terrain_kinds("mjlab"))
         raise NotImplementedError(
-            f"The mjlab adapter has no terrain {spec.kind!r}. It builds {available}."
+            f"The MJLab backend has no terrain {spec.kind!r}; "
+            f"registered terrains are {available}."
         )
-
-    if spec.restitution != 0.0:
-        raise ValueError(
-            "mjlab terrain cannot honor restitution; MuJoCo terrain geoms have no restitution field"
-        )
-    if spec.static_friction != spec.dynamic_friction:
-        raise ValueError(
-            "mjlab terrain has one sliding-friction coefficient and cannot honor different "
-            "static_friction and dynamic_friction values"
-        )
-
-    from .terrains.terrain_importer_cfg import TerrainImporterCfg
-
-    if spec.kind == "plane":
-        return TerrainImporterCfg(
-            terrain_type="plane", sliding_friction=spec.dynamic_friction
-        )
-    if spec.kind == "generator":
-        if spec.generator is None:
-            raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
-        return TerrainImporterCfg(
-            terrain_type="generator",
-            terrain_generator=_generator(spec.generator),
-            max_init_terrain_level=spec.generator.max_init_level,
-            sliding_friction=spec.dynamic_friction,
-        )
-    if spec.kind == "rough":
-        from .rough_terrain import rough_importer_cfg
-
-        return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
-    if spec.kind == "motion_matched":
-        import os
-        from dataclasses import dataclass
-
-        from mjlab.terrains import SubTerrainCfg
-
-        from .motion_matched_terrain import motion_matched_terrain
-        from .terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
-
-        @dataclass(kw_only=True)
-        class MotionMatchedTerrainCfg(SubTerrainCfg):
-            function = motion_matched_terrain
-            path: str
-            metadata_yaml: str
-            crop_to_size: bool = True
-            use_input_origin_frame: bool = True
-            collision_coacd_threshold: float = 0.04
-            collision_coacd_resolution: int = 3000
-            collision_coacd_decimate: bool = False
-            collision_coacd_max_ch_vertex: int = 256
-            collision_coacd_log_level: str = "off"
-            collision_coacd_use_disk_cache: bool = True
-            collision_coacd_cache_dirname: str = ".coacd_cache"
-            collision_coacd_prewarm_all: bool = True
-            collision_coacd_prewarm_workers: int = 0
-            collision_coacd_geom_margin: float = 0.0
-            collision_coacd_z_offset: float = 0.0
-            collision_coacd_auto_align_top_surface: bool = True
-            collision_coacd_auto_align_resolution: float = 0.04
-            collision_coacd_visualize_collision_hulls: bool = True
-
-        path = os.path.expanduser(spec.params["engine_paths"]["mjlab"])
-        generator = FiledTerrainGeneratorCfg(
-            size=(30.0, 16.0),
-            border_width=0.0,
-            num_rows=3,
-            num_cols=3,
-            add_lights=True,
-            sub_terrains={
-                "motion_matched": MotionMatchedTerrainCfg(
-                    proportion=1.0,
-                    path=path,
-                    metadata_yaml=os.path.join(path, spec.params["metadata_yaml"]),
-                )
-            },
-        )
-        return TerrainImporterCfg(
-            terrain_type="hacked_generator",
-            terrain_generator=generator,
-            sliding_friction=spec.dynamic_friction,
-        )
-    raise AssertionError(f"unhandled built-in mjlab terrain {spec.kind!r}")
-
-
-def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
-    """Parkour's edge cylinders.
-
-    The ground recipe is shared, but the native edge extraction still differs:
-    MJLab repairs a height-field surface and merges short collinear gaps while
-    Isaac reads the generated mesh. The penetration penalty is therefore not
-    comparable as a cross-engine parity signal.
-    """
-    if not spec.virtual_obstacles:
-        return cfg
-    from .terrains.virtual_obstacle.edge_cylinder_cfg import GreedyconcatEdgeCylinderCfg
-
-    obstacles: dict[str, Any] = {}
-    for obstacle in spec.virtual_obstacles:
-        if obstacle.kind != "greedy_edge_cylinder":
-            raise NotImplementedError(
-                f"mjlab has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}."
-            )
-        obstacles[obstacle.name] = GreedyconcatEdgeCylinderCfg(
-            cylinder_radius=obstacle.cylinder_radius,
-            min_points=obstacle.min_points,
-            angle_threshold=obstacle.angle_threshold,
-            # InstinctMJ parkour: mesh source, hfield repair, collinear merge.
-            component_workers=0,
-            merge_collinear_gap=0.09,
-            merge_collinear_angle_threshold=30.0,
-            merge_collinear_line_distance=0.04,
-        )
-    cfg.virtual_obstacles = obstacles
-    cfg.virtual_obstacle_source = "mesh"
-    cfg.virtual_obstacle_hfield_height_threshold = 0.04
-    return cfg
+    return builder(spec, profile)
 
 
 def _build_volume_points(sensor: VolumePointsRef) -> Any:

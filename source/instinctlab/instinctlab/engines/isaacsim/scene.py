@@ -19,28 +19,11 @@ from typing import Any
 from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab.engines.registry import TERRAIN_EXTENSIONS
 from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
-from instinctlab.spec.task import (
-    SceneSpec,
-    SubTerrainSpec,
-    TerrainGeneratorSpec,
-    TerrainSpec,
-)
+from instinctlab.spec.task import SceneSpec, TerrainSpec
 
 from .assets import articulation
 
-__all__ = ["GENERATOR_KINDS", "PROFILE_DEFAULTS", "build_scene"]
-
-GENERATOR_KINDS: frozenset[str] = frozenset(
-    {
-        "pyramid_stairs",
-        "pyramid_stairs_inv",
-        "boxes",
-        "random_rough",
-        "hf_pyramid_slope",
-        "hf_pyramid_slope_inv",
-    }
-)
-"""Semantic tile kinds this adapter can lower onto Isaac Lab terrain configs."""
+__all__ = ["PROFILE_DEFAULTS", "build_scene"]
 
 PROFILE_DEFAULTS: Mapping[str, Any] = {
     # ``None`` means "leave whatever the robot asset declares". These four used to hold literal
@@ -66,181 +49,15 @@ Values default to the asset or simulator settings; a task overrides one by namin
 _ROBOT_PRIM = "{ENV_REGEX_NS}/Robot"
 
 
-def _physics_material(spec: TerrainSpec) -> Any:
-    from isaaclab.sim import RigidBodyMaterialCfg
-
-    return RigidBodyMaterialCfg(
-        friction_combine_mode="multiply",
-        restitution_combine_mode="multiply",
-        static_friction=spec.static_friction,
-        dynamic_friction=spec.dynamic_friction,
-        restitution=spec.restitution,
-    )
-
-
-def _visual_material() -> Any:
-    from isaaclab.sim import MdlFileCfg
-    from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
-
-    return MdlFileCfg(
-        mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
-        project_uvw=True,
-        texture_scale=(0.25, 0.25),
-    )
-
-
-def _sub_terrain(tile: SubTerrainSpec, generator: TerrainGeneratorSpec) -> Any:
-    """One Isaac Lab tile config. Imports stay in the function so the module stays engine-free."""
-    extension = TERRAIN_EXTENSIONS.sub_terrain("isaacsim", tile.kind)
-    if extension is not None:
-        return extension(tile, generator)
-
-    import isaaclab.terrains as terrain_gen
-
-    classes = {
-        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg,
-        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg,
-        "boxes": terrain_gen.MeshRandomGridTerrainCfg,
-        "random_rough": terrain_gen.HfRandomUniformTerrainCfg,
-        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg,
-        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg,
-    }
-    try:
-        cls = classes[tile.kind]
-    except KeyError:
-        available = sorted(set(classes) | set(TERRAIN_EXTENSIONS.sub_terrain_kinds("isaacsim")))
-        raise NotImplementedError(
-            f"The Isaac Sim adapter has no generator tile {tile.kind!r}. It builds {available}."
-        ) from None
-    return cls(proportion=tile.proportion, **tile.params)
-
-
-def _generator(spec: TerrainGeneratorSpec) -> Any:
-    from isaaclab.terrains import TerrainGeneratorCfg
-
-    return TerrainGeneratorCfg(
-        seed=spec.seed,
-        curriculum=spec.curriculum,
-        size=spec.size,
-        border_width=spec.border_width,
-        num_rows=spec.num_rows,
-        num_cols=spec.num_cols,
-        horizontal_scale=spec.horizontal_scale,
-        vertical_scale=spec.vertical_scale,
-        slope_threshold=spec.slope_threshold,
-        use_cache=False,
-        sub_terrains={
-            name: _sub_terrain(tile, spec)
-            for name, tile in spec.sub_terrains.items()
-        },
-    )
-
-
 def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
-    built_in_kinds = {"plane", "generator", "rough", "motion_matched"}
-    if spec.kind not in built_in_kinds:
-        extension = TERRAIN_EXTENSIONS.terrain("isaacsim", spec.kind)
-        if extension is not None:
-            return extension(spec, profile)
-        available = sorted(
-            built_in_kinds | set(TERRAIN_EXTENSIONS.terrain_kinds("isaacsim"))
-        )
+    builder = TERRAIN_EXTENSIONS.terrain("isaacsim", spec.kind)
+    if builder is None:
+        available = sorted(TERRAIN_EXTENSIONS.terrain_kinds("isaacsim"))
         raise NotImplementedError(
-            f"The Isaac Sim adapter has no terrain {spec.kind!r}. It builds {available}."
+            f"The Isaac Sim backend has no terrain {spec.kind!r}; "
+            f"registered terrains are {available}."
         )
-
-    from isaaclab.terrains import TerrainImporterCfg
-
-    if spec.kind == "plane":
-        return TerrainImporterCfg(
-            prim_path="/World/ground",
-            terrain_type="plane",
-            collision_group=-1,
-            physics_material=_physics_material(spec),
-            debug_vis=False,
-        )
-    if spec.kind == "generator":
-        if spec.generator is None:
-            raise ValueError("kind='generator' needs a TerrainGeneratorSpec.")
-        return TerrainImporterCfg(
-            prim_path="/World/ground",
-            terrain_type="generator",
-            terrain_generator=_generator(spec.generator),
-            max_init_terrain_level=spec.generator.max_init_level,
-            collision_group=-1,
-            physics_material=_physics_material(spec),
-            visual_material=_visual_material(),
-            debug_vis=False,
-        )
-    if spec.kind == "rough":
-        from .rough_terrain import rough_importer_cfg
-
-        return _attach_virtual_obstacles(rough_importer_cfg(spec), spec)
-    if spec.kind == "motion_matched":
-        import os
-
-        from instinctlab.engines.isaacsim.terrains import (
-            TerrainImporterCfg as InstinctTerrainImporterCfg,
-        )
-        from instinctlab.engines.isaacsim.terrains.terrain_generator_cfg import (
-            FiledTerrainGeneratorCfg,
-        )
-        from instinctlab.engines.isaacsim.terrains.trimesh.mesh_terrains_cfg import (
-            MotionMatchedTerrainCfg,
-        )
-
-        path = os.path.expanduser(spec.params["engine_paths"]["isaacsim"])
-        generator = FiledTerrainGeneratorCfg(
-            size=(9.0, 12.0),
-            border_width=0.0,
-            border_height=0.0,
-            num_rows=7,
-            num_cols=7,
-            sub_terrains={
-                "motion_matched": MotionMatchedTerrainCfg(
-                    proportion=1.0,
-                    path=path,
-                    metadata_yaml=os.path.join(path, spec.params["metadata_yaml"]),
-                )
-            },
-        )
-        return InstinctTerrainImporterCfg(
-            prim_path="/World/ground",
-            terrain_type="hacked_generator",
-            terrain_generator=generator,
-            collision_group=-1,
-            physics_material=_physics_material(spec),
-            visual_material=_visual_material(),
-            debug_vis=False,
-        )
-    raise AssertionError(f"unhandled built-in Isaac Sim terrain {spec.kind!r}")
-
-
-def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
-    """Parkour's edge cylinders. Attached here so rough-terrain lowering stays generic.
-
-    Count / placement will not match mjlab. That is the recorded obstacle-set
-    divergence in :mod:`instinctlab.engines.mjlab.rough_terrain`, not a builder bug.
-    """
-    if not spec.virtual_obstacles:
-        return cfg
-    from instinctlab.engines.isaacsim.terrains.virtual_obstacle import (
-        GreedyconcatEdgeCylinderCfg,
-    )
-
-    obstacles: dict[str, Any] = {}
-    for obstacle in spec.virtual_obstacles:
-        if obstacle.kind != "greedy_edge_cylinder":
-            raise NotImplementedError(
-                f"Isaac Sim has no virtual obstacle {obstacle.kind!r} for {obstacle.name!r}."
-            )
-        obstacles[obstacle.name] = GreedyconcatEdgeCylinderCfg(
-            cylinder_radius=obstacle.cylinder_radius,
-            min_points=obstacle.min_points,
-            angle_threshold=obstacle.angle_threshold,
-        )
-    cfg.virtual_obstacles = obstacles
-    return cfg
+    return builder(spec, profile)
 
 
 def _build_volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> Any:
