@@ -25,15 +25,17 @@ Do not edit the vendored bodies. Editing them is what would make the comparison 
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
 import re
-import torch
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping, Sized
 from copy import deepcopy
 from dataclasses import MISSING, Field, dataclass, field, replace
 from typing import Any, ClassVar
+
+import torch
 
 __all__ = ["class_to_dict", "configclass", "update_class_from_dict"]
 
@@ -62,6 +64,22 @@ def string_to_slice(s: str):
 
     # create and return the slice object
     return slice(start, stop, step)
+
+
+def is_lambda_expression(name: str) -> bool:
+    """Checks if the input string is a lambda expression.
+
+    Args:
+        name: The input string.
+
+    Returns:
+        Whether the input string is a lambda expression.
+    """
+    try:
+        ast.parse(name)
+        return isinstance(ast.parse(name).body[0], ast.Expr) and isinstance(ast.parse(name).body[0].value, ast.Lambda)
+    except SyntaxError:
+        return False
 
 
 def callable_to_string(value: Callable) -> str:

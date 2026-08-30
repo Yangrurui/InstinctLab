@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import copy
 import inspect
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import mujoco
 import numpy as np
@@ -56,97 +55,6 @@ def _find_flat_patches_on_surface_mesh(
        (mesh frame relative to `origin`).
     """
     raise NotImplementedError("mesh flat-patch sampling was not ported; locomotion rough uses height-field tiles.")
-
-    wp_mesh = convert_to_warp_mesh(mesh.vertices, mesh.faces, device=device)
-
-    torch_device = torch.device(device)
-    if isinstance(origin, np.ndarray):
-        origin_t = torch.from_numpy(origin).to(dtype=torch.float, device=torch_device)
-    elif isinstance(origin, torch.Tensor):
-        origin_t = origin.to(dtype=torch.float, device=torch_device)
-    else:
-        origin_t = torch.tensor(origin, dtype=torch.float, device=torch_device)
-
-    patch_radii = _resolve_patch_radii(patch_radius)
-
-    vertices = np.asarray(mesh.vertices, dtype=np.float64)
-    x_lo = max(x_range[0] + origin_t[0].item(), float(vertices[:, 0].min()))
-    x_hi = min(x_range[1] + origin_t[0].item(), float(vertices[:, 0].max()))
-    y_lo = max(y_range[0] + origin_t[1].item(), float(vertices[:, 1].min()))
-    y_hi = min(y_range[1] + origin_t[1].item(), float(vertices[:, 1].max()))
-    z_lo = z_range[0] + origin_t[2].item()
-    z_hi = z_range[1] + origin_t[2].item()
-
-    if x_lo > x_hi or y_lo > y_hi:
-        raise RuntimeError(
-            "Failed to find valid patches! Sampling range is outside mesh bounds."
-            f"\n\tx_range after clipping: ({x_lo}, {x_hi})"
-            f"\n\ty_range after clipping: ({y_lo}, {y_hi})"
-        )
-
-    angle = torch.linspace(0.0, 2.0 * np.pi, 10, device=torch_device)
-    query_x = []
-    query_y = []
-    for radius in patch_radii:
-        query_x.append(radius * torch.cos(angle))
-        query_y.append(radius * torch.sin(angle))
-    query_x = torch.cat(query_x).unsqueeze(1)
-    query_y = torch.cat(query_y).unsqueeze(1)
-    query_points = torch.cat([query_x, query_y, torch.zeros_like(query_x)], dim=-1)
-
-    points_ids = torch.arange(num_patches, device=torch_device)
-    flat_patches = torch.zeros(num_patches, 3, device=torch_device)
-
-    iter_count = 0
-    while len(points_ids) > 0 and iter_count < 10000:
-        pos_x = torch.empty(len(points_ids), device=torch_device).uniform_(x_lo, x_hi)
-        pos_y = torch.empty(len(points_ids), device=torch_device).uniform_(y_lo, y_hi)
-        flat_patches[points_ids, :2] = torch.stack([pos_x, pos_y], dim=-1)
-
-        points = flat_patches[points_ids].unsqueeze(1) + query_points
-        points[..., 2] = 100.0
-        dirs = torch.zeros_like(points)
-        dirs[..., 2] = -1.0
-
-        ray_hits = raycast_mesh(points.view(-1, 3), dirs.view(-1, 3), wp_mesh)[0]
-        heights = ray_hits.view(points.shape)[..., 2]
-
-        flat_patches[points_ids, 2] = heights[..., -1]
-
-        not_valid = torch.any(torch.logical_or(heights < z_lo, heights > z_hi), dim=1)
-        not_valid = torch.logical_or(
-            not_valid,
-            (heights.max(dim=1)[0] - heights.min(dim=1)[0]) > max_height_diff,
-        )
-        points_ids = points_ids[not_valid]
-        iter_count += 1
-
-    if len(points_ids) > 0:
-        raise RuntimeError(
-            "Failed to find valid patches! Please check the input parameters."
-            f"\n\tMaximum number of iterations reached: {iter_count}"
-            f"\n\tNumber of invalid patches: {len(points_ids)}"
-            f"\n\tMaximum height difference: {max_height_diff}"
-        )
-
-    return (flat_patches - origin_t).cpu().numpy()
-
-
-@dataclass
-class _HfieldCollisionCfg:
-    size: tuple[float, float]
-    collision_hfield_resolution: float
-    collision_hfield_base_thickness_ratio: float
-    collision_hfield_num_workers: int
-    collision_hfield_raycast_backend: Literal["cpu", "gpu"] = "cpu"
-    collision_hfield_gpu_device: str = "cuda"
-    collision_hfield_gpu_batch_size: int = 262144
-    collision_hfield_sink_miss_cells: bool = False
-    collision_hfield_use_disk_cache: bool = False
-    collision_hfield_cache_dirname: str = ".hfield_cache"
-    collision_hfield_stitch_edges: bool = False
-    collision_hfield_stitch_border_pixels: int = 0
-    collision_hfield_stitch_height: float | None = None
 
 
 class FiledTerrainGenerator(TerrainGenerator):
@@ -307,59 +215,6 @@ class FiledTerrainGenerator(TerrainGenerator):
     ):
         """Add native hfield collision for terrain mesh surface."""
         raise NotImplementedError("mesh-to-hfield collision was not ported; locomotion rough uses height-field tiles.")
-
-        resolution = self.cfg.hfield_resolution
-        if resolution is None:
-            resolution = sub_terrain_cfg.horizontal_scale
-        if resolution is None:
-            resolution = 0.05
-        resolution = float(resolution)
-        wall_thickness = float(sub_terrain_cfg.wall_thickness or 0.0)
-        cfg_border_width = float(sub_terrain_cfg.border_width or 0.0)
-        global_stitch_border_width = float(self.cfg.hfield_stitch_border_width or 0.0)
-        # Keep terrain seams height-aligned over the intended flat border zone.
-        # Use the widest available border hint so every sub-terrain has a
-        # consistently flat outer ring before tile stitching.
-        stitch_border_width = max(wall_thickness, cfg_border_width, global_stitch_border_width)
-        if stitch_border_width > 0.0:
-            # `height_field_to_mesh`: `int(width / scale) + 1`.
-            # This avoids a one-pixel under-coverage when width is an exact
-            # multiple of the resolution (for example 1.5m / 0.05m).
-            stitch_border_pixels = max(int(stitch_border_width / resolution) + 1, 1)
-        else:
-            stitch_border_pixels = 1
-        # outer tile borders are on a shared flat plane (z=0), so all terrain
-        # seams stay level and gap-free independent of sub-terrain internals.
-        stitch_height = 0.0
-
-        collision_cfg = _HfieldCollisionCfg(
-            size=(float(sub_terrain_cfg.size[0]), float(sub_terrain_cfg.size[1])),
-            collision_hfield_resolution=resolution,
-            collision_hfield_base_thickness_ratio=float(self.cfg.hfield_base_thickness_ratio),
-            collision_hfield_num_workers=int(self.cfg.hfield_num_workers),
-            collision_hfield_raycast_backend=str(self.cfg.hfield_raycast_backend),
-            collision_hfield_gpu_device=str(self.cfg.hfield_gpu_device),
-            collision_hfield_gpu_batch_size=int(self.cfg.hfield_gpu_batch_size),
-            collision_hfield_stitch_edges=True,
-            collision_hfield_stitch_border_pixels=stitch_border_pixels,
-            collision_hfield_stitch_height=float(stitch_height),
-        )
-        terrain_linear_idx = self._cell_index(sub_row, sub_col)
-        hfield_geometry = _add_collision_hfield_from_mesh(
-            collision_cfg,
-            spec,
-            surface_mesh_local,
-            terrain_idx=terrain_linear_idx,
-            terrain_abspath=None,
-        )
-        hfield_geometry.geom.pos = np.asarray(hfield_geometry.geom.pos, dtype=np.float64) + world_position
-        hfield_geometry.geom.group = 0
-        if self.cfg.color_scheme == "random":
-            hfield_geometry.geom.rgba[:3] = self.np_rng.uniform(0.3, 0.8, 3)
-            hfield_geometry.geom.rgba[3] = 1.0
-        else:
-            hfield_geometry.geom.rgba[:] = (0.5, 0.5, 0.5, 1.0)
-        return hfield_geometry
 
     @staticmethod
     def _estimate_mesh_border_height(

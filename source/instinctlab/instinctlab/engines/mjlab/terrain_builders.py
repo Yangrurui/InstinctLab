@@ -171,6 +171,12 @@ def build_generator(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
 
 
 def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:
+    """Attach the native Parkour edge-cylinder extraction.
+
+    MJLab repairs a height-field surface and merges short collinear gaps while
+    Isaac reads the generated mesh. The penetration penalty is therefore not
+    comparable as a cross-engine parity signal.
+    """
     if not spec.virtual_obstacles:
         return cfg
     from .terrains.virtual_obstacle.edge_cylinder_cfg import (

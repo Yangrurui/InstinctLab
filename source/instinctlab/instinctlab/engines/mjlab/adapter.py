@@ -149,9 +149,7 @@ class MjlabAdapter:
     @staticmethod
     def wrap_for_rl(env: Any) -> Any:
         """Wrap with the wrapper ported from InstinctMJ, which is how mjlab training was run."""
-        from instinctlab.utils.wrappers.instinct_rl.mjlab_vecenv_wrapper import (
-            MjlabVecEnvWrapper,
-        )
+        from .rl_wrapper import MjlabVecEnvWrapper
 
         return MjlabVecEnvWrapper(env)
 

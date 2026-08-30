@@ -28,6 +28,9 @@ task config and task-local MDP
   after the engine is known.
 - Native scene, event, sensor, and simulator lowering lives under
   `engines/<engine>/`.
+- Backend RL wrappers and backend-only camera helpers live with their adapter.
+  Cross-backend Warp geometry and contact-overflow diagnostics live under
+  `engines/geometry/` and `engines/diagnostics/`; `utils/` is SDK-free.
 
 The shared launchers are `scripts/train.py` and `scripts/play.py`. They select
 the engine before importing its SDK.

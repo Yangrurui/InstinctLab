@@ -7,7 +7,8 @@ parameters are shared, not that the resulting meshes or returns must match.
 
 Attach only when asked: the per-step cost is the Python bookkeeping over
 named types (measured ~2.7 ms / ~9% of a wrapped step at 16 envs), not the
-overflow poll. Overflow refusal lives in :mod:`instinctlab.utils.contact_overflow`
+overflow poll. Overflow refusal lives in
+:mod:`instinctlab.engines.diagnostics.contact_overflow`
 and is on by default.
 """
 

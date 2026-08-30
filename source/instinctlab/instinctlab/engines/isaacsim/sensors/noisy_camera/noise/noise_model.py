@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Sequence
 from isaacsim.core.utils.torch.maths import torch_rand_float
 from torchvision.transforms import GaussianBlur
 
-from instinctlab.utils.buffers import AsyncDelayBuffer
+from ..buffers import AsyncDelayBuffer
 
 if TYPE_CHECKING:
     from .noise_cfg import (
@@ -23,7 +23,9 @@ if TYPE_CHECKING:
         ImageNoiseCfg,
         LatencyNoiseCfg,
         RandomGaussianNoiseCfg,
+        RangeBasedGaussianNoiseCfg,
         SensorDeadNoiseCfg,
+        StereoTooCloseNoiseCfg,
     )
 
 

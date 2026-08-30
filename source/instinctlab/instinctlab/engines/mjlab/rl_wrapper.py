@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 import torch
 from instinct_rl.env import VecEnv
 
-from .termination_log import PortableTerminationLogger
+from instinctlab.utils.wrappers.instinct_rl.termination_log import PortableTerminationLogger
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg

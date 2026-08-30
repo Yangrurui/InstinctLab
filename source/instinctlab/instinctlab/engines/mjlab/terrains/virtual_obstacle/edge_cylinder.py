@@ -219,7 +219,7 @@ class EdgeCylinder(VirtualObstacleBase):
         self.device = device if isinstance(device, torch.device) else torch.device(device)
         self.edges_pyt = torch.tensor(edge_end_points, dtype=torch.float32, device=self.device)
         if edge_end_points.size > 0:
-            from instinctlab.utils.warp.cylinder import CylinderSpatialGrid
+            from instinctlab.engines.geometry.cylinder import CylinderSpatialGrid
 
             self.cylinders = CylinderSpatialGrid(
                 cylinders=np.concatenate(

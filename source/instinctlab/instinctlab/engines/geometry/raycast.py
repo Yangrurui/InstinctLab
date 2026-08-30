@@ -3,7 +3,7 @@ import torch
 
 import warp as wp
 
-from isaaclab.utils.math import convert_quat
+from instinctlab.compat.math import quat_wxyz_to_xyzw
 
 # disable warp module initialization messages
 wp.config.quiet = True
@@ -56,12 +56,12 @@ def raycast_mesh_grouped(
     # map the memory to warp arrays
     mesh_wp_ids_wp = wp.from_torch(mesh_wp_ids, dtype=wp.uint64)
     mesh_transforms_ = torch.concatenate(
-        [mesh_transforms[:, :3], convert_quat(mesh_transforms[:, 3:], to="xyzw")],
+        [mesh_transforms[:, :3], quat_wxyz_to_xyzw(mesh_transforms[:, 3:])],
         dim=-1,
     ).contiguous()
     mesh_transforms_wp = wp.from_torch(mesh_transforms_, dtype=wp.transform)
     mesh_inv_transforms_ = torch.concatenate(
-        [mesh_inv_transforms[:, :3], convert_quat(mesh_inv_transforms[:, 3:], to="xyzw")],
+        [mesh_inv_transforms[:, :3], quat_wxyz_to_xyzw(mesh_inv_transforms[:, 3:])],
         dim=-1,
     ).contiguous()
     mesh_inv_transforms_wp = wp.from_torch(mesh_inv_transforms_, dtype=wp.transform)

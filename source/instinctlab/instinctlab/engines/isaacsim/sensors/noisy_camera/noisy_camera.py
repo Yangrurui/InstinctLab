@@ -7,8 +7,8 @@ import torch
 from isaaclab.utils import string_to_callable
 from prettytable import PrettyTable
 
-from instinctlab.utils.buffers import AsyncCircularBuffer
-from instinctlab.utils.noise import ImageNoiseCfg
+from .buffers import AsyncCircularBuffer
+from .noise import ImageNoiseCfg
 
 
 class NoisyCameraMixin:  # as a subclass of SensorBase

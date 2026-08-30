@@ -6,7 +6,7 @@ from typing import Dict, Literal
 
 import pytorch_kinematics as pk
 
-import isaaclab.utils.math as math_utils
+import instinctlab.compat.math as math_utils
 
 import instinctlab.utils.math as intinct_math
 
