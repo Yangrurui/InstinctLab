@@ -136,19 +136,264 @@ class ChainInventory:
     kind: Literal["urdf", "mjcf"]
 
 
+@dataclass
+class _KinematicJoint:
+    name: str
+    kind: Literal["fixed", "revolute", "prismatic"]
+    axis: torch.Tensor
+    origin: torch.Tensor
+
+
+@dataclass
+class _KinematicFrame:
+    name: str
+    joint: _KinematicJoint
+    children: list["_KinematicFrame"]
+
+
+class _KinematicPose:
+    def __init__(self, matrix: torch.Tensor) -> None:
+        self._matrix = matrix
+
+    def get_matrix(self) -> torch.Tensor:
+        return self._matrix
+
+
+class _UrdfKinematicsChain:
+    """Small batched URDF FK chain used by the shared motion runtime.
+
+    Importing :mod:`pytorch_kinematics` imports its MJCF module and therefore
+    MuJoCo, even when the caller only asks for URDF FK. That contaminates an
+    Isaac process with the unselected SDK and, under Kit, can load a second
+    incompatible CFFI runtime. The motion runtime needs only this narrow
+    fixed/revolute/prismatic tree contract, so URDF uses a direct parser.
+    """
+
+    def __init__(self, root: _KinematicFrame) -> None:
+        self._root = root
+        self._dtype = torch.float32
+        self._device = torch.device("cpu")
+        self._joint_names = tuple(self._walk_joint_names(root))
+
+    @classmethod
+    def from_xml(cls, content: str) -> "_UrdfKinematicsChain":
+        xml_root = ET.fromstring(content)
+        link_names = [
+            element.attrib["name"]
+            for element in xml_root.iter()
+            if _xml_tag(element) == "link" and element.attrib.get("name")
+        ]
+        if not link_names:
+            raise ValueError("URDF contains no named links.")
+        if len(set(link_names)) != len(link_names):
+            raise ValueError("URDF contains duplicate link names.")
+
+        child_joints: dict[str, list[tuple[str, str, str, torch.Tensor, torch.Tensor]]] = {}
+        child_links: set[str] = set()
+        joint_names: set[str] = set()
+        for element in xml_root.iter():
+            if _xml_tag(element) != "joint":
+                continue
+            name = element.attrib.get("name", "")
+            if not name or name in joint_names:
+                raise ValueError(f"URDF has an invalid or duplicate joint name {name!r}.")
+            joint_names.add(name)
+            raw_kind = element.attrib.get("type", "fixed")
+            kind = "revolute" if raw_kind == "continuous" else raw_kind
+            if kind not in {"fixed", "revolute", "prismatic"}:
+                raise ValueError(
+                    f"URDF joint {name!r} has unsupported type {raw_kind!r}; "
+                    "motion-reference FK supports fixed, revolute/continuous, and prismatic joints."
+                )
+            parent_element = _xml_child(element, "parent")
+            child_element = _xml_child(element, "child")
+            if parent_element is None or child_element is None:
+                raise ValueError(f"URDF joint {name!r} has no parent/child link.")
+            parent = parent_element.attrib.get("link", "")
+            child = child_element.attrib.get("link", "")
+            if parent not in link_names or child not in link_names:
+                raise ValueError(
+                    f"URDF joint {name!r} references unknown links {parent!r} -> {child!r}."
+                )
+            if child in child_links:
+                raise ValueError(f"URDF link {child!r} has more than one parent joint.")
+            child_links.add(child)
+            origin = _urdf_origin_matrix(_xml_child(element, "origin"))
+            axis_element = _xml_child(element, "axis")
+            # Preserve pytorch_kinematics' historical default used by the
+            # accepted motion baselines when an axis is omitted.
+            axis = _parse_vector(
+                None if axis_element is None else axis_element.attrib.get("xyz"),
+                default=(0.0, 0.0, 1.0),
+            )
+            child_joints.setdefault(parent, []).append(
+                (child, name, kind, axis, origin)
+            )
+
+        roots = [name for name in link_names if name not in child_links]
+        if len(roots) != 1:
+            raise ValueError(f"URDF must contain one kinematic root, got {roots}.")
+
+        def build(link_name: str) -> _KinematicFrame:
+            children = []
+            for child, name, kind, axis, origin in child_joints.get(link_name, ()):
+                frame = build(child)
+                frame.joint = _KinematicJoint(name, kind, axis, origin)
+                children.append(frame)
+            return _KinematicFrame(
+                name=link_name,
+                joint=_KinematicJoint(
+                    name="",
+                    kind="fixed",
+                    axis=torch.tensor((0.0, 0.0, 1.0)),
+                    origin=torch.eye(4),
+                ),
+                children=children,
+            )
+
+        return cls(build(roots[0]))
+
+    @staticmethod
+    def _walk_joint_names(frame: _KinematicFrame) -> list[str]:
+        names = [] if frame.joint.kind == "fixed" else [frame.joint.name]
+        for child in frame.children:
+            names.extend(_UrdfKinematicsChain._walk_joint_names(child))
+        return names
+
+    def get_joint_parameter_names(self) -> list[str]:
+        return list(self._joint_names)
+
+    def to(self, *, dtype: torch.dtype, device: torch.device | str) -> "_UrdfKinematicsChain":
+        self._dtype = dtype
+        self._device = torch.device(device)
+
+        def move(frame: _KinematicFrame) -> None:
+            frame.joint.axis = frame.joint.axis.to(dtype=dtype, device=device)
+            frame.joint.origin = frame.joint.origin.to(dtype=dtype, device=device)
+            for child in frame.children:
+                move(child)
+
+        move(self._root)
+        return self
+
+    def forward_kinematics(self, joint_pos: torch.Tensor) -> dict[str, _KinematicPose]:
+        if joint_pos.ndim != 2 or joint_pos.shape[1] != len(self._joint_names):
+            raise ValueError(
+                f"URDF FK expected (batch, {len(self._joint_names)}) joint positions, "
+                f"got {tuple(joint_pos.shape)}."
+            )
+        batch = joint_pos.shape[0]
+        index = {name: position for position, name in enumerate(self._joint_names)}
+        identity = torch.eye(
+            4, dtype=joint_pos.dtype, device=joint_pos.device
+        ).expand(batch, -1, -1)
+        poses: dict[str, _KinematicPose] = {}
+
+        def visit(frame: _KinematicFrame, parent: torch.Tensor) -> None:
+            local = frame.joint.origin.expand(batch, -1, -1)
+            if frame.joint.kind == "revolute":
+                motion = _axis_angle_matrix(
+                    frame.joint.axis, joint_pos[:, index[frame.joint.name]]
+                )
+                local = local @ motion
+            elif frame.joint.kind == "prismatic":
+                motion = identity.clone()
+                motion[:, :3, 3] = (
+                    joint_pos[:, index[frame.joint.name]].unsqueeze(-1)
+                    * frame.joint.axis
+                )
+                local = local @ motion
+            world = parent @ local
+            poses[frame.name] = _KinematicPose(world)
+            for child in frame.children:
+                visit(child, world)
+
+        visit(self._root, identity)
+        return poses
+
+
+def _xml_tag(element: ET.Element) -> str:
+    return element.tag.rsplit("}", 1)[-1]
+
+
+def _xml_child(element: ET.Element, name: str) -> ET.Element | None:
+    return next((child for child in element if _xml_tag(child) == name), None)
+
+
+def _parse_vector(value: str | None, *, default: tuple[float, float, float]) -> torch.Tensor:
+    if value is None:
+        values = default
+    else:
+        values = tuple(float(item) for item in value.split())
+        if len(values) != 3:
+            raise ValueError(f"expected a three-vector, got {value!r}.")
+    return torch.tensor(values, dtype=torch.float32)
+
+
+def _urdf_origin_matrix(origin: ET.Element | None) -> torch.Tensor:
+    xyz = _parse_vector(
+        None if origin is None else origin.attrib.get("xyz"),
+        default=(0.0, 0.0, 0.0),
+    )
+    rpy = _parse_vector(
+        None if origin is None else origin.attrib.get("rpy"),
+        default=(0.0, 0.0, 0.0),
+    )
+    roll, pitch, yaw = (float(value) for value in rpy)
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    rotation = torch.tensor(
+        (
+            (cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr),
+            (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr),
+            (-sp, cp * sr, cp * cr),
+        ),
+        dtype=torch.float32,
+    )
+    matrix = torch.eye(4, dtype=torch.float32)
+    matrix[:3, :3] = rotation
+    matrix[:3, 3] = xyz
+    return matrix
+
+
+def _axis_angle_matrix(axis: torch.Tensor, angle: torch.Tensor) -> torch.Tensor:
+    axis = axis / torch.linalg.vector_norm(axis)
+    x, y, z = axis.unbind()
+    zero = torch.zeros((), dtype=axis.dtype, device=axis.device)
+    skew = torch.stack(
+        (
+            torch.stack((zero, -z, y)),
+            torch.stack((z, zero, -x)),
+            torch.stack((-y, x, zero)),
+        )
+    )
+    identity = torch.eye(3, dtype=axis.dtype, device=axis.device)
+    sine = torch.sin(angle).reshape(-1, 1, 1)
+    cosine = torch.cos(angle).reshape(-1, 1, 1)
+    rotation = identity + sine * skew + (1.0 - cosine) * (skew @ skew)
+    matrix = torch.eye(4, dtype=axis.dtype, device=axis.device).expand(
+        angle.shape[0], -1, -1
+    ).clone()
+    matrix[:, :3, :3] = rotation
+    return matrix
+
+
 def build_kinematics_chain(model_path: str, device: torch.device | str = "cpu") -> Any:
     """Parse a robot description the way InstinctMJ / Isaac do.
 
-    MJCF: strip free/ball joints (pytorch_kinematics only does hinge/slide) and
-    zero the root-body pose so FK is in the base-body frame, matching URDF.
-    Relative mesh paths are resolved from the file's directory.
+    URDF uses a small direct batched parser so an Isaac process does not import
+    MuJoCo through pytorch_kinematics' eager MJCF re-export. MJCF retains the
+    accepted pytorch_kinematics/MuJoCo path: strip free/ball joints and zero the
+    root-body pose so FK is in the base-body frame, matching URDF. Relative
+    mesh paths are resolved from the file's directory.
     """
-    import pytorch_kinematics as pk
-
     path = os.path.abspath(os.path.expanduser(model_path))
     with open(path) as handle:
         content = handle.read()
     if path.endswith(".xml"):
+        import pytorch_kinematics as pk
+
         mjcf_root = ET.fromstring(content)
         for parent in mjcf_root.iter():
             for child in list(parent):
@@ -177,7 +422,7 @@ def build_kinematics_chain(model_path: str, device: torch.device | str = "cpu") 
         finally:
             os.chdir(previous)
     else:
-        chain = pk.build_chain_from_urdf(content)
+        chain = _UrdfKinematicsChain.from_xml(content)
     return chain.to(dtype=torch.float, device=device)
 
 
