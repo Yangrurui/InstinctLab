@@ -65,6 +65,30 @@ def _build_volume_points(sensor: VolumePointsRef, *, sensor_period: float) -> An
     from instinctlab_engine_isaacsim.sensors.volume_points.points_generator_cfg import (
         Grid3dPointsGeneratorCfg,
     )
+    from instinctlab_engine_isaacsim.sensors.volume_points.volume_points_cfg import (
+        VolumePointsCfg,
+    )
+
+    period = sensor.update_period if sensor.update_period is not None else sensor_period
+    bodies = f"({'|'.join(sensor.bodies)})"
+    return VolumePointsCfg(
+        prim_path=f"{_ROBOT_PRIM}/{bodies}",
+        points_generator=Grid3dPointsGeneratorCfg(
+            x_min=sensor.grid.x_min,
+            x_max=sensor.grid.x_max,
+            x_num=sensor.grid.x_num,
+            y_min=sensor.grid.y_min,
+            y_max=sensor.grid.y_max,
+            y_num=sensor.grid.y_num,
+            z_min=sensor.grid.z_min,
+            z_max=sensor.grid.z_max,
+            z_num=sensor.grid.z_num,
+        ),
+        debug_vis=False,
+        update_period=period,
+        body_order=list(sensor.bodies),
+        velocity=sensor.velocity,
+    )
 
 
 def _build_native_sensor(
@@ -91,30 +115,6 @@ def _build_native_sensor(
             f"Native sensor builder for {sensor.kind!r} returned no config for {sensor.name!r}."
         )
     return native
-    from instinctlab_engine_isaacsim.sensors.volume_points.volume_points_cfg import (
-        VolumePointsCfg,
-    )
-
-    period = sensor.update_period if sensor.update_period is not None else sensor_period
-    bodies = f"({'|'.join(sensor.bodies)})"
-    return VolumePointsCfg(
-        prim_path=f"{_ROBOT_PRIM}/{bodies}",
-        points_generator=Grid3dPointsGeneratorCfg(
-            x_min=sensor.grid.x_min,
-            x_max=sensor.grid.x_max,
-            x_num=sensor.grid.x_num,
-            y_min=sensor.grid.y_min,
-            y_max=sensor.grid.y_max,
-            y_num=sensor.grid.y_num,
-            z_min=sensor.grid.z_min,
-            z_max=sensor.grid.z_max,
-            z_num=sensor.grid.z_num,
-        ),
-        debug_vis=False,
-        update_period=period,
-        body_order=list(sensor.bodies),
-        velocity=sensor.velocity,
-    )
 
 
 def _build_contact_sensor(sensor: ContactSensorRef) -> Any:

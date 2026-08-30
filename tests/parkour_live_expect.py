@@ -680,7 +680,7 @@ def assert_policy_joint_dfs_runtime_semantics(env, spec, *, device: str) -> None
     """
     import torch
 
-    from instinctlab.assets.unitree_g1 import (
+    from instinctlab.assets.unitree_g1.isaacsim import (
         G1_29DOF_DFS_JOINT_NAMES,
         G1_29DOF_ISAAC_BFS_JOINT_NAMES,
     )
@@ -936,7 +936,7 @@ def _force_volume_refresh(env) -> None:
     env.scene.sensors[VOLUME_SENSOR_NAME].update(dt, force_recompute=True)
 
 
-def assert_volume_points_shape(env) -> None:
+def assert_volume_points_shape(env, spec) -> None:
     """Two ankles, 100 local points each. A dropped body is a silent sum change."""
     from instinctlab_engine.bridge.sensors import volume_points_penetration_offset
 
@@ -948,9 +948,7 @@ def assert_volume_points_shape(env) -> None:
     )
     pattern = getattr(sensor, "_volume_points_pattern", None)
     if pattern is not None:
-        from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
-
-        declared = list(LEG_VOLUME_POINTS.grid.points())
+        declared = list(spec.scene.volume_point(VOLUME_SENSOR_NAME).grid.points())
         assert pattern.shape[0] == VOLUME_POINTS_PER_BODY
         import pytest
 
@@ -1113,18 +1111,16 @@ def _pose_robot_standing(env, *, device: str, vel_x: float = 0.0):
     return robot, env_ids
 
 
-def _left_foot_points_fk(env, robot, *, device: str):
+def _left_foot_points_fk(env, robot, sensor_ref, *, device: str):
     import torch
 
     from instinctlab_engine.bridge.math import quat_apply
-    from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
-
     bodies = list(robot.body_names)
     left = bodies.index("left_ankle_roll_link")
     ankle_pos = robot.data.body_link_pos_w[:, left]
     ankle_quat = robot.data.body_link_quat_w[:, left]
     local = torch.tensor(
-        LEG_VOLUME_POINTS.grid.points(), device=device, dtype=ankle_pos.dtype
+        sensor_ref.grid.points(), device=device, dtype=ankle_pos.dtype
     )
     return ankle_pos.unsqueeze(1) + quat_apply(
         ankle_quat.unsqueeze(1).expand(-1, local.shape[0], -1),
@@ -1133,7 +1129,7 @@ def _left_foot_points_fk(env, robot, *, device: str):
 
 
 def assert_terrain_generated_cylinder_penetration(
-    env, *, device: str
+    env, spec, *, device: str
 ) -> dict[str, float]:
     """Put a foot inside a *generated* terrain cylinder and check the hand numbers.
 
@@ -1149,7 +1145,7 @@ def assert_terrain_generated_cylinder_penetration(
         volume_points_vel_w,
     )
     from instinctlab.tasks.parkour.mdp.rewards import penetration_reward
-    from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
+    sensor_ref = spec.scene.volume_point(VOLUME_SENSOR_NAME)
 
     obstacle = env.scene.terrain.virtual_obstacles["edges"]
     edges = obstacle.edges_pyt
@@ -1163,7 +1159,9 @@ def assert_terrain_generated_cylinder_penetration(
     assert int(usable.sum()) > 0, "generate() produced no finite-length cylinders"
 
     robot, env_ids = _pose_robot_standing(env, device=device, vel_x=VOLUME_KNOWN_SPEED)
-    expected_points = _left_foot_points_fk(env, robot, device=device)
+    expected_points = _left_foot_points_fk(
+        env, robot, sensor_ref, device=device
+    )
     sample = expected_points[:, 0]
 
     mid = (edges[:, :3] + edges[:, 3:6]) * 0.5
@@ -1219,7 +1217,7 @@ def assert_terrain_generated_cylinder_penetration(
     assert hand_sample == pytest.approx(expected_depth, abs=5e-3)
 
     speed = torch.linalg.vector_norm(volume_points_vel_w(sensor).flatten(1, 2), dim=-1)
-    reward = mdp.volume_points_penetration(env, LEG_VOLUME_POINTS)
+    reward = mdp.volume_points_penetration(env, sensor_ref)
     assert float(reward[0]) > 0.0
     hand_reward = penetration_reward(float(sample_depth[0]), float(speed[0, 0]))
     print(
@@ -1283,7 +1281,7 @@ def _hand_cylinder_offset(points, start, end, radius: float):
     return (proj - points) * scale.unsqueeze(-1)
 
 
-def assert_known_volume_penetration(env, *, device: str) -> dict[str, float]:
+def assert_known_volume_penetration(env, spec, *, device: str) -> dict[str, float]:
     """Put a known cylinder next to a known point at a known speed; check the numbers.
 
     ω = 0 so Isaac's COM velocity and mjlab's link velocity agree. The offset is
@@ -1297,10 +1295,12 @@ def assert_known_volume_penetration(env, *, device: str) -> dict[str, float]:
         volume_points_vel_w,
     )
     from instinctlab.tasks.parkour.mdp.rewards import penetration_reward
-    from instinctlab.tasks.parkour.config.parkour_env_cfg import LEG_VOLUME_POINTS
+    sensor_ref = spec.scene.volume_point(VOLUME_SENSOR_NAME)
 
     robot, _env_ids = _pose_robot_standing(env, device=device, vel_x=VOLUME_KNOWN_SPEED)
-    expected_points = _left_foot_points_fk(env, robot, device=device)
+    expected_points = _left_foot_points_fk(
+        env, robot, sensor_ref, device=device
+    )
 
     sensor = env.scene.sensors[VOLUME_SENSOR_NAME]
     terrain_set = dict(env.scene.terrain.virtual_obstacles)
@@ -1350,7 +1350,7 @@ def assert_known_volume_penetration(env, *, device: str) -> dict[str, float]:
         expected_reward = torch.sum(
             (depth > 0.0).float() * (speed + 1e-6) * depth, dim=-1
         )
-        reward = mdp.volume_points_penetration(env, LEG_VOLUME_POINTS)
+        reward = mdp.volume_points_penetration(env, sensor_ref)
         torch.testing.assert_close(reward, expected_reward, atol=1e-4, rtol=1e-4)
         hand = penetration_reward(sample_depth, float(speed[0, 0]))
         assert float(reward[0]) > 0.0

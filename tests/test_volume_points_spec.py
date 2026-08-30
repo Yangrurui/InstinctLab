@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import numpy as np
+import sys
 import torch
 from types import SimpleNamespace
 
@@ -46,6 +47,11 @@ SHOE = Grid3dPointsRef(
 )
 
 
+class _NativeCfgStub:
+    def __init__(self, **kwargs) -> None:
+        vars(self).update(kwargs)
+
+
 def test_the_shoe_grid_is_one_hundred_points_below_the_ankle() -> None:
     """z is body-local and negative. A sign flip puts the cloud in the shin."""
     assert SHOE.count == 100
@@ -58,6 +64,45 @@ def test_the_shoe_grid_is_one_hundred_points_below_the_ankle() -> None:
     assert points[-1] == pytest.approx((0.12, 0.03, -0.023))
     zs = {point[2] for point in points}
     assert zs == {-0.063, -0.023}
+
+
+def test_isaac_volume_points_builder_returns_the_complete_native_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(
+        sys.modules,
+        (
+            "instinctlab_engine_isaacsim.sensors.volume_points."
+            "points_generator_cfg"
+        ),
+        SimpleNamespace(Grid3dPointsGeneratorCfg=_NativeCfgStub),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "instinctlab_engine_isaacsim.sensors.volume_points.volume_points_cfg",
+        SimpleNamespace(VolumePointsCfg=_NativeCfgStub),
+    )
+    from instinctlab_engine_isaacsim.scene import _build_volume_points
+
+    sensor = VolumePointsRef(
+        name="leg_volume_points",
+        attach=("left_foot", "right_foot"),
+        grid=SHOE,
+        update_period=0.02,
+    )
+
+    cfg = _build_volume_points(sensor, sensor_period=0.005)
+
+    assert cfg.prim_path == "{ENV_REGEX_NS}/Robot/(left_foot|right_foot)"
+    assert cfg.update_period == 0.02
+    assert cfg.body_order == ["left_foot", "right_foot"]
+    assert cfg.velocity == "attach_link"
+    assert cfg.points_generator.x_min == SHOE.x_min
+    assert cfg.points_generator.x_max == SHOE.x_max
+    assert cfg.points_generator.x_num == SHOE.x_num
+    assert cfg.points_generator.z_min == SHOE.z_min
+    assert cfg.points_generator.z_max == SHOE.z_max
+    assert cfg.points_generator.z_num == SHOE.z_num
 
 
 def test_volume_points_ref_refuses_a_frame_or_velocity_flip() -> None:
