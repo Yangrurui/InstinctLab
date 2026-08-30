@@ -7,6 +7,10 @@ name = "instinctlab-engine-mjlab"
 version = "0.1.0"
 description = "MJLab backend for InstinctLab Engine Core"
 requires-python = ">=3.11"
+license = {text = "CC BY-NC 4.0"}
+authors = [{name = "Project Instinct"}]
+maintainers = [{name = "YangRurui"}]
+keywords = ["mjlab", "mujoco", "robotics", "reinforcement-learning"]
 dependencies = [
     "instinctlab-engine-core[geometry]==0.1.0",
     "mjlab==1.5.0",
@@ -15,6 +19,11 @@ dependencies = [
     "warp-lang==1.14.0",
     "coacd==1.0.7",
 ]
+
+[project.urls]
+Documentation = "https://project-instinct.github.io/"
+Source = "https://github.com/project-instinct/instinctlab"
+Issues = "https://github.com/project-instinct/instinctlab/issues"
 
 [project.entry-points."instinctlab.engines"]
 mjlab = "instinctlab_engine_mjlab:register"

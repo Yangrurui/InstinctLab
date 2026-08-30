@@ -7,6 +7,10 @@ name = "instinctlab-engine-isaacsim"
 version = "0.1.0"
 description = "Isaac Sim backend for InstinctLab Engine Core"
 requires-python = ">=3.11"
+license = {text = "CC BY-NC 4.0"}
+authors = [{name = "Project Instinct"}]
+maintainers = [{name = "YangRurui"}]
+keywords = ["isaac-sim", "isaac-lab", "robotics", "reinforcement-learning"]
 dependencies = [
     "instinctlab-engine-core[geometry]==0.1.0",
     "isaaclab @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab",
@@ -15,6 +19,11 @@ dependencies = [
     "isaaclab_rl @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab_rl",
     "isaaclab_tasks @ git+https://github.com/isaac-sim/IsaacLab.git@f73c331738#subdirectory=source/isaaclab_tasks",
 ]
+
+[project.urls]
+Documentation = "https://project-instinct.github.io/"
+Source = "https://github.com/project-instinct/instinctlab"
+Issues = "https://github.com/project-instinct/instinctlab/issues"
 
 [project.entry-points."instinctlab.engines"]
 isaacsim = "instinctlab_engine_isaacsim:register"

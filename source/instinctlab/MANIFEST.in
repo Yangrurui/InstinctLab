@@ -1,0 +1,2 @@
+recursive-include instinctlab/assets/resources *
+recursive-include instinctlab/tasks *.md

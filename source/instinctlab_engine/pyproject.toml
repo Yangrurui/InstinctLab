@@ -7,6 +7,10 @@ name = "instinctlab-engine-core"
 version = "0.1.0"
 description = "Engine-neutral task contracts, runtime bridges, and compiler interfaces for InstinctLab"
 requires-python = ">=3.11"
+license = {text = "CC BY-NC 4.0"}
+authors = [{name = "Project Instinct"}]
+maintainers = [{name = "YangRurui"}]
+keywords = ["reinforcement-learning", "simulation", "compiler", "robotics"]
 dependencies = [
     "numpy",
     "packaging",
@@ -16,6 +20,11 @@ dependencies = [
 
 [project.optional-dependencies]
 geometry = ["warp-lang>=1.14,<2"]
+
+[project.urls]
+Documentation = "https://project-instinct.github.io/"
+Source = "https://github.com/project-instinct/instinctlab"
+Issues = "https://github.com/project-instinct/instinctlab/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

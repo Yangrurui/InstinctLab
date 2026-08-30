@@ -1,14 +1,16 @@
 """Installation script for the 'instinctlab' python package."""
 
 import os
-import toml
 
+import toml
 from setuptools import find_packages, setup
 
 # Obtain the extension data from the extension.toml file
 EXTENSION_PATH = os.path.dirname(os.path.realpath(__file__))
 # Read the extension.toml file
-EXTENSION_TOML_DATA = toml.load(os.path.join(EXTENSION_PATH, "config", "extension.toml"))
+EXTENSION_TOML_DATA = toml.load(
+    os.path.join(EXTENSION_PATH, "config", "extension.toml")
+)
 
 # Minimum dependencies required prior to installation
 INSTALL_REQUIRES = [
@@ -50,13 +52,19 @@ setup(
             "unitree_g1 = instinctlab.assets.unitree_g1.interface:native_module",
         ],
     },
-    license="MIT",
+    license=EXTENSION_TOML_DATA["package"]["license"],
+    project_urls={
+        "Documentation": "https://project-instinct.github.io/",
+        "Source": EXTENSION_TOML_DATA["package"]["repository"],
+        "Issues": f"{EXTENSION_TOML_DATA['package']['repository']}/issues",
+    },
     include_package_data=True,
     python_requires=">=3.11",
     classifiers=[
         "Natural Language :: English",
+        "Operating System :: POSIX :: Linux",
         "Programming Language :: Python :: 3.11",
-        "Isaac Sim :: 5.1.0",
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     zip_safe=False,
 )

@@ -4,23 +4,20 @@
 version = "0.1.0"
 
 # Description
-category = "isaaclab"
-readme  = "README.md"
+category = "robotics"
+readme  = "../../README.md"
 
-title = "Extension Template"
-author = "Isaac Lab Project Developers"
-maintainer = "Isaac Lab Project Developers"
-description="Extension Template for Isaac Lab"
-repository = "https://github.com/isaac-sim/IsaacLabExtensionTemplate.git"
-keywords = ["extension", "template", "isaaclab"]
+title = "InstinctLab"
+author = "Project Instinct"
+maintainer = "YangRurui"
+description = "Engine-neutral humanoid reinforcement-learning tasks for Isaac Sim and MJLab"
+repository = "https://github.com/project-instinct/instinctlab"
+keywords = ["humanoid", "reinforcement-learning", "isaac-sim", "mjlab"]
+license = "CC-BY-NC-4.0"
 
 [dependencies]
-"isaaclab" = {}
-"isaaclab_assets" = {}
-"isaaclab_mimic" = {}
-"isaaclab_rl" = {}
-"isaaclab_tasks" = {}
-# NOTE: Add additional dependencies here
+# Simulator dependencies are supplied by the selected engine wheel. The task
+# application itself remains importable without either SDK.
 
 [[python.module]]
 name = "instinctlab"

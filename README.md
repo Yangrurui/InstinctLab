@@ -21,7 +21,7 @@ We aim at industralize Reinforcement Learning for Humanoid (legged robots) whole
     - The core design of this ecosystem is to treat each experiment as a standalone structured folder, which start with a timestamp as a unique identifier.
     - Adding `--exportonnx` flag to the `play.py` script will export the policy as an ONNX model. After that, you should directly copy the logdir to the robot computer and use the `instinct_onboard` workflow to run the policy on the real robot.
 
-**Keywords:** extension, template, isaaclab
+**Keywords:** humanoid, reinforcement learning, Isaac Sim, MJLab
 
 ## Warning
 This codebase is under [CC BY-NC 4.0 license](LICENSE), with inherited license in IsaacLab. You may not use the material for commercial purposes, e.g., to make demos to advertise your commercial products or wrap the code for your own commercial purposes.
@@ -137,8 +137,10 @@ entry point.
 
 ```python
 # source/instinctlab/instinctlab/tasks/my_task/config.py
-def my_task() -> TaskSpec:
-    return TaskSpec(...)
+from instinctlab_engine.spec import RobotSpec, TaskSpec
+
+def my_task(robot: RobotSpec) -> TaskSpec:
+    return TaskSpec(robot=robot, ...)
 
 # source/instinctlab/instinctlab/tasks/registry.py
 TASKS["Instinct-My-Task"] = "instinctlab.tasks.my_task.config:my_task"
