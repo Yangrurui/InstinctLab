@@ -8,7 +8,7 @@ import torch
 
 from instinctlab.spec.sensor import RayCasterRef
 
-from ..denylist import PortabilityError
+from ..errors import PortabilityError
 
 
 def camera_pose_for_alignment(torso_pos, torso_quat, offset, offset_rot, alignment: str):

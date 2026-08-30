@@ -13,8 +13,8 @@ What does need handling is where the two genuinely differ.
 express is rejected here rather than dropped, because dropping it produces a task that runs and
 means something else.
 
-**What ``<kind>_names`` holds after ``resolve()``.** This is a trap of exactly the kind
-:mod:`~instinctlab.compat.denylist` exists for, one level up from the data attributes it covers.
+**What ``<kind>_names`` holds after ``resolve()``.** This is the same kind of
+same-name/different-meaning trap that this compatibility layer prevents.
 Isaac Lab leaves the *user's patterns* in the field (it discards the matched names) while mjlab
 overwrites it with the *matched names*. So a term reading ``asset_cfg.body_names`` gets
 ``[".*_ankle_roll_link"]`` under one engine and ``["left_ankle_roll_link", ...]`` under the other.
@@ -36,7 +36,7 @@ This module imports no engine at module scope; each lowering imports its own eng
 **选择器种类。** 仅 ``joint`` 与 ``body`` 共通。Isaac Lab 另有 ``fixed_tendon``、``object_collection``；
 mjlab 另有八种。引用目标引擎无法表达的种类时在此拒绝而非丢弃——丢弃会得到能跑但语义不同的任务。
 
-**``resolve()`` 后 ``<kind>_names`` 存什么。** 这是 :mod:`~instinctlab.compat.denylist` 一类陷阱的上层版本。
+**``resolve()`` 后 ``<kind>_names`` 存什么。** 这是兼容层所防止的同名异义陷阱。
 Isaac Lab 保留 *用户模式*，mjlab 覆写为 *匹配名*。读 ``asset_cfg.body_names`` 时一侧是正则、一侧是具体名。
 :func:`resolved_names` 是可移植问法，且无需 per-engine 分支。
 
@@ -46,14 +46,14 @@ Isaac Lab 保留 *用户模式*，mjlab 覆写为 *匹配名*。读 ``asset_cfg.
 from __future__ import annotations
 
 import importlib
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
 from instinctlab.spec.entity import UNIVERSAL_KINDS, EntityRef
 
-from .denylist import PortabilityError
+from .errors import PortabilityError
 
 __all__ = [
     "UnsupportedSelector",

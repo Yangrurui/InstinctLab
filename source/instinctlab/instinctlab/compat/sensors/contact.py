@@ -5,14 +5,15 @@ from __future__ import annotations
 import inspect
 import re
 import weakref
+from collections.abc import Mapping, MutableMapping
 from types import MappingProxyType
-from typing import Any, Mapping, MutableMapping
+from typing import Any
 
 import torch
 
 from instinctlab.spec.sensor import ContactSensorRef
 
-from ..denylist import PortabilityError
+from ..errors import PortabilityError
 
 _ELEMENT_NAME_ATTR = MappingProxyType({"isaacsim": "body_names", "mjlab": "primary_names"})
 _FORCE_HISTORY: Mapping[str, tuple[str, bool]] = MappingProxyType(

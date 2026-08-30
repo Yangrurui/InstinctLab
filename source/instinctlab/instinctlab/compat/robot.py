@@ -16,8 +16,8 @@ from typing import Any, Literal
 
 import torch
 
-from .denylist import PortabilityError
 from .env import env_engine
+from .errors import PortabilityError
 
 __all__ = [
     "body_angular_velocity_w",

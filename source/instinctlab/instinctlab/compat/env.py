@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from .denylist import PortabilityError
+from .errors import PortabilityError
 
 if TYPE_CHECKING:
     import torch

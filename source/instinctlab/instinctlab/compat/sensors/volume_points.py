@@ -9,7 +9,7 @@ import torch
 
 from instinctlab.spec.sensor import Grid3dPointsRef
 
-from ..denylist import PortabilityError
+from ..errors import PortabilityError
 
 
 def grid3d_points(grid: Grid3dPointsRef) -> tuple[tuple[float, float, float], ...]:
