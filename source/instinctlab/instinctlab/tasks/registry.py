@@ -1,18 +1,16 @@
-"""Where a task id resolves to a :class:`TaskSpec`, for every engine.
+"""Lazy, immutable task registrations for every supported engine.
 
-Gym's registry cannot serve this purpose. Registering ``Instinct-Parkour-Flat-G1-v0`` requires
-importing the Isaac Lab env config that the id points at, so the act of listing what tasks exist
-demands Isaac Sim -- which is exactly wrong for a task that is supposed to be engine-independent.
-
-So task ids live here, mapped to factories rather than to specs. A factory is imported only when
-its task is asked for, which keeps ``instinctlab.tasks.registry`` importable in a bare interpreter
-and keeps listing cheap. There is no second Gym registry to keep synchronized.
+Gym registration imports native environment configuration while listing tasks.
+This catalog stores only engine-neutral strings, so discovery remains cheap and
+does not import a task factory, robot asset, or simulator SDK.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from importlib import import_module
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from instinctlab_engine.spec import freeze_task_spec
@@ -21,121 +19,192 @@ if TYPE_CHECKING:
     from instinctlab_engine.spec import TaskSpec
     from instinctlab_engine.spec.robot import RobotSpec
 
-TASKS: dict[str, str] = {
-    "Instinct-Velocity-Flat-G1": "instinctlab.tasks.locomotion.config.g1:flat_g1",
-    "Instinct-Velocity-Rough-G1": "instinctlab.tasks.locomotion.config.g1:rough_g1",
-    "Instinct-Parkour-Target-G1": "instinctlab.tasks.parkour.config.g1:parkour_target_g1",
-    "Instinct-Shadowing-WholeBody-Plane-G1-v0": (
-        "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg:g1_plane_shadowing"
+
+@dataclass(frozen=True, slots=True)
+class TaskRegistration:
+    """Complete routing metadata for one public task id."""
+
+    factory_path: str
+    asset_id: str
+    checkpoint_task_id: str | None = None
+
+    def __post_init__(self) -> None:
+        module, separator, attribute = self.factory_path.partition(":")
+        if not separator or not module or not attribute.isidentifier():
+            raise ValueError(
+                f"invalid task factory path {self.factory_path!r}; expected 'module:factory'"
+            )
+        package, separator, variant = self.asset_id.partition("/")
+        if not separator or not package.isidentifier() or not variant:
+            raise ValueError(
+                f"invalid task asset id {self.asset_id!r}; expected 'package/variant'"
+            )
+
+
+_REGISTRATIONS = {
+    "Instinct-Velocity-Flat-G1": TaskRegistration(
+        factory_path="instinctlab.tasks.locomotion.config.g1:flat_g1",
+        asset_id="unitree_g1/popsicle_torsobase_v1",
     ),
-    "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg:g1_plane_shadowing_play"
+    "Instinct-Velocity-Rough-G1": TaskRegistration(
+        factory_path="instinctlab.tasks.locomotion.config.g1:rough_g1",
+        asset_id="unitree_g1/popsicle_torsobase_v1",
     ),
-    "Instinct-Perceptive-Shadowing-G1-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:g1_perceptive_shadowing"
+    "Instinct-Parkour-Target-G1": TaskRegistration(
+        factory_path="instinctlab.tasks.parkour.config.g1:parkour_target_g1",
+        asset_id="unitree_g1/popsicle_torsobase_parkour_v1",
     ),
-    "Instinct-Perceptive-Shadowing-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:"
-        "g1_perceptive_shadowing_play"
+    "Instinct-Shadowing-WholeBody-Plane-G1-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg:"
+            "g1_plane_shadowing"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
     ),
-    "Instinct-Perceptive-Shadowing-G1-OneMotion-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:"
-        "g1_perceptive_shadowing_one_motion"
+    "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.whole_body.config.g1.plane_shadowing_cfg:"
+            "g1_plane_shadowing_play"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+        checkpoint_task_id="Instinct-Shadowing-WholeBody-Plane-G1-v0",
     ),
-    "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:"
-        "g1_perceptive_shadowing_one_motion_play"
+    "Instinct-Perceptive-Shadowing-G1-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:"
+            "g1_perceptive_shadowing"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
     ),
-    "Instinct-Perceptive-Vae-G1-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_vae_cfg:g1_perceptive_vae"
+    "Instinct-Perceptive-Shadowing-G1-Play-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:"
+            "g1_perceptive_shadowing_play"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+        checkpoint_task_id="Instinct-Perceptive-Shadowing-G1-v0",
     ),
-    "Instinct-Perceptive-Vae-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_vae_cfg:g1_perceptive_vae_play"
+    "Instinct-Perceptive-Shadowing-G1-OneMotion-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:"
+            "g1_perceptive_shadowing_one_motion"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
     ),
-    "Instinct-Perceptive-HOI-Shadowing-G1-v0": (
-        "instinctlab.tasks.shadowing.perceptive_hoi.config.g1.perceptive_shadowing_cfg:"
-        "g1_perceptive_hoi_shadowing"
+    "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_shadowing_cfg:"
+            "g1_perceptive_shadowing_one_motion_play"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+        checkpoint_task_id="Instinct-Perceptive-Shadowing-G1-OneMotion-v0",
     ),
-    "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.perceptive_hoi.config.g1.perceptive_shadowing_cfg:"
-        "g1_perceptive_hoi_shadowing_play"
+    "Instinct-Perceptive-Vae-G1-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_vae_cfg:"
+            "g1_perceptive_vae"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
     ),
-    "Instinct-BeyondMimic-Plane-G1-v0": (
-        "instinctlab.tasks.shadowing.beyondmimic.config.g1.beyondmimic_plane_cfg:g1_beyondmimic_plane"
+    "Instinct-Perceptive-Vae-G1-Play-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive.config.g1.perceptive_vae_cfg:"
+            "g1_perceptive_vae_play"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+        checkpoint_task_id="Instinct-Perceptive-Vae-G1-v0",
     ),
-    "Instinct-BeyondMimic-Plane-G1-Play-v0": (
-        "instinctlab.tasks.shadowing.beyondmimic.config.g1.beyondmimic_plane_cfg:g1_beyondmimic_plane_play"
+    "Instinct-Perceptive-HOI-Shadowing-G1-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive_hoi.config.g1.perceptive_shadowing_cfg:"
+            "g1_perceptive_hoi_shadowing"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+    ),
+    "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.perceptive_hoi.config.g1.perceptive_shadowing_cfg:"
+            "g1_perceptive_hoi_shadowing_play"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+        checkpoint_task_id="Instinct-Perceptive-HOI-Shadowing-G1-v0",
+    ),
+    "Instinct-BeyondMimic-Plane-G1-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.beyondmimic.config.g1.beyondmimic_plane_cfg:"
+            "g1_beyondmimic_plane"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+    ),
+    "Instinct-BeyondMimic-Plane-G1-Play-v0": TaskRegistration(
+        factory_path=(
+            "instinctlab.tasks.shadowing.beyondmimic.config.g1.beyondmimic_plane_cfg:"
+            "g1_beyondmimic_plane_play"
+        ),
+        asset_id="unitree_g1/popsicle_torsobase_shadowing_v1",
+        checkpoint_task_id="Instinct-BeyondMimic-Plane-G1-v0",
     ),
 }
-"""Task id -> dotted path of the factory returning its :class:`TaskSpec`.
 
-The id is the one the spec declares. Keep the two in step; :func:`spec` checks.
-"""
+REGISTRATIONS: Mapping[str, TaskRegistration] = MappingProxyType(_REGISTRATIONS)
+"""The single immutable task catalog."""
 
-PLAY_CHECKPOINT_TASKS: dict[str, str] = {
-    "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": "Instinct-Shadowing-WholeBody-Plane-G1-v0",
-    "Instinct-Perceptive-Shadowing-G1-Play-v0": "Instinct-Perceptive-Shadowing-G1-v0",
-    "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": (
-        "Instinct-Perceptive-Shadowing-G1-OneMotion-v0"
-    ),
-    "Instinct-Perceptive-Vae-G1-Play-v0": "Instinct-Perceptive-Vae-G1-v0",
-    "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": "Instinct-Perceptive-HOI-Shadowing-G1-v0",
-    "Instinct-BeyondMimic-Plane-G1-Play-v0": "Instinct-BeyondMimic-Plane-G1-v0",
-}
-"""Play task id -> training task id whose policy checkpoint it consumes."""
+for _task_id, _registration in REGISTRATIONS.items():
+    if (
+        _registration.checkpoint_task_id is not None
+        and _registration.checkpoint_task_id not in REGISTRATIONS
+    ):
+        raise ValueError(
+            f"task {_task_id!r} references unknown checkpoint task "
+            f"{_registration.checkpoint_task_id!r}"
+        )
 
-TASK_ASSETS: dict[str, str] = {
-    "Instinct-Velocity-Flat-G1": "unitree_g1/popsicle_torsobase_v1",
-    "Instinct-Velocity-Rough-G1": "unitree_g1/popsicle_torsobase_v1",
-    "Instinct-Parkour-Target-G1": "unitree_g1/popsicle_torsobase_parkour_v1",
-    "Instinct-Shadowing-WholeBody-Plane-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Shadowing-WholeBody-Plane-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-Shadowing-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-Shadowing-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-Shadowing-G1-OneMotion-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-Shadowing-G1-OneMotion-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-Vae-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-Vae-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-HOI-Shadowing-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-Perceptive-HOI-Shadowing-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-BeyondMimic-Plane-G1-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-    "Instinct-BeyondMimic-Plane-G1-Play-v0": "unitree_g1/popsicle_torsobase_shadowing_v1",
-}
-"""Task id -> native asset package and variant, resolved only after engine selection."""
+# Read-only compatibility views for application code that only needs one field.
+TASKS: Mapping[str, str] = MappingProxyType(
+    {task_id: registration.factory_path for task_id, registration in REGISTRATIONS.items()}
+)
+TASK_ASSETS: Mapping[str, str] = MappingProxyType(
+    {task_id: registration.asset_id for task_id, registration in REGISTRATIONS.items()}
+)
+PLAY_CHECKPOINT_TASKS: Mapping[str, str] = MappingProxyType(
+    {
+        task_id: registration.checkpoint_task_id
+        for task_id, registration in REGISTRATIONS.items()
+        if registration.checkpoint_task_id is not None
+    }
+)
 
 
 def ids() -> tuple[str, ...]:
     """Every declared task id, without importing any of them."""
-    return tuple(sorted(TASKS))
+    return tuple(sorted(REGISTRATIONS))
 
 
-def checkpoint_task_id(task_id: str) -> str:
-    """Return the task identity expected in a checkpoint used by ``task_id``."""
-    if task_id not in TASKS:
-        raise KeyError(
-            f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}"
-        )
-    return PLAY_CHECKPOINT_TASKS.get(task_id, task_id)
-
-
-def factory(task_id: str) -> Callable[[RobotSpec], TaskSpec]:
-    """Import and return the factory for ``task_id``."""
+def _registration(task_id: str) -> TaskRegistration:
     try:
-        path = TASKS[task_id]
+        return REGISTRATIONS[task_id]
     except KeyError:
         raise KeyError(
             f"unknown task {task_id!r}; declared tasks are {', '.join(ids())}"
         ) from None
-    module_path, _, attr = path.partition(":")
-    return getattr(import_module(module_path), attr)
+
+
+def checkpoint_task_id(task_id: str) -> str:
+    """Return the task identity expected in a checkpoint used by ``task_id``."""
+    registration = _registration(task_id)
+    return registration.checkpoint_task_id or task_id
+
+
+def factory(task_id: str) -> Callable[[RobotSpec], TaskSpec]:
+    """Import and return the factory for ``task_id``."""
+    path = _registration(task_id).factory_path
+    module_path, _, attribute = path.partition(":")
+    return getattr(import_module(module_path), attribute)
 
 
 def asset_id(task_id: str) -> str:
     """Return the engine-neutral native asset selection for ``task_id``."""
-    try:
-        return TASK_ASSETS[task_id]
-    except KeyError:
-        raise KeyError(f"task {task_id!r} has no native asset declaration") from None
+    return _registration(task_id).asset_id
 
 
 def spec(task_id: str, robot: RobotSpec) -> TaskSpec:
@@ -155,3 +224,17 @@ def spec(task_id: str, robot: RobotSpec) -> TaskSpec:
     frozen = freeze_task_spec(built)
     frozen.validate()
     return frozen
+
+
+__all__ = [
+    "PLAY_CHECKPOINT_TASKS",
+    "REGISTRATIONS",
+    "TASKS",
+    "TASK_ASSETS",
+    "TaskRegistration",
+    "asset_id",
+    "checkpoint_task_id",
+    "factory",
+    "ids",
+    "spec",
+]

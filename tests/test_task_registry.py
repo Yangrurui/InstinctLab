@@ -39,6 +39,20 @@ def test_every_registered_factory_returns_its_own_task_id() -> None:
         assert task_spec(task_id).task_id == task_id
 
 
+def test_task_routing_has_one_immutable_source_of_truth() -> None:
+    assert set(registry.REGISTRATIONS) == set(registry.TASKS) == set(registry.TASK_ASSETS)
+    for task_id, registration in registry.REGISTRATIONS.items():
+        assert registry.TASKS[task_id] == registration.factory_path
+        assert registry.TASK_ASSETS[task_id] == registration.asset_id
+        if registration.checkpoint_task_id is not None:
+            assert registry.PLAY_CHECKPOINT_TASKS[task_id] == registration.checkpoint_task_id
+
+    with pytest.raises(TypeError):
+        registry.REGISTRATIONS["new-task"] = next(iter(registry.REGISTRATIONS.values()))
+    with pytest.raises(TypeError):
+        registry.TASKS["new-task"] = "package:factory"
+
+
 def test_registry_returns_the_same_immutable_snapshot_used_for_hashing() -> None:
     task = task_spec("Instinct-Velocity-Flat-G1")
     before = task_contract(task)

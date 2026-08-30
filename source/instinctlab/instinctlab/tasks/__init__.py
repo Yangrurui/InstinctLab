@@ -1,3 +1,5 @@
 """Engine-neutral task registration."""
 
-from .registry import TASKS, factory, ids, spec
+from .registry import REGISTRATIONS, TASKS, TaskRegistration, factory, ids, spec
+
+__all__ = ["REGISTRATIONS", "TASKS", "TaskRegistration", "factory", "ids", "spec"]
