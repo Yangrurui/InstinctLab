@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current verified production code: `f940fe6`
+- Current verified production code: `5ff4367`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -20,9 +20,10 @@ Every active task is registered once in
 engine:
 
 ```text
-Isaac native config -> Isaac adapter -> shared RobotSpec -> task config -> TaskSpec -> Isaac environment
-MJLab native config -> MJLab adapter -> shared RobotSpec -> task config -> TaskSpec -> MJLab environment
-                                                        -> common runner/checkpoint interface
+asset plugin -> selected backend -> engine-core RobotSpec
+task application -----------------> engine-core TaskSpec
+                                     -> selected backend -> native environment
+                                     -> common runner/checkpoint interface
 ```
 
 Current code organization:
@@ -59,32 +60,40 @@ Current code organization:
   once, and only registry factories convert them to `TaskSpec`. Selectors and
   contact references are written on the term that consumes them rather than
   hidden behind configuration aliases.
-- `spec/` defines schemas and validation. It does not contain task values or
-  import an engine SDK.
+- `source/instinctlab_engine` is the independently packaged shared boundary.
+  Its `spec/` defines schemas and validation; `bridge/` owns narrow native-value
+  compatibility readers; `motion_reference/` owns shared reference state; and
+  its root owns adapter/compiler/registry infrastructure. It contains no task
+  declarations, application import, or simulator SDK import.
 - The retired `SimulatorBackend` stack and the empty `sim/` package have been
-  removed. `spec/capability.py` owns the task/engine capability protocol,
-  `spec/robot.py` owns the shared `RobotSpec`, and `assets/registry.py` owns
-  native asset routing. Shared motion-reference state lives in the top-level
-  `motion_reference/` package; reusable sensor math and timing live in
-  `compat/sensors/`. The retired Isaac-only motion-reference, environment,
-  manager, and monitor stacks have been removed; no active code imports them.
+  removed. `instinctlab_engine/spec/capability.py` owns the task/engine
+  capability protocol, `spec/robot.py` owns the shared `RobotSpec`, and
+  `instinctlab_engine/assets.py` owns plugin-based native asset routing. Shared
+  motion-reference state and reusable sensor math/timing live in the engine-core
+  distribution. The retired Isaac-only motion-reference, environment, manager,
+  and monitor stacks have been removed; no active code imports them.
 - Task modules do not import engine implementations. Engine packages do not
   import task modules or one another; tests enforce both boundaries.
-- The top-level `engines/` package contains only adapter/compiler/term-registry
-  infrastructure. Isaac-native terrain and sensor implementations live under
-  `engines/isaacsim/`, while MJLab-native implementations remain under
-  `engines/mjlab/`. Adding a portable callable does not require an engine edit;
-  a genuinely new native operation is registered only by the backend that
-  implements it.
-- Backend RL wrappers and Isaac-only camera noise/buffer implementations now
-  live with their adapters. Shared Warp geometry and the dual-engine contact
-  overflow guard live in `engines/geometry/` and `engines/diagnostics/`.
-  `utils/` no longer imports a simulator SDK; the only SDK imports outside
-  `engines/` are the explicitly native asset modules and application-level
+- `source/instinctlab_engine_isaacsim` and
+  `source/instinctlab_engine_mjlab` are independently packaged backends. Each
+  wheel contains only its own native adapter, terms, sensors, terrain, and SDK
+  dependency pins. `source/instinctlab/instinctlab/engines` contains no tracked
+  source. The backends register through the `instinctlab.engines` entry-point
+  group, so adding a backend does not edit engine core or the task application.
+- Adding a portable callable does not require a backend edit. A genuinely new
+  native operation may live in a separate package registered under
+  `instinctlab.engine_terms` as `<engine>.<extension>`; only the selected
+  engine's registrar is imported.
+- Backend RL wrappers and Isaac-only camera noise/buffer implementations live
+  in their backend distributions. Shared Warp geometry and the dual-engine
+  contact overflow guard live in `instinctlab_engine/geometry/` and
+  `instinctlab_engine/diagnostics/`. The only SDK imports outside backend
+  distributions are the explicitly native asset modules and application-level
   playback handlers.
 - Terrain dispatch now has a public lazy extension registry. A new complete
-  terrain uses `engines.register_terrain(engine, kind, "module:builder")`; a
-  new generator tile uses `engines.register_sub_terrain(...)`. Installed
+  terrain uses `instinctlab_engine.register_terrain(engine, kind,
+  "module:builder")`; a new generator tile uses
+  `instinctlab_engine.register_sub_terrain(...)`. Installed
   extension packages may publish a registrar in the `instinctlab.terrains`
   entry-point group. Builders are resolved only for the selected engine, so a
   new terrain can support Isaac Sim, MJLab, or both without editing either
@@ -105,10 +114,12 @@ Current code organization:
   including canonical metadata, model paths, variants, and only that engine's
   actuator values. Neither native module constructs a shared `RobotSpec`.
   `assets/unitree_g1/interface.py` only routes an explicit engine and variant;
-  it contains no robot or actuator values. The package `__init__.py` exports
-  only that router. The selected engine's `assets.py` converts its native
-  configuration to the shared runtime `RobotSpec`; generic engine adapters
-  resolve the `unitree_g1/variant` asset ID without importing G1.
+  it contains no robot or actuator values. The package registers that router
+  with engine core, and the application distribution publishes the same
+  resolver under the `instinctlab.assets` entry-point group. The selected
+  backend's `assets.py` converts its native configuration to the shared runtime
+  `RobotSpec`; engine core has no `instinctlab.assets.*` import convention and
+  generic adapters do not name G1.
 - Playback is not part of `EngineAdapter`. `play/dispatch.py` lazily selects
   native or Viser handlers registered under the application-level `play/`
   package. Viser's MJLab-backed environment selection belongs to
@@ -124,6 +135,42 @@ Current code organization:
   callers were inside that retired stack, and the old examples in `DOCS.md`
   were replaced with the current `TaskSpec`, shared motion runtime, and terrain
   extension interfaces.
+
+### Independent engine packages (2026-08-30)
+
+The engine boundary is now a physical packaging boundary, completed in three
+independently verified commits:
+
+- `e19241f` created `instinctlab-engine-core==0.1.0` and moved the shared
+  schemas, compiler, registries, bridges, motion-reference runtime, geometry,
+  diagnostics, and neutral asset interface into the `instinctlab_engine`
+  namespace.
+- `2e2e624` created `instinctlab-engine-isaacsim==0.1.0` and
+  `instinctlab-engine-mjlab==0.1.0`, moved every native implementation into its
+  own namespace, and changed backend discovery to the `instinctlab.engines`
+  entry-point group. Application extras select backend distributions rather
+  than listing simulator SDK packages directly.
+- `5ff4367` replaced the engine core's application-specific asset import
+  convention with the `instinctlab.assets` entry-point group and added
+  `instinctlab.engine_terms` for independently shipped native term/randomizer
+  lowering. Architecture tests reject any import of the `instinctlab`
+  application from all three engine distributions.
+
+The application still owns task declarations and the concrete Unitree G1 asset
+catalog. That ownership is intentional; the engine packages consume only the
+asset resolver and `TaskSpec`/`RobotSpec` interfaces. Installing a new asset,
+terrain, native term extension, or backend does not require editing an existing
+engine package.
+
+Verification after the package and plugin extraction:
+
+```text
+1248 passed, 3 skipped, 26 deselected
+all three wheels built successfully with independent top-level namespaces
+core + Isaac-only isolated environment discovered only ('isaacsim',)
+core + MJLab-only isolated environment discovered only ('mjlab',)
+neither isolated discovery imported a simulator SDK module
+```
 
 ### Compat boundary cleanup (2026-08-30)
 
