@@ -9,6 +9,8 @@ affect discovery.
 
 This check covers wheel contents, backend discovery, discovery-time SDK import
 isolation, native asset materialization, and the engine/task contract report.
+The default matrix also installs, exercises, and uninstalls a repository-external
+fixture across every public asset, actuator, sensor, and terrain extension seam.
 It deliberately does not construct a simulator environment; use the live
 construction checks documented in ``AGENTS.md`` for that GPU-dependent step.
 """
@@ -30,6 +32,7 @@ PROJECTS = (
     "instinctlab_engine_mjlab",
     "instinctlab",
 )
+EXTENSION_FIXTURE = "instinctlab-extension-fixture"
 MATRICES = {
     "core": ("instinctlab-engine-core",),
     "isaacsim": (
@@ -55,6 +58,216 @@ EXPECTED_ENGINES = {
     "mjlab": ("mjlab",),
     "both": ("isaacsim", "mjlab"),
 }
+
+EXTENSION_PROBE = r"""
+import importlib
+import importlib.metadata as metadata
+import json
+import sys
+from pathlib import Path
+
+engine_name = sys.argv[1]
+environment_root = Path(sys.prefix).resolve()
+
+def belongs_to_environment(distribution):
+    return Path(distribution.locate_file("")).resolve().is_relative_to(environment_root)
+
+original_entry_points = metadata.entry_points
+
+def isolated_entry_points(*args, **kwargs):
+    return [
+        entry_point
+        for entry_point in original_entry_points(*args, **kwargs)
+        if belongs_to_environment(entry_point.dist)
+    ]
+
+metadata.entry_points = isolated_entry_points
+
+from instinctlab_engine import adapter
+from instinctlab_engine.preflight import require_preflight
+from instinctlab_engine.registry import TERRAIN_EXTENSIONS
+from instinctlab_engine.sensors import NativeSensorBuildContext, native_sensor_builder
+from instinctlab_engine.spec import (
+    AgentSpec,
+    MdpSpec,
+    NativeSensorRef,
+    SceneSpec,
+    SimSpec,
+    TaskSpec,
+    TerrainSpec,
+)
+
+selected = adapter(engine_name)
+robot = selected.robot_spec("fixture_bot/v1")
+sensor_ref = NativeSensorRef(
+    name="imu",
+    kind="fixture.imu",
+    attach="base",
+    update_period=0.02,
+    latency=0.02,
+    history_length=2,
+    partial_reset=True,
+)
+task = TaskSpec(
+    task_id=f"Fixture-{engine_name}",
+    robot=robot,
+    scene=SceneSpec(
+        terrain=TerrainSpec(kind="fixture_plane"),
+        native_sensors=(sensor_ref,),
+    ),
+    sim=SimSpec(physics_dt=0.01, decimation=2, episode_length_s=1.0),
+    mdp=MdpSpec(),
+    agent=AgentSpec(runner="builtins:object"),
+    engines=(engine_name,),
+)
+report = require_preflight(task, engine_name, selected_adapter=selected)
+if report["selected_components"] != {
+    "asset_id": "fixture_bot/v1",
+    "actuator_model_ids": ["fixture.stateful.v1"],
+    "sensor_kinds": ["fixture.imu"],
+    "terrain_kind": "fixture_plane",
+    "sub_terrain_kinds": [],
+}:
+    raise AssertionError(report["selected_components"])
+
+native_assets = importlib.import_module(f"instinctlab_engine_{engine_name}.assets")
+if engine_name == "isaacsim":
+    native = native_assets.articulation(robot)
+    selector = native["actuators"]["joint"].joint_names_expr
+else:
+    native = native_assets.entity(robot, actuator_order=robot.joint_names)
+    selector = native["actuators"]["joint"].joint_names
+if tuple(selector) != ("joint",):
+    raise AssertionError(f"native joint selector lost DFS coverage: {selector}")
+
+actuator = native["actuators"]["joint"].build(num_envs=2)
+if actuator.compute([2.0, -2.0]) != [0.0, 0.0]:
+    raise AssertionError("stateful actuator did not apply its one-step delay")
+if actuator.compute([2.0, -2.0]) != [3.0, -3.0]:
+    raise AssertionError("stateful actuator clipping/formula is wrong")
+actuator.reset([1])
+if actuator.compute([0.0, 0.0]) != [3.0, 0.0]:
+    raise AssertionError("stateful actuator partial reset leaked across environments")
+runtime_adapter = importlib.import_module(
+    f"instinctlab_extension_fixture.{engine_name}_implementation"
+).RUNTIME_ADAPTER
+if not runtime_adapter.matches(actuator):
+    raise AssertionError("runtime actuator capability adapter did not resolve")
+
+sensor = native_sensor_builder(engine_name, sensor_ref)(
+    sensor_ref,
+    NativeSensorBuildContext(
+        engine=engine_name,
+        robot=robot,
+        sensor_period=0.02,
+        profile={},
+        num_envs=2,
+    ),
+)
+if sensor.tick([1.0, 10.0], 0.02) != [0.0, 0.0]:
+    raise AssertionError("sensor latency was not applied")
+if sensor.tick([2.0, 20.0], 0.04) != [1.0, 10.0]:
+    raise AssertionError("sensor history timing is wrong")
+sensor.reset([1])
+if sensor.tick([3.0, 30.0], 0.06) != [2.0, 0.0]:
+    raise AssertionError("sensor partial reset leaked across environments")
+
+terrain = TERRAIN_EXTENSIONS.terrain(engine_name, "fixture_plane")(
+    task.scene.terrain, {}
+)
+if terrain["engine"] != engine_name:
+    raise AssertionError("wrong native terrain implementation resolved")
+
+fixture_groups = {
+    item["group"]
+    for item in report["providers"]
+    if item["distribution"] == "instinctlab-extension-fixture"
+}
+expected_groups = {
+    "instinctlab.assets",
+    "instinctlab.actuators",
+    "instinctlab.sensors",
+    "instinctlab.terrains",
+}
+if not expected_groups <= fixture_groups:
+    raise AssertionError(f"fixture provenance groups are {sorted(fixture_groups)}")
+
+other_engine = "mjlab" if engine_name == "isaacsim" else "isaacsim"
+unexpected_modules = {
+    f"instinctlab_extension_fixture.{other_engine}_asset",
+    f"instinctlab_extension_fixture.{other_engine}_implementation",
+}
+if unexpected_modules & set(sys.modules):
+    raise AssertionError(
+        f"unselected fixture implementation imported: {unexpected_modules & set(sys.modules)}"
+    )
+unselected_sdk_roots = (
+    {"mjlab", "mujoco", "mujoco_warp"}
+    if engine_name == "isaacsim"
+    else {"isaaclab", "omni"}
+)
+loaded_roots = {name.split(".", 1)[0] for name in sys.modules}
+if unselected_sdk_roots & loaded_roots:
+    raise AssertionError(
+        f"unselected SDK imported: {sorted(unselected_sdk_roots & loaded_roots)}"
+    )
+
+print(json.dumps({
+    "engine": engine_name,
+    "asset": report["asset"],
+    "actuator_output": actuator.applied_effort,
+    "sensor_timestamp": sensor.timestamp,
+    "fixture_provider_groups": sorted(fixture_groups),
+}, sort_keys=True))
+"""
+
+UNINSTALL_PROBE = r"""
+import importlib.metadata as metadata
+import sys
+from pathlib import Path
+
+environment_root = Path(sys.prefix).resolve()
+
+def belongs_to_environment(distribution):
+    return Path(distribution.locate_file("")).resolve().is_relative_to(environment_root)
+
+original_entry_points = metadata.entry_points
+
+def isolated_entry_points(*args, **kwargs):
+    return [
+        entry_point
+        for entry_point in original_entry_points(*args, **kwargs)
+        if belongs_to_environment(entry_point.dist)
+    ]
+
+metadata.entry_points = isolated_entry_points
+
+from instinctlab.tasks import registry
+from instinctlab_engine import adapter, names
+from instinctlab_engine.actuators import ACTUATORS
+from instinctlab_engine.assets import asset_packages
+from instinctlab_engine.preflight import require_preflight
+from instinctlab_engine.registry import TERRAIN_EXTENSIONS
+from instinctlab_engine.sensors import SENSORS
+
+if names() != ("isaacsim", "mjlab"):
+    raise AssertionError(names())
+if "fixture_bot" in asset_packages():
+    raise AssertionError("uninstalled fixture asset is still discoverable")
+for engine_name in names():
+    if "fixture.stateful.v1" in ACTUATORS.registrations(engine_name):
+        raise AssertionError("uninstalled fixture actuator is still discoverable")
+    if "fixture.imu" in SENSORS.registrations(engine_name):
+        raise AssertionError("uninstalled fixture sensor is still discoverable")
+    if "fixture_plane" in TERRAIN_EXTENSIONS.terrain_kinds(engine_name):
+        raise AssertionError("uninstalled fixture terrain is still discoverable")
+    selected = adapter(engine_name)
+    task_id = "Instinct-Velocity-Flat-G1"
+    robot = selected.robot_spec(registry.asset_id(task_id))
+    task = registry.spec(task_id, robot)
+    require_preflight(task, engine_name, selected_adapter=selected)
+print("extension uninstall preserved both built-in backends")
+"""
 
 PROBE = r"""
 import importlib.metadata as metadata
@@ -150,6 +363,13 @@ def _copy_projects(root: Path) -> list[Path]:
         destination = root / "projects" / project
         shutil.copytree(source, destination, ignore=ignored)
         copied.append(destination)
+    fixture = root / "projects" / "external_extension"
+    shutil.copytree(
+        REPO_ROOT / "tests" / "fixtures" / "external_extension",
+        fixture,
+        ignore=ignored,
+    )
+    copied.append(fixture)
     return copied
 
 
@@ -176,7 +396,7 @@ def _build_wheels(root: Path) -> dict[str, Path]:
     for wheel in wheel_dir.glob("*.whl"):
         distribution = wheel.name.split("-0.1.0-", 1)[0].replace("_", "-")
         wheels[distribution] = wheel
-    expected = set(MATRICES["both"])
+    expected = {*MATRICES["both"], EXTENSION_FIXTURE}
     if set(wheels) != expected:
         raise RuntimeError(
             f"built wheels {sorted(wheels)}, expected {sorted(expected)}"
@@ -219,6 +439,43 @@ def _verify_matrix(
     )
 
 
+def _verify_extension(root: Path, wheels: dict[str, Path]) -> None:
+    environment = root / "environments" / "extension"
+    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
+    python = environment / "bin" / "python"
+    distributions = (*MATRICES["both"], EXTENSION_FIXTURE)
+    _run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--ignore-installed",
+            "--no-deps",
+            *(str(wheels[name]) for name in distributions),
+        ],
+        cwd=root,
+    )
+    for engine_name in EXPECTED_ENGINES["both"]:
+        _run(
+            [str(python), "-I", "-c", EXTENSION_PROBE, engine_name],
+            cwd=root,
+        )
+    _run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "uninstall",
+            "--yes",
+            EXTENSION_FIXTURE,
+        ],
+        cwd=root,
+    )
+    _run([str(python), "-I", "-c", UNINSTALL_PROBE], cwd=root)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -228,6 +485,11 @@ def main() -> int:
         help="Matrix to run; repeat as needed. The default runs all four.",
     )
     parser.add_argument(
+        "--extension",
+        action="store_true",
+        help="Also install, exercise, and uninstall the external extension fixture wheel.",
+    )
+    parser.add_argument(
         "--keep-temp",
         action="store_true",
         help="Keep the temporary wheel and environment directory for inspection.",
@@ -235,20 +497,26 @@ def main() -> int:
     args = parser.parse_args()
 
     selected = tuple(args.matrix or MATRICES)
+    verify_extension = args.extension or args.matrix is None
     if args.keep_temp:
         root = Path(tempfile.mkdtemp(prefix="instinctlab-wheel-matrix-"))
         print(f"Temporary files: {root}", flush=True)
         wheels = _build_wheels(root)
         for matrix in selected:
             _verify_matrix(root, matrix, wheels)
+        if verify_extension:
+            _verify_extension(root, wheels)
     else:
         with tempfile.TemporaryDirectory(prefix="instinctlab-wheel-matrix-") as temp:
             root = Path(temp)
             wheels = _build_wheels(root)
             for matrix in selected:
                 _verify_matrix(root, matrix, wheels)
+            if verify_extension:
+                _verify_extension(root, wheels)
 
-    print(f"Verified wheel matrices: {', '.join(selected)}", flush=True)
+    suffix = " plus external extension" if verify_extension else ""
+    print(f"Verified wheel matrices: {', '.join(selected)}{suffix}", flush=True)
     return 0
 
 

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "instinctlab-extension-fixture"
+version = "0.1.0"
+description = "Repository-external InstinctLab extension conformance fixture"
+requires-python = ">=3.11"
+dependencies = ["instinctlab-engine-core>=0.1,<0.2"]
+
+[project.entry-points."instinctlab.assets"]
+fixture_bot = "instinctlab_extension_fixture.registration:resolve_asset"
+
+[project.entry-points."instinctlab.actuators"]
+"isaacsim.fixture_stateful" = "instinctlab_extension_fixture.registration:register_isaacsim_actuator"
+"mjlab.fixture_stateful" = "instinctlab_extension_fixture.registration:register_mjlab_actuator"
+
+[project.entry-points."instinctlab.sensors"]
+"isaacsim.fixture_imu" = "instinctlab_extension_fixture.registration:register_isaacsim_sensor"
+"mjlab.fixture_imu" = "instinctlab_extension_fixture.registration:register_mjlab_sensor"
+
+[project.entry-points."instinctlab.terrains"]
+fixture_terrain = "instinctlab_extension_fixture.registration:register_terrains"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+instinctlab_extension_fixture = ["resources/*.urdf", "resources/*.xml"]
