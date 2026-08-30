@@ -763,6 +763,185 @@ Recommended implementation sequence:
 5. Introduce the first production asset variant only after fixed-state,
    temporal, and production-scale plant probes pass.
 
+### Simulation platform capability roadmap (2026-08-30)
+
+InstinctLab should be evaluated as an engine-neutral robotics simulation and
+training platform above Isaac Sim and MJLab, not as a replacement physics
+solver. Its responsibility is to make task meaning, assets, native extensions,
+runtime lifecycle, and evidence portable where portability is real; native
+solver, renderer, deformable-body, and fluid behavior remain backend
+capabilities and must fail closed when unavailable.
+
+The current extension foundation is strong for independently installed
+backends, terrain builders, native term lowering, and engine-neutral asset
+routing. It is not yet a stable general simulation ecosystem. A mature
+platform must make four kinds of contract explicit:
+
+```text
+entities     robot, sensor, rigid object, articulation, terrain
+relations    attachment, frame, collision, material, constraint, control
+lifecycle    construct, tick, reset, spawn/despawn, record, destroy
+evidence     capability report, conformance, deterministic trace, replay
+```
+
+Adding another class in an existing scene builder does not count as an
+extension seam. A first-class extension is independently installable, imports
+only the selected backend after bootstrap, has explicit capability and failure
+behavior, carries provider/version provenance, and passes a repository-external
+fixture without an edit to engine core or an existing backend.
+
+#### Current capability baseline
+
+| Capability | Current state | Boundary still missing |
+|---|---|---|
+| Backend | First-class plugin | Release/install matrix remains a publication gate |
+| Terrain | First-class whole-terrain and tile plugin | Region semantics and dynamic/deformable terrain are optional later work |
+| Native task term | First-class engine-term plugin | Stateful controller timing must use an explicit lifecycle contract |
+| Robot asset | Package/variant resolver exists | Native asset module contract and external-robot conformance kit |
+| Actuator | Explicit values exist in native G1 assets | The actuator plugin protocol above is designed but not implemented |
+| Sensor | Fixed contact, ray, motion-reference, and volume-point families | Independently installed native sensor builders and sensor lifecycle |
+| Scene object | Minimal mesh-backed `RigidObjectRef` | Object asset routing, articulated objects, constraints, and robust HOI construction |
+| Collision/material | Terrain coefficients and native asset settings | Portable entity-pair filters, body material bindings, and contact relations |
+| Multiple articulations | One canonical `TaskSpec.robot` | Canonical schemas and action/observation targeting for additional articulations |
+| Time/lifecycle | Physics step, decimation, and selected sensor periods | Named clock domains, timestamps, latency, and per-environment component reset |
+| Record/replay | Diagnostics and run manifests exist | Episode trace and engine-native state snapshot/restore interfaces |
+| Task distribution | Immutable application-owned task registrations | An external task catalog is optional and must not weaken task ownership |
+
+#### P0: close the advertised extension ecosystem
+
+These goals are required before describing the plugin surface as a stable 1.0
+third-party ecosystem.
+
+1. **Implement the native actuator protocol.** Follow the preceding design:
+   add SDK-free discovery, lazy native factories, runtime capability adapters,
+   provenance, built-in adapters, an external stateful fixture, and fixed-state
+   and temporal probes. Asset variants retain every final native group and
+   parameter; no portable actuator-parameter schema or checkpoint hash is
+   introduced.
+2. **Formalize native robot asset onboarding.** Replace the current implicit
+   native-module duck typing with a small documented contract at each backend's
+   asset boundary. Provide a linter/conformance command for canonical DFS joint
+   order, body/frame names, collision geometry, joint coverage, limits,
+   actuator groups, units, and selected-engine resources. The acceptance
+   fixture is an external robot wheel installed through `instinctlab.assets`
+   without an engine-core or backend edit.
+3. **Make sensors an additive native extension.** Define a stable semantic
+   sensor reference only for meanings shared across engines and a lazy native
+   builder registry for SDK implementations. The lifecycle must state attached
+   entity/frame, pose convention, sample period, timestamp, latency/history,
+   device, and partial-environment reset. IMU or force/torque is the initial
+   external fixture; unsupported engines fail before environment construction.
+4. **Establish scene relation contracts.** Add narrow engine-neutral
+   declarations for collision layers or entity-pair exclusions, body material
+   binding, and constraints only where both backends can preserve the declared
+   meaning. Do not encode a task name or concrete asset package in a scene
+   builder. The Perceptive MJCF pair exclusions are the first collision-filter
+   acceptance case, followed by a 4,096-environment contact/constraint probe.
+5. **Make existing rigid-object/HOI construction production-valid.** Replace
+   the removed Isaac `sim.MeshFileCfg` path, validate native object resource
+   loading on both backends, and define explicit object spawn/reset and
+   collision/material behavior. This goal does not claim HOI behavioral parity
+   until the missing OMOMO motions and object meshes are installed.
+6. **Provide one extension conformance kit and preflight report.** Before native
+   construction, report the selected backend, asset, actuator and sensor
+   providers, requested capabilities, native-only features, omissions, and
+   incompatibilities. Test broken, duplicate, wrong-API, partial-registration,
+   uninstall, and unselected-backend import cases consistently across every
+   plugin group.
+
+#### P1: make scenes and failures reproducible
+
+These goals are needed for a mature robotics platform and become mandatory when
+manipulation, multiple robots, or asynchronous sensing enter production scope.
+
+1. **Define clock and component lifecycle semantics.** Name the physics,
+   actuator/controller, policy, sensor, renderer, and recorder clock domains.
+   Specify when a command becomes active, what time a sample represents, where
+   delay/history is applied, and when reset occurs relative to termination and
+   final observation. Stateful actuators, controllers, and sensors must reset
+   only the selected environments and must not own process-global mutable state.
+2. **Add trace recording and replay.** Record readable episode seeds, commands,
+   actions, observations, rewards, terminations, references, and timestamps.
+   Provide an engine-native state snapshot/restore interface for exact
+   same-engine diagnosis and a portable command/reference trace for
+   cross-engine comparison. Binary state equality across engines is not a
+   goal, and checkpoint file hashes remain out of scope.
+3. **Support additional articulations without destabilizing the primary robot
+   contract.** Keep `TaskSpec.robot` as the primary policy robot initially;
+   introduce explicit canonical topology for additional articulated entities
+   and resolve their selectors by entity id. Generalize actions and
+   observations only after this schema exists. Do not replace the typed scene
+   with an unvalidated `tuple[Any, ...]` or a generic variant dispatcher.
+4. **Define the multi-agent layer only on demonstrated need.** Agent identity,
+   policy ownership, action/observation spaces, reward/termination ownership,
+   shared state, and partial reset are separate from merely spawning two
+   robots. Do not infer a multi-agent API from a multi-articulation scene.
+5. **Formalize stateful controller extensions.** Existing
+   `instinctlab.engine_terms` remains the lowering seam for a new command
+   semantic. Torque, current, impedance, OSC, IK, MPC, tendon, or muscle
+   controllers additionally need declared update rate, state, reset, limits,
+   and observable-effort semantics; the actuator registry must not become a
+   controller or task-policy registry.
+6. **Benchmark platform behavior.** Maintain construction latency, steady-state
+   environment steps/s, GPU memory/capacity, deterministic reset, trace replay,
+   and partial-reset isolation checks. Construction smoke tests remain contract
+   evidence only; contact, constraint, actuator, and timing changes require
+   production-scale and temporal probes.
+
+#### P2: product-dependent capabilities
+
+These are not 1.0 release gates for the current locomotion, parkour, and
+shadowing platform. Adopt them only when a concrete task or deployment path
+requires them:
+
+- external task-package discovery, while keeping each task family's complete
+  configuration and MDP implementation application-owned;
+- lighting, visual and contact material libraries, camera exposure/rolling
+  shutter, calibration, synchronization, and reproducible visual domain
+  randomization for sim-to-real perception;
+- ROS 2, hardware-in-the-loop, and real-robot message/clock adapters;
+- deformable bodies, cloth, cable, fluid, or dynamic terrain capability
+  adapters where the selected native backend provides production support;
+- distributed service orchestration and hot spawn/despawn beyond the current
+  vectorized training-process model.
+
+#### Architectural guardrails
+
+- Do not create an entry-point group for every noun. Third-party native code is
+  a plugin; portable frame, relation, time, and capability meanings are typed
+  shared data; concrete physics and training values stay in task or native
+  asset configuration.
+- Preserve the existing dependency direction. Tasks and shared specs never
+  import an engine; engines never import a task or a concrete asset package;
+  different engines never depend on one another.
+- Preserve explicit native asset declarations. No registry, shared helper, or
+  `RobotSpec` field may infer, normalize, or translate actuator parameters.
+- Fail closed at preflight for a missing capability, provider, resource,
+  canonical schema, or lifecycle hook. Do not substitute zeros, skip policy
+  inputs, suppress rewards, or silently change the simulated plant.
+- Require parity only at a declared interface: canonical ordering, frame and
+  timestamp meaning, command/effort/reset semantics, collision relation, and
+  observable results. Native solver internals are intentionally different.
+
+#### Maturity acceptance gate
+
+The platform may be called a stable third-party simulation extension ecosystem
+only after one repository-external wheel can add a new robot, native actuator,
+native sensor, and terrain without editing InstinctLab or either backend, and
+the following all hold:
+
+1. unselected SDKs are not imported before backend bootstrap;
+2. capability incompatibilities fail in preflight before native construction;
+3. canonical ordering and entity/frame binding pass construction probes;
+4. timing, delay/history, and partial reset pass temporal probes;
+5. collision, constraint, and actuator behavior pass fixed-state and
+   production-scale probes appropriate to the change;
+6. the run manifest records readable provider, version, asset/model id,
+   effective configuration, and resolution data without checkpoint hashes;
+7. uninstalling the wheel leaves the core and existing backends functional;
+8. documentation contains one minimal external-package example and a clear
+   unsupported-capability failure example.
+
 ### Compat boundary cleanup (2026-08-30)
 
 The isolated `codex/compat-boundary-cleanup` worktree branch was fast-forwarded
