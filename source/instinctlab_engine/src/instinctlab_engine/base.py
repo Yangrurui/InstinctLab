@@ -158,6 +158,8 @@ class Resolution:
         two runs may have been compiled from the same task file and still have optimised different
         objectives, and the difference exists only here.
         """
+        from instinctlab_engine.plugins import plugin_provenance
+
         return {
             "engine": self.engine,
             "task_id": self.task_id,
@@ -169,6 +171,7 @@ class Resolution:
             "engine_extras_used": list(self.engine_extras_used),
             "strict": self.strict,
             "portable": self.is_clean and not self.engine_extras_used,
+            "plugins": plugin_provenance(engine=self.engine),
         }
 
 

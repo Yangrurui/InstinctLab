@@ -12,6 +12,15 @@ from importlib import import_module, metadata
 from typing import TYPE_CHECKING, Any
 
 from instinctlab_engine.bridge import entity as _entity
+from instinctlab_engine.plugins import (
+    PluginDiscoveryError,
+    _restore_provenance,
+    _snapshot_provenance,
+    entry_point_description,
+    load_plugin_callable,
+    mark_plugin_used,
+    record_plugin,
+)
 
 if TYPE_CHECKING:
     from .base import EngineAdapter
@@ -23,37 +32,114 @@ Paths rather than classes: naming an engine must not import it. A launcher reads
 know what ``--engine`` accepts, then imports exactly the one it was given.
 """
 
+_ADAPTER_SOURCES: dict[str, str] = {}
+_active_engine_plugin: str | None = None
+
 
 def register_adapter(engine: str, path: str) -> None:
     """Register an engine plugin without editing the shared compiler."""
     module, separator, attribute = path.partition(":")
-    if not engine.isidentifier() or not separator or not module or not attribute.isidentifier():
+    if (
+        not engine.isidentifier()
+        or not separator
+        or not module
+        or not attribute.isidentifier()
+    ):
         raise ValueError(f"invalid engine adapter registration {engine!r} -> {path!r}")
     existing = ADAPTERS.get(engine)
     if existing is not None and existing != path:
-        raise ValueError(f"engine {engine!r} is already registered as {existing!r}")
+        existing_source = _ADAPTER_SOURCES.get(engine, "a direct registration")
+        incoming_source = _active_engine_plugin or "a direct registration"
+        raise ValueError(
+            f"engine {engine!r} is already registered as {existing!r} by "
+            f"{existing_source}; conflicting registration is from {incoming_source}"
+        )
     ADAPTERS[engine] = path
+    if existing is None and _active_engine_plugin is not None:
+        _ADAPTER_SOURCES[engine] = _active_engine_plugin
     _entity.register_packages({engine: module.rpartition(".")[0]})
 
 
 _ENGINE_ENTRY_POINT_GROUP = "instinctlab.engines"
 _engine_entry_points_loaded = False
+_engine_entry_point_error: PluginDiscoveryError | None = None
 
 
 def _load_installed_engines() -> None:
     """Load installed backend registrars without importing a simulator SDK."""
-    global _engine_entry_points_loaded
+    global _active_engine_plugin, _engine_entry_points_loaded, _engine_entry_point_error
+    if _engine_entry_point_error is not None:
+        raise _engine_entry_point_error
     if _engine_entry_points_loaded:
         return
-    _engine_entry_points_loaded = True
-    entry_points = metadata.entry_points(group=_ENGINE_ENTRY_POINT_GROUP)
-    for entry_point in sorted(entry_points, key=lambda item: item.name):
-        registrar = entry_point.load()
-        if not callable(registrar):
-            raise TypeError(
-                f"engine entry point {entry_point.name!r} must load a callable registrar"
+    from .registry import TERRAIN_EXTENSIONS
+
+    adapter_snapshot = dict(ADAPTERS)
+    adapter_source_snapshot = dict(_ADAPTER_SOURCES)
+    entity_snapshot = _entity._snapshot_registrations()
+    terrain_snapshot = TERRAIN_EXTENSIONS._snapshot()
+    provenance_snapshot = _snapshot_provenance()
+    try:
+        entry_points = metadata.entry_points(group=_ENGINE_ENTRY_POINT_GROUP)
+        for entry_point in sorted(entry_points, key=lambda item: item.name):
+            before = set(ADAPTERS)
+            before_terrains = set(TERRAIN_EXTENSIONS._terrains)
+            before_sub_terrains = set(TERRAIN_EXTENSIONS._sub_terrains)
+            description = entry_point_description(
+                _ENGINE_ENTRY_POINT_GROUP, entry_point
             )
-        registrar()
+            try:
+                _active_engine_plugin = description
+                TERRAIN_EXTENSIONS._active_plugin = description
+                registrar = load_plugin_callable(_ENGINE_ENTRY_POINT_GROUP, entry_point)
+                registrar()
+            except Exception as exc:
+                raise PluginDiscoveryError(
+                    f"Engine plugin registrar failed ({description}): {exc}"
+                ) from exc
+            finally:
+                _active_engine_plugin = None
+                TERRAIN_EXTENSIONS._active_plugin = None
+            registered = set(ADAPTERS) - before
+            if entry_point.name not in ADAPTERS:
+                raise PluginDiscoveryError(
+                    "Engine plugin did not register its entry-point name "
+                    f"({entry_point_description(_ENGINE_ENTRY_POINT_GROUP, entry_point)})"
+                )
+            record_plugin(
+                _ENGINE_ENTRY_POINT_GROUP,
+                entry_point,
+                [
+                    *(registered or (entry_point.name,)),
+                    *(
+                        f"terrain:whole:{engine}:{kind}"
+                        for engine, kind in set(TERRAIN_EXTENSIONS._terrains)
+                        - before_terrains
+                    ),
+                    *(
+                        f"terrain:sub:{engine}:{kind}"
+                        for engine, kind in set(TERRAIN_EXTENSIONS._sub_terrains)
+                        - before_sub_terrains
+                    ),
+                ],
+            )
+    except Exception as exc:  # noqa: BLE001 - plugin transactions must roll back any failure
+        ADAPTERS.clear()
+        ADAPTERS.update(adapter_snapshot)
+        _ADAPTER_SOURCES.clear()
+        _ADAPTER_SOURCES.update(adapter_source_snapshot)
+        _active_engine_plugin = None
+        _entity._restore_registrations(entity_snapshot)
+        TERRAIN_EXTENSIONS._restore(terrain_snapshot)
+        _restore_provenance(provenance_snapshot)
+        error = (
+            exc
+            if isinstance(exc, PluginDiscoveryError)
+            else PluginDiscoveryError(f"Engine plugin discovery failed: {exc}")
+        )
+        _engine_entry_point_error = error
+        raise error
+    _engine_entry_points_loaded = True
 
 
 def names() -> tuple[str, ...]:
@@ -73,8 +159,11 @@ def adapter(engine: str) -> EngineAdapter:
     try:
         path = ADAPTERS[engine]
     except KeyError:
-        raise KeyError(f"unknown engine {engine!r}; known engines are {', '.join(names())}") from None
+        raise KeyError(
+            f"unknown engine {engine!r}; known engines are {', '.join(names())}"
+        ) from None
     module_path, _, attr = path.partition(":")
+    mark_plugin_used(_ENGINE_ENTRY_POINT_GROUP, engine)
     return getattr(import_module(module_path), attr)()
 
 

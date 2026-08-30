@@ -15,3 +15,6 @@ __all__ = ["native_module"]
 def native_module(engine: str, variant: str) -> tuple[ModuleType, str]:
     """Forward one explicit engine and variant to its native G1 module."""
     return import_module(f"{__package__}.{engine}"), variant
+
+
+native_module.instinctlab_engine_api = ">=0.1,<0.2"

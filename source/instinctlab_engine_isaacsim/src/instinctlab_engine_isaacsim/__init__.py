@@ -5,8 +5,8 @@ time so the engine's capabilities are known, while every builder body defers its
 what lets a task be checked against this engine on a machine that cannot run it.
 """
 
-from instinctlab_engine.bridge import entity as _entity
 from instinctlab_engine import register_adapter, register_sub_terrain, register_terrain
+from instinctlab_engine.bridge import entity as _entity
 
 register_terrain(
     "isaacsim", "plane", "instinctlab_engine_isaacsim.terrain_builders:build_plane"
@@ -112,6 +112,7 @@ def register() -> None:
     )
 
 
+register.instinctlab_engine_api = ">=0.1,<0.2"
 register()
 
 __all__ = ["TERMS", "IsaacSimAdapter", "IsaacSimCompileCtx", "register"]

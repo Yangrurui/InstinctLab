@@ -88,6 +88,22 @@ def register_packages(packages: Mapping[str, str]) -> None:
     _PACKAGES.update(packages)
 
 
+def _snapshot_registrations() -> tuple[dict[str, _Selectors], dict[str, str]]:
+    """Internal transaction snapshot used while backend plugins are discovered."""
+    return dict(_ENGINES), dict(_PACKAGES)
+
+
+def _restore_registrations(
+    snapshot: tuple[dict[str, _Selectors], dict[str, str]],
+) -> None:
+    """Restore selector/package registrations after failed plugin discovery."""
+    engines, packages = snapshot
+    _ENGINES.clear()
+    _ENGINES.update(engines)
+    _PACKAGES.clear()
+    _PACKAGES.update(packages)
+
+
 def register(engine: str, *, kinds: Iterable[str], cfg: tuple[str, str], container: type) -> None:
     """Declare what ``engine`` can select. Called by that engine's package when it is imported.
 
