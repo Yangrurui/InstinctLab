@@ -10,7 +10,7 @@ import torch
 
 from instinctlab.compat import sensors as compat_sensors
 from instinctlab.compat.env import RlEnv
-from instinctlab.compat.motion_reference import exhausted_envs
+from instinctlab.motion_reference import exhausted_envs
 from instinctlab.spec.sensor import ContactSensorRef, MotionReferenceRef
 
 from .observations import _name

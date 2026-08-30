@@ -24,13 +24,14 @@ Frames, written here so a mix-up cannot hide behind a plausible pose:
 
 from __future__ import annotations
 
-import torch
 from types import SimpleNamespace
 from typing import Any
 
+import torch
+
 from instinctlab.compat.env import RlEnv
 from instinctlab.compat.math import quat_apply, quat_apply_inverse
-from instinctlab.compat.motion_reference import clip_frame
+from instinctlab.motion_reference import clip_frame
 from instinctlab.spec.sensor import MotionReferenceRef
 
 AMP_TERM_ORDER = (

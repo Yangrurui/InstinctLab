@@ -7,8 +7,6 @@ from typing import Literal
 
 import torch
 
-from instinctlab.compat.motion_reference import clip_frame, exhausted_envs
-
 from .clip import MotionSample
 
 
@@ -44,6 +42,33 @@ class MotionReferenceBuffers:
     object_lin_vel_w: torch.Tensor
     object_ang_vel_w: torch.Tensor
     object_validity: torch.Tensor
+
+
+def clip_frame(
+    buffers: MotionReferenceBuffers, frame: int = 0
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return root orientation, world velocities, and joints for one frame."""
+    return (
+        buffers.base_quat_w[:, frame],
+        buffers.base_lin_vel_w[:, frame],
+        buffers.base_ang_vel_w[:, frame],
+        buffers.joint_pos[:, frame],
+        buffers.joint_vel[:, frame],
+    )
+
+
+def exhausted_envs(
+    buffers: MotionReferenceBuffers, aiming_frame_idx: torch.Tensor
+) -> torch.Tensor:
+    """Return the per-environment exhaustion mask at the current target slot."""
+    num_envs = buffers.validity.shape[0]
+    if aiming_frame_idx.shape != (num_envs,):
+        raise ValueError(
+            f"aiming_frame_idx must have shape ({num_envs},), "
+            f"got {tuple(aiming_frame_idx.shape)}."
+        )
+    env_ids = torch.arange(num_envs, device=buffers.validity.device)
+    return ~buffers.validity[env_ids, aiming_frame_idx]
 
 
 def make_buffers(

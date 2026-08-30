@@ -9,7 +9,7 @@ from typing import Any
 import torch
 
 from instinctlab.compat.env import RlEnv
-from instinctlab.compat.motion_reference import exhausted_envs
+from instinctlab.motion_reference import exhausted_envs
 from instinctlab.spec.sensor import MotionReferenceRef
 
 from .observations import _name
