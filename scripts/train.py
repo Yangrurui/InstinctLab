@@ -60,6 +60,14 @@ def _parse() -> argparse.Namespace:
         "--checkpoint", type=str, default=None, help="Checkpoint path or filename expression to resume."
     )
     parser.add_argument(
+        "--allow-experiment-drift",
+        action="store_true",
+        help=(
+            "Resume despite changed reward, termination, command, randomization, terrain, "
+            "simulation, or agent-training semantics. Policy I/O drift is never allowed."
+        ),
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         default=False,
@@ -166,7 +174,11 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
     if resume_path is not None:
         from instinctlab.checkpoint import validate_checkpoint_contract
 
-        validate_checkpoint_contract(resume_path, spec)
+        validate_checkpoint_contract(
+            resume_path,
+            spec,
+            experiment_policy="warn" if args.allow_experiment_drift else "require",
+        )
 
     from instinctlab.training import shared_run_directory
 
@@ -185,6 +197,10 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
         "rank_seeds": [agent_cfg.seed + rank for rank in range(distributed.world_size)],
     }
     manifest["resume_environment_state"] = "fresh reset; simulator and motion runtime are resampled"
+    manifest["resume_contract"] = {
+        "checkpoint": str(resume_path) if resume_path is not None else None,
+        "allow_experiment_drift": bool(args.allow_experiment_drift),
+    }
     if distributed.is_primary:
         with open(manifest_path, "w") as handle:
             json.dump(manifest, handle, indent=2, sort_keys=True, default=str)

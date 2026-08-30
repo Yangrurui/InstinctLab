@@ -148,7 +148,10 @@ def _play(args, engine, resources: ExitStack) -> None:
         from instinctlab.checkpoint import validate_checkpoint_contract
 
         validate_checkpoint_contract(
-            checkpoint, spec, checkpoint_task_id=checkpoint_task_id(args.task)
+            checkpoint,
+            spec,
+            checkpoint_task_id=checkpoint_task_id(args.task),
+            experiment_policy="ignore",
         )
         print(f"[INFO] Loading {checkpoint}", flush=True)
         from instinct_rl.runners import OnPolicyRunner

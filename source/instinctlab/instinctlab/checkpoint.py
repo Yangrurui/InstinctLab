@@ -11,12 +11,16 @@ from collections.abc import Mapping
 from dataclasses import MISSING, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from instinctlab_engine.spec import TaskSpec
 from instinctlab_engine.spec.robot import BackendAsset
 
-_CONTRACT_VERSION = "task_spec_v1"
+_CONTRACT_VERSION = "task_contract_v2"
+_LEGACY_CONTRACT_VERSION = "task_spec_v1"
+_POLICY_IO_VERSION = "policy_io_v1"
+_EXPERIMENT_SEMANTICS_VERSION = "experiment_semantics_v1"
+_PROVENANCE_VERSION = "provenance_v1"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
 _PUBLIC_TYPE_MODULES = {
     "instinctlab_engine.spec.motion_reference": "instinctlab_engine.spec.sensor",
@@ -33,7 +37,12 @@ def _type_name(value: Any) -> str:
     return f"{module}.{value_type.__qualname__}"
 
 
-def _canonical(value: Any) -> Any:
+def _canonical(
+    value: Any,
+    *,
+    include_asset_paths: bool = False,
+    include_omitted_fields: bool = False,
+) -> Any:
     """Convert a declaration to deterministic JSON without importing an engine."""
     if value is None or isinstance(value, (bool, int, str)):
         return value
@@ -42,7 +51,14 @@ def _canonical(value: Any) -> Any:
             raise ValueError(f"Checkpoint contracts cannot contain non-finite value {value!r}.")
         return value
     if isinstance(value, Enum):
-        return {"type": _type_name(value), "value": _canonical(value.value)}
+        return {
+            "type": _type_name(value),
+            "value": _canonical(
+                value.value,
+                include_asset_paths=include_asset_paths,
+                include_omitted_fields=include_omitted_fields,
+            ),
+        }
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, BackendAsset):
@@ -51,13 +67,22 @@ def _canonical(value: Any) -> Any:
         return {
             "type": _type_name(value),
             "fields": [
-                [field.name, _canonical(getattr(value, field.name))] for field in fields(value) if field.name != "path"
+                [
+                    field.name,
+                    _canonical(
+                        getattr(value, field.name),
+                        include_asset_paths=include_asset_paths,
+                        include_omitted_fields=include_omitted_fields,
+                    ),
+                ]
+                for field in fields(value)
+                if include_asset_paths or field.name != "path"
             ],
         }
     if is_dataclass(value) and not isinstance(value, type):
 
         def include(field) -> bool:
-            if field.metadata.get("contract_omit", False):
+            if field.metadata.get("contract_omit", False) and not include_omitted_fields:
                 return False
             if not field.metadata.get("contract_omit_if_default", False):
                 return True
@@ -69,16 +94,55 @@ def _canonical(value: Any) -> Any:
         return {
             "type": _type_name(value),
             "fields": [
-                [field.name, _canonical(getattr(value, field.name))] for field in fields(value) if include(field)
+                [
+                    field.name,
+                    _canonical(
+                        getattr(value, field.name),
+                        include_asset_paths=include_asset_paths,
+                        include_omitted_fields=include_omitted_fields,
+                    ),
+                ]
+                for field in fields(value)
+                if include(field)
             ],
         }
     if isinstance(value, Mapping):
         # Mapping order is part of the tensor contract for observations, actions and rewards.
-        return {"mapping": [[_canonical(key), _canonical(item)] for key, item in value.items()]}
+        return {
+            "mapping": [
+                [
+                    _canonical(
+                        key,
+                        include_asset_paths=include_asset_paths,
+                        include_omitted_fields=include_omitted_fields,
+                    ),
+                    _canonical(
+                        item,
+                        include_asset_paths=include_asset_paths,
+                        include_omitted_fields=include_omitted_fields,
+                    ),
+                ]
+                for key, item in value.items()
+            ]
+        }
     if isinstance(value, (tuple, list)):
-        return [_canonical(item) for item in value]
+        return [
+            _canonical(
+                item,
+                include_asset_paths=include_asset_paths,
+                include_omitted_fields=include_omitted_fields,
+            )
+            for item in value
+        ]
     if isinstance(value, (set, frozenset)):
-        items = [_canonical(item) for item in value]
+        items = [
+            _canonical(
+                item,
+                include_asset_paths=include_asset_paths,
+                include_omitted_fields=include_omitted_fields,
+            )
+            for item in value
+        ]
         return {"set": sorted(items, key=lambda item: json.dumps(item, sort_keys=True))}
     if callable(value):
         module = getattr(value, "__module__", None)
@@ -88,10 +152,107 @@ def _canonical(value: Any) -> Any:
     raise TypeError(f"Task contract cannot serialize {_type_name(value)}: {value!r}.")
 
 
-def task_contract(spec: TaskSpec) -> dict[str, Any]:
-    """Stable, backend-independent fingerprint of a task and its tensor ordering."""
-    canonical = {"version": _CONTRACT_VERSION, "spec": _canonical(spec)}
+def _fingerprint(version: str, payload: Any, **canonical_options: bool) -> dict[str, str]:
+    canonical = {
+        "version": version,
+        "payload": _canonical(payload, **canonical_options),
+    }
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    return {
+        "version": version,
+        "hash": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }
+
+
+def _agent_config(spec: TaskSpec) -> Mapping[str, Any]:
+    config = spec.agent.resolve()(**dict(spec.agent.overrides))
+    to_dict = getattr(config, "to_dict", None)
+    if not callable(to_dict):
+        raise TypeError(
+            f"Agent config {type(config).__module__}.{type(config).__qualname__} "
+            "must expose to_dict() for checkpoint contracts."
+        )
+    return to_dict()
+
+
+def _policy_agent_contract(agent_config: Mapping[str, Any], runner: str) -> dict[str, Any]:
+    algorithm = agent_config.get("algorithm", {})
+    policy_algorithm_keys = (
+        "class_name",
+        "actor_state_key",
+        "reference_state_key",
+        "teacher_policy",
+        "teacher_policy_class_name",
+    )
+    return {
+        "runner": runner,
+        "policy": agent_config.get("policy"),
+        "normalizers": agent_config.get("normalizers"),
+        "algorithm_interface": {
+            key: algorithm[key]
+            for key in policy_algorithm_keys
+            if isinstance(algorithm, Mapping) and key in algorithm
+        },
+    }
+
+
+def _policy_io_payload(spec: TaskSpec, agent_config: Mapping[str, Any]) -> dict[str, Any]:
+    motion_schemas = [
+        {
+            "name": reference.name,
+            "joints": reference.joints,
+            "links": reference.links,
+            "symmetric_augmentation": reference.symmetric_augmentation,
+        }
+        for reference in spec.scene.motion_references
+    ]
+    return {
+        "robot": {
+            "schema_version": spec.robot.schema_version,
+            "asset_id": spec.robot.asset_id,
+            "joint_names": spec.robot.joint_names,
+            "body_names": spec.robot.body_names,
+            "joint_defaults_and_action_scale": tuple(
+                (item.name, item.default_pos, item.action_scale)
+                for item in spec.robot.joint_properties
+            ),
+        },
+        "observations": spec.mdp.observations,
+        "actions": spec.mdp.actions,
+        "motion_reference_schemas": motion_schemas,
+        "agent": _policy_agent_contract(agent_config, spec.agent.runner),
+    }
+
+
+def _experiment_semantics_payload(
+    spec: TaskSpec, agent_config: Mapping[str, Any]
+) -> dict[str, Any]:
+    agent_training_keys = (
+        "seed",
+        "num_steps_per_env",
+        "max_iterations",
+        "policy",
+        "algorithm",
+        "normalizers",
+    )
+    return {
+        "robot": spec.robot,
+        "scene": spec.scene,
+        "sim": spec.sim,
+        "rewards": spec.mdp.rewards,
+        "terminations": spec.mdp.terminations,
+        "commands": spec.mdp.commands,
+        "events": spec.mdp.events,
+        "curriculum": spec.mdp.curriculum,
+        "agent_training": {
+            key: agent_config[key] for key in agent_training_keys if key in agent_config
+        },
+    }
+
+
+def task_contract(spec: TaskSpec) -> dict[str, Any]:
+    """Separate checkpoint compatibility, experiment semantics, and provenance."""
+    agent_config = _agent_config(spec)
     return {
         "version": _CONTRACT_VERSION,
         "task_id": spec.task_id,
@@ -99,7 +260,20 @@ def task_contract(spec: TaskSpec) -> dict[str, Any]:
         "asset_id": spec.robot.asset_id,
         "joint_names": list(spec.robot.joint_names),
         "body_names": list(spec.robot.body_names),
-        "hash": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+        "policy_io": _fingerprint(
+            _POLICY_IO_VERSION,
+            _policy_io_payload(spec, agent_config),
+        ),
+        "experiment_semantics": _fingerprint(
+            _EXPERIMENT_SEMANTICS_VERSION,
+            _experiment_semantics_payload(spec, agent_config),
+        ),
+        "provenance": _fingerprint(
+            _PROVENANCE_VERSION,
+            {"spec": spec, "agent_config": agent_config},
+            include_asset_paths=True,
+            include_omitted_fields=True,
+        ),
     }
 
 
@@ -165,19 +339,20 @@ def validate_checkpoint_contract(
     spec: TaskSpec,
     *,
     checkpoint_task_id: str | None = None,
+    experiment_policy: Literal["require", "warn", "ignore"] = "require",
 ) -> None:
     """Validate the manifest next to a checkpoint before loading its tensors.
 
-    Legacy runs have no contract and remain loadable because existing Isaac and InstinctMJ
-    checkpoints predate the unified launcher. Spec-hash drift is recorded in the manifest
-    but does not block load: the same task keeps training and playback across declaration
-    edits. A different ``task_id``, contract version, or ordered joint axis still fails: policy
-    inputs and outputs are shape-compatible when BFS and DFS contain the same names, so checking
-    the hash alone (or only the set of names) is not enough. A Play task may pass
+    Legacy runs have no enforceable policy-I/O hash and remain loadable with a warning because
+    existing Isaac and InstinctMJ checkpoints predate the unified launcher. New contracts always
+    reject policy-I/O drift. ``experiment_policy`` controls whether changed training semantics
+    reject resume, warn under an explicit override, or are ignored by play/export. A Play task may pass
     the explicitly registered training task id whose policy it consumes; training
     and resume callers omit it and remain strict about their own task identity.
     """
     checkpoint_path = Path(checkpoint).expanduser().resolve()
+    if experiment_policy not in {"require", "warn", "ignore"}:
+        raise ValueError(f"unknown checkpoint experiment policy {experiment_policy!r}")
     manifest_path = checkpoint_path.parent / "manifest.json"
     if not manifest_path.is_file():
         warnings.warn(
@@ -200,10 +375,11 @@ def validate_checkpoint_contract(
         return
     current = task_contract(spec)
     expected_task_id = checkpoint_task_id or current["task_id"]
-    if stored.get("version") != current["version"] or stored.get("task_id") != expected_task_id:
+    stored_version = stored.get("version")
+    if stored.get("task_id") != expected_task_id:
         raise ValueError(
             f"Checkpoint task contract mismatch for {checkpoint_path}: "
-            f"checkpoint task={stored.get('task_id')!r}, version={stored.get('version')!r}; "
+            f"checkpoint task={stored.get('task_id')!r}, version={stored_version!r}; "
             f"runtime task={current['task_id']!r}, expected checkpoint task={expected_task_id!r}, "
             f"version={current['version']!r}."
         )
@@ -220,6 +396,35 @@ def validate_checkpoint_contract(
             f"checkpoint={stored.get('robot_schema_version')!r}; "
             f"runtime={current['robot_schema_version']!r}."
         )
+    if stored_version == _LEGACY_CONTRACT_VERSION:
+        warnings.warn(
+            f"Checkpoint manifest {manifest_path} has legacy task contract "
+            f"{_LEGACY_CONTRACT_VERSION!r}; policy I/O compatibility cannot be verified.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
+    if stored_version != current["version"]:
+        raise ValueError(
+            f"Checkpoint task contract version mismatch for {checkpoint_path}: "
+            f"checkpoint={stored_version!r}; runtime={current['version']!r}."
+        )
+    stored_policy = stored.get("policy_io")
+    if not isinstance(stored_policy, dict) or stored_policy != current["policy_io"]:
+        raise ValueError(
+            f"Checkpoint policy I/O contract mismatch for {checkpoint_path}: "
+            f"checkpoint={stored_policy!r}; runtime={current['policy_io']!r}."
+        )
+    stored_experiment = stored.get("experiment_semantics")
+    if stored_experiment != current["experiment_semantics"]:
+        message = (
+            f"Checkpoint experiment semantics mismatch for {checkpoint_path}: "
+            f"checkpoint={stored_experiment!r}; runtime={current['experiment_semantics']!r}."
+        )
+        if experiment_policy == "require":
+            raise ValueError(message)
+        if experiment_policy == "warn":
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
 
 
 __all__ = [
