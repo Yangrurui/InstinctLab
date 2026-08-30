@@ -6,6 +6,12 @@ This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
 narratives are in Git history rather than duplicated here.
 
+Every architecture or code review must be persisted here in the same turn.
+Record its verdict, evidence, severity, unresolved risks, and re-acceptance
+conditions; add durable enforcement to tests or code comments when appropriate.
+Do not leave review findings only in chat and do not create one document per
+audit phase.
+
 ## Repository
 
 - Repository: `/root/InstinctLab`
