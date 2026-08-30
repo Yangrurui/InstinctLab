@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Sequence
 import isaaclab.utils.math as math_utils
 from isaaclab.managers import SceneEntityCfg
 
-from instinctlab.motion_reference.utils import (
+from instinctlab.engines.isaacsim.legacy_motion_reference.utils import (
     get_base_position_distance,
     get_base_rotation_distance,
     get_base_velocity_difference,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from isaaclab.assets import Articulation
     from isaaclab.envs import ManagerBasedRLEnv
 
-    from instinctlab.motion_reference import MotionReferenceManager
+    from instinctlab.engines.isaacsim.legacy_motion_reference import MotionReferenceManager
 
     from .monitor_cfg import MonitorTermCfg, TorqueMonitorSensorCfg
 

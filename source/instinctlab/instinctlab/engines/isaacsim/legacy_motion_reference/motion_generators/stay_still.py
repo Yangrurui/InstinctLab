@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 import isaaclab.utils.math as math_utils
 
-from instinctlab.motion_reference import MotionReferenceData, MotionReferenceState
-from instinctlab.motion_reference.motion_buffer import MotionBuffer
+from instinctlab.engines.isaacsim.legacy_motion_reference import MotionReferenceData, MotionReferenceState
+from instinctlab.engines.isaacsim.legacy_motion_reference.motion_buffer import MotionBuffer
 
 if TYPE_CHECKING:
     from .stay_still_cfg import StayStillMotionCfg

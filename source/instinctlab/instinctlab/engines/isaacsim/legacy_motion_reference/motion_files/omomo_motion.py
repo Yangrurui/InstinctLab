@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Sequence, cast
 
 import isaaclab.utils.math as math_utils
 
-from instinctlab.motion_reference import HoiMotionReferenceData, HoiMotionReferenceState, HoiMotionSequence
-from instinctlab.motion_reference.utils import estimate_angular_velocity, estimate_velocity, pose_interpolate_bilinear
+from instinctlab.engines.isaacsim.legacy_motion_reference import HoiMotionReferenceData, HoiMotionReferenceState, HoiMotionSequence
+from instinctlab.engines.isaacsim.legacy_motion_reference.utils import estimate_angular_velocity, estimate_velocity, pose_interpolate_bilinear
 from instinctlab.utils.math import quat_slerp_batch
 
 from .amass_motion import AmassMotion

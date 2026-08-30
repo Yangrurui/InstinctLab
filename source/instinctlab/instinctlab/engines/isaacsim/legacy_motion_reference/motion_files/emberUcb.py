@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 
 import isaaclab.utils.math as math_utils
 
-from instinctlab.motion_reference import MotionReferenceData, MotionReferenceState, MotionSequence
-from instinctlab.motion_reference.motion_buffer import MotionBuffer
-from instinctlab.motion_reference.utils import estimate_angular_velocity, estimate_velocity
+from instinctlab.engines.isaacsim.legacy_motion_reference import MotionReferenceData, MotionReferenceState, MotionSequence
+from instinctlab.engines.isaacsim.legacy_motion_reference.motion_buffer import MotionBuffer
+from instinctlab.engines.isaacsim.legacy_motion_reference.utils import estimate_angular_velocity, estimate_velocity
 
 from .amass_motion import AmassMotion
 

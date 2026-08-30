@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Sequence
 
 import joblib
 
-from instinctlab.motion_reference import MotionSequence
-from instinctlab.motion_reference.motion_files.amass_motion import AmassMotion
+from instinctlab.engines.isaacsim.legacy_motion_reference import MotionSequence
+from instinctlab.engines.isaacsim.legacy_motion_reference.motion_files.amass_motion import AmassMotion
 
 if TYPE_CHECKING:
     from isaaclab.scene import InteractiveScene

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 import torch
 
-from instinctlab.motion_reference.motion_reference_cfg import MotionBufferCfg
+from instinctlab.engines.isaacsim.legacy_motion_reference.motion_reference_cfg import MotionBufferCfg
 
 from .amass_motion import AmassMotion
 

@@ -305,7 +305,7 @@ class IsaacSimAdapter:
         env_cls = InstinctManagerBasedRLEnv.wrap(ManagerBasedRLEnv)
 
         def make_env() -> Any:
-            from instinctlab.runtime.motion_reference import (
+            from instinctlab.motion_reference import (
                 bind_motion_reference_origins,
             )
 

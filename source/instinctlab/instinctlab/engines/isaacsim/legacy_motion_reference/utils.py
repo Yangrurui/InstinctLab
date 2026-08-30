@@ -15,7 +15,7 @@ from instinctlab.utils.math import quat_angular_velocity, quat_slerp_batch
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation, RigidObject
 
-    from instinctlab.motion_reference import MotionReferenceManager
+    from instinctlab.engines.isaacsim.legacy_motion_reference import MotionReferenceManager
 
 
 def get_base_position_distance(
