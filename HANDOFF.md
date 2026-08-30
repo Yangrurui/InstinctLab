@@ -172,6 +172,181 @@ core + MJLab-only isolated environment discovered only ('mjlab',)
 neither isolated discovery imported a simulator SDK module
 ```
 
+## Architecture assessment (2026-08-30)
+
+This assessment reviews the repository as a software platform rather than as a
+single-task implementation. The inspected code includes the independently
+packaged engine core, both backend distributions, the application task catalog,
+the current plugin boundaries, checkpoint contracts, shared train/play entry
+points, and the architecture test suite.
+
+### Overall assessment
+
+The architecture is a sound modular monolith using a ports-and-adapters design
+and a compiler-style intermediate representation:
+
+```text
+task config -> TaskSpec -> engine-core validation/compiler -> selected adapter
+asset plugin -> native asset -> selected adapter -> RobotSpec -> task config
+```
+
+The central design should be retained. `TaskSpec` is a useful stable contract,
+the backends are genuine adapters rather than task dispatchers, and the physical
+package split now reinforces the intended dependency direction. This is a
+stronger foundation than a shared entry point containing Isaac/MJLab branches
+or a direct engine-to-engine translation layer.
+
+The design is mature enough for continued investment, but the platform should
+not yet be treated as a stable 1.0 extension ecosystem. The remaining work is
+mostly contract governance, failure behavior, and release hardening rather than
+a need to reorganize the main layers.
+
+### Architectural strengths
+
+- `TaskSpec`, `RobotSpec`, and the term schemas form an explicit intermediate
+  representation. Cross-object validation catches engine-key typos, invalid
+  selectors, missing scene bindings, and canonical-axis violations before a
+  native environment is constructed.
+- `CompileCtx` is the single lowering point for canonical selectors. Expanding
+  ordered joint selectors there prevents Isaac BFS and canonical DFS order from
+  becoming a distributed convention that each task or backend must remember.
+- Compilation produces a `Resolution` ledger for every resolved, skipped,
+  emulated, and omitted term. The startup table and checkpoint manifest make
+  capability loss visible instead of allowing a silently changed objective to
+  look like a healthy training run.
+- Tasks, engine core, the two backend packages, concrete assets, and playback
+  have clear dependency directions. Static AST guards and blocked-import tests
+  enforce those directions; the boundaries are not documentation-only.
+- Lazy task, backend, terrain, asset, and native-term discovery avoids importing
+  an unselected simulator SDK. The shared train/play entry points select and
+  bootstrap the backend before importing runtime-dependent application code.
+- Explicit task configurations preserve declaration order and make tuned
+  values auditable against `/root/InstinctLab-main` and `/root/InstinctMJ`.
+  Their verbosity is an intentional reproducibility tradeoff and should not be
+  "fixed" with generated declarations or hidden override tables.
+
+### Priority risks
+
+#### 1. Separate policy compatibility from experiment provenance
+
+`instinctlab/checkpoint.py` computes one hash over the complete `TaskSpec`, but
+`validate_checkpoint_contract()` intentionally does not reject hash drift. It
+only rejects task identity, contract-version, canonical-joint-order, and robot
+schema changes. This keeps checkpoints usable across implementation-only
+refactors, but it also permits shape-compatible changes to observation order,
+observation scaling, history, action layout, or other policy-facing semantics.
+
+Replace the single all-purpose hash with at least three contracts:
+
+- a policy I/O compatibility hash covering ordered observations and actions,
+  history, scaling, normalization, symmetry augmentation, and runner/network
+  input structure; a mismatch must reject load;
+- an experiment-semantics hash covering reward, termination, command,
+  randomization, terrain, simulation, and agent-training values; resume should
+  require an explicit override when this differs;
+- a full provenance hash that includes callable identities and the complete
+  declaration for audit and comparison, without being a load gate.
+
+Train, resume, play, and export may apply different policies to the semantics
+hash, but all four must enforce the policy I/O contract.
+
+#### 2. Make production compilation fail closed by default
+
+The train and play launchers currently default `--strict` to false, while
+reward terms are optional unless a task promotes them. A missing optional
+builder is recorded, but construction and a long production run may continue.
+The current registered tasks compile cleanly in strict verification, so this is
+primarily a safety-default problem for future terms and external backends.
+
+Project-owned production tasks should require a clean resolution by default.
+Permissive compilation should require an explicit flag such as
+`--allow-optional-omissions`, and the manifest should record both the override
+and the exact omissions. Diagnostic and compatibility probes may opt out.
+
+#### 3. Make plugin discovery atomic and attributable
+
+The engine, asset, terrain, and native-term registries set their one-time
+`loaded` state before every entry point has loaded successfully. If a later
+plugin raises, a process can retain a partially populated registry and refuse
+to retry discovery. This is especially risky in notebooks, test workers, and
+long-lived orchestration processes.
+
+Load extensions transactionally or cache and consistently re-raise the first
+discovery failure. Registration conflicts should identify both distributions,
+and compilation manifests should include the distribution name, version,
+entry-point name, and registered keys for every plugin that affected a run.
+Wheel-install tests should also cover a broken plugin, a duplicate registration,
+an unsupported core API version, and two extensions for the same backend.
+
+#### 4. Control backend-name overlays
+
+The task tree currently contains 40 uses of `engine_params`, `profiles`,
+`engine_overrides`, or `engine_extras` across nine files. These overlays are a
+pragmatic representation of real native differences, but each one couples a
+task declaration to known backend names and weakens the claim that adding a
+third backend is always additive.
+
+Continue translating genuinely shared meanings into typed semantic fields and
+backend builders. Retain an overlay only when the values intentionally express
+different native semantics or capacity. Report portability in separate
+dimensions instead of one boolean: contract portability, semantic overlays,
+native extras, and clean resolution. Do not move task policy into a backend
+merely to reduce the overlay count.
+
+#### 5. Freeze the final declaration deeply
+
+The spec dataclasses use `frozen=True`, but nested mappings are copied into
+ordinary mutable dictionaries. A caller can therefore mutate a term, group, or
+profile after validation or after a contract hash has been calculated. That is
+inconsistent with treating `TaskSpec` as a stable intermediate representation.
+
+Keep task configuration classes mutable while they are assembled, then create
+a deeply immutable snapshot at the registry boundary. Validation, hashing, and
+compilation should all consume that same snapshot. Avoid making native config
+objects immutable; the boundary applies only to the engine-neutral declaration.
+
+#### 6. Finish release and metadata hardening
+
+The independent wheel layout is correct and isolated wheel discovery has been
+verified. Publication metadata is still inconsistent: the application setup
+declares `MIT` while the repository license is CC BY-NC 4.0, and
+`config/extension.toml` still contains Isaac Lab template title, author,
+repository, and dependency metadata. The README task example must also continue
+to reflect that registry factories accept an engine-normalized `RobotSpec`.
+
+Before publishing the split packages, make package metadata authoritative in
+one place and verify these install matrices from built wheels rather than source
+paths: core only, application plus Isaac only, application plus MJLab only, and
+application plus both backends. Each environment should test discovery, SDK
+import isolation, task materialization, and an appropriate construction smoke
+test.
+
+### Recommended sequence
+
+1. Split checkpoint policy compatibility, experiment semantics, and provenance
+   contracts, then add negative load tests for observation/action drift.
+2. Make clean strict compilation the production default and require an explicit
+   opt-out for omissions or emulation.
+3. Make plugin discovery atomic and record plugin provenance in manifests.
+4. Deep-freeze the registry-produced `TaskSpec` snapshot.
+5. Align license, extension, wheel, and README metadata and run the four wheel
+   installation matrices.
+6. Track semantic overlays as an architecture metric and reduce only those that
+   represent a shared meaning already understood by both builders.
+
+Focused read-only verification performed during this assessment reported:
+
+```text
+206 passed (spec isolation, task/engine isolation, plugin registries,
+            task registry, shared compiler)
+48 passed, 1 skipped (checkpoint, train entry, package pins,
+                      version guards, agent configs)
+```
+
+These checks support the dependency and contract assessment. They do not add
+new live-physics, rollout-parity, or convergence evidence beyond the results
+recorded elsewhere in this handoff.
+
 ### Compat boundary cleanup (2026-08-30)
 
 The isolated `codex/compat-boundary-cleanup` worktree branch was fast-forwarded
