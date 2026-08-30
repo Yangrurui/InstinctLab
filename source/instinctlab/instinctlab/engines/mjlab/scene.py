@@ -20,8 +20,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
+from instinctlab.engines.registry import TERRAIN_EXTENSIONS
 from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
-from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
+from instinctlab.spec.task import (
+    SceneSpec,
+    SubTerrainSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
+)
 
 from .assets import entity as build_entity
 
@@ -49,22 +55,21 @@ PROFILE_DEFAULTS: Mapping[str, Any] = {
 """Native simulator defaults shared by every task unless its profile overrides them."""
 
 
-def _sub_terrain(
-    kind: str,
-    proportion: float,
-    params: Mapping[str, Any],
-    generator: TerrainGeneratorSpec,
-) -> Any:
+def _sub_terrain(tile: SubTerrainSpec, generator: TerrainGeneratorSpec) -> Any:
     """One mjlab tile config. Imports stay in the function so the module stays engine-free."""
+    extension = TERRAIN_EXTENSIONS.sub_terrain("mjlab", tile.kind)
+    if extension is not None:
+        return extension(tile, generator)
+
     import mjlab.terrains as terrain_gen
 
-    fields = dict(params)
-    if kind in {"random_rough", "hf_pyramid_slope", "hf_pyramid_slope_inv"}:
+    fields = dict(tile.params)
+    if tile.kind in {"random_rough", "hf_pyramid_slope", "hf_pyramid_slope_inv"}:
         fields.setdefault("horizontal_scale", generator.horizontal_scale)
         fields.setdefault("vertical_scale", generator.vertical_scale)
-    if kind == "hf_pyramid_slope_inv":
+    if tile.kind == "hf_pyramid_slope_inv":
         fields["inverted"] = True
-        return terrain_gen.HfPyramidSlopedTerrainCfg(proportion=proportion, **fields)
+        return terrain_gen.HfPyramidSlopedTerrainCfg(proportion=tile.proportion, **fields)
     classes = {
         "pyramid_stairs": terrain_gen.BoxPyramidStairsTerrainCfg,
         "pyramid_stairs_inv": terrain_gen.BoxInvertedPyramidStairsTerrainCfg,
@@ -73,12 +78,15 @@ def _sub_terrain(
         "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg,
     }
     try:
-        cls = classes[kind]
+        cls = classes[tile.kind]
     except KeyError:
+        available = sorted(
+            set(GENERATOR_KINDS) | set(TERRAIN_EXTENSIONS.sub_terrain_kinds("mjlab"))
+        )
         raise NotImplementedError(
-            f"The mjlab adapter has no generator tile {kind!r}. It builds {sorted(GENERATOR_KINDS)}."
+            f"The mjlab adapter has no generator tile {tile.kind!r}. It builds {available}."
         ) from None
-    return cls(proportion=proportion, **fields)
+    return cls(proportion=tile.proportion, **fields)
 
 
 def _generator(spec: TerrainGeneratorSpec) -> Any:
@@ -96,13 +104,25 @@ def _generator(spec: TerrainGeneratorSpec) -> Any:
         slope_threshold=spec.slope_threshold,
         add_lights=True,
         sub_terrains={
-            name: _sub_terrain(tile.kind, tile.proportion, tile.params, spec)
+            name: _sub_terrain(tile, spec)
             for name, tile in spec.sub_terrains.items()
         },
     )
 
 
 def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
+    built_in_kinds = {"plane", "generator", "rough", "motion_matched"}
+    if spec.kind not in built_in_kinds:
+        extension = TERRAIN_EXTENSIONS.terrain("mjlab", spec.kind)
+        if extension is not None:
+            return extension(spec, profile)
+        available = sorted(
+            built_in_kinds | set(TERRAIN_EXTENSIONS.terrain_kinds("mjlab"))
+        )
+        raise NotImplementedError(
+            f"The mjlab adapter has no terrain {spec.kind!r}. It builds {available}."
+        )
+
     if spec.restitution != 0.0:
         raise ValueError(
             "mjlab terrain cannot honor restitution; MuJoCo terrain geoms have no restitution field"
@@ -183,9 +203,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
             terrain_generator=generator,
             sliding_friction=spec.dynamic_friction,
         )
-    raise NotImplementedError(
-        f"The mjlab adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
-    )
+    raise AssertionError(f"unhandled built-in mjlab terrain {spec.kind!r}")
 
 
 def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:

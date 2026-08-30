@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from instinctlab.engines.registry import TERRAIN_EXTENSIONS
 from instinctlab.spec.task import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
 
 __all__ = ["rough_generator_cfg", "rough_importer_cfg"]
@@ -26,8 +27,12 @@ def _perlin(value: Mapping[str, Any]) -> Any:
     return terrain_gen.PerlinPlaneTerrainCfg(**dict(value))
 
 
-def _sub_terrain(tile: SubTerrainSpec) -> Any:
+def _sub_terrain(tile: SubTerrainSpec, generator: TerrainGeneratorSpec) -> Any:
     """Translate one engine-neutral rough tile to its Isaac implementation."""
+    extension = TERRAIN_EXTENSIONS.sub_terrain("isaacsim", tile.kind)
+    if extension is not None:
+        return extension(tile, generator)
+
     import instinctlab.engines.isaacsim.terrains as terrain_gen
 
     fields = dict(tile.params)
@@ -69,7 +74,7 @@ def rough_generator_cfg(spec: TerrainGeneratorSpec) -> Any:
         slope_threshold=spec.slope_threshold,
         use_cache=False,
         curriculum=spec.curriculum,
-        sub_terrains={name: _sub_terrain(tile) for name, tile in spec.sub_terrains.items()},
+        sub_terrains={name: _sub_terrain(tile, spec) for name, tile in spec.sub_terrains.items()},
     )
 
 

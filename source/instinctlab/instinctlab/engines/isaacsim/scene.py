@@ -17,8 +17,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab.compat.sensors.ray import refuse_unhonored_ray_alignment
+from instinctlab.engines.registry import TERRAIN_EXTENSIONS
 from instinctlab.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
-from instinctlab.spec.task import SceneSpec, TerrainGeneratorSpec, TerrainSpec
+from instinctlab.spec.task import (
+    SceneSpec,
+    SubTerrainSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
+)
 
 from .assets import articulation
 
@@ -83,8 +89,12 @@ def _visual_material() -> Any:
     )
 
 
-def _sub_terrain(kind: str, proportion: float, params: Mapping[str, Any]) -> Any:
+def _sub_terrain(tile: SubTerrainSpec, generator: TerrainGeneratorSpec) -> Any:
     """One Isaac Lab tile config. Imports stay in the function so the module stays engine-free."""
+    extension = TERRAIN_EXTENSIONS.sub_terrain("isaacsim", tile.kind)
+    if extension is not None:
+        return extension(tile, generator)
+
     import isaaclab.terrains as terrain_gen
 
     classes = {
@@ -96,12 +106,13 @@ def _sub_terrain(kind: str, proportion: float, params: Mapping[str, Any]) -> Any
         "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg,
     }
     try:
-        cls = classes[kind]
+        cls = classes[tile.kind]
     except KeyError:
+        available = sorted(set(classes) | set(TERRAIN_EXTENSIONS.sub_terrain_kinds("isaacsim")))
         raise NotImplementedError(
-            f"The Isaac Sim adapter has no generator tile {kind!r}. It builds {sorted(classes)}."
+            f"The Isaac Sim adapter has no generator tile {tile.kind!r}. It builds {available}."
         ) from None
-    return cls(proportion=proportion, **params)
+    return cls(proportion=tile.proportion, **tile.params)
 
 
 def _generator(spec: TerrainGeneratorSpec) -> Any:
@@ -119,16 +130,27 @@ def _generator(spec: TerrainGeneratorSpec) -> Any:
         slope_threshold=spec.slope_threshold,
         use_cache=False,
         sub_terrains={
-            name: _sub_terrain(tile.kind, tile.proportion, tile.params)
+            name: _sub_terrain(tile, spec)
             for name, tile in spec.sub_terrains.items()
         },
     )
 
 
 def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
+    built_in_kinds = {"plane", "generator", "rough", "motion_matched"}
+    if spec.kind not in built_in_kinds:
+        extension = TERRAIN_EXTENSIONS.terrain("isaacsim", spec.kind)
+        if extension is not None:
+            return extension(spec, profile)
+        available = sorted(
+            built_in_kinds | set(TERRAIN_EXTENSIONS.terrain_kinds("isaacsim"))
+        )
+        raise NotImplementedError(
+            f"The Isaac Sim adapter has no terrain {spec.kind!r}. It builds {available}."
+        )
+
     from isaaclab.terrains import TerrainImporterCfg
 
-    del profile
     if spec.kind == "plane":
         return TerrainImporterCfg(
             prim_path="/World/ground",
@@ -191,9 +213,7 @@ def _terrain(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
             visual_material=_visual_material(),
             debug_vis=False,
         )
-    raise NotImplementedError(
-        f"The Isaac Sim adapter builds 'plane', 'generator' and 'rough' terrain; the task asked for {spec.kind!r}."
-    )
+    raise AssertionError(f"unhandled built-in Isaac Sim terrain {spec.kind!r}")
 
 
 def _attach_virtual_obstacles(cfg: Any, spec: TerrainSpec) -> Any:

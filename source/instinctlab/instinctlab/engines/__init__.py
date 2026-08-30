@@ -1,10 +1,12 @@
-"""Backends: the only place an engine SDK is imported.
+"""Backend selection and engine-neutral extension registration.
 
 ``engines/base.py``, ``registry.py`` and ``compile.py`` are the shared machinery and stay
 engine-free, so a task's compilation can be checked against an engine that is not installed.
-The engine-specific code lives in ``engines/<name>/`` and is imported only once an engine has been
-chosen -- importing this package must never pull in Isaac Sim or MuJoCo, since the launcher has to
-be able to inspect the available adapters before deciding which one to bootstrap.
+The built-in engine-specific code lives in ``engines/<name>/`` and is imported only once an engine
+has been chosen. External terrain packages register lazy builder paths through this module and may
+import an SDK only inside those selected builders. Importing this package itself must never pull in
+Isaac Sim or MuJoCo, since the launcher has to inspect available adapters before deciding which one
+to bootstrap.
 """
 
 from __future__ import annotations
@@ -68,6 +70,10 @@ _SHARED_EXPORTS = {
     "FAMILIES": ("instinctlab.engines.registry", "FAMILIES"),
     "Resolution": ("instinctlab.engines.base", "Resolution"),
     "TermRegistry": ("instinctlab.engines.registry", "TermRegistry"),
+    "TerrainExtensionRegistry": (
+        "instinctlab.engines.registry",
+        "TerrainExtensionRegistry",
+    ),
     "UnsupportedTerm": ("instinctlab.engines.base", "UnsupportedTerm"),
     "compile_family": ("instinctlab.engines.compile", "compile_family"),
     "compile_mdp": ("instinctlab.engines.compile", "compile_mdp"),
@@ -77,6 +83,20 @@ _SHARED_EXPORTS = {
     ),
     "qualname_of": ("instinctlab.engines.compile", "qualname_of"),
 }
+
+
+def register_terrain(engine: str, kind: str, builder: Any) -> None:
+    """Register a lazy whole-terrain builder from an application or plugin."""
+    from .registry import TERRAIN_EXTENSIONS
+
+    TERRAIN_EXTENSIONS.register_terrain(engine, kind, builder)
+
+
+def register_sub_terrain(engine: str, kind: str, builder: Any) -> None:
+    """Register a lazy generated-terrain tile builder from an application or plugin."""
+    from .registry import TERRAIN_EXTENSIONS
+
+    TERRAIN_EXTENSIONS.register_sub_terrain(engine, kind, builder)
 
 
 def __getattr__(name: str) -> Any:
@@ -97,6 +117,7 @@ __all__ = [
     "EngineAdapter",
     "Resolution",
     "TermRegistry",
+    "TerrainExtensionRegistry",
     "UnsupportedTerm",
     "adapter",
     "compile_family",
@@ -105,4 +126,6 @@ __all__ = [
     "observation_group_settings",
     "qualname_of",
     "register_adapter",
+    "register_sub_terrain",
+    "register_terrain",
 ]

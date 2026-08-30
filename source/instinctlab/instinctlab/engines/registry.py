@@ -1,4 +1,4 @@
-"""Each engine's term registry, which is also its capability matrix.
+"""Engine-owned registries for term lowering and externally supplied terrain builders.
 
 There is no separate list of what an engine supports. The registry *is* the list: a lookup that
 finds a builder means the engine can do it, a lookup that misses means it cannot, and
@@ -25,16 +25,27 @@ function in the engine's native term class and does nothing else::
 
 An engine may also register a kind in a portable family, which is how a term that happens to need
 a native implementation on one engine gets one without making every engine special-case it.
+
+Terrain extensions are different from MDP terms: they build native scene objects and therefore
+provide one lazy builder path per supported engine. Their registry lives here so an application
+can add a terrain without changing either engine package or importing an SDK during task discovery.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from importlib import import_module, metadata
 from typing import Any
 
 from instinctlab.spec.capability import CapabilitySet
 
-__all__ = ["FAMILIES", "TermBuilder", "TermRegistry"]
+__all__ = [
+    "FAMILIES",
+    "TERRAIN_EXTENSIONS",
+    "TermBuilder",
+    "TermRegistry",
+    "TerrainExtensionRegistry",
+]
 
 FAMILIES: tuple[str, ...] = (
     "observation",
@@ -49,6 +60,135 @@ FAMILIES: tuple[str, ...] = (
 
 TermBuilder = Callable[..., Any]
 """``(spec, ctx) -> native term config``."""
+
+TerrainBuilder = Callable[..., Any]
+"""A whole-terrain or sub-terrain builder supplied by an extension package."""
+
+
+class TerrainExtensionRegistry:
+    """Lazy native terrain builders supplied outside the engine library.
+
+    A whole-terrain builder receives ``(TerrainSpec, engine_profile)``. A
+    sub-terrain builder receives ``(SubTerrainSpec, TerrainGeneratorSpec)``.
+    Builders may be callables or ``"module:attribute"`` paths; paths keep the
+    selected engine SDK unloaded until compilation actually needs that builder.
+
+    Installed packages may expose a registrar through the
+    ``instinctlab.terrains`` entry-point group. The registrar is called with
+    this registry and should register one implementation per supported engine.
+    This lets a new terrain ship beside an application or plugin without
+    editing InstinctLab's engine packages.
+    """
+
+    ENTRY_POINT_GROUP = "instinctlab.terrains"
+
+    def __init__(self, *, load_entry_points: bool = True):
+        self._terrains: dict[tuple[str, str], TerrainBuilder | str] = {}
+        self._sub_terrains: dict[tuple[str, str], TerrainBuilder | str] = {}
+        self._load_entry_points = load_entry_points
+        self._entry_points_loaded = False
+
+    @staticmethod
+    def _key(engine: str, kind: str) -> tuple[str, str]:
+        if not engine or not engine.isidentifier():
+            raise ValueError(f"invalid terrain engine name {engine!r}")
+        if not kind or not kind.strip():
+            raise ValueError("terrain kind must be a non-empty string")
+        return engine, kind
+
+    @staticmethod
+    def _validate_builder(builder: TerrainBuilder | str) -> None:
+        if callable(builder):
+            return
+        module, separator, attribute = builder.partition(":")
+        if not separator or not module or not attribute.isidentifier():
+            raise ValueError(
+                f"invalid terrain builder {builder!r}; expected a callable or 'module:attribute'"
+            )
+
+    def _register(
+        self,
+        table: dict[tuple[str, str], TerrainBuilder | str],
+        engine: str,
+        kind: str,
+        builder: TerrainBuilder | str,
+        *,
+        scope: str,
+    ) -> None:
+        key = self._key(engine, kind)
+        self._validate_builder(builder)
+        existing = table.get(key)
+        if existing is not None and existing != builder:
+            raise ValueError(
+                f"{engine}: {scope} terrain {kind!r} is already registered as {existing!r}"
+            )
+        table[key] = builder
+
+    def register_terrain(
+        self, engine: str, kind: str, builder: TerrainBuilder | str
+    ) -> None:
+        """Register a complete native terrain importer builder."""
+        self._register(self._terrains, engine, kind, builder, scope="whole")
+
+    def register_sub_terrain(
+        self, engine: str, kind: str, builder: TerrainBuilder | str
+    ) -> None:
+        """Register one native tile builder for generated terrain."""
+        self._register(self._sub_terrains, engine, kind, builder, scope="sub")
+
+    def _load_installed_extensions(self) -> None:
+        if self._entry_points_loaded:
+            return
+        self._entry_points_loaded = True
+        if not self._load_entry_points:
+            return
+        entry_points = metadata.entry_points(group=self.ENTRY_POINT_GROUP)
+        for entry_point in sorted(entry_points, key=lambda item: item.name):
+            registrar = entry_point.load()
+            if not callable(registrar):
+                raise TypeError(
+                    f"terrain entry point {entry_point.name!r} must load a callable registrar"
+                )
+            registrar(self)
+
+    @staticmethod
+    def _resolve(builder: TerrainBuilder | str) -> TerrainBuilder:
+        if callable(builder):
+            return builder
+        module_name, _, attribute = builder.partition(":")
+        resolved = getattr(import_module(module_name), attribute)
+        if not callable(resolved):
+            raise TypeError(f"terrain builder {builder!r} resolved to a non-callable object")
+        return resolved
+
+    def terrain(self, engine: str, kind: str) -> TerrainBuilder | None:
+        """Return a registered whole-terrain builder, loading plugins once."""
+        self._load_installed_extensions()
+        builder = self._terrains.get((engine, kind))
+        return None if builder is None else self._resolve(builder)
+
+    def sub_terrain(self, engine: str, kind: str) -> TerrainBuilder | None:
+        """Return a registered tile builder, loading plugins once."""
+        self._load_installed_extensions()
+        builder = self._sub_terrains.get((engine, kind))
+        return None if builder is None else self._resolve(builder)
+
+    def terrain_kinds(self, engine: str) -> frozenset[str]:
+        self._load_installed_extensions()
+        return frozenset(
+            kind
+            for registered_engine, kind in self._terrains
+            if registered_engine == engine
+        )
+
+    def sub_terrain_kinds(self, engine: str) -> frozenset[str]:
+        self._load_installed_extensions()
+        return frozenset(
+            kind for registered_engine, kind in self._sub_terrains if registered_engine == engine
+        )
+
+
+TERRAIN_EXTENSIONS = TerrainExtensionRegistry()
 
 
 class TermRegistry:
