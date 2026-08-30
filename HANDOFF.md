@@ -10,7 +10,7 @@ narratives are in Git history rather than duplicated here.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current verified production code: `5ff4367`
+- Current verified production code: `8195d3e`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -546,6 +546,54 @@ code inspection: task_contract rebuilds declaration defaults while train mutates
 
 No training process was started, stopped, or signaled during this assessment,
 and no simulator physics, task declaration, or production behavior was changed.
+
+### Startup/runtime lifecycle remediation completed (2026-08-30)
+
+The follow-up findings above are resolved through `8195d3e`:
+
+- Engine core, `names()`, and adapter CLI setup now stay on the pre-bootstrap
+  side of the `torch` and simulator-SDK boundary. Backend entry points load an
+  SDK-free registrar and facade; full compile modules remain lazy. Fresh-process
+  tests cover import, discovery, and CLI setup.
+- Checkpoint manifests use readable `task_manifest_v3` metadata and the explicit
+  `instinct_rl_on_policy_runner_v1` format version. They contain the complete
+  effective post-engine/post-CLI agent configuration and task declaration, but
+  no `TaskSpec`-, policy-, experiment-, or provenance-hash load gate. Pre-load
+  validation checks file readability and manifest/format versions; the runner's
+  strict state-dict load owns tensor key and shape compatibility.
+- Run manifests record normalized argv, environment count, Python/package
+  versions, torch/CUDA/driver/device data, Git commit/dirty state, and resolved
+  motion-dataset paths with SHA-256 for concrete files. The same detached agent
+  snapshot is written to the manifest and `agent.json` and passed to the runner.
+- Shared launchers no longer call `os._exit`. MJLab returns normally; only the
+  Isaac adapter owns the documented hard-exit workaround. Trained playback
+  resolves and validates its checkpoint before native environment construction.
+- One immutable `TaskRegistration` now owns factory path, asset id, and optional
+  checkpoint-task id. The former public maps are read-only compatibility views.
+- Plugin discovery/rollback uses one re-entrant transaction lock. Provenance
+  usage cursors are thread-local, so concurrent compilations cannot attribute
+  one another's providers. Concurrent discovery and ledger tests exercise both
+  guarantees.
+- Direct backend imports remain self-contained: SDK-free package registration
+  installs selectors without relying on earlier launcher/test order. Compiler
+  lowering also thaws frozen declaration mappings into detached native-config
+  copies, allowing MJLab managers to deepcopy configs without weakening the
+  immutable registry snapshot.
+
+Verification from `8195d3e`:
+
+```text
+1288 passed, 3 skipped, 26 deselected
+Parkour contract: 1 passed, 24 deselected
+MJLab Flat G1: native construction, reset, canonical DFS action order, and one CPU step passed
+wheel matrices: core-only, Isaac-only, MJLab-only, and both passed
+fresh-process import/discovery/CLI probes imported no torch or simulator SDK
+all isolated wheel discovery phases imported no simulator SDK
+```
+
+No training process was started, stopped, restarted, or signaled. No task term,
+solver profile, native actuator value, or production physics behavior changed;
+the MJLab smoke run was construction/reset/one-step verification only.
 
 ### Native actuator plugin protocol design (2026-08-30)
 
