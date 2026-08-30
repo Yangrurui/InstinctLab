@@ -45,6 +45,11 @@ setup(
     keywords=EXTENSION_TOML_DATA["package"]["keywords"],
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
+    entry_points={
+        "instinctlab.assets": [
+            "unitree_g1 = instinctlab.assets.unitree_g1.interface:native_module",
+        ],
+    },
     license="MIT",
     include_package_data=True,
     python_requires=">=3.11",

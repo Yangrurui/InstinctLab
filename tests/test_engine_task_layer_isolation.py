@@ -95,6 +95,23 @@ def test_engine_implementations_do_not_import_playback_application() -> None:
     assert not offenders, f"engine modules import playback application: {sorted(offenders)}"
 
 
+def test_engine_distributions_do_not_import_the_application_package() -> None:
+    offenders: list[str] = []
+    for package_root in (ENGINE_CORE_ROOT, *ENGINE_ROOTS):
+        for path in package_root.rglob("*.py"):
+            forbidden = tuple(
+                name
+                for name in _imports(path)
+                if name == "instinctlab" or name.startswith("instinctlab.")
+            )
+            if forbidden:
+                offenders.append(f"{path}: {', '.join(forbidden)}")
+    assert not offenders, (
+        "independent engine distributions import the InstinctLab application: "
+        f"{sorted(offenders)}"
+    )
+
+
 def test_backends_do_not_import_one_another() -> None:
     for engine, forbidden_engine in (("isaacsim", "mjlab"), ("mjlab", "isaacsim")):
         offenders: list[str] = []

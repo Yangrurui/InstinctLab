@@ -192,14 +192,24 @@ TERRAIN_EXTENSIONS = TerrainExtensionRegistry()
 
 
 class TermRegistry:
-    """One engine's term builders, keyed by family and kind."""
+    """One engine's term builders, keyed by family and kind.
 
-    def __init__(self, engine: str):
+    Installed packages can add native lowering without editing an engine package
+    by exposing a registrar in ``instinctlab.engine_terms``. Entry-point names
+    use ``<engine>.<extension>`` and values are callables accepting this registry.
+    Only extensions for this registry's engine are imported.
+    """
+
+    ENTRY_POINT_GROUP = "instinctlab.engine_terms"
+
+    def __init__(self, engine: str, *, load_entry_points: bool = True):
         self.engine = engine
         self._builders: dict[tuple[str, str], TermBuilder] = {}
         self._portable: dict[str, TermBuilder] = {}
         self._emulations: dict[tuple[str, str], TermBuilder] = {}
         self._provides: dict[tuple[str, str], tuple[str, ...]] = {}
+        self._load_entry_points = load_entry_points
+        self._entry_points_loaded = False
 
     def __repr__(self) -> str:
         return f"TermRegistry({self.engine!r}, {len(self._builders)} kinds, {len(self._portable)} portable families)"
@@ -207,6 +217,24 @@ class TermRegistry:
     def _check_family(self, family: str) -> None:
         if family not in FAMILIES:
             raise KeyError(f"Unknown term family {family!r}; known families are {list(FAMILIES)}.")
+
+    def _load_installed_extensions(self) -> None:
+        if self._entry_points_loaded:
+            return
+        self._entry_points_loaded = True
+        if not self._load_entry_points:
+            return
+        entry_points = metadata.entry_points(group=self.ENTRY_POINT_GROUP)
+        prefix = f"{self.engine}."
+        for entry_point in sorted(entry_points, key=lambda item: item.name):
+            if not entry_point.name.startswith(prefix):
+                continue
+            registrar = entry_point.load()
+            if not callable(registrar):
+                raise TypeError(
+                    f"term entry point {entry_point.name!r} must load a callable registrar"
+                )
+            registrar(self)
 
     def register(
         self,
@@ -277,21 +305,25 @@ class TermRegistry:
     def lookup(self, family: str, kind: str) -> TermBuilder | None:
         """The builder for a named kind, or ``None`` when this engine has none."""
         self._check_family(family)
+        self._load_installed_extensions()
         return self._builders.get((family, kind))
 
     def lookup_portable(self, family: str) -> TermBuilder | None:
         """The wrapper for portable terms of ``family``, or ``None``."""
         self._check_family(family)
+        self._load_installed_extensions()
         return self._portable.get(family)
 
     def lookup_emulation(self, family: str, kind: str) -> TermBuilder | None:
         """The stand-in for a named kind, or ``None``."""
         self._check_family(family)
+        self._load_installed_extensions()
         return self._emulations.get((family, kind))
 
     def kinds(self, family: str) -> frozenset[str]:
         """Kinds this engine implements in ``family``."""
         self._check_family(family)
+        self._load_installed_extensions()
         return frozenset(kind for registered, kind in self._builders if registered == family)
 
     def capabilities(self) -> CapabilitySet:
@@ -302,8 +334,10 @@ class TermRegistry:
         at startup with a fixable message instead of a backend quietly doing something a task
         believed it could not.
         """
+        self._load_installed_extensions()
         return CapabilitySet.of(cap for caps in self._provides.values() for cap in caps)
 
     def provides(self) -> Mapping[str, tuple[str, ...]]:
         """``family/kind`` -> the capabilities it claims, for the contract report."""
+        self._load_installed_extensions()
         return {f"{family}/{kind}": caps for (family, kind), caps in sorted(self._provides.items())}
