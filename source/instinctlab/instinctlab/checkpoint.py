@@ -16,16 +16,14 @@ from collections.abc import Mapping
 from dataclasses import MISSING, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from instinctlab_engine.spec import TaskSpec, portability_report
 from instinctlab_engine.spec.robot import BackendAsset
 
-_CONTRACT_VERSION = "task_contract_v2"
-_LEGACY_CONTRACT_VERSION = "task_spec_v1"
-_POLICY_IO_VERSION = "policy_io_v2"
-_EXPERIMENT_SEMANTICS_VERSION = "experiment_semantics_v1"
-_PROVENANCE_VERSION = "provenance_v1"
+_CONTRACT_VERSION = "task_manifest_v3"
+_CHECKPOINT_FORMAT_VERSION = "instinct_rl_on_policy_runner_v1"
+_LEGACY_CONTRACT_VERSIONS = frozenset({"task_spec_v1", "task_contract_v2"})
 _RUNTIME_PROVENANCE_VERSION = "runtime_provenance_v1"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
 _PUBLIC_TYPE_MODULES = {
@@ -68,8 +66,8 @@ def _canonical(
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, BackendAsset):
-        # ``asset_id`` identifies the robot. Absolute source paths vary between clones and
-        # machines and must not make an otherwise identical checkpoint unloadable.
+        # ``asset_id`` identifies the robot. Paths are included only in full
+        # provenance, where clone/machine differences are useful operator data.
         return {
             "type": _type_name(value),
             "fields": [
@@ -113,7 +111,7 @@ def _canonical(
             ],
         }
     if isinstance(value, Mapping):
-        # Mapping order is part of the tensor contract for observations, actions and rewards.
+        # Preserve declaration order for observations, actions, and rewards.
         return {
             "mapping": [
                 [
@@ -158,36 +156,6 @@ def _canonical(
     raise TypeError(f"Task contract cannot serialize {_type_name(value)}: {value!r}.")
 
 
-def _fingerprint(version: str, payload: Any, **canonical_options: bool) -> dict[str, str]:
-    canonical = {
-        "version": version,
-        "payload": _canonical(payload, **canonical_options),
-    }
-    encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
-    return {
-        "version": version,
-        "hash": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
-    }
-
-
-_RUNNER_LIFECYCLE_FIELDS = frozenset(
-    {
-        "device",
-        "experiment_name",
-        "load_checkpoint",
-        "load_run",
-        "log_interval",
-        "max_iterations",
-        "num_steps_per_env",
-        "resume",
-        "run_name",
-        "save_interval",
-        "seed",
-    }
-)
-"""Runner controls that neither construct nor restore checkpoint state."""
-
-
 def _as_agent_config(config: Any) -> Mapping[str, Any]:
     if isinstance(config, Mapping):
         return deepcopy(dict(config))
@@ -210,90 +178,19 @@ def _agent_config(spec: TaskSpec, engine: str | None = None) -> Mapping[str, Any
     return _as_agent_config(config)
 
 
-def _policy_agent_contract(agent_config: Mapping[str, Any], runner: str) -> dict[str, Any]:
-    """Configuration of every component whose tensors the runner restores.
-
-    This deliberately excludes only runner lifecycle controls. Policy, critic,
-    normalizers, algorithm-owned discriminators, teacher/student networks, VAE
-    modules, optimizer-sensitive topology, checkpoint manipulators, and future
-    auxiliary components therefore enter the mandatory hash automatically.
-    """
-    return {
-        "runner": runner,
-        "restored_components": {
-            key: value
-            for key, value in agent_config.items()
-            if key not in _RUNNER_LIFECYCLE_FIELDS
-        },
-    }
-
-
-def _policy_io_payload(spec: TaskSpec, agent_config: Mapping[str, Any]) -> dict[str, Any]:
-    motion_schemas = [
-        {
-            "name": reference.name,
-            "joints": reference.joints,
-            "links": reference.links,
-            "symmetric_augmentation": reference.symmetric_augmentation,
-        }
-        for reference in spec.scene.motion_references
-    ]
-    return {
-        "robot": {
-            "schema_version": spec.robot.schema_version,
-            "asset_id": spec.robot.asset_id,
-            "joint_names": spec.robot.joint_names,
-            "body_names": spec.robot.body_names,
-            "joint_defaults_and_action_scale": tuple(
-                (item.name, item.default_pos, item.action_scale)
-                for item in spec.robot.joint_properties
-            ),
-        },
-        "observations": spec.mdp.observations,
-        "actions": spec.mdp.actions,
-        "motion_reference_schemas": motion_schemas,
-        "agent": _policy_agent_contract(agent_config, spec.agent.runner),
-    }
-
-
-def _experiment_semantics_payload(
-    spec: TaskSpec, agent_config: Mapping[str, Any]
-) -> dict[str, Any]:
-    agent_training_keys = (
-        "seed",
-        "num_steps_per_env",
-        "max_iterations",
-        "policy",
-        "algorithm",
-        "normalizers",
-    )
-    return {
-        "robot": spec.robot,
-        "scene": spec.scene,
-        "sim": spec.sim,
-        "rewards": spec.mdp.rewards,
-        "terminations": spec.mdp.terminations,
-        "commands": spec.mdp.commands,
-        "events": spec.mdp.events,
-        "curriculum": spec.mdp.curriculum,
-        "agent_training": {
-            key: agent_config[key] for key in agent_training_keys if key in agent_config
-        },
-    }
-
-
 def task_contract(
     spec: TaskSpec,
     *,
     engine: str | None = None,
     agent_config: Mapping[str, Any] | object | None = None,
 ) -> dict[str, Any]:
-    """Separate policy compatibility, effective experiment semantics, and provenance.
+    """Readable task/run metadata stored beside the runner checkpoint.
 
     ``engine`` resolves declaration-time engine overrides. Production callers
     should pass the final ``agent_config`` used to construct the runner after
-    CLI and distributed overrides; that exact snapshot then drives validation,
-    the manifest, and runner construction.
+    CLI and distributed overrides. This metadata is deliberately not a tensor
+    compatibility hash: the runner's strict state-dict loader owns key and
+    shape validation.
     """
     resolved_agent_config = (
         _agent_config(spec, engine)
@@ -302,23 +199,16 @@ def task_contract(
     )
     return {
         "version": _CONTRACT_VERSION,
+        "checkpoint_format_version": _CHECKPOINT_FORMAT_VERSION,
         "task_id": spec.task_id,
         "robot_schema_version": spec.robot.schema_version,
         "asset_id": spec.robot.asset_id,
         "joint_names": list(spec.robot.joint_names),
         "body_names": list(spec.robot.body_names),
         "portability": portability_report(spec),
-        "policy_io": _fingerprint(
-            _POLICY_IO_VERSION,
-            _policy_io_payload(spec, resolved_agent_config),
-        ),
-        "experiment_semantics": _fingerprint(
-            _EXPERIMENT_SEMANTICS_VERSION,
-            _experiment_semantics_payload(spec, resolved_agent_config),
-        ),
-        "provenance": _fingerprint(
-            _PROVENANCE_VERSION,
-            {"spec": spec, "agent_config": resolved_agent_config},
+        "effective_agent_config": resolved_agent_config,
+        "task_declaration": _canonical(
+            spec,
             include_asset_paths=True,
             include_omitted_fields=True,
         ),
@@ -569,27 +459,29 @@ def validate_checkpoint_contract(
     spec: TaskSpec,
     *,
     checkpoint_task_id: str | None = None,
-    experiment_policy: Literal["require", "warn", "ignore"] = "require",
-    engine: str | None = None,
-    agent_config: Mapping[str, Any] | object | None = None,
 ) -> None:
-    """Validate the manifest next to a checkpoint before loading its tensors.
+    """Validate checkpoint readability and its explicit on-disk format version.
 
-    Legacy runs have no enforceable policy-I/O hash and remain loadable with a warning because
-    existing Isaac and InstinctMJ checkpoints predate the unified launcher. New contracts always
-    reject policy-I/O drift. ``experiment_policy`` controls whether changed training semantics
-    reject resume, warn under an explicit override, or are ignored by play/export. A Play task may pass
-    the explicitly registered training task id whose policy it consumes; training
-    and resume callers omit it and remain strict about their own task identity.
+    Task identity and declaration data remain operator-visible metadata, not a
+    tensor load gate. The runner's strict state-dict loader reports missing,
+    unexpected, and shape-incompatible tensors after this inexpensive check.
+    Legacy runs remain loadable with a warning because they predate explicit
+    adjacent format metadata.
     """
     checkpoint_path = Path(checkpoint).expanduser().resolve()
-    if experiment_policy not in {"require", "warn", "ignore"}:
-        raise ValueError(f"unknown checkpoint experiment policy {experiment_policy!r}")
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"checkpoint not found: {checkpoint_path}")
+    try:
+        with checkpoint_path.open("rb") as handle:
+            handle.read(1)
+    except OSError as exc:
+        raise OSError(f"checkpoint is not readable: {checkpoint_path}") from exc
+
     manifest_path = checkpoint_path.parent / "manifest.json"
     if not manifest_path.is_file():
         warnings.warn(
-            f"Checkpoint {checkpoint_path} has no adjacent manifest.json; compatibility cannot be verified. "
-            "In particular, a legacy Isaac policy may use native BFS joint order rather than canonical DFS.",
+            f"Checkpoint {checkpoint_path} has no adjacent manifest.json; its format version "
+            "cannot be verified before the runner loads it.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -599,64 +491,43 @@ def validate_checkpoint_contract(
     stored = manifest.get("task_contract")
     if not isinstance(stored, dict):
         warnings.warn(
-            f"Checkpoint manifest {manifest_path} predates task contracts; compatibility cannot be verified. "
-            "In particular, a legacy Isaac policy may use native BFS joint order rather than canonical DFS.",
+            f"Checkpoint manifest {manifest_path} predates explicit checkpoint format metadata; "
+            "the runner will validate its tensors directly.",
             RuntimeWarning,
             stacklevel=2,
         )
         return
-    current = task_contract(spec, engine=engine, agent_config=agent_config)
-    expected_task_id = checkpoint_task_id or current["task_id"]
+
     stored_version = stored.get("version")
-    if stored.get("task_id") != expected_task_id:
-        raise ValueError(
-            f"Checkpoint task contract mismatch for {checkpoint_path}: "
-            f"checkpoint task={stored.get('task_id')!r}, version={stored_version!r}; "
-            f"runtime task={current['task_id']!r}, expected checkpoint task={expected_task_id!r}, "
-            f"version={current['version']!r}."
-        )
-    stored_joint_names = stored.get("joint_names")
-    if stored_joint_names != current["joint_names"]:
-        raise ValueError(
-            f"Checkpoint canonical joint order mismatch for {checkpoint_path}: "
-            f"checkpoint={stored_joint_names!r}; runtime={current['joint_names']!r}. "
-            "A BFS checkpoint cannot be loaded positionally into the DFS policy interface."
-        )
-    if stored.get("robot_schema_version") != current["robot_schema_version"]:
-        raise ValueError(
-            f"Checkpoint robot joint schema mismatch for {checkpoint_path}: "
-            f"checkpoint={stored.get('robot_schema_version')!r}; "
-            f"runtime={current['robot_schema_version']!r}."
-        )
-    if stored_version == _LEGACY_CONTRACT_VERSION:
+    if stored_version in _LEGACY_CONTRACT_VERSIONS:
         warnings.warn(
-            f"Checkpoint manifest {manifest_path} has legacy task contract "
-            f"{_LEGACY_CONTRACT_VERSION!r}; policy I/O compatibility cannot be verified.",
+            f"Checkpoint manifest {manifest_path} has legacy metadata {stored_version!r} "
+            "without an explicit checkpoint format version; the runner will validate tensors.",
             RuntimeWarning,
             stacklevel=2,
         )
         return
-    if stored_version != current["version"]:
+    if stored_version != _CONTRACT_VERSION:
         raise ValueError(
-            f"Checkpoint task contract version mismatch for {checkpoint_path}: "
-            f"checkpoint={stored_version!r}; runtime={current['version']!r}."
+            f"Checkpoint manifest schema version mismatch for {checkpoint_path}: "
+            f"checkpoint={stored_version!r}; supported={_CONTRACT_VERSION!r}."
         )
-    stored_policy = stored.get("policy_io")
-    if not isinstance(stored_policy, dict) or stored_policy != current["policy_io"]:
+    stored_format = stored.get("checkpoint_format_version")
+    if stored_format != _CHECKPOINT_FORMAT_VERSION:
         raise ValueError(
-            f"Checkpoint policy I/O contract mismatch for {checkpoint_path}: "
-            f"checkpoint={stored_policy!r}; runtime={current['policy_io']!r}."
+            f"Checkpoint format version mismatch for {checkpoint_path}: "
+            f"checkpoint={stored_format!r}; supported={_CHECKPOINT_FORMAT_VERSION!r}."
         )
-    stored_experiment = stored.get("experiment_semantics")
-    if stored_experiment != current["experiment_semantics"]:
-        message = (
-            f"Checkpoint experiment semantics mismatch for {checkpoint_path}: "
-            f"checkpoint={stored_experiment!r}; runtime={current['experiment_semantics']!r}."
+
+    expected_task_id = checkpoint_task_id or spec.task_id
+    if stored.get("task_id") != expected_task_id:
+        warnings.warn(
+            f"Checkpoint metadata task {stored.get('task_id')!r} differs from expected "
+            f"{expected_task_id!r}; task metadata is informational and the runner will "
+            "validate tensor keys and shapes.",
+            RuntimeWarning,
+            stacklevel=2,
         )
-        if experiment_policy == "require":
-            raise ValueError(message)
-        if experiment_policy == "warn":
-            warnings.warn(message, RuntimeWarning, stacklevel=2)
 
 
 __all__ = [

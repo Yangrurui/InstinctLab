@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from dataclasses import replace
 
 import pytest
@@ -15,7 +14,6 @@ from instinctlab.checkpoint import (
     task_contract,
     validate_checkpoint_contract,
 )
-from instinctlab.tasks import registry
 from tests.task_specs import task_spec
 
 PARKOUR_ID = "Instinct-Parkour-Target-G1"
@@ -25,18 +23,28 @@ def _agent_config(spec) -> dict:
     return spec.agent.resolve()(**dict(spec.agent.overrides)).to_dict()
 
 
-def test_task_contract_is_stable_and_backend_independent() -> None:
+def _write_manifest(tmp_path, spec, *, agent_config=None) -> None:
+    manifest = add_task_contract({}, spec, agent_config=agent_config)
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+
+
+def test_task_manifest_is_readable_data_without_compatibility_hashes() -> None:
     spec = task_spec(PARKOUR_ID)
-    first = task_contract(spec)
-    second = task_contract(task_spec(PARKOUR_ID, "isaacsim"))
-    assert first["policy_io"] == second["policy_io"]
-    assert first["experiment_semantics"] == second["experiment_semantics"]
-    assert first["provenance"] != second["provenance"]
-    assert first["task_id"] == spec.task_id
-    assert first["joint_names"] == list(spec.robot.joint_names)
+    contract = task_contract(spec)
+
+    assert contract["version"] == "task_manifest_v3"
+    assert contract["checkpoint_format_version"] == "instinct_rl_on_policy_runner_v1"
+    assert contract["task_id"] == spec.task_id
+    assert contract["joint_names"] == list(spec.robot.joint_names)
+    assert contract["effective_agent_config"]["algorithm"]["class_name"] == "WasabiPPO"
+    assert contract["task_declaration"]["type"].endswith("TaskSpec")
+    assert "policy_io" not in contract
+    assert "experiment_semantics" not in contract
+    assert "provenance" not in contract
+    assert "hash" not in json.dumps(contract)
 
 
-def test_effective_engine_agent_overrides_change_experiment_not_policy() -> None:
+def test_effective_engine_and_cli_agent_configuration_is_recorded_directly() -> None:
     spec = task_spec(PARKOUR_ID)
     overridden = replace(
         spec,
@@ -45,28 +53,27 @@ def test_effective_engine_agent_overrides_change_experiment_not_policy() -> None
             engine_overrides={"mjlab": {"num_steps_per_env": 48}},
         ),
     )
-
-    isaac = task_contract(overridden, engine="isaacsim")
     mjlab = task_contract(overridden, engine="mjlab")
+    assert mjlab["effective_agent_config"]["num_steps_per_env"] == 48
 
-    assert isaac["policy_io"] == mjlab["policy_io"]
-    assert isaac["experiment_semantics"] != mjlab["experiment_semantics"]
-    assert isaac["provenance"] != mjlab["provenance"]
+    final_config = _agent_config(spec)
+    final_config["seed"] = 123
+    final_config["max_iterations"] = 456
+    final = task_contract(spec, agent_config=final_config)
+    assert final["effective_agent_config"]["seed"] == 123
+    assert final["effective_agent_config"]["max_iterations"] == 456
 
 
-def test_final_cli_agent_snapshot_changes_effective_experiment_contract() -> None:
+def test_agent_snapshot_is_detached_from_later_mutation() -> None:
     spec = task_spec(PARKOUR_ID)
-    original = _agent_config(spec)
-    changed = deepcopy(original)
-    changed["seed"] += 1
-    changed["max_iterations"] += 1
+    agent_config = _agent_config(spec)
+    contract = task_contract(spec, agent_config=agent_config)
 
-    before = task_contract(spec, agent_config=original)
-    after = task_contract(spec, agent_config=changed)
+    agent_config["algorithm"]["discriminator_kwargs"]["hidden_sizes"][0] = 2048
 
-    assert before["policy_io"] == after["policy_io"]
-    assert before["experiment_semantics"] != after["experiment_semantics"]
-    assert before["provenance"] != after["provenance"]
+    assert contract["effective_agent_config"]["algorithm"]["discriminator_kwargs"][
+        "hidden_sizes"
+    ] == [1024, 512]
 
 
 def test_runtime_provenance_records_dataset_checksum_and_run_identity(
@@ -115,259 +122,110 @@ def test_runtime_provenance_records_dataset_checksum_and_run_identity(
         "device": "cuda:1",
         "num_envs": 128,
     }
-    assert provenance["datasets"] == [
-        {
-            "reference": reference.name,
-            "role": "clip",
-            "declared": str(clip),
-            "resolved": str(clip.resolve()),
-            "exists": True,
-            "size_bytes": len(b"fixed motion bytes"),
-            "sha256": "68ac8a95dbff11408b29efb6e2e76c6a095e13ff15b9a4a2fa7caebd4ee24b59",
-        }
-    ]
+    assert provenance["datasets"][0]["sha256"] == (
+        "68ac8a95dbff11408b29efb6e2e76c6a095e13ff15b9a4a2fa7caebd4ee24b59"
+    )
+    assert provenance["datasets"][0]["resolved"] == str(clip.resolve())
 
 
-def test_contract_changes_when_tensor_order_changes() -> None:
+def test_manifest_carries_portability_and_task_metadata() -> None:
     spec = task_spec(PARKOUR_ID)
-    reversed_robot = replace(spec.robot, joint_names=tuple(reversed(spec.robot.joint_names)))
-    changed = replace(spec, robot=reversed_robot)
-    assert task_contract(changed)["policy_io"] != task_contract(spec)["policy_io"]
-
-
-def test_contract_does_not_depend_on_absolute_backend_asset_paths() -> None:
-    spec = task_spec(PARKOUR_ID)
-    moved_assets = tuple(replace(asset, path=f"/different/clone/{asset.backend}.asset") for asset in spec.robot.assets)
-    moved = replace(spec, robot=replace(spec.robot, assets=moved_assets))
-    current = task_contract(spec)
-    changed = task_contract(moved)
-    assert changed["policy_io"] == current["policy_io"]
-    assert changed["experiment_semantics"] == current["experiment_semantics"]
-    assert changed["provenance"] != current["provenance"]
-
-
-def test_checkpoint_contract_accepts_the_same_task_across_engines(tmp_path) -> None:
-    spec = task_spec(PARKOUR_ID)
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
     manifest = add_task_contract({"engine": "isaacsim"}, spec)
+
     assert manifest["portability"]["contract_portability"]["multi_engine"]
     assert manifest["portability"]["clean_resolution"]["known"] is False
     assert manifest["task_contract"]["portability"]["native_extras"]["count"] == 0
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
-    validate_checkpoint_contract(checkpoint, spec)
 
 
-def test_checkpoint_contract_rejects_a_different_task(tmp_path) -> None:
+def test_checkpoint_validation_accepts_supported_readable_format(tmp_path) -> None:
     spec = task_spec(PARKOUR_ID)
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
-    changed = replace(spec, task_id="different-task")
-    with pytest.raises(ValueError, match="Checkpoint task contract mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
+    _write_manifest(tmp_path, spec)
+
+    validate_checkpoint_contract(checkpoint, spec)
 
 
-def test_checkpoint_contract_accepts_an_explicit_play_training_pair(tmp_path) -> None:
-    train_id = "Instinct-Perceptive-Shadowing-G1-v0"
-    play_id = "Instinct-Perceptive-Shadowing-G1-Play-v0"
-    train_spec = task_spec(train_id)
-    play_spec = task_spec(play_id)
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, train_spec)))
-
-    validate_checkpoint_contract(
-        checkpoint,
-        play_spec,
-        checkpoint_task_id=train_id,
-        experiment_policy="ignore",
-    )
-
-
-def test_checkpoint_contract_keeps_unpaired_tasks_strict(tmp_path) -> None:
-    train_spec = task_spec("Instinct-Perceptive-Shadowing-G1-v0")
-    wrong_play = task_spec("Instinct-BeyondMimic-Plane-G1-Play-v0")
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, train_spec)))
-
-    with pytest.raises(ValueError, match="Checkpoint task contract mismatch"):
-        validate_checkpoint_contract(
-            checkpoint,
-            wrong_play,
-            checkpoint_task_id=registry.checkpoint_task_id(wrong_play.task_id),
-        )
-
-
-def test_checkpoint_contract_does_not_reject_provenance_drift(tmp_path) -> None:
+def test_checkpoint_validation_rejects_unknown_manifest_schema(tmp_path) -> None:
     spec = task_spec(PARKOUR_ID)
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
     manifest = add_task_contract({}, spec)
-    manifest["task_contract"]["provenance"]["hash"] = "deadbeef" * 8
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
-    validate_checkpoint_contract(checkpoint, spec)
-
-
-def test_checkpoint_contract_rejects_observation_scale_drift(tmp_path) -> None:
-    spec = task_spec(PARKOUR_ID)
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
-    group_name, group = next(iter(spec.mdp.observations.items()))
-    term_name, term = next(iter(group.terms.items()))
-    changed_term = replace(term, scale=2.0 if term.scale != 2.0 else 3.0)
-    changed_group = replace(group, terms={**group.terms, term_name: changed_term})
-    changed = replace(
-        spec,
-        mdp=replace(
-            spec.mdp,
-            observations={**spec.mdp.observations, group_name: changed_group},
-        ),
-    )
-
-    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
-
-
-def test_checkpoint_contract_rejects_action_layout_drift(tmp_path) -> None:
-    spec = task_spec(PARKOUR_ID)
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
-    action_name, action = next(iter(spec.mdp.actions.items()))
-    changed_action = replace(action, params={**action.params, "scale": 0.12345})
-    changed = replace(
-        spec,
-        mdp=replace(spec.mdp, actions={**spec.mdp.actions, action_name: changed_action}),
-    )
-
-    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
-
-
-def test_checkpoint_contract_rejects_discriminator_topology_drift(tmp_path) -> None:
-    spec = task_spec(PARKOUR_ID)
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    original = _agent_config(spec)
-    manifest = add_task_contract({}, spec, agent_config=original)
+    manifest["task_contract"]["version"] = "task_manifest_v999"
     (tmp_path / "manifest.json").write_text(json.dumps(manifest))
 
-    changed = deepcopy(original)
-    changed["algorithm"]["discriminator_kwargs"]["hidden_sizes"] = [2048, 512]
-
-    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
-        validate_checkpoint_contract(
-            checkpoint,
-            spec,
-            agent_config=changed,
-            experiment_policy="ignore",
-        )
-
-
-def test_checkpoint_contract_rejects_vae_and_teacher_topology_drift(tmp_path) -> None:
-    spec = task_spec("Instinct-Perceptive-Vae-G1-v0")
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    original = _agent_config(spec)
-    manifest = add_task_contract({}, spec, agent_config=original)
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
-
-    changed_vae = deepcopy(original)
-    changed_vae["policy"]["vae_latent_size"] = 32
-    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
-        validate_checkpoint_contract(
-            checkpoint,
-            spec,
-            agent_config=changed_vae,
-            experiment_policy="ignore",
-        )
-
-    changed_teacher = deepcopy(original)
-    changed_teacher["algorithm"]["teacher_policy"]["actor_hidden_dims"] = [1024, 256, 128]
-    with pytest.raises(ValueError, match="policy I/O contract mismatch"):
-        validate_checkpoint_contract(
-            checkpoint,
-            spec,
-            agent_config=changed_teacher,
-            experiment_policy="ignore",
-        )
-
-
-def test_resume_requires_an_explicit_experiment_drift_override(tmp_path) -> None:
-    spec = task_spec(PARKOUR_ID)
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
-    reward_group_name, rewards = next(iter(spec.mdp.rewards.items()))
-    reward_name, reward = next(iter(rewards.items()))
-    changed_reward = replace(reward, weight=reward.weight + 1.0)
-    changed = replace(
-        spec,
-        mdp=replace(
-            spec.mdp,
-            rewards={
-                **spec.mdp.rewards,
-                reward_group_name: {**rewards, reward_name: changed_reward},
-            },
-        ),
-    )
-
-    with pytest.raises(ValueError, match="experiment semantics mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
-    with pytest.warns(RuntimeWarning, match="experiment semantics mismatch"):
-        validate_checkpoint_contract(checkpoint, changed, experiment_policy="warn")
-    validate_checkpoint_contract(checkpoint, changed, experiment_policy="ignore")
-
-
-def test_legacy_v1_contract_remains_loadable_with_warning(tmp_path) -> None:
-    spec = task_spec(PARKOUR_ID)
-    checkpoint = tmp_path / "model_100.pt"
-    checkpoint.touch()
-    legacy = {
-        "version": "task_spec_v1",
-        "task_id": spec.task_id,
-        "robot_schema_version": spec.robot.schema_version,
-        "asset_id": spec.robot.asset_id,
-        "joint_names": list(spec.robot.joint_names),
-        "body_names": list(spec.robot.body_names),
-        "hash": "deadbeef" * 8,
-    }
-    (tmp_path / "manifest.json").write_text(json.dumps({"task_contract": legacy}))
-
-    with pytest.warns(RuntimeWarning, match="policy I/O compatibility cannot be verified"):
+    with pytest.raises(ValueError, match="manifest schema version mismatch"):
         validate_checkpoint_contract(checkpoint, spec)
 
 
-def test_checkpoint_contract_rejects_joint_order_drift(tmp_path) -> None:
+def test_checkpoint_validation_rejects_unknown_checkpoint_format(tmp_path) -> None:
     spec = task_spec(PARKOUR_ID)
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
-    changed = replace(spec, robot=replace(spec.robot, joint_names=tuple(reversed(spec.robot.joint_names))))
+    manifest = add_task_contract({}, spec)
+    manifest["task_contract"]["checkpoint_format_version"] = "future_runner_v9"
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
 
-    with pytest.raises(ValueError, match="canonical joint order mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
+    with pytest.raises(ValueError, match="Checkpoint format version mismatch"):
+        validate_checkpoint_contract(checkpoint, spec)
 
 
-def test_checkpoint_contract_rejects_robot_joint_schema_drift(tmp_path) -> None:
+def test_task_and_declaration_drift_are_metadata_not_load_gates(tmp_path) -> None:
     spec = task_spec(PARKOUR_ID)
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
-    (tmp_path / "manifest.json").write_text(json.dumps(add_task_contract({}, spec)))
-    changed = replace(spec, robot=replace(spec.robot, schema_version="different_joint_schema"))
+    _write_manifest(tmp_path, spec)
 
-    with pytest.raises(ValueError, match="robot joint schema mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
+    changed_robot = replace(
+        spec.robot,
+        schema_version="different",
+        joint_names=tuple(reversed(spec.robot.joint_names)),
+    )
+    changed = replace(spec, robot=changed_robot)
+    validate_checkpoint_contract(checkpoint, changed)
+
+    different_task = replace(changed, task_id="different-task")
+    with pytest.warns(RuntimeWarning, match="metadata task"):
+        validate_checkpoint_contract(checkpoint, different_task)
+
+
+def test_play_training_pair_uses_registered_metadata_identity(tmp_path) -> None:
+    train_id = "Instinct-Perceptive-Shadowing-G1-v0"
+    play_id = "Instinct-Perceptive-Shadowing-G1-Play-v0"
+    train_spec = task_spec(train_id)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    _write_manifest(tmp_path, train_spec)
+
+    validate_checkpoint_contract(
+        checkpoint,
+        task_spec(play_id),
+        checkpoint_task_id=train_id,
+    )
+
+
+@pytest.mark.parametrize("legacy_version", ("task_spec_v1", "task_contract_v2"))
+def test_legacy_manifest_remains_loadable_with_warning(tmp_path, legacy_version) -> None:
+    spec = task_spec(PARKOUR_ID)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    legacy = {"version": legacy_version, "task_id": spec.task_id}
+    (tmp_path / "manifest.json").write_text(json.dumps({"task_contract": legacy}))
+
+    with pytest.warns(RuntimeWarning, match="legacy metadata"):
+        validate_checkpoint_contract(checkpoint, spec)
 
 
 def test_legacy_checkpoint_without_manifest_remains_loadable_with_warning(tmp_path) -> None:
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
-    with pytest.warns(RuntimeWarning, match="compatibility cannot be verified"):
+    with pytest.warns(RuntimeWarning, match="format version"):
         validate_checkpoint_contract(checkpoint, task_spec(PARKOUR_ID))
+
+
+def test_checkpoint_path_must_exist_before_environment_construction(tmp_path) -> None:
+    with pytest.raises(FileNotFoundError, match="checkpoint not found"):
+        validate_checkpoint_contract(tmp_path / "missing.pt", task_spec(PARKOUR_ID))
 
 
 def test_latest_checkpoint_sorts_iterations_numerically(tmp_path) -> None:
@@ -385,3 +243,14 @@ def test_playback_checkpoint_discovery_can_skip_an_empty_latest_run(tmp_path) ->
     checkpoint = latest_run_checkpoint(tmp_path, skip_empty_runs=True)
 
     assert checkpoint == complete / "model_100.pt"
+
+
+def test_latest_run_checkpoint_can_require_the_latest_matching_run(tmp_path) -> None:
+    complete = tmp_path / "20260101_000000"
+    complete.mkdir()
+    (complete / "model_100.pt").touch()
+    latest = tmp_path / "20260102_000000"
+    latest.mkdir()
+
+    with pytest.raises(FileNotFoundError, match=str(latest)):
+        latest_run_checkpoint(tmp_path)

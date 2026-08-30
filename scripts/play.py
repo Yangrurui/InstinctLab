@@ -146,8 +146,6 @@ def _play(args, engine, resources: ExitStack) -> None:
             checkpoint,
             spec,
             checkpoint_task_id=checkpoint_task_id(args.task),
-            experiment_policy="ignore",
-            agent_config=agent_config,
         )
         print(f"[INFO] Loading {checkpoint}", flush=True)
 

@@ -59,14 +59,6 @@ def _parse() -> argparse.Namespace:
         "--checkpoint", type=str, default=None, help="Checkpoint path or filename expression to resume."
     )
     parser.add_argument(
-        "--allow-experiment-drift",
-        action="store_true",
-        help=(
-            "Resume despite changed reward, termination, command, randomization, terrain, "
-            "simulation, or agent-training semantics. Policy I/O drift is never allowed."
-        ),
-    )
-    parser.add_argument(
         "--allow-nonclean-resolution",
         action="store_true",
         help=(
@@ -187,8 +179,6 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
         validate_checkpoint_contract(
             resume_path,
             spec,
-            experiment_policy="warn" if args.allow_experiment_drift else "require",
-            agent_config=agent_config,
         )
 
     from instinctlab.training import shared_run_directory
@@ -212,7 +202,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
     manifest["resume_environment_state"] = "fresh reset; simulator and motion runtime are resampled"
     manifest["resume_contract"] = {
         "checkpoint": str(resume_path) if resume_path is not None else None,
-        "allow_experiment_drift": bool(args.allow_experiment_drift),
+        "tensor_compatibility": "runner strict state-dict load",
     }
     manifest["allow_nonclean_resolution"] = bool(args.allow_nonclean_resolution)
     if distributed.is_primary:

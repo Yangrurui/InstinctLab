@@ -458,7 +458,7 @@ def test_mjcf_natural_joint_order_is_the_policy_dfs_order() -> None:
     assert natural == G1_29DOF_DFS_JOINT_NAMES
 
 
-def test_shadowing_checkpoint_rejects_a_joint_order_drift(tmp_path) -> None:
+def test_shadowing_joint_order_is_metadata_not_a_checkpoint_hash_gate(tmp_path) -> None:
     task = _task("Instinct-Shadowing-WholeBody-Plane-G1-v0")
     checkpoint = tmp_path / "model_100.pt"
     checkpoint.touch()
@@ -468,8 +468,7 @@ def test_shadowing_checkpoint_rejects_a_joint_order_drift(tmp_path) -> None:
         robot=replace(task.robot, joint_names=tuple(reversed(task.robot.joint_names))),
     )
 
-    with pytest.raises(ValueError, match="canonical joint order mismatch"):
-        validate_checkpoint_contract(checkpoint, changed)
+    validate_checkpoint_contract(checkpoint, changed)
 
 
 def test_mjlab_builtin_pd_matches_the_shared_plant_without_delay() -> None:
