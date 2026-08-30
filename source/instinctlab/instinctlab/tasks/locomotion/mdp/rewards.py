@@ -6,6 +6,10 @@ from typing import Any
 
 import torch
 
+from instinctlab_engine.actuators import (
+    APPLIED_EFFORT,
+    requires_actuator_capabilities,
+)
 from instinctlab_engine.bridge import math as math_utils
 from instinctlab_engine.bridge import robot as compat_robot
 from instinctlab_engine.bridge import sensors as compat_sensors
@@ -57,6 +61,7 @@ def joint_acc_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     return torch.sum(torch.square(acceleration[:, _joint_ids(asset_cfg)]), dim=1)
 
 
+@requires_actuator_capabilities(APPLIED_EFFORT)
 def joint_torques_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     """Penalize native joint-space actuator effort for the selected joints."""
     asset = env.scene[_name(asset_cfg)]

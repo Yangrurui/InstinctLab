@@ -166,6 +166,16 @@ class MjlabAdapter:
 
         return asset_conformance(asset_id)
 
+    def actuator_requirements(self, spec: TaskSpec) -> dict[str, list[str]]:
+        from instinctlab_engine.actuators import task_actuator_requirements
+
+        return task_actuator_requirements(spec, TERMS)
+
+    def rigid_object_conformance(self, ref: Any) -> dict[str, Any]:
+        from .rigid_objects import rigid_object_conformance
+
+        return rigid_object_conformance(ref)
+
     def profile(self, spec: TaskSpec) -> dict[str, Any]:
         merged = dict(PROFILE_DEFAULTS)
         merged.update(spec.sim.profiles.get(self.name, {}))

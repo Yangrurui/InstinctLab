@@ -256,11 +256,7 @@ class SensorRegistry:
                     f"Engine {engine!r} has no native sensor builder for kind "
                     f"{sensor.kind!r}; registered kinds are {known}."
                 ) from None
-        required = {ATTACHED_FRAME, SAMPLE_TIMESTAMP, DEVICE_PLACEMENT}
-        if sensor.latency > 0.0 or sensor.history_length > 0:
-            required.add(LATENCY_HISTORY)
-        if sensor.partial_reset:
-            required.add(PARTIAL_RESET)
+        required = required_sensor_capabilities(sensor)
         missing = required - registration.capabilities
         if missing:
             raise RuntimeError(
@@ -269,6 +265,16 @@ class SensorRegistry:
             )
         mark_plugin_used(self.ENTRY_POINT_GROUP, f"{engine}:{sensor.kind}")
         return _resolve(registration.builder)
+
+
+def required_sensor_capabilities(sensor: Any) -> frozenset[str]:
+    """Lifecycle capabilities implied by one portable native-sensor reference."""
+    required = {ATTACHED_FRAME, SAMPLE_TIMESTAMP, DEVICE_PLACEMENT}
+    if sensor.latency > 0.0 or sensor.history_length > 0:
+        required.add(LATENCY_HISTORY)
+    if sensor.partial_reset:
+        required.add(PARTIAL_RESET)
+    return frozenset(required)
 
 
 SENSORS = SensorRegistry()
@@ -306,4 +312,5 @@ __all__ = [
     "SensorRegistry",
     "native_sensor_builder",
     "register_sensor",
+    "required_sensor_capabilities",
 ]

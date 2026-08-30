@@ -379,6 +379,43 @@ def native_actuator_factory(engine: str, model_id: str) -> Callable[..., Any]:
     return ACTUATORS.config_factory(engine, model_id)
 
 
+def requires_actuator_capabilities(*capabilities: str):
+    """Annotate a portable task callable with its observable actuator needs."""
+    requested = frozenset(capabilities)
+    unknown = requested - ACTUATOR_CAPABILITIES
+    if unknown:
+        raise ValueError(
+            "portable callable requests unknown actuator capabilities: "
+            f"{', '.join(sorted(unknown))}"
+        )
+
+    def decorate(function: Callable[..., Any]) -> Callable[..., Any]:
+        function.instinctlab_actuator_capabilities = requested
+        return function
+
+    return decorate
+
+
+def task_actuator_requirements(spec: Any, registry: Any) -> dict[str, list[str]]:
+    """Collect actuator needs from native term metadata and portable callables."""
+    native_requirements = registry.actuator_requirements()
+    requested: dict[str, list[str]] = {}
+    for term_key, term in spec.mdp.terms().items():
+        requirements = set(
+            getattr(term.func, "instinctlab_actuator_capabilities", ())
+            if term.func is not None
+            else ()
+        )
+        if term.kind is not None:
+            family = term_key.split("/", 1)[0]
+            requirements.update(
+                native_requirements.get(f"{family}/{term.kind}", ())
+            )
+        if requirements:
+            requested[term_key] = sorted(requirements)
+    return requested
+
+
 __all__ = [
     "ACTUATOR_CAPABILITIES",
     "ACTUATORS",
@@ -394,4 +431,6 @@ __all__ = [
     "actuator_models",
     "native_actuator_factory",
     "register_actuator",
+    "requires_actuator_capabilities",
+    "task_actuator_requirements",
 ]

@@ -311,6 +311,7 @@ class TermRegistry:
         self._portable: dict[str, TermBuilder] = {}
         self._emulations: dict[tuple[str, str], TermBuilder] = {}
         self._provides: dict[tuple[str, str], tuple[str, ...]] = {}
+        self._actuator_requires: dict[tuple[str, str], tuple[str, ...]] = {}
         self._load_entry_points = load_entry_points
         self._entry_points_loaded = False
         self._entry_point_error: PluginDiscoveryError | None = None
@@ -340,6 +341,7 @@ class TermRegistry:
             dict(self._portable),
             dict(self._emulations),
             dict(self._provides),
+            dict(self._actuator_requires),
             dict(self._origins),
             self._active_plugin,
         )
@@ -388,11 +390,12 @@ class TermRegistry:
                 for family, kind in emulation_keys:
                     self._origins[("emulation", family, kind)] = description
         except Exception as exc:  # noqa: BLE001 - plugin transactions must roll back any failure
-            builders, portable, emulations, provides, origins, active = snapshot
+            builders, portable, emulations, provides, actuator_requires, origins, active = snapshot
             self._builders = builders
             self._portable = portable
             self._emulations = emulations
             self._provides = provides
+            self._actuator_requires = actuator_requires
             self._origins = origins
             self._active_plugin = active
             _restore_provenance(provenance_snapshot)
@@ -415,6 +418,7 @@ class TermRegistry:
         builder: TermBuilder,
         *,
         provides: Iterable[str] = (),
+        requires_actuator: Iterable[str] = (),
         emulates: bool = False,
     ) -> TermBuilder:
         """Register one builder. Used by the decorators below; called directly by tests."""
@@ -431,12 +435,24 @@ class TermRegistry:
                 f"{self.engine}: {family}/{kind} is already registered by "
                 f"{existing_source}; conflicting registration is from {incoming_source}"
             )
+        actuator_requirements = tuple(sorted(set(requires_actuator)))
+        if actuator_requirements:
+            from instinctlab_engine.actuators import ACTUATOR_CAPABILITIES
+
+            unknown = set(actuator_requirements) - ACTUATOR_CAPABILITIES
+            if unknown:
+                raise ValueError(
+                    f"{self.engine}: {family}/{kind} requests unknown actuator "
+                    f"capabilities: {', '.join(sorted(unknown))}"
+                )
         table[key] = builder
         if self._active_plugin is not None:
             scope = "emulation" if emulates else "kind"
             self._origins[(scope, family, kind)] = self._active_plugin
         if provides:
             self._provides[key] = tuple(provides)
+        if actuator_requirements:
+            self._actuator_requires[key] = actuator_requirements
         return builder
 
     def portable(self, family: str) -> Callable[[TermBuilder], TermBuilder]:
@@ -466,10 +482,19 @@ class TermRegistry:
         self, family: str
     ) -> Callable[..., Callable[[TermBuilder], TermBuilder]]:
         def by_kind(
-            kind: str, *, provides: Iterable[str] = ()
+            kind: str,
+            *,
+            provides: Iterable[str] = (),
+            requires_actuator: Iterable[str] = (),
         ) -> Callable[[TermBuilder], TermBuilder]:
             def decorate(builder: TermBuilder) -> TermBuilder:
-                return self.register(family, kind, builder, provides=provides)
+                return self.register(
+                    family,
+                    kind,
+                    builder,
+                    provides=provides,
+                    requires_actuator=requires_actuator,
+                )
 
             return decorate
 
@@ -571,4 +596,15 @@ class TermRegistry:
             return {
                 f"{family}/{kind}": caps
                 for (family, kind), caps in sorted(self._provides.items())
+            }
+
+    def actuator_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """``family/kind`` -> observable actuator capabilities it consumes."""
+        with _PLUGIN_LOCK:
+            self._load_installed_extensions()
+            return {
+                f"{family}/{kind}": requirements
+                for (family, kind), requirements in sorted(
+                    self._actuator_requires.items()
+                )
             }

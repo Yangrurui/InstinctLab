@@ -8,15 +8,24 @@ from typing import Any
 _MESH_FORMATS = frozenset({".obj", ".stl"})
 
 
-def rigid_object_cfg(ref: Any) -> Any:
-    """Build a native entity config with explicit spawn and reset state."""
-    resolved = ref.for_engine("mjlab")
+def rigid_object_conformance(ref: Any) -> dict[str, Any]:
+    report = ref.resource_report("mjlab")
     resource = ref.resource_path("mjlab")
     suffix = resource.suffix.lower()
     if suffix not in _MESH_FORMATS:
         raise ValueError(
             f"MJLab rigid object {ref.name!r} has unsupported resource format {suffix!r}."
         )
+    report["resource_format"] = suffix
+    report["native_load"] = "mujoco_mesh"
+    return report
+
+
+def rigid_object_cfg(ref: Any) -> Any:
+    """Build a native entity config with explicit spawn and reset state."""
+    resolved = ref.for_engine("mjlab")
+    rigid_object_conformance(ref)
+    resource = ref.resource_path("mjlab")
 
     import mujoco
     from mjlab.entity import EntityCfg
@@ -59,4 +68,4 @@ def rigid_object_cfg(ref: Any) -> Any:
     )
 
 
-__all__ = ["rigid_object_cfg"]
+__all__ = ["rigid_object_cfg", "rigid_object_conformance"]

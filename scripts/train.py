@@ -149,6 +149,14 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
 
     robot = engine.robot_spec(asset_id(args.task))
     spec = task_spec(args.task, robot)
+    from instinctlab_engine.preflight import require_preflight
+
+    preflight = require_preflight(
+        spec,
+        args.engine,
+        selected_adapter=engine,
+        allow_nonclean=args.allow_nonclean_resolution,
+    )
     compiled = engine.compile(
         spec,
         num_envs=args.num_envs,
@@ -205,6 +213,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
         "tensor_compatibility": "runner strict state-dict load",
     }
     manifest["allow_nonclean_resolution"] = bool(args.allow_nonclean_resolution)
+    manifest["preflight"] = preflight
     if distributed.is_primary:
         manifest["runtime_provenance"] = runtime_provenance(
             spec,

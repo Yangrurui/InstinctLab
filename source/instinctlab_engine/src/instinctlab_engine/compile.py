@@ -368,6 +368,13 @@ def contract_report(
     omitted_keys = [
         f"reward/{group}/{name}" for group, terms in spec.mdp.rewards.items() for name in terms if name in omitted
     ]
+    provided_by_kind = registry.provides()
+    requested_capabilities = {
+        key: sorted(provided_by_kind.get(f"{key.split('/', 1)[0]}/{term.kind}", ()))
+        for key, term in spec.mdp.terms().items()
+        if term.kind is not None
+        and provided_by_kind.get(f"{key.split('/', 1)[0]}/{term.kind}")
+    }
     return {
         "engine": engine,
         "task_id": spec.task_id,
@@ -375,6 +382,7 @@ def contract_report(
         "missing": missing,
         "omitted": sorted(omitted_keys),
         "engine_extras_used": sorted(spec.engine_extras.get(engine, {})),
+        "requested_capabilities": requested_capabilities,
     }
 
 

@@ -302,6 +302,14 @@ class EngineAdapter(Protocol):
         """Validate and report the SDK-free native robot onboarding contract."""
         ...
 
+    def actuator_requirements(self, spec: TaskSpec) -> dict[str, list[str]]:
+        """Observable actuator capabilities requested by this task's term lowerings."""
+        ...
+
+    def rigid_object_conformance(self, ref: Any) -> dict[str, Any]:
+        """Validate one selected rigid-object resource before native construction."""
+        ...
+
     def compile(self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False) -> CompiledTask:
         """Compile a task into this engine's native environment config."""
         ...

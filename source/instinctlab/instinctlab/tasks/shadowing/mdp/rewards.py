@@ -6,6 +6,11 @@ from typing import Any
 
 import torch
 
+from instinctlab_engine.actuators import (
+    APPLIED_EFFORT,
+    EFFORT_LIMITS,
+    requires_actuator_capabilities,
+)
 from instinctlab_engine.bridge import robot as compat_robot
 from instinctlab_engine.bridge.env import RlEnv
 
@@ -28,6 +33,7 @@ def joint_pos_limits(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
     return torch.sum(out_of_limits, dim=1)
 
 
+@requires_actuator_capabilities(APPLIED_EFFORT, EFFORT_LIMITS)
 def applied_torque_limits_by_ratio(
     env: RlEnv,
     asset_cfg: Any = None,

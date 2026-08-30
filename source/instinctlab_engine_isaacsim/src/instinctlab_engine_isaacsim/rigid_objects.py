@@ -9,6 +9,19 @@ _MESH_FORMATS = frozenset({".fbx", ".obj", ".stl"})
 _USD_FORMATS = frozenset({".usd", ".usda", ".usdc"})
 
 
+def rigid_object_conformance(ref: Any) -> dict[str, Any]:
+    report = ref.resource_report("isaacsim")
+    resource = ref.resource_path("isaacsim")
+    suffix = resource.suffix.lower()
+    if suffix not in _MESH_FORMATS | _USD_FORMATS:
+        raise ValueError(
+            f"Isaac rigid object {ref.name!r} has unsupported resource format {suffix!r}."
+        )
+    report["resource_format"] = suffix
+    report["native_load"] = "direct_usd" if suffix in _USD_FORMATS else "mesh_to_usd"
+    return report
+
+
 def _with_physics_material(spawn: Any, friction: float) -> Any:
     original_func = spawn.func
 
@@ -65,12 +78,9 @@ def _with_physics_material(spawn: Any, friction: float) -> Any:
 def rigid_object_cfg(ref: Any, *, prim_path: str) -> Any:
     """Build a native rigid-object config after Isaac has bootstrapped."""
     resolved = ref.for_engine("isaacsim")
+    report = rigid_object_conformance(ref)
     resource = ref.resource_path("isaacsim")
-    suffix = resource.suffix.lower()
-    if suffix not in _MESH_FORMATS | _USD_FORMATS:
-        raise ValueError(
-            f"Isaac rigid object {ref.name!r} has unsupported resource format {suffix!r}."
-        )
+    suffix = str(report["resource_format"])
 
     import isaaclab.sim as sim_utils
     from isaaclab.assets import RigidObjectCfg
@@ -131,4 +141,4 @@ def rigid_object_cfg(ref: Any, *, prim_path: str) -> Any:
     )
 
 
-__all__ = ["rigid_object_cfg"]
+__all__ = ["rigid_object_cfg", "rigid_object_conformance"]

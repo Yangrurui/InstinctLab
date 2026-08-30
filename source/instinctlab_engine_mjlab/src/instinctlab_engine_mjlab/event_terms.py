@@ -312,6 +312,13 @@ def register_event_terms(terms: TermRegistry) -> None:
     )
     terms.register("event", "randomize_joint_default", _randomize_joint_default)
     terms.register("event", "randomize_base_com", _randomize_base_com)
-    terms.register("event", "randomize_actuator_gains", _randomize_actuator_gains)
+    from instinctlab_engine.actuators import GAIN_RANDOMIZATION
+
+    terms.register(
+        "event",
+        "randomize_actuator_gains",
+        _randomize_actuator_gains,
+        requires_actuator=(GAIN_RANDOMIZATION,),
+    )
     terms.register("event", "randomize_body_inertia", _randomize_body_inertia)
     terms.register("event", "randomize_ray_offsets", _randomize_ray_offsets)

@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from instinctlab_engine.compile import joint_position_target
+from instinctlab_engine.actuators import JOINT_POSITION_COMMAND
 from instinctlab_engine.registry import TermRegistry
 
 from .event_terms import register_event_terms
@@ -137,7 +138,10 @@ def _portable_command(spec, ctx):
     )
 
 
-@TERMS.action("joint_position")
+@TERMS.action(
+    "joint_position",
+    requires_actuator=(JOINT_POSITION_COMMAND,),
+)
 def _joint_position(spec, ctx):
     """Position-target action.
 

@@ -1,0 +1,201 @@
+"""Unified preflight fails before resolving native implementation objects."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import pytest
+
+import instinctlab_engine
+from instinctlab_engine.actuators import (
+    APPLIED_EFFORT,
+    ActuatorRegistry,
+)
+from instinctlab_engine.preflight import PreflightError, preflight_report, require_preflight
+from instinctlab_engine.spec import NativeSensorRef
+
+from tests.task_specs import task_spec
+
+
+@pytest.mark.parametrize("engine", ("isaacsim", "mjlab"))
+def test_builtin_flat_task_passes_preflight_with_exact_selected_components(
+    engine: str,
+) -> None:
+    task = task_spec("Instinct-Velocity-Flat-G1", engine)
+
+    report = preflight_report(task, engine)
+
+    assert report["status"] == "ok"
+    assert report["asset"]["status"] == "ok"
+    assert report["selected_components"]["asset_id"] == task.robot.asset_id
+    assert len(report["selected_components"]["actuator_model_ids"]) == 1
+    assert report["actuators"][0]["missing_capabilities"] == []
+    assert report["requested_capabilities"]["actuator_by_term"][
+        "action/joint_pos"
+    ] == ["joint_position_command"]
+    assert report["incompatibilities"] == []
+    assert report["omissions"] == []
+    provider_groups = {provider["group"] for provider in report["providers"]}
+    assert {
+        "instinctlab.actuators",
+        "instinctlab.assets",
+        "instinctlab.engines",
+    } <= provider_groups
+
+
+def test_preflight_report_imports_neither_engine_sdk() -> None:
+    code = """
+import json
+import sys
+import instinctlab_engine
+from instinctlab.tasks import registry
+selected = instinctlab_engine.adapter('isaacsim')
+task = registry.spec(
+    'Instinct-Velocity-Flat-G1',
+    selected.robot_spec(registry.asset_id('Instinct-Velocity-Flat-G1')),
+)
+report = instinctlab_engine.preflight_report(task, 'isaacsim', selected_adapter=selected)
+print(json.dumps({'status': report['status'], 'modules': sorted(sys.modules)}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["status"] == "ok"
+    assert not any(
+        name.startswith(("isaaclab", "mjlab", "mujoco", "omni", "pxr"))
+        for name in payload["modules"]
+    )
+
+
+def test_missing_native_sensor_provider_fails_before_construction() -> None:
+    task = task_spec("Instinct-Velocity-Flat-G1", "mjlab")
+    task = replace(
+        task,
+        scene=replace(
+            task.scene,
+            native_sensors=(
+                NativeSensorRef(
+                    name="external_imu",
+                    kind="provider_that_is_not_installed",
+                    attach="pelvis",
+                ),
+            ),
+        ),
+    )
+
+    report = preflight_report(task, "mjlab")
+
+    assert report["status"] == "failed"
+    assert any("has no provider" in problem for problem in report["incompatibilities"])
+    with pytest.raises(PreflightError, match="external_imu"):
+        require_preflight(task, "mjlab")
+
+
+def test_missing_object_resources_are_all_reported_before_native_config(
+    tmp_path: Path,
+) -> None:
+    task = task_spec("Instinct-Perceptive-HOI-Shadowing-G1-v0", "mjlab")
+    objects = tuple(
+        replace(
+            obj,
+            mesh=str(tmp_path / f"missing-{obj.name}.obj"),
+            engine_meshes={},
+        )
+        for obj in task.scene.rigid_objects
+    )
+    task = replace(task, scene=replace(task.scene, rigid_objects=objects))
+
+    report = preflight_report(task, "mjlab")
+
+    object_failures = [
+        problem
+        for problem in report["incompatibilities"]
+        if problem.startswith("rigid object")
+    ]
+    assert report["status"] == "failed"
+    assert len(object_failures) == len(objects) == 6
+    assert all(item["exists"] is False for item in report["rigid_objects"])
+
+
+class _AssetOverrideAdapter:
+    def __init__(self, wrapped, model_id: str):
+        self._wrapped = wrapped
+        self.name = wrapped.name
+        self._model_id = model_id
+
+    def contract_report(self, spec):
+        return self._wrapped.contract_report(spec)
+
+    def asset_conformance(self, asset_id):
+        report = self._wrapped.asset_conformance(asset_id)
+        return {**report, "actuator_model_ids": [self._model_id]}
+
+    def actuator_requirements(self, spec):
+        return self._wrapped.actuator_requirements(spec)
+
+    def rigid_object_conformance(self, ref):
+        return self._wrapped.rigid_object_conformance(ref)
+
+
+def test_actuator_capability_mismatch_fails_without_resolving_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from instinctlab_engine import preflight as preflight_module
+
+    registry = ActuatorRegistry(load_entry_points=False)
+    registry.register(
+        engine="mjlab",
+        model_id="external.insufficient.v1",
+        config_factory="module_that_must_not_import:Factory",
+        runtime_adapter="module_that_must_not_import:RUNTIME",
+        capabilities={APPLIED_EFFORT},
+    )
+    monkeypatch.setattr(preflight_module, "ACTUATORS", registry)
+    selected = instinctlab_engine.adapter("mjlab")
+    task = task_spec("Instinct-Velocity-Flat-G1", "mjlab")
+
+    report = preflight_report(
+        task,
+        "mjlab",
+        selected_adapter=_AssetOverrideAdapter(
+            selected,
+            "external.insufficient.v1",
+        ),
+    )
+
+    assert report["status"] == "failed"
+    assert report["actuators"][0]["missing_capabilities"] == [
+        "joint_position_command"
+    ]
+    assert "module_that_must_not_import" not in sys.modules
+
+
+def test_allow_nonclean_does_not_override_hard_component_incompatibility() -> None:
+    task = task_spec("Instinct-Velocity-Flat-G1", "isaacsim")
+    task = replace(
+        task,
+        scene=replace(
+            task.scene,
+            native_sensors=(
+                NativeSensorRef(
+                    name="missing_sensor",
+                    kind="not_installed",
+                    attach="pelvis",
+                ),
+            ),
+        ),
+    )
+
+    report = preflight_report(task, "isaacsim", allow_nonclean=True)
+
+    assert report["allow_nonclean"] is True
+    assert report["status"] == "failed"

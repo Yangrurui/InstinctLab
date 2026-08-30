@@ -64,6 +64,14 @@ class MjlabAdapter:
 
         return asset_conformance(asset_id)
 
+    def actuator_requirements(self, spec):
+        return _implementation().actuator_requirements(spec)
+
+    def rigid_object_conformance(self, ref):
+        from .rigid_objects import rigid_object_conformance
+
+        return rigid_object_conformance(ref)
+
     def profile(self, spec):
         return _implementation().profile(spec)
 

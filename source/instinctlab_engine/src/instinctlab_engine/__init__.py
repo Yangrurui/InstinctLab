@@ -191,6 +191,8 @@ _SHARED_EXPORTS = {
         "observation_group_settings",
     ),
     "qualname_of": ("instinctlab_engine.compile", "qualname_of"),
+    "preflight_report": ("instinctlab_engine.preflight", "preflight_report"),
+    "require_preflight": ("instinctlab_engine.preflight", "require_preflight"),
 }
 
 
