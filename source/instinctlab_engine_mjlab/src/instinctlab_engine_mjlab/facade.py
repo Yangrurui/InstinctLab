@@ -71,3 +71,7 @@ class MjlabAdapter:
 
     def contract_report(self, spec):
         return _implementation().contract_report(spec)
+
+    @staticmethod
+    def finalize_process(exit_code: int) -> int:
+        return exit_code

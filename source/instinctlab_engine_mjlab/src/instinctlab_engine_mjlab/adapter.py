@@ -282,3 +282,7 @@ class MjlabAdapter:
             capabilities=self.capabilities(),
             omitted_rewards=tuple(profile.get("omit_rewards", ())),
         )
+
+    @staticmethod
+    def finalize_process(exit_code: int) -> int:
+        return exit_code

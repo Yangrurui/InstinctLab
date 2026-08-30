@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
@@ -267,7 +266,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
     )
 
 
-def main() -> None:
+def main() -> int:
     args = _parse()
 
     from instinctlab.training import distributed_run, rank_device
@@ -291,10 +290,8 @@ def main() -> None:
         resources.callback(destroy_process_group, distributed)
         _train(args, engine, distributed, resources)
 
-    # Isaac Sim's shutdown can hang on teardown after a long run; the process is done either way.
-    sys.stdout.flush()
-    os._exit(0)
+    return engine.finalize_process(0)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

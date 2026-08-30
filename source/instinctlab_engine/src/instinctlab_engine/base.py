@@ -321,3 +321,13 @@ class EngineAdapter(Protocol):
         machine running it.
         """
         ...
+
+    @staticmethod
+    def finalize_process(exit_code: int) -> int:
+        """Apply backend-specific process finalization after resources close.
+
+        Ordinary backends return ``exit_code``. A backend with a documented
+        runtime teardown failure may terminate here, keeping that exception out
+        of the shared launchers.
+        """
+        ...

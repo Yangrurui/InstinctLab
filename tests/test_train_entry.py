@@ -299,8 +299,32 @@ def test_every_adapter_satisfies_the_protocol() -> None:
     for name in engines.names():
         adapter = engines.adapter(name)
         assert isinstance(adapter, engines.EngineAdapter)
-        for required in ("add_cli_args", "bootstrap", "compile", "wrap_for_rl", "capabilities"):
+        for required in (
+            "add_cli_args",
+            "bootstrap",
+            "compile",
+            "wrap_for_rl",
+            "capabilities",
+            "finalize_process",
+        ):
             assert callable(getattr(adapter, required, None)), f"{name} is missing {required}"
+
+
+def test_process_finalization_is_an_adapter_lifecycle_policy() -> None:
+    from instinctlab_engine_mjlab.facade import MjlabAdapter
+
+    assert MjlabAdapter.finalize_process(7) == 7
+    for launcher in _LAUNCHERS:
+        source = launcher.read_text()
+        assert "os._exit" not in source
+        assert "engine.finalize_process(0)" in source
+
+
+def test_play_validates_a_trained_checkpoint_before_environment_construction() -> None:
+    source = _PLAY.read_text()
+    assert source.index("validate_checkpoint_contract(") < source.index(
+        "compiled.make_env()"
+    )
 
 
 def test_an_unknown_engine_says_what_is_known() -> None:

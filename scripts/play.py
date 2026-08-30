@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 import re
-import sys
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -107,6 +106,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--export-only requires --export-onnx")
     if args.export_onnx and args.agent != "trained":
         raise ValueError("ONNX export requires --agent trained")
+    if args.export_onnx and args.num_envs != 1:
+        raise ValueError("ONNX export requires --num_envs 1")
 
 
 def _play(args, engine, resources: ExitStack) -> None:
@@ -132,12 +133,27 @@ def _play(args, engine, resources: ExitStack) -> None:
     compiled.env_cfg.seed = agent_cfg.seed
     print(compiled.resolution.summary_table())
 
-    native_env = compiled.make_env()
-    resources.callback(native_env.close)
-    env = engine.wrap_for_rl(native_env)
     dummy = args.agent in {"zero", "random"}
     reload_policy = None
     checkpoint_dir = None
+    if dummy:
+        checkpoint = None
+    else:
+        checkpoint = _resolve_checkpoint(args, agent_cfg.experiment_name)
+        from instinctlab.checkpoint import validate_checkpoint_contract
+
+        validate_checkpoint_contract(
+            checkpoint,
+            spec,
+            checkpoint_task_id=checkpoint_task_id(args.task),
+            experiment_policy="ignore",
+            agent_config=agent_config,
+        )
+        print(f"[INFO] Loading {checkpoint}", flush=True)
+
+    native_env = compiled.make_env()
+    resources.callback(native_env.close)
+    env = engine.wrap_for_rl(native_env)
     if dummy:
         import torch
 
@@ -157,17 +173,7 @@ def _play(args, engine, resources: ExitStack) -> None:
 
         print(f"[INFO] Using {args.agent} actions (no checkpoint)", flush=True)
     else:
-        checkpoint = _resolve_checkpoint(args, agent_cfg.experiment_name)
-        from instinctlab.checkpoint import validate_checkpoint_contract
-
-        validate_checkpoint_contract(
-            checkpoint,
-            spec,
-            checkpoint_task_id=checkpoint_task_id(args.task),
-            experiment_policy="ignore",
-            agent_config=agent_config,
-        )
-        print(f"[INFO] Loading {checkpoint}", flush=True)
+        assert checkpoint is not None
         from instinct_rl.runners import OnPolicyRunner
 
         runner = OnPolicyRunner(env, agent_config, log_dir=None, device=args.device)
@@ -180,8 +186,6 @@ def _play(args, engine, resources: ExitStack) -> None:
 
         checkpoint_dir = checkpoint.parent
         if args.export_onnx:
-            if args.num_envs != 1:
-                raise ValueError("ONNX export requires --num_envs 1")
             export_dir = (
                 Path(args.export_dir).expanduser().resolve() if args.export_dir else checkpoint_dir / "exported"
             )
@@ -238,7 +242,7 @@ def _play(args, engine, resources: ExitStack) -> None:
     )
 
 
-def main() -> None:
+def main() -> int:
     args = _parse()
     _validate_args(args)
 
@@ -256,9 +260,8 @@ def main() -> None:
             resources.callback(app.close)
         _play(args, engine, resources)
 
-    sys.stdout.flush()
-    os._exit(0)
+    return engine.finalize_process(0)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

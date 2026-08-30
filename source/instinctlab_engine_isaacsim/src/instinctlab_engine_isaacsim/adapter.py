@@ -321,3 +321,13 @@ class IsaacSimAdapter:
         _validate_scene_sensor_names(spec)
         _validate_reward_scaling(spec)
         return contract_report(spec, engine=self.name, registry=TERMS, capabilities=self.capabilities())
+
+    @staticmethod
+    def finalize_process(exit_code: int) -> int:
+        """Avoid Isaac Sim's known post-close teardown hang."""
+        import os
+        import sys
+
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(exit_code)

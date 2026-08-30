@@ -98,3 +98,13 @@ class IsaacSimAdapter:
 
     def contract_report(self, spec):
         return _implementation().contract_report(spec)
+
+    @staticmethod
+    def finalize_process(exit_code: int) -> int:
+        """Avoid Isaac Sim's known post-close teardown hang."""
+        import os
+        import sys
+
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(exit_code)
