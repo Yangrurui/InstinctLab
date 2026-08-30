@@ -192,4 +192,5 @@ def test_shadowing_play_and_export_validate_checkpoint_contract_before_loading()
     assert validation < text.index("runner.load(str(checkpoint))")
     assert 'experiment_policy="ignore"' in text[validation : validation + 300]
     assert text.index("runner.load(str(checkpoint))") < text.index("runner.export_as_onnx")
-    assert '"task_contract": task_contract(spec)' in text
+    assert '"task_contract": task_contract(' in text
+    assert "spec, agent_config=agent_config" in text

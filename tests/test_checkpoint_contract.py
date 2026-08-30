@@ -6,10 +6,12 @@ from dataclasses import replace
 
 import pytest
 
+import instinctlab.checkpoint as checkpoint_module
 from instinctlab.checkpoint import (
     add_task_contract,
     latest_checkpoint,
     latest_run_checkpoint,
+    runtime_provenance,
     task_contract,
     validate_checkpoint_contract,
 )
@@ -32,6 +34,98 @@ def test_task_contract_is_stable_and_backend_independent() -> None:
     assert first["provenance"] != second["provenance"]
     assert first["task_id"] == spec.task_id
     assert first["joint_names"] == list(spec.robot.joint_names)
+
+
+def test_effective_engine_agent_overrides_change_experiment_not_policy() -> None:
+    spec = task_spec(PARKOUR_ID)
+    overridden = replace(
+        spec,
+        agent=replace(
+            spec.agent,
+            engine_overrides={"mjlab": {"num_steps_per_env": 48}},
+        ),
+    )
+
+    isaac = task_contract(overridden, engine="isaacsim")
+    mjlab = task_contract(overridden, engine="mjlab")
+
+    assert isaac["policy_io"] == mjlab["policy_io"]
+    assert isaac["experiment_semantics"] != mjlab["experiment_semantics"]
+    assert isaac["provenance"] != mjlab["provenance"]
+
+
+def test_final_cli_agent_snapshot_changes_effective_experiment_contract() -> None:
+    spec = task_spec(PARKOUR_ID)
+    original = _agent_config(spec)
+    changed = deepcopy(original)
+    changed["seed"] += 1
+    changed["max_iterations"] += 1
+
+    before = task_contract(spec, agent_config=original)
+    after = task_contract(spec, agent_config=changed)
+
+    assert before["policy_io"] == after["policy_io"]
+    assert before["experiment_semantics"] != after["experiment_semantics"]
+    assert before["provenance"] != after["provenance"]
+
+
+def test_runtime_provenance_records_dataset_checksum_and_run_identity(
+    tmp_path, monkeypatch
+) -> None:
+    clip = tmp_path / "motion.npz"
+    clip.write_bytes(b"fixed motion bytes")
+    spec = task_spec(PARKOUR_ID)
+    reference = replace(
+        spec.scene.motion_references[0],
+        clip=str(clip),
+        engine_clips={},
+    )
+    spec = replace(
+        spec,
+        scene=replace(spec.scene, motion_references=(reference,)),
+    )
+    monkeypatch.setattr(
+        checkpoint_module,
+        "_accelerator_provenance",
+        lambda device: {"requested_device": device},
+    )
+    monkeypatch.setattr(
+        checkpoint_module,
+        "_installed_versions",
+        lambda engine: {"selected-backend": engine},
+    )
+    monkeypatch.setattr(
+        checkpoint_module,
+        "_git_provenance",
+        lambda repository: {"available": True, "root": str(repository)},
+    )
+
+    provenance = runtime_provenance(
+        spec,
+        engine="mjlab",
+        device="cuda:1",
+        num_envs=128,
+        argv=["train.py", "--seed", "7"],
+        repository=tmp_path,
+    )
+
+    assert provenance["command"] == {
+        "argv": ["train.py", "--seed", "7"],
+        "engine": "mjlab",
+        "device": "cuda:1",
+        "num_envs": 128,
+    }
+    assert provenance["datasets"] == [
+        {
+            "reference": reference.name,
+            "role": "clip",
+            "declared": str(clip),
+            "resolved": str(clip.resolve()),
+            "exists": True,
+            "size_bytes": len(b"fixed motion bytes"),
+            "sha256": "68ac8a95dbff11408b29efb6e2e76c6a095e13ff15b9a4a2fa7caebd4ee24b59",
+        }
+    ]
 
 
 def test_contract_changes_when_tensor_order_changes() -> None:

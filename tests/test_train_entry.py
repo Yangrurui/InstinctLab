@@ -429,6 +429,16 @@ def test_the_environment_is_given_a_seed(entry_source: str) -> None:
     )
 
 
+def test_train_uses_one_effective_agent_snapshot_for_contract_and_runner(
+    entry_source: str,
+) -> None:
+    assert "agent_config = agent_cfg.to_dict()" in entry_source
+    assert "agent_config=agent_config" in entry_source
+    assert "OnPolicyRunner(env, agent_config," in entry_source
+    assert "json.dump(agent_config, handle," in entry_source
+    assert 'manifest["runtime_provenance"] = runtime_provenance(' in entry_source
+
+
 TORCH_BACKEND_FLAGS = {
     "torch.backends.cuda.matmul.allow_tf32": True,
     "torch.backends.cudnn.allow_tf32": True,

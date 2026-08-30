@@ -125,8 +125,11 @@ def _play(args, engine, resources: ExitStack) -> None:
     compiled.resolution.require_clean(
         allow_nonclean=args.allow_nonclean_resolution
     )
+    agent_cfg = compiled.agent_cfg
+    agent_cfg.device = args.device
+    agent_config = agent_cfg.to_dict()
     _silence_observation_noise(compiled.env_cfg)
-    compiled.env_cfg.seed = compiled.agent_cfg.seed
+    compiled.env_cfg.seed = agent_cfg.seed
     print(compiled.resolution.summary_table())
 
     native_env = compiled.make_env()
@@ -154,7 +157,7 @@ def _play(args, engine, resources: ExitStack) -> None:
 
         print(f"[INFO] Using {args.agent} actions (no checkpoint)", flush=True)
     else:
-        checkpoint = _resolve_checkpoint(args, compiled.agent_cfg.experiment_name)
+        checkpoint = _resolve_checkpoint(args, agent_cfg.experiment_name)
         from instinctlab.checkpoint import validate_checkpoint_contract
 
         validate_checkpoint_contract(
@@ -162,13 +165,12 @@ def _play(args, engine, resources: ExitStack) -> None:
             spec,
             checkpoint_task_id=checkpoint_task_id(args.task),
             experiment_policy="ignore",
+            agent_config=agent_config,
         )
         print(f"[INFO] Loading {checkpoint}", flush=True)
         from instinct_rl.runners import OnPolicyRunner
 
-        agent_cfg = compiled.agent_cfg
-        agent_cfg.device = args.device
-        runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=args.device)
+        runner = OnPolicyRunner(env, agent_config, log_dir=None, device=args.device)
         runner.load(str(checkpoint))
         policy = runner.get_inference_policy(device=args.device)
 
@@ -193,7 +195,9 @@ def _play(args, engine, resources: ExitStack) -> None:
                     {
                         "checkpoint": str(checkpoint),
                         "checkpoint_task_id": checkpoint_task_id(args.task),
-                        "task_contract": task_contract(spec),
+                        "task_contract": task_contract(
+                            spec, agent_config=agent_config
+                        ),
                         "allow_nonclean_resolution": bool(
                             args.allow_nonclean_resolution
                         ),

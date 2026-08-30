@@ -179,6 +179,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
     if args.checkpoint is not None:
         agent_cfg.load_checkpoint = args.checkpoint
     agent_cfg.resume = bool(args.resume or args.load_run or args.checkpoint or agent_cfg.resume)
+    agent_config = agent_cfg.to_dict()
 
     resume_path = _resolve_resume_checkpoint(args, agent_cfg)
     if resume_path is not None:
@@ -188,6 +189,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
             resume_path,
             spec,
             experiment_policy="warn" if args.allow_experiment_drift else "require",
+            agent_config=agent_config,
         )
 
     from instinctlab.training import shared_run_directory
@@ -197,9 +199,11 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
 
     print(compiled.resolution.summary_table())
     manifest_path = os.path.join(log_dir, "manifest.json")
-    from instinctlab.checkpoint import add_task_contract
+    from instinctlab.checkpoint import add_task_contract, runtime_provenance
 
-    manifest = add_task_contract(compiled.resolution.manifest(), spec)
+    manifest = add_task_contract(
+        compiled.resolution.manifest(), spec, agent_config=agent_config
+    )
     manifest["distributed"] = {
         "enabled": distributed.enabled,
         "world_size": distributed.world_size,
@@ -213,6 +217,13 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
     }
     manifest["allow_nonclean_resolution"] = bool(args.allow_nonclean_resolution)
     if distributed.is_primary:
+        manifest["runtime_provenance"] = runtime_provenance(
+            spec,
+            engine=args.engine,
+            device=args.device,
+            num_envs=args.num_envs,
+            repository=Path(__file__).resolve().parents[1],
+        )
         with open(manifest_path, "w") as handle:
             json.dump(manifest, handle, indent=2, sort_keys=True, default=str)
         print(f"[INFO] Wrote the compilation manifest to {manifest_path}")
@@ -236,7 +247,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
 
     from instinct_rl.runners import OnPolicyRunner
 
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    runner = OnPolicyRunner(env, agent_config, log_dir=log_dir, device=agent_cfg.device)
     resources.callback(_close_runner_writer, runner)
     runner.add_git_repo_to_log(__file__)
     if resume_path is not None:
@@ -247,7 +258,7 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
 
     if distributed.is_primary:
         with open(os.path.join(log_dir, "agent.json"), "w") as handle:
-            json.dump(agent_cfg.to_dict(), handle, indent=2, sort_keys=True, default=str)
+            json.dump(agent_config, handle, indent=2, sort_keys=True, default=str)
 
     print(f"[INFO] Training {args.task} on {args.engine}: {args.num_envs} envs on {args.device}, logs in {log_dir}")
     runner.learn(

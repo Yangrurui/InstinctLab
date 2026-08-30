@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import math
+import platform
 import re
+import subprocess
+import sys
 import warnings
 from copy import deepcopy
 from collections.abc import Mapping
@@ -22,6 +26,7 @@ _LEGACY_CONTRACT_VERSION = "task_spec_v1"
 _POLICY_IO_VERSION = "policy_io_v2"
 _EXPERIMENT_SEMANTICS_VERSION = "experiment_semantics_v1"
 _PROVENANCE_VERSION = "provenance_v1"
+_RUNTIME_PROVENANCE_VERSION = "runtime_provenance_v1"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
 _PUBLIC_TYPE_MODULES = {
     "instinctlab_engine.spec.motion_reference": "instinctlab_engine.spec.sensor",
@@ -195,8 +200,13 @@ def _as_agent_config(config: Any) -> Mapping[str, Any]:
     return to_dict()
 
 
-def _agent_config(spec: TaskSpec) -> Mapping[str, Any]:
-    config = spec.agent.resolve()(**dict(spec.agent.overrides))
+def _agent_config(spec: TaskSpec, engine: str | None = None) -> Mapping[str, Any]:
+    overrides = (
+        dict(spec.agent.overrides)
+        if engine is None
+        else spec.agent.resolved_overrides(engine)
+    )
+    config = spec.agent.resolve()(**overrides)
     return _as_agent_config(config)
 
 
@@ -273,11 +283,20 @@ def _experiment_semantics_payload(
 
 
 def task_contract(
-    spec: TaskSpec, *, agent_config: Mapping[str, Any] | object | None = None
+    spec: TaskSpec,
+    *,
+    engine: str | None = None,
+    agent_config: Mapping[str, Any] | object | None = None,
 ) -> dict[str, Any]:
-    """Separate checkpoint compatibility, experiment semantics, and provenance."""
+    """Separate policy compatibility, effective experiment semantics, and provenance.
+
+    ``engine`` resolves declaration-time engine overrides. Production callers
+    should pass the final ``agent_config`` used to construct the runner after
+    CLI and distributed overrides; that exact snapshot then drives validation,
+    the manifest, and runner construction.
+    """
     resolved_agent_config = (
-        _agent_config(spec)
+        _agent_config(spec, engine)
         if agent_config is None
         else _as_agent_config(agent_config)
     )
@@ -310,13 +329,189 @@ def add_task_contract(
     manifest: Mapping[str, Any],
     spec: TaskSpec,
     *,
+    engine: str | None = None,
     agent_config: Mapping[str, Any] | object | None = None,
 ) -> dict[str, Any]:
     """Return a compilation manifest carrying checkpoint compatibility metadata."""
     payload = dict(manifest)
     payload["portability"] = portability_report(spec, payload)
-    payload["task_contract"] = task_contract(spec, agent_config=agent_config)
+    payload["task_contract"] = task_contract(
+        spec, engine=engine, agent_config=agent_config
+    )
     return payload
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _path_provenance(*, reference: str, role: str, declared: str) -> dict[str, Any]:
+    path = Path(declared).expanduser().resolve()
+    result: dict[str, Any] = {
+        "reference": reference,
+        "role": role,
+        "declared": declared,
+        "resolved": str(path),
+        "exists": path.exists(),
+    }
+    if path.is_file():
+        result["size_bytes"] = path.stat().st_size
+        result["sha256"] = _sha256_file(path)
+    elif path.is_dir():
+        result["kind"] = "directory"
+    return result
+
+
+def _dataset_provenance(spec: TaskSpec, engine: str) -> list[dict[str, Any]]:
+    datasets: list[dict[str, Any]] = []
+    for reference in spec.scene.motion_references:
+        resolved = reference.for_engine(engine)
+        datasets.append(
+            _path_provenance(
+                reference=reference.name,
+                role="clip",
+                declared=resolved.clip,
+            )
+        )
+        if resolved.metadata_yaml:
+            datasets.append(
+                _path_provenance(
+                    reference=reference.name,
+                    role="metadata",
+                    declared=resolved.metadata_yaml,
+                )
+            )
+        clip_root = Path(resolved.clip).expanduser()
+        for selected in resolved.selected_files:
+            selected_path = Path(selected).expanduser()
+            if not selected_path.is_absolute():
+                selected_path = clip_root / selected_path
+            datasets.append(
+                _path_provenance(
+                    reference=reference.name,
+                    role="selected_motion",
+                    declared=str(selected_path),
+                )
+            )
+    return datasets
+
+
+def _installed_versions(engine: str) -> dict[str, str]:
+    distributions = (
+        "instinctlab",
+        "instinctlab-engine-core",
+        f"instinctlab-engine-{engine}",
+        "instinct-rl",
+        "torch",
+        "isaaclab",
+        "mjlab",
+        "mujoco",
+        "warp-lang",
+    )
+    versions: dict[str, str] = {}
+    for distribution in distributions:
+        try:
+            versions[distribution] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+    return versions
+
+
+def _git_provenance(repository: Path) -> dict[str, Any]:
+    def run(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    try:
+        root = Path(run("rev-parse", "--show-toplevel"))
+        commit = run("rev-parse", "HEAD")
+        dirty = bool(run("status", "--porcelain", "--untracked-files=normal"))
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return {"available": False}
+    return {
+        "available": True,
+        "root": str(root),
+        "commit": commit,
+        "dirty": dirty,
+    }
+
+
+def _accelerator_provenance(device: str) -> dict[str, Any]:
+    import torch
+
+    result: dict[str, Any] = {
+        "requested_device": device,
+        "torch_cuda_version": torch.version.cuda,
+        "cuda_available": torch.cuda.is_available(),
+    }
+    if torch.cuda.is_available():
+        index = torch.device(device).index if device.startswith("cuda") else None
+        index = torch.cuda.current_device() if index is None else index
+        properties = torch.cuda.get_device_properties(index)
+        result["device"] = {
+            "index": index,
+            "name": properties.name,
+            "total_memory_bytes": properties.total_memory,
+            "compute_capability": [properties.major, properties.minor],
+        }
+        try:
+            query = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,name,driver_version",
+                    "--format=csv,noheader,nounits",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            result["driver_devices"] = [
+                line.strip() for line in query.stdout.splitlines() if line.strip()
+            ]
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            result["driver_devices"] = []
+    return result
+
+
+def runtime_provenance(
+    spec: TaskSpec,
+    *,
+    engine: str,
+    device: str,
+    num_envs: int,
+    argv: list[str] | tuple[str, ...] | None = None,
+    repository: str | Path = ".",
+) -> dict[str, Any]:
+    """Structured source, software, hardware, and dataset identity for one run."""
+    return {
+        "version": _RUNTIME_PROVENANCE_VERSION,
+        "command": {
+            "argv": list(sys.argv if argv is None else argv),
+            "engine": engine,
+            "device": device,
+            "num_envs": num_envs,
+        },
+        "python": {
+            "version": platform.python_version(),
+            "implementation": platform.python_implementation(),
+            "platform": platform.platform(),
+        },
+        "packages": _installed_versions(engine),
+        "accelerator": _accelerator_provenance(device),
+        "git": _git_provenance(Path(repository).resolve()),
+        "datasets": _dataset_provenance(spec, engine),
+    }
 
 
 def checkpoint_sort_key(path: Path) -> tuple[int, str]:
@@ -375,6 +570,7 @@ def validate_checkpoint_contract(
     *,
     checkpoint_task_id: str | None = None,
     experiment_policy: Literal["require", "warn", "ignore"] = "require",
+    engine: str | None = None,
     agent_config: Mapping[str, Any] | object | None = None,
 ) -> None:
     """Validate the manifest next to a checkpoint before loading its tensors.
@@ -409,7 +605,7 @@ def validate_checkpoint_contract(
             stacklevel=2,
         )
         return
-    current = task_contract(spec, agent_config=agent_config)
+    current = task_contract(spec, engine=engine, agent_config=agent_config)
     expected_task_id = checkpoint_task_id or current["task_id"]
     stored_version = stored.get("version")
     if stored.get("task_id") != expected_task_id:
@@ -468,6 +664,7 @@ __all__ = [
     "checkpoint_sort_key",
     "latest_checkpoint",
     "latest_run_checkpoint",
+    "runtime_provenance",
     "task_contract",
     "validate_checkpoint_contract",
 ]
