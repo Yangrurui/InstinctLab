@@ -547,6 +547,222 @@ code inspection: task_contract rebuilds declaration defaults while train mutates
 No training process was started, stopped, or signaled during this assessment,
 and no simulator physics, task declaration, or production behavior was changed.
 
+### Native actuator plugin protocol design (2026-08-30)
+
+The actuator extension seam should be formalized without introducing a portable
+actuator-parameter schema. An actuator implementation is native physics/runtime
+code; a robot asset owns the concrete selection, joint groups, and every final
+parameter. `TaskSpec` and `RobotSpec` must not become a second actuator catalog.
+
+The intended dependency flow is:
+
+```text
+task registration -> package/variant asset id
+asset plugin       -> engine-native asset module
+actuator plugin    -> lazy engine-native config/model implementation
+native asset module + explicit group values -> native articulation/entity
+engine-term plugin -> optional new action or randomization lowering
+```
+
+#### Scope and non-goals
+
+The protocol must support a reusable custom actuator model shipped outside this
+repository, an asset using several actuator models at once, and an actuator
+implemented on only one engine. Discovery must remain free of `torch` and SDK
+imports until the selected backend has bootstrapped.
+
+The protocol does not attempt to:
+
+- run one actuator implementation unchanged on Isaac Sim and MJLab;
+- normalize stiffness, damping, motor, tendon, network, thermal, or transmission
+  parameters into a shared schema;
+- infer native groups or parameters from `JointProperties`;
+- select an actuator independently of the asset at runtime;
+- move task action policy or task-specific reward behavior into the plugin.
+
+Production selection remains an explicit asset variant. A new actuator on an
+otherwise identical robot receives a new `package/variant` asset id and an
+explicit task registration. There is deliberately no `--actuator` override that
+can silently change the plant underneath an existing task id.
+
+#### Discovery and registration API
+
+Add one engine-core registry in `instinctlab_engine/actuators.py` and one entry
+point group:
+
+```toml
+[project.entry-points."instinctlab.actuators"]
+"isaacsim.acme_series_elastic" = "acme_actuators.registration:register_isaacsim"
+"mjlab.acme_series_elastic" = "acme_actuators.registration:register_mjlab"
+```
+
+An entry-point name is `<engine>.<extension>`. Only entries for the selected
+engine are loaded. The registration module must be SDK-free and register lazy
+dotted paths rather than importing its implementation:
+
+```python
+def register_isaacsim(registry):
+    registry.register(
+        model_id="acme.series_elastic.v1",
+        config_factory="acme_actuators.isaacsim:SeriesElasticActuatorCfg",
+        runtime_adapter="acme_actuators.isaacsim:SERIES_ELASTIC_RUNTIME",
+        capabilities={
+            "joint_position_command",
+            "applied_effort",
+            "effort_limits",
+            "stateful_reset",
+        },
+    )
+
+register_isaacsim.instinctlab_engine_api = ">=0.1,<0.2"
+```
+
+The registry key is `(engine, model_id)`. A registration contains only identity,
+lazy implementation paths, and declared capabilities. It contains no joint
+selector and no actuator parameter value. `config_factory` resolves after
+bootstrap to a callable producing that engine's native actuator config. A
+plugin may use an SDK config class directly as the callable.
+
+Discovery follows the existing engine/asset/term guarantees: load
+transactionally, cache and consistently re-raise the first failure, reject
+duplicate keys with both distributions named, enforce the core API range, and
+record distribution/version/entry-point/model provenance for each provider
+actually used by a compilation.
+
+#### Asset-owned construction
+
+The native asset module chooses the model and passes every final value directly
+at each group declaration:
+
+```python
+series_elastic_cfg = native_actuator_factory(
+    "isaacsim", "acme.series_elastic.v1"
+)
+
+hip_actuators = series_elastic_cfg(
+    joint_names_expr=[".*_hip_pitch_joint", ".*_hip_yaw_joint"],
+    effort_limit=88.0,
+    stiffness=40.17923847137318,
+    damping=2.5578897650279457,
+    armature=0.01017752,
+    spring_stiffness=1200.0,
+)
+```
+
+The example name binding is only the resolved native config type. It must not
+become a helper that supplies, transforms, or infers values. In adapted G1
+modules, every group continues to repeat its complete selector and final native
+parameters; loops, shared parameter dictionaries, name-based inference, and
+construction from `JointProperties` remain prohibited.
+
+An external robot/actuator distribution normally publishes both entry-point
+groups: `instinctlab.assets` routes its `package/variant`, while
+`instinctlab.actuators` publishes reusable native model implementations. A
+model used by only one asset may live in that same distribution.
+
+#### Runtime capability adapter
+
+The current shared actuator readers rely on field duck typing and one class-name
+test for MJLab's `BuiltinPdActuator`. Replace that implicit contract with an
+optional lazy `runtime_adapter` registered beside the model. It is selected by
+the native actuator config/instance type after bootstrap and may expose only
+the capabilities it declares:
+
+```python
+class ActuatorRuntimeAdapter(Protocol):
+    def matches(self, actuator: object) -> bool: ...
+    def stiffness_groups(self, actuator: object): ...
+    def effort_limits(self, env: object, asset: object, actuator: object): ...
+```
+
+The initial capability vocabulary is intentionally small and derived from
+current consumers:
+
+```text
+joint_position_command  native model accepts the existing ordered position target
+applied_effort          native asset data exposes the task's declared effort quantity
+effort_limits           limit/ratio rewards can obtain limits in canonical joint order
+stiffness               power-style rewards can obtain position-control stiffness
+gain_randomization      the generic gain-randomization event is valid for this model
+stateful_reset          model owns buffers/state and resets the selected environments
+```
+
+Unsupported capabilities fail closed with the engine, model id, native group,
+and requesting term in the error. They must not return zero, skip a reward, or
+pretend that a non-PD model has PD gains. Built-in Isaac and MJLab actuator
+types should be registered through the same runtime adapter mechanism before
+removing the existing compatibility reader, so the migration is behavior-neutral.
+
+The runtime adapter normalizes observable interfaces only. It does not compute
+the actuator's control law and does not translate actuator parameters between
+engines. `compute()` and buffered-state `reset()` remain native SDK lifecycle
+methods on Isaac `ActuatorBase` and MJLab `Actuator` implementations.
+
+#### Action and randomization boundary
+
+An actuator that still consumes ordered joint-position targets uses the existing
+`joint_position` action lowering. If it consumes current, torque, muscle
+activation, tendon length, or another command, the extension declares a new
+`ActionTermSpec.kind` and supplies one native lowering per supported engine via
+`instinctlab.engine_terms`. The actuator registry must not acquire task action
+builders.
+
+Likewise, the existing `randomize_actuator_gains` term may be used only when the
+model declares `gain_randomization`. A different parameterization supplies a new
+semantic event kind and native term lowering. Task configs continue to state the
+randomization ranges; plugins only translate the declared operation to the
+native implementation.
+
+#### Failure behavior and lifecycle
+
+- Unknown model ids fail while the native asset is materialized, before an
+  environment is constructed.
+- A provider for an unselected engine is never imported.
+- A stateful actuator must reset per-environment state through the native SDK
+  reset hook; process-global model state is forbidden.
+- Mixed actuator groups dispatch runtime readers per native instance. A missing
+  reader fails only when a task requests that capability, but never degrades
+  silently.
+- Breaking control/state semantics require a new major `model_id` and a new
+  asset variant. Package version and readable model/resource version are
+  recorded in the manifest; no checkpoint hash is introduced.
+- Engine adapters remain unaware of concrete asset packages and actuator model
+  names. They perform registry lookup and capability validation only.
+
+#### Acceptance tests
+
+The protocol is ready only when the following tests exist:
+
+1. Core-only discovery of actuator metadata imports neither `torch` nor an SDK.
+2. Selected-engine lazy loading imports only that engine's provider.
+3. Broken, duplicate, wrong-API, and partially registering plugins roll back
+   atomically and identify their distributions.
+4. An external fixture package supplies one custom stateful actuator for Isaac
+   and MJLab without editing either backend or engine core.
+5. Native construction preserves the canonical DFS action order and exact
+   joint-group coverage.
+6. Fixed-state probes verify command-to-effort output, clipping/limits, and any
+   learned or nonlinear model formula against an independent reference.
+7. Temporal probes verify delay/history and partial-environment reset behavior.
+8. Reward and event probes cover applied effort, effort limits, stiffness, and
+   gain randomization; unsupported combinations fail loudly.
+9. The compilation manifest records only the actuator providers and model ids
+   used by that asset variant.
+10. A two-engine model claims parity only at its declared command, effort, reset,
+    ordering, and timing interfaces; native solver internals need not match.
+
+Recommended implementation sequence:
+
+1. Add the SDK-free registry, lazy resolution, provenance, and failure tests.
+2. Register adapters for the existing built-in actuator types and migrate the
+   shared reader away from class-name checks without changing native values.
+3. Add a fixture custom stateful actuator package and construction/temporal
+   tests on each backend.
+4. Add new action/event kinds only for command or randomization semantics that
+   the fixture actually requires.
+5. Introduce the first production asset variant only after fixed-state,
+   temporal, and production-scale plant probes pass.
+
 ### Compat boundary cleanup (2026-08-30)
 
 The isolated `codex/compat-boundary-cleanup` worktree branch was fast-forwarded
