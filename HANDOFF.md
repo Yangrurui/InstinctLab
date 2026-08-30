@@ -1,6 +1,6 @@
 # InstinctLab current handoff
 
-Updated: 2026-08-30 UTC
+Updated: 2026-08-31 UTC
 
 This is the authoritative record for the current repository, server, datasets,
 live experiments, accepted baselines, and unresolved work. Historical audit
@@ -881,8 +881,9 @@ third-party ecosystem.
    external fixture; unsupported engines fail before environment construction.
 4. **Establish scene relation contracts.** Add narrow engine-neutral
    declarations for collision layers or entity-pair exclusions, body material
-   binding, and constraints only where both backends can preserve the declared
-   meaning. Do not encode a task name or concrete asset package in a scene
+   binding, and constraints. A shared semantic contract does not require both
+   backends to implement it; an unsupported selected backend must fail in
+   preflight. Do not encode a task name or concrete asset package in a scene
    builder. The Perceptive MJCF pair exclusions are the first collision-filter
    acceptance case, followed by a 4,096-environment contact/constraint probe.
 5. **Make existing rigid-object/HOI construction production-valid.** Replace
@@ -897,7 +898,9 @@ third-party ecosystem.
    uninstall, and unselected-backend import cases consistently across every
    plugin group.
 
-P0 implementation is complete in the following independently verified changes:
+The following changes are the implementation evidence for P0. The 2026-08-31
+audit below supersedes the earlier completion claim; P0 is not accepted while
+its two production-entry regressions remain open.
 
 - `c7e18ea` and `e7573b0` added the transactional native actuator registry,
   capability adapters, built-in registrations, exact native group validation,
@@ -945,11 +948,12 @@ retains the existing MJCF implementation. It imports neither MuJoCo nor
 `pytorch_kinematics` for URDF and agrees with the former G1 calculation within
 `1.79e-7` maximum matrix error.
 
-This closes the implementation work listed above, but does not by itself label
-the APIs stable 1.0. The external wheel probe materializes native configs and
-exercises deterministic lifecycle stand-ins rather than constructing a full
-third-party simulator scene. The user-facing minimal extension example and a
-live native external-asset construction gate are still release-hardening work.
+These changes cover the intended implementation scope, but the audit below
+shows that P0 acceptance is still open and does not label the APIs stable 1.0.
+The external wheel probe materializes native configs and exercises
+deterministic lifecycle stand-ins rather than constructing a full third-party
+simulator scene. The user-facing minimal extension example and a live native
+external-asset construction gate are still release-hardening work.
 
 Current review verification:
 
@@ -963,6 +967,85 @@ external fixture wheel passed both engines and clean uninstall
 G1 native asset conformance reported status ok on both engines
 Isaac collision-relation live clone test and 4,096-environment probe passed
 ```
+
+#### Extension platform implementation audit (2026-08-31)
+
+Outcome: the implementation is not yet correct enough to accept P0 as
+complete. The full default suite remains green, but direct production-path and
+contract probes reproduced two P0 regressions and four protocol gaps. This
+audit changed documentation only; it did not modify runtime code or start,
+stop, restart, or signal a training process.
+
+P0 regressions, in repair order:
+
+1. **Generated-terrain preflight reads dictionary keys instead of tile kinds.**
+   `instinctlab_engine/preflight.py` derives required sub-terrain kinds from
+   `generator.sub_terrains`, which yields configuration labels. Native terrain
+   discovery and lowering use each `SubTerrainSpec.kind`. Consequently the
+   mandatory preflight in both `scripts/train.py` and `scripts/play.py` rejects
+   the registered Rough and Parkour tasks on both Isaac Sim and MJLab before
+   construction. Collect the value objects' `kind` fields, then enumerate every
+   registered task against each declared engine in a regression test. HOI's
+   failure without its external object resources is expected and should use
+   fixtures when testing the registry matrix.
+2. **The Isaac `VolumePoints` builder is truncated.**
+   `_build_volume_points()` imports the grid generator and then returns
+   implicitly; its former construction body now sits after the return in
+   `_build_native_sensor()` and is unreachable. Isaac Parkour therefore
+   receives `None` for `leg_volume_points`. Restore the builder and run a live
+   Isaac Parkour construction/reset/step probe; the default suite's Parkour
+   declaration test and the Perceptive collision probe do not exercise this
+   path.
+
+P1 contract gaps exposed by the same review:
+
+1. **The external actuator fixture advertises capabilities it cannot serve.**
+   Its `stiffness_groups()` returns scalar values rather than
+   `(joint_ids, stiffness)` pairs, and it defines `effort_limits()` while the
+   shared bridge calls `effort_limit_for_joint()`. The current wheel probe only
+   calls `matches`, `compute`, and `reset`, so it does not prove the claimed
+   runtime-capability integration. Exercise every advertised capability through
+   the real shared bridge/reward consumer and either define capability-specific
+   protocols or enforce each method and return shape at conformance time.
+2. **Mixed actuator-model validation has no group-to-model identity.** Native
+   assets report only unique model ids and a group count. Preflight therefore
+   requires every model to satisfy the union of task capabilities, while group
+   validation can neither prove which model built a group nor relate a selector
+   to the requested capability. This can reject valid mixed assets and accept a
+   group built by an unrelated native type. Add engine-native metadata mapping
+   each group to its model id and selectors; keep all actuator parameter values
+   in the native asset declarations.
+3. **Dynamic scene names do not share one symbol table.** Rigid objects can use
+   `robot`, `terrain`, or a sensor name and still pass `TaskSpec.validate()`.
+   Both builders later materialize these components in overlapping namespaces,
+   allowing silent overwrite. Validate robot, terrain, rigid-object, portable
+   sensor, native-sensor, and backend-reserved names together before lowering.
+4. **URDF conformance stops at fixed joints.** `_urdf_topology()` skips the
+   fixed joint and its child subtree, so a movable joint below a fixed mount is
+   omitted from canonical topology. Traverse fixed edges without adding the
+   fixed joint to the canonical joint axis, and cover a
+   `base -> fixed mount -> revolute child` fixture.
+
+Evidence and limits:
+
+```text
+50 passed (focused extension/protocol tests)
+1349 passed, 3 skipped, 28 deselected, 1 warning (full tests/ suite)
+MJLab Flat G1: 16 environments constructed/reset and stepped five times;
+  canonical DFS action order true, reward finite, zero terminations
+compileall and git diff --check passed
+all registered task ids were probed against their declared engines:
+  Rough and Parkour reproduced the unexpected generated-terrain failure;
+  HOI failed only for its known absent external resources
+direct contract probes reproduced the actuator fixture shape/name mismatch
+  and accepted scene-name collisions
+```
+
+Re-accept P0 only after both production regressions are fixed, each has a
+targeted regression test, the complete registry-by-engine preflight matrix has
+no unexpected failure, and live Isaac Parkour constructs, resets, and steps.
+The four P1 gaps remain mandatory before declaring the extension APIs stable
+1.0 even if those two blockers are repaired.
 
 #### P1: make scenes and failures reproducible
 
@@ -1041,9 +1124,13 @@ requires them:
 #### Maturity acceptance gate
 
 The platform may be called a stable third-party simulation extension ecosystem
-only after one repository-external wheel can add a new robot, native actuator,
-native sensor, and terrain without editing InstinctLab or either backend, and
-the following all hold:
+only after repository-external distributions can independently provide and an
+external application can compose a robot with its native actuator, a native
+sensor, and terrain without editing InstinctLab or either backend. Robot and
+actuator support may live in one asset distribution where they are naturally
+coupled; sensor and terrain fixtures must remain independently installable so
+one omnibus wheel cannot hide plugin-to-plugin coupling. The following must
+also hold:
 
 1. unselected SDKs are not imported before backend bootstrap;
 2. capability incompatibilities fail in preflight before native construction;
@@ -2427,6 +2514,10 @@ A/B using these narrow exclusions; global self-collision disablement is not the
 production configuration.
 
 ## Open risks and next work
+
+The two extension-platform P0 regressions recorded above take precedence before
+using the production `train.py` or `play.py` entry points for Rough or Parkour;
+do not treat the green default suite as acceptance evidence for those paths.
 
 1. Let the retained GPU 6 Perceptive run continue; do not restart it or promote
    its checkpoint yet. The four MJCF-equivalent PhysX filtered pairs have passed
