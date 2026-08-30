@@ -226,23 +226,23 @@ def _urdf_topology(path: Path, root_body: str) -> tuple[tuple[str, ...], set[str
         for link in root.findall("link")
         if link.get("name") and link.find("collision") is not None
     }
-    children: dict[str, list[tuple[str, str]]] = {}
+    children: dict[str, list[tuple[str | None, str]]] = {}
     for joint in root.findall("joint"):
-        if joint.get("type") == "fixed":
-            continue
         parent = joint.find("parent")
         child = joint.find("child")
         name = joint.get("name")
-        if parent is None or child is None or not name:
+        is_fixed = joint.get("type") == "fixed"
+        if parent is None or child is None or (not is_fixed and not name):
             continue
         children.setdefault(parent.get("link", ""), []).append(
-            (name, child.get("link", ""))
+            (None if is_fixed else name, child.get("link", ""))
         )
     joints: list[str] = []
 
     def visit(body: str) -> None:
         for joint_name, child_body in children.get(body, ()):
-            joints.append(joint_name)
+            if joint_name is not None:
+                joints.append(joint_name)
             visit(child_body)
 
     visit(root_body)

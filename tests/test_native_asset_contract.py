@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
@@ -146,6 +146,43 @@ def test_native_asset_contract_rejects_noncanonical_joint_order(
             resource_kind="mjcf",
             registry=_external_registry(module),
         )
+
+
+def test_urdf_topology_traverses_through_fixed_mounts(tmp_path: Path) -> None:
+    resource = tmp_path / "robot.urdf"
+    resource.write_text(
+        """<robot name="external">
+        <link name="root"><collision><geometry><sphere radius="0.1"/></geometry></collision></link>
+        <link name="mount"><collision><geometry><sphere radius="0.1"/></geometry></collision></link>
+        <link name="link"><collision><geometry><sphere radius="0.1"/></geometry></collision></link>
+        <joint name="fixed_mount" type="fixed">
+          <parent link="root"/><child link="mount"/>
+        </joint>
+        <joint name="joint" type="revolute">
+          <parent link="mount"/><child link="link"/>
+        </joint>
+        </robot>"""
+    )
+    module = ModuleType("external_robot_assets.urdf")
+    module.INSTINCTLAB_NATIVE_ASSET_API = "0.1"
+    config = replace(
+        _NativeConfig(str(resource)),
+        body_names=("root", "mount", "link"),
+        collision_body_names=("root", "mount", "link"),
+    )
+    module.native_config = lambda variant: config
+    module.entity = lambda variant, robot, **kwargs: (variant, robot, kwargs)
+
+    definition = native_asset_definition(
+        "external_robot/standard",
+        "mjlab",
+        builder_name="entity",
+        resource_field="resource",
+        resource_kind="urdf",
+        registry=_external_registry(module),
+    )
+
+    assert native_asset_conformance_report(definition)["status"] == "ok"
 
 
 @pytest.mark.parametrize("engine", ("isaacsim", "mjlab"))
