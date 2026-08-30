@@ -23,12 +23,14 @@ from instinctlab_engine.spec import (
     Grid3dPointsRef,
     MdpSpec,
     MotionReferenceRef,
+    NativeSensorRef,
     NoiseSpec,
     ObsGroupSpec,
     ObsTermSpec,
     RayCasterRef,
     Requirement,
     RewardTermSpec,
+    RigidObjectRef,
     SceneSpec,
     SimSpec,
     SubTerrainSpec,
@@ -470,6 +472,63 @@ def test_scene_sensor_names_may_not_shadow_scene_entities_or_isaac_fields():
     )
     with pytest.raises(ValueError, match="InteractiveSceneCfg fields"):
         IsaacSimAdapter().contract_report(task)
+
+
+def test_scene_uses_one_symbol_table_for_objects_and_all_sensor_kinds():
+    obj = RigidObjectRef(
+        name="box",
+        mesh="box.obj",
+        scale=(1.0, 1.0, 1.0),
+    )
+    with pytest.raises(ValueError, match="collide with scene entities"):
+        SceneSpec(rigid_objects=(replace(obj, name="robot"),))
+    with pytest.raises(ValueError, match="must be unique"):
+        SceneSpec(
+            rigid_objects=(obj,),
+            contact_sensors=(ContactSensorRef(name="box", elements="foot"),),
+        )
+    with pytest.raises(ValueError, match="must be unique"):
+        SceneSpec(
+            rigid_objects=(obj,),
+            native_sensors=(
+                NativeSensorRef(name="box", kind="fixture.imu", attach="root"),
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("engine", "reserved_name", "message"),
+    (
+        ("isaacsim", "lazy_sensor_update", "InteractiveSceneCfg fields"),
+        ("mjlab", "entities", "SceneCfg fields"),
+    ),
+)
+def test_rigid_objects_cannot_shadow_backend_scene_fields(
+    engine: str,
+    reserved_name: str,
+    message: str,
+):
+    obj = RigidObjectRef(
+        name=reserved_name,
+        mesh="box.obj",
+        scale=(1.0, 1.0, 1.0),
+    )
+    task = _task(
+        robot=_robot(engine),
+        scene=SceneSpec(rigid_objects=(obj,)),
+        engines=(engine,),
+    )
+    if engine == "isaacsim":
+        from instinctlab_engine_isaacsim import IsaacSimAdapter
+
+        selected = IsaacSimAdapter()
+    else:
+        from instinctlab_engine_mjlab import MjlabAdapter
+
+        selected = MjlabAdapter()
+
+    with pytest.raises(ValueError, match=message):
+        selected.contract_report(task)
 
 
 def test_term_sensor_references_must_match_what_the_scene_built():

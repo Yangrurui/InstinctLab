@@ -235,19 +235,7 @@ class SceneSpec:
         object.__setattr__(self, "native_sensors", tuple(self.native_sensors))
         object.__setattr__(self, "collision_exclusions", tuple(self.collision_exclusions))
         object.__setattr__(self, "rigid_objects", tuple(self.rigid_objects))
-        names = (
-            [sensor.name for sensor in self.contact_sensors]
-            + [sensor.name for sensor in self.ray_casters]
-            + [sensor.name for sensor in self.motion_references]
-            + [sensor.name for sensor in self.volume_points]
-            + [sensor.name for sensor in self.native_sensors]
-        )
-        duplicates = sorted({name for name in names if names.count(name) > 1})
-        if duplicates:
-            raise ValueError(f"Sensor names must be unique; repeated: {duplicates}.")
-        object_names = [obj.name for obj in self.rigid_objects]
-        if len(object_names) != len(set(object_names)):
-            raise ValueError("Rigid object names must be unique.")
+        self.validate_symbol_table()
         if self.env_spacing <= 0.0:
             raise ValueError(f"env_spacing must be positive, got {self.env_spacing}.")
         exclusion_keys = [
@@ -256,6 +244,48 @@ class SceneSpec:
         ]
         if len(exclusion_keys) != len(set(exclusion_keys)):
             raise ValueError("Collision exclusions must be unique unordered body pairs.")
+
+    def _dynamic_symbols(self) -> tuple[tuple[str, str], ...]:
+        return (
+            *((obj.name, "rigid object") for obj in self.rigid_objects),
+            *((sensor.name, "contact sensor") for sensor in self.contact_sensors),
+            *((sensor.name, "ray caster") for sensor in self.ray_casters),
+            *((sensor.name, "motion reference") for sensor in self.motion_references),
+            *((sensor.name, "volume-points sensor") for sensor in self.volume_points),
+            *((sensor.name, "native sensor") for sensor in self.native_sensors),
+        )
+
+    def validate_symbol_table(
+        self,
+        *,
+        reserved_names: frozenset[str] = frozenset(),
+        reserved_context: str = "backend scene fields",
+    ) -> None:
+        """Validate the one namespace materialized by native scene builders."""
+        symbols = (
+            ("robot", "robot entity"),
+            ("terrain", "terrain entity"),
+            *self._dynamic_symbols(),
+        )
+        owners: dict[str, list[str]] = {}
+        for name, owner in symbols:
+            owners.setdefault(name, []).append(owner)
+        collisions = {
+            name: labels for name, labels in owners.items() if len(labels) > 1
+        }
+        if collisions:
+            raise ValueError(
+                "Scene names must be unique and cannot collide with scene entities; "
+                f"collisions: {collisions}."
+            )
+        reserved_collisions = sorted(
+            {name for name, _ in self._dynamic_symbols()} & reserved_names
+        )
+        if reserved_collisions:
+            raise ValueError(
+                f"Scene dynamic names collide with {reserved_context}: "
+                f"{reserved_collisions}."
+            )
 
     def sensor(self, name: str) -> ContactSensorRef:
         """The declared contact sensor called ``name``."""

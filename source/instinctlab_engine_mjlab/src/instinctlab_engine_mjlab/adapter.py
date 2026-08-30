@@ -35,6 +35,25 @@ from .terms import TERMS
 
 __all__ = ["MjlabAdapter", "MjlabCompileCtx"]
 
+_SCENE_RESERVED_NAMES = frozenset(
+    {
+        "entities",
+        "env_spacing",
+        "extent",
+        "num_envs",
+        "sensors",
+        "spec_fn",
+        "terrain",
+    }
+)
+
+
+def _validate_scene_names(spec: TaskSpec) -> None:
+    spec.scene.validate_symbol_table(
+        reserved_names=_SCENE_RESERVED_NAMES,
+        reserved_context="MJLab SceneCfg fields",
+    )
+
 
 class MjlabCompileCtx(CompileCtx):
     """Compilation context carrying mjlab's noise classes."""
@@ -185,6 +204,7 @@ class MjlabAdapter:
         self, spec: TaskSpec, *, num_envs: int, device: str, strict: bool = False
     ) -> CompiledTask:
         spec.validate_for_engine(self.name)
+        _validate_scene_names(spec)
 
         from mjlab.envs import ManagerBasedRlEnvCfg
         from mjlab.sim import MujocoCfg, SimulationCfg
@@ -295,6 +315,7 @@ class MjlabAdapter:
         )
 
     def contract_report(self, spec: TaskSpec) -> dict[str, Any]:
+        _validate_scene_names(spec)
         profile = self.profile(spec)
         return contract_report(
             spec,

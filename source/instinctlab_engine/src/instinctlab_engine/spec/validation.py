@@ -24,9 +24,6 @@ from .sensor import (
 if TYPE_CHECKING:
     from .task import TaskSpec
 
-_RESERVED_SCENE_NAMES = frozenset({"robot", "terrain"})
-
-
 def _validate_engine_keys(spec: TaskSpec) -> None:
     declared = set(spec.engines)
     asset_backends = {asset.backend for asset in spec.robot.assets}
@@ -78,17 +75,6 @@ def _matching_names(patterns: Iterable[str], names: Iterable[str]) -> set[str]:
 
 def _validate_scene_bindings(spec: TaskSpec) -> None:
     scene = spec.scene
-    all_sensors = (
-        *scene.contact_sensors,
-        *scene.ray_casters,
-        *scene.motion_references,
-        *scene.volume_points,
-        *scene.native_sensors,
-    )
-    collisions = sorted({sensor.name for sensor in all_sensors} & _RESERVED_SCENE_NAMES)
-    if collisions:
-        raise ValueError(f"Scene sensor names collide with scene entities: {collisions}.")
-
     body_names = tuple(spec.robot.body_names)
     body_name_set = set(body_names)
     canonical_joint_names = tuple(spec.robot.joint_names)
