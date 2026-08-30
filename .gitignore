@@ -23,11 +23,8 @@ dist/
 # Maintainer-only context
 /.cursor/
 /AGENTS.md
-/HANDOFF.md
 
 # Tests and test-only support
-/tests/
-/pytest.ini
 /source/instinctlab/instinctlab/verify/*
 !/source/instinctlab/instinctlab/verify/__init__.py
 !/source/instinctlab/instinctlab/verify/scene.py
