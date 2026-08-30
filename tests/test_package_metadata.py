@@ -66,3 +66,14 @@ def test_wheel_verifier_declares_all_four_install_matrices() -> None:
     )
     matrices = ast.literal_eval(assignment.value)
     assert tuple(matrices) == ("core", "isaacsim", "mjlab", "both")
+
+
+def test_each_backend_publishes_its_native_actuator_registrar() -> None:
+    expected = {
+        "instinctlab_engine_isaacsim": "isaacsim.isaaclab_pd",
+        "instinctlab_engine_mjlab": "mjlab.mjlab_pd",
+    }
+    for project, entry_point_name in expected.items():
+        project_metadata = _toml(SOURCE / project / "pyproject.toml")["project"]
+        actuator_entries = project_metadata["entry-points"]["instinctlab.actuators"]
+        assert tuple(actuator_entries) == (entry_point_name,)

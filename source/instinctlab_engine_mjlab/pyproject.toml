@@ -28,6 +28,9 @@ Issues = "https://github.com/project-instinct/instinctlab/issues"
 [project.entry-points."instinctlab.engines"]
 mjlab = "instinctlab_engine_mjlab.plugin:register"
 
+[project.entry-points."instinctlab.actuators"]
+"mjlab.mjlab_pd" = "instinctlab_engine_mjlab.actuator_plugin:register"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["instinctlab_engine_mjlab*"]

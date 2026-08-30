@@ -906,9 +906,16 @@ _ISAAC_LOADED = False
 
 def _load_isaac() -> None:
     import isaaclab.sim as sim_utils
-    from isaaclab.actuators import DelayedPDActuatorCfg, ImplicitActuatorCfg
     from isaaclab.assets.articulation import ArticulationCfg
     from isaaclab_assets import G1_CFG
+    from instinctlab_engine.actuators import native_actuator_factory
+
+    DelayedPDActuatorCfg = native_actuator_factory(
+        "isaacsim", "isaaclab.delayed_pd.v1"
+    )
+    ImplicitActuatorCfg = native_actuator_factory(
+        "isaacsim", "isaaclab.implicit_pd.v1"
+    )
 
     global _ISAAC_LOADED
     if _ISAAC_LOADED:

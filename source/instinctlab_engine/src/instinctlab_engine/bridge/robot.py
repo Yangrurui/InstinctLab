@@ -16,6 +16,8 @@ from typing import Any, Literal
 
 import torch
 
+from instinctlab_engine.actuators import ACTUATORS, EFFORT_LIMITS, STIFFNESS
+
 from .env import env_engine
 from .errors import PortabilityError
 
@@ -150,39 +152,39 @@ def root_linear_velocity_b(
     return value
 
 
-def _actuators(asset: Any) -> Iterable[Any]:
+def _actuator_groups(asset: Any) -> Iterable[tuple[str, Any]]:
     actuators = asset.actuators
-    return actuators.values() if isinstance(actuators, Mapping) else actuators
+    if isinstance(actuators, Mapping):
+        yield from ((str(name), actuator) for name, actuator in actuators.items())
+    else:
+        yield from (
+            (str(index), actuator) for index, actuator in enumerate(actuators)
+        )
 
 
-def _unwrap_base_actuator(actuator: Any) -> Any:
-    base = actuator
-    while hasattr(base, "base_actuator"):
-        base = base.base_actuator
-    return base
-
-
-def joint_stiffness_groups(asset: Any) -> Iterable[tuple[Any, Any]]:
-    """Yield native joint indices and stiffness for each position-control actuator group."""
-    for actuator in _actuators(asset):
+def joint_stiffness_groups(
+    env: Any, asset: Any, *, requesting_term: str = "joint stiffness reader"
+) -> Iterable[tuple[Any, Any]]:
+    """Yield stiffness only through the matched native actuator capability adapter."""
+    engine = _native_engine(env, asset)
+    for native_group, actuator in _actuator_groups(asset):
         if getattr(actuator, "transmission_type", "joint") != "joint":
             continue
-        base = _unwrap_base_actuator(actuator)
-
-        joint_ids = getattr(actuator, "joint_indices", None)
-        stiffness = getattr(actuator, "stiffness", None)
-        if joint_ids is not None and stiffness is not None:
-            yield joint_ids, stiffness
-            continue
-
-        joint_ids = getattr(base, "target_ids", None)
-        stiffness = getattr(getattr(base, "cfg", None), "stiffness", None)
-        if joint_ids is not None and stiffness is not None:
-            yield joint_ids, stiffness
-
-
-def _is_builtin_pd_actuator(actuator: Any) -> bool:
-    return any(cls.__name__ == "BuiltinPdActuator" for cls in type(actuator).__mro__)
+        _registration, adapter = ACTUATORS.runtime_adapter(
+            engine,
+            actuator,
+            capability=STIFFNESS,
+            native_group=native_group,
+            requesting_term=requesting_term,
+        )
+        try:
+            groups = adapter.stiffness_groups(actuator)
+        except AttributeError:
+            raise RuntimeError(
+                f"Engine {engine!r} actuator adapter for group {native_group!r} "
+                f"declares {STIFFNESS!r} but does not implement stiffness_groups()."
+            ) from None
+        yield from groups
 
 
 def joint_effort_limits(env: Any, asset: Any, joint_ids: Any) -> torch.Tensor:
@@ -204,32 +206,31 @@ def joint_effort_limits(env: Any, asset: Any, joint_ids: Any) -> torch.Tensor:
         selected = [int(index) for index in joint_ids]
     selected_names = {asset.joint_names[index] for index in selected}
 
-    actuator_forcerange = env.sim.model.actuator_forcerange
-    if actuator_forcerange.ndim == 3:
-        actuator_forcerange = actuator_forcerange[0]
-
-    for actuator in _actuators(asset):
+    engine = _native_engine(env, asset)
+    for native_group, actuator in _actuator_groups(asset):
         if getattr(actuator, "transmission_type", "joint") != "joint":
             continue
-        base = _unwrap_base_actuator(actuator)
         for local_index, joint_name in enumerate(list(actuator.target_names)):
             if joint_name not in selected_names:
                 continue
             joint_id = int(actuator.target_ids[local_index])
-            if _is_builtin_pd_actuator(base):
-                global_joint_id = int(asset.indexing.joint_ids[joint_id])
-                ranges = env.sim.model.jnt_actfrcrange
-                if ranges.ndim == 3:
-                    effort_limit = torch.max(
-                        torch.abs(ranges[:, global_joint_id]), dim=-1
-                    ).values
-                else:
-                    effort_limit = torch.max(torch.abs(ranges[global_joint_id]))
-            else:
-                global_control_id = int(actuator.global_ctrl_ids[local_index])
-                effort_limit = torch.max(
-                    torch.abs(actuator_forcerange[global_control_id])
+            _registration, adapter = ACTUATORS.runtime_adapter(
+                engine,
+                actuator,
+                capability=EFFORT_LIMITS,
+                native_group=native_group,
+                requesting_term="joint effort limit reader",
+            )
+            try:
+                effort_limit = adapter.effort_limit_for_joint(
+                    env, asset, actuator, local_index
                 )
+            except AttributeError:
+                raise RuntimeError(
+                    f"Engine {engine!r} actuator adapter for group {native_group!r} "
+                    f"declares {EFFORT_LIMITS!r} but does not implement "
+                    "effort_limit_for_joint()."
+                ) from None
             all_limits[:, joint_id] = torch.maximum(
                 all_limits[:, joint_id], effort_limit
             )

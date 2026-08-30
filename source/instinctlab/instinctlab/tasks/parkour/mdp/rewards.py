@@ -102,7 +102,9 @@ def motors_power_square(
         compat_robot.joint_applied_torque(env, asset) * asset.data.joint_vel
     )
     if normalize_by_stiffness:
-        for joint_ids, stiffness in compat_robot.joint_stiffness_groups(asset):
+        for joint_ids, stiffness in compat_robot.joint_stiffness_groups(
+            env, asset, requesting_term="motors_power_square"
+        ):
             power_per_joint[:, joint_ids] /= torch.as_tensor(
                 stiffness,
                 device=power_per_joint.device,

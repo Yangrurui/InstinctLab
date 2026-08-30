@@ -981,8 +981,12 @@ def entity(variant: str, robot: Any, *, actuator_order=None) -> Any:
             f"Unknown MJLab Unitree G1 variant {variant!r}; registered: {sorted(ENTITIES)}"
         )
 
-    from mjlab.actuator import BuiltinPdActuatorCfg
     from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
+    from instinctlab_engine.actuators import native_actuator_factory
+
+    BuiltinPdActuatorCfg = native_actuator_factory(
+        "mjlab", "mjlab.builtin_pd.v1"
+    )
 
     asset = robot.asset_for("mjlab")
     path = Path(asset.path)

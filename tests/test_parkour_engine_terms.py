@@ -110,7 +110,7 @@ def test_mjlab_motors_power_square_uses_qfrc_times_joint_vel() -> None:
     assert torch.equal(out, torch.tensor([9.0 + 64.0]))
 
 
-def test_mjlab_motors_power_square_ignores_auxiliary_actuators_without_stiffness() -> None:
+def test_mjlab_motors_power_square_rejects_an_unregistered_auxiliary_actuator() -> None:
     pd = SimpleNamespace(
         transmission_type="joint",
         target_ids=torch.tensor([0, 1]),
@@ -130,22 +130,23 @@ def test_mjlab_motors_power_square_ignores_auxiliary_actuators_without_stiffness
     )
     env = SimpleNamespace(scene={"robot": robot})
 
-    out = motors_power_square(env, asset_cfg=SimpleNamespace(name="robot", joint_ids=slice(None)))
-
-    assert torch.equal(out, torch.tensor([(2.0 * 3.0 / 2.0) ** 2 + (4.0 * 2.0 / 2.0) ** 2]))
+    with pytest.raises(RuntimeError, match="no registered runtime adapter") as error:
+        motors_power_square(
+            env, asset_cfg=SimpleNamespace(name="robot", joint_ids=slice(None))
+        )
+    assert "motors_power_square" in str(error.value)
+    assert "stiffness" in str(error.value)
 
 
 def test_mjlab_motors_power_square_maps_stiffness_by_native_joint_ids() -> None:
-    first = SimpleNamespace(
-        transmission_type="joint",
-        target_ids=torch.tensor([2, 0]),
-        cfg=SimpleNamespace(stiffness=2.0),
-    )
-    second = SimpleNamespace(
-        transmission_type="joint",
-        target_ids=torch.tensor([1]),
-        cfg=SimpleNamespace(stiffness=4.0),
-    )
+    from mjlab.actuator import BuiltinPdActuator
+
+    first = object.__new__(BuiltinPdActuator)
+    first.cfg = SimpleNamespace(transmission_type="joint", stiffness=2.0)
+    first._target_ids = torch.tensor([2, 0])
+    second = object.__new__(BuiltinPdActuator)
+    second.cfg = SimpleNamespace(transmission_type="joint", stiffness=4.0)
+    second._target_ids = torch.tensor([1])
     robot = SimpleNamespace(
         actuators=(first, second),
         data=SimpleNamespace(

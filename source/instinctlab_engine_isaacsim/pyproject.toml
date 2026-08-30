@@ -28,6 +28,9 @@ Issues = "https://github.com/project-instinct/instinctlab/issues"
 [project.entry-points."instinctlab.engines"]
 isaacsim = "instinctlab_engine_isaacsim.plugin:register"
 
+[project.entry-points."instinctlab.actuators"]
+"isaacsim.isaaclab_pd" = "instinctlab_engine_isaacsim.actuator_plugin:register"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["instinctlab_engine_isaacsim*"]

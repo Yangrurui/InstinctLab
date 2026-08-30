@@ -47,7 +47,29 @@ def test_engine_core_owns_adapter_infrastructure() -> None:
     core_root = Path(instinctlab_engine.__file__).parent
     core_files = {path.name for path in core_root.glob("*.py")}
     assert backend_root_files == set()
-    assert {"__init__.py", "base.py", "compile.py", "registry.py"} <= core_files
+    assert {
+        "__init__.py",
+        "actuators.py",
+        "base.py",
+        "compile.py",
+        "registry.py",
+    } <= core_files
+
+
+def test_native_assets_resolve_actuator_models_without_importing_sdk_config_types() -> None:
+    native_assets = {
+        "isaacsim": ROOT / "assets" / "unitree_g1" / "isaacsim.py",
+        "mjlab": ROOT / "assets" / "unitree_g1" / "mjlab.py",
+    }
+    forbidden = {
+        "isaacsim": "isaaclab.actuators",
+        "mjlab": "mjlab.actuator",
+    }
+    for engine, path in native_assets.items():
+        imports = _imports(path)
+        assert forbidden[engine] not in imports
+        source = path.read_text()
+        assert "native_actuator_factory(" in source
 
 
 def test_shared_packages_do_not_import_engine_implementations() -> None:
