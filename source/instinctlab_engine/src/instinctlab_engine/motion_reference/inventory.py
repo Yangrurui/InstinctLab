@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from instinctlab_engine.data import resolve_data_path
 from instinctlab_engine.spec.sensor import MotionReferenceRef
 
 
@@ -35,7 +35,7 @@ def _real_file(root: Path, relative: str) -> str:
 
 def discover_motion_inventory(ref: MotionReferenceRef) -> tuple[MotionInventoryEntry, ...]:
     """Resolve the final clip list, including metadata filtering and ordering."""
-    root = Path(os.path.expanduser(ref.clip))
+    root = resolve_data_path(ref.clip)
     if root.is_file():
         entries = [MotionInventoryEntry(str(root.resolve()))]
     elif not root.is_dir():
@@ -43,10 +43,7 @@ def discover_motion_inventory(ref: MotionReferenceRef) -> tuple[MotionInventoryE
     elif ref.selected_files:
         entries = [MotionInventoryEntry(_real_file(root, relative)) for relative in ref.selected_files]
     elif ref.metadata_yaml:
-        metadata_path = Path(os.path.expanduser(ref.metadata_yaml))
-        if not metadata_path.is_absolute():
-            metadata_path = root / metadata_path
-        metadata_path = metadata_path.resolve()
+        metadata_path = resolve_data_path(ref.metadata_yaml, relative_to=root)
         if not metadata_path.is_file():
             raise FileNotFoundError(f"Motion metadata is missing: {metadata_path}.")
         metadata = yaml.safe_load(metadata_path.read_text()) or {}

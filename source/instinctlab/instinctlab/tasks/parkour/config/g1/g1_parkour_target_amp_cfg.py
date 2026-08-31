@@ -281,7 +281,7 @@ class G1ParkourEnvCfg(ParkourEnvCfg):
         motion_reference = MotionReferenceRef(
             name="motion_reference",
             clip=(
-                "~/Datasets/parkour_release/parkour_motion_reference/"
+                "dataset://parkour_release/parkour_motion_reference/"
                 "parkour_motion_without_run_retargetted.npz"
             ),
             joints=tuple(robot.joint_names),

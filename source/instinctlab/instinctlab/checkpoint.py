@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import unquote, urlparse
 
+from instinctlab_engine.data import is_dataset_uri, resolve_data_path
 from instinctlab_engine.spec import TaskSpec, portability_report
 from instinctlab_engine.spec.robot import BackendAsset
 
@@ -340,7 +341,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def _path_provenance(*, reference: str, role: str, declared: str) -> dict[str, Any]:
-    path = Path(declared).expanduser().resolve()
+    path = resolve_data_path(declared)
     result: dict[str, Any] = {
         "reference": reference,
         "role": role,
@@ -375,16 +376,19 @@ def _dataset_provenance(spec: TaskSpec, engine: str) -> list[dict[str, Any]]:
                     declared=resolved.metadata_yaml,
                 )
             )
-        clip_root = Path(resolved.clip).expanduser()
         for selected in resolved.selected_files:
             selected_path = Path(selected).expanduser()
-            if not selected_path.is_absolute():
-                selected_path = clip_root / selected_path
+            if is_dataset_uri(selected) or selected_path.is_absolute():
+                selected_declared = selected
+            elif is_dataset_uri(resolved.clip):
+                selected_declared = f"{resolved.clip.rstrip('/')}/{selected}"
+            else:
+                selected_declared = str(Path(resolved.clip).expanduser() / selected)
             datasets.append(
                 _path_provenance(
                     reference=reference.name,
                     role="selected_motion",
-                    declared=str(selected_path),
+                    declared=selected_declared,
                 )
             )
     return datasets

@@ -1,0 +1,88 @@
+{
+  "datasets": {
+    "beyondmimic_lafan1_g1": {
+      "conversion_index": "conversion_manifest.json",
+      "required": true,
+      "resources": {
+        "conversion_manifest.json": "73d3f0ef50763a14e9f799baf255064026486fcaa7c9937cb9b3fc4b211aa37c"
+      },
+      "source": "https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset",
+      "source_revision": "ce1572906efe6157840e8474d5a0d7aa87481e74",
+      "status": "accepted",
+      "uri": "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz"
+    },
+    "omomo_hoi": {
+      "required": false,
+      "resources": {},
+      "status": "unavailable; declaration and fixed-state coverage only",
+      "uri": "dataset://OMOMO"
+    },
+    "parkour_motion_reference": {
+      "required": true,
+      "resources": {
+        "parkour_motion_without_run.yaml": "f79e5bbc9207976e1610459ab3727a9e1da6d5c0c6cc75793dcec34b81cb7679",
+        "parkour_motion_without_run_retargetted.npz": "7cfb7c1dcaa6f2a55a13c4849be9e17b4c960ce4015c500ac0ddfb9d77f4ba5b"
+      },
+      "status": "accepted",
+      "uri": "dataset://parkour_release/parkour_motion_reference"
+    },
+    "perceptive_teacher_mjlab_iter22000": {
+      "accepted_for_production": false,
+      "required": true,
+      "resources": {
+        "model_22000.pt": "0c8c6a7a09cbc037e45f6bb2a36867e5400dfb325a30817932df6639a2e197da",
+        "params/agent.yaml": "1e1b68109447afce1c16678a58a0103506d449f0981fc041bd03485acc7951fa",
+        "source_agent.json": "8140d44f2b853972598db99c25f11cd37c21b4b8b38c6fa02b4200f13971e646",
+        "teacher_manifest.json": "8f41d981b2ffcfc9ebb46c6a4755bb6a73c6378fbfe0970e6914fe46db195527"
+      },
+      "status": "diagnostic teacher; not a production baseline",
+      "uri": "dataset://g1_perceptive_vae_teacher/mjlab_gpu7_iter22000"
+    },
+    "perceptive_terrain_motion": {
+      "required": true,
+      "resources": {
+        "20251106_diveroll4_roadRamp/diveroll4-ziwen-0-retargeted.npz": "8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59",
+        "20251106_diveroll4_roadRamp/roadRamp_Vertical_16_33_42.stl": "2fb176030442930ed711c1eb912ee11b524d681a7e39e596367d117eeb71a6ce",
+        "20251106_diveroll4_roadRamp_noWall/diveroll4-ziwen-0-retargeted.npz": "8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59",
+        "20251106_diveroll4_roadRamp_noWall/metadata.yaml": "efce692f980047e286c572232674664e60abd88e8a6425afa7ff22c223380a35",
+        "20251106_diveroll4_roadRamp_noWall/roadRamp_Vertical_noWall.stl": "666226b135b0ea9d2e70889054ef4ee4862d948dc179b576e8a2bd1e94b95e09",
+        "20251106_diveroll4_simpleLab/diveroll4-ziwen-0-retargeted.npz": "8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59",
+        "20251106_diveroll4_simpleLab/metadata.yaml": "ce83a046e96596781f18e747eb6f125937d52beca4b74ff7baa1a984a45e0aa5",
+        "20251106_diveroll4_simpleLab/simplelab_16_31_36.stl": "c0499c7c2cd28dbc213896e91e95467c64ae7e32de15eacda7c6356c5ba159a1",
+        "20251106_diveroll4_simpleLab_noWall/diveroll4-ziwen-0-retargeted.npz": "8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59",
+        "20251106_diveroll4_simpleLab_noWall/metadata.yaml": "79aa456196c90b2d96b3e2f93a2b566bf2d4fda19cedc09d7cfea9bcb28b8127",
+        "20251106_diveroll4_simpleLab_noWall/simplelab_enlarged_noWall.stl": "72dc38adf2aac158e172330dd607ea8e745c44079caf3de89c3979d0d1144436",
+        "50cm_kneeClimbStep/50cmboxes_19_36_49.stl": "3aee33efea6793974d901dd0f7e46859e2d12d2dfd79f38f12c777686566c2de",
+        "50cm_kneeClimbStep/jumpsit2-ziwen-retargeted.npz": "064e7d9e890d99ae94902a116b7ac26c09900386e0d9e42ca62f300c2559c5cb",
+        "50cm_kneeClimbStep/kneelClimbStep1-x-0.1-ziwen-retargeted.npz": "56158e8679580910ccff375963d025b138636acfe70f5b1f88381837209b2056",
+        "50cm_kneeClimbStep/metadata.yaml": "5ea48d393d9f14829380897407f1354235a6faa029810368b45f74f47e3e3e15",
+        "50cm_kneeClimbStep/metadata_kneelClimbStep1.yaml": "cbd3010b21111f8fc69a354c37befaf72bd33508a93763edc024b3a29f887ea1",
+        "50cm_kneeClimbStep/rollVault11-ziwen-retargeted.npz": "78fcbae898a0944d2028810edd73b604f26058351d45675e89d132367dc83f6a",
+        "50cm_kneeClimbStep/superheroLanding-retargeted.npz": "49d85e012920b3cb03d08e1fb2d3fd039162b293e76a301193940d8321cb5834",
+        "50cm_kneeClimbStep_noWall/50cmboxes_noWall.stl": "1d785126a9513ccca7cd7b60167702c4251f6264cbd01292ee2ff3f81bdb22db",
+        "50cm_kneeClimbStep_noWall/jumpsit2-ziwen-retargeted.npz": "064e7d9e890d99ae94902a116b7ac26c09900386e0d9e42ca62f300c2559c5cb",
+        "50cm_kneeClimbStep_noWall/kneelClimbStep1-x-0.1-ziwen-retargeted.npz": "56158e8679580910ccff375963d025b138636acfe70f5b1f88381837209b2056",
+        "50cm_kneeClimbStep_noWall/metadata.yaml": "c6402f316111934d4e9de7cc49335c5d68271f033bc517264cfdbfc728c12c84",
+        "50cm_kneeClimbStep_noWall/metadata_jumpSit.yaml": "9efa355a96ef6a6f4ed0918b89ef977b701b8033e54eae3914309ebb019850a2",
+        "50cm_kneeClimbStep_noWall/metadata_kneelClimbStep1.yaml": "cca80a761827a7e5ffe9ff5f742c293dfc35471289699b39ec077c458fd1585c",
+        "50cm_kneeClimbStep_noWall/metadata_rollVault.yaml": "b5ab99561c5800e4bb33f3c992afa6e629c842885beb082cc794f30921d48b0e",
+        "50cm_kneeClimbStep_noWall/rollVault11-ziwen-retargeted.npz": "78fcbae898a0944d2028810edd73b604f26058351d45675e89d132367dc83f6a",
+        "50cm_kneeClimbStep_noWall/superheroLanding-retargeted.npz": "49d85e012920b3cb03d08e1fb2d3fd039162b293e76a301193940d8321cb5834",
+        "metadata.yaml": "ddf2173d690422660a644b0ec8c1f41356d798a44d31da867c9cef01d29e10df"
+      },
+      "status": "canonical data; training-chain smoke only",
+      "uri": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1"
+    },
+    "whole_body_diveroll4": {
+      "required": true,
+      "resources": {
+        "diveroll4-ziwen-0-retargeted.npz": "8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59",
+        "metadata.yaml": "efce692f980047e286c572232674664e60abd88e8a6425afa7ff22c223380a35",
+        "roadRamp_Vertical_noWall.stl": "666226b135b0ea9d2e70889054ef4ee4862d948dc179b576e8a2bd1e94b95e09"
+      },
+      "status": "active retained long-run dataset",
+      "uri": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall"
+    }
+  },
+  "schema_version": "instinctlab_dataset_manifest_v1"
+}

@@ -30,10 +30,10 @@ class G1PerceptiveShadowingEnvCfg(PerceptiveShadowingEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            clip="dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             engine_clips={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             joints=tuple(robot.joint_names),
             links=(
@@ -174,8 +174,8 @@ class G1PerceptiveShadowingEnvCfg(PerceptiveShadowingEnvCfg):
             ),
             motion_reference=motion_reference,
             motion_paths={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             ray_casters=(camera, height_scanner),
             env_spacing=4.0,
@@ -229,10 +229,10 @@ class G1PerceptiveShadowingEnvCfg_PLAY(PerceptiveShadowingEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            clip="dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             engine_clips={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             joints=tuple(robot.joint_names),
             links=(
@@ -373,8 +373,8 @@ class G1PerceptiveShadowingEnvCfg_PLAY(PerceptiveShadowingEnvCfg):
             ),
             motion_reference=motion_reference,
             motion_paths={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             ray_casters=(camera, height_scanner),
             env_spacing=2.5,
@@ -430,10 +430,10 @@ class G1PerceptiveShadowingOneMotionEnvCfg(PerceptiveShadowingEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            clip="dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             engine_clips={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             joints=tuple(robot.joint_names),
             links=(
@@ -574,8 +574,8 @@ class G1PerceptiveShadowingOneMotionEnvCfg(PerceptiveShadowingEnvCfg):
             ),
             motion_reference=motion_reference,
             motion_paths={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             ray_casters=(camera, height_scanner),
             env_spacing=4.0,
@@ -630,10 +630,10 @@ class G1PerceptiveShadowingOneMotionEnvCfg_PLAY(PerceptiveShadowingEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            clip="dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             engine_clips={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             joints=tuple(robot.joint_names),
             links=(
@@ -774,8 +774,8 @@ class G1PerceptiveShadowingOneMotionEnvCfg_PLAY(PerceptiveShadowingEnvCfg):
             ),
             motion_reference=motion_reference,
             motion_paths={
-                "isaacsim": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-                "mjlab": "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "isaacsim": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+                "mjlab": "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
             },
             ray_casters=(camera, height_scanner),
             env_spacing=2.5,

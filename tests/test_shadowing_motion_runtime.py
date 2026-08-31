@@ -589,24 +589,24 @@ def test_shadowing_motion_effective_contract_matches_both_references() -> None:
 def test_shadowing_dataset_roots_match_the_declared_shared_contract() -> None:
     expected = {
         "Instinct-Shadowing-WholeBody-Plane-G1-v0": (
-            "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
-            "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+            "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall",
+            "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall",
         ),
         "Instinct-Perceptive-Shadowing-G1-v0": (
-            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
         ),
         "Instinct-Perceptive-Vae-G1-v0": (
-            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
-            "~/Datasets/deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
+            "dataset://deep_whole_body_parkour_g1_release/20251116_50cm_kneeClimbStep1",
         ),
         "Instinct-Perceptive-HOI-Shadowing-G1-v0": (
-            "/localhdd/Datasets/OMOMO/retargeted",
-            "~/Datasets/OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
+            "dataset://OMOMO/retargeted",
+            "dataset://OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
         ),
         "Instinct-BeyondMimic-Plane-G1-v0": (
-            "~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
-            "~/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+            "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+            "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
         ),
     }
     for task_id, (isaac, mjlab) in expected.items():

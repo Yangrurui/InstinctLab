@@ -16,10 +16,19 @@ class G1BeyondMimicPlaneEnvCfg(BeyondMimicEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+            clip=(
+                "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_"
+                "retargetted_instinctnpz"
+            ),
             engine_clips={
-                "isaacsim": "~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
-                "mjlab": "~/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+                "isaacsim": (
+                    "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_"
+                    "retargetted_instinctnpz"
+                ),
+                "mjlab": (
+                    "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_"
+                    "retargetted_instinctnpz"
+                ),
             },
             joints=tuple(robot.joint_names),
             links=(
@@ -91,10 +100,19 @@ class G1BeyondMimicPlaneEnvCfg_PLAY(BeyondMimicEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+            clip=(
+                "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_"
+                "retargetted_instinctnpz"
+            ),
             engine_clips={
-                "isaacsim": "~/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
-                "mjlab": "~/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz",
+                "isaacsim": (
+                    "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_"
+                    "retargetted_instinctnpz"
+                ),
+                "mjlab": (
+                    "dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_"
+                    "retargetted_instinctnpz"
+                ),
             },
             joints=tuple(robot.joint_names),
             links=(

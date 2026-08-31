@@ -6,8 +6,13 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+from instinctlab_engine.data import resolve_data_path
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
-from instinctlab_engine.spec.task import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
+from instinctlab_engine.spec.task import (
+    SubTerrainSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
+)
 
 
 def _physics_material(spec: TerrainSpec) -> Any:
@@ -219,7 +224,7 @@ def build_motion_matched(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
     from .terrains.terrain_generator_cfg import FiledTerrainGeneratorCfg
     from .terrains.trimesh.mesh_terrains_cfg import MotionMatchedTerrainCfg
 
-    path = os.path.expanduser(spec.params["engine_paths"]["isaacsim"])
+    path = str(resolve_data_path(spec.params["engine_paths"]["isaacsim"]))
     generator = FiledTerrainGeneratorCfg(
         size=(9.0, 12.0),
         border_width=0.0,

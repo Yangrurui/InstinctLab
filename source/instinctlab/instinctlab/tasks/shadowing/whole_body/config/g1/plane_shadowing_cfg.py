@@ -16,10 +16,19 @@ class G1PlaneShadowingEnvCfg(ShadowingEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+            clip=(
+                "dataset://deep_whole_body_parkour_g1_release/"
+                "20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall"
+            ),
             engine_clips={
-                "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
-                "mjlab": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+                "isaacsim": (
+                    "dataset://deep_whole_body_parkour_g1_release/"
+                    "20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall"
+                ),
+                "mjlab": (
+                    "dataset://deep_whole_body_parkour_g1_release/"
+                    "20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall"
+                ),
             },
             joints=tuple(robot.joint_names),
             links=(
@@ -71,10 +80,19 @@ class G1PlaneShadowingEnvCfg_PLAY(ShadowingEnvCfg):
     def __init__(self, robot: RobotSpec) -> None:
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+            clip=(
+                "dataset://deep_whole_body_parkour_g1_release/"
+                "20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall"
+            ),
             engine_clips={
-                "isaacsim": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
-                "mjlab": "~/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single",
+                "isaacsim": (
+                    "dataset://deep_whole_body_parkour_g1_release/"
+                    "20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall"
+                ),
+                "mjlab": (
+                    "dataset://deep_whole_body_parkour_g1_release/"
+                    "20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall"
+                ),
             },
             joints=tuple(robot.joint_names),
             links=(

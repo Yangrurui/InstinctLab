@@ -28,65 +28,65 @@ class G1PerceptiveHoiShadowingEnvCfg(PerceptiveHoiShadowingEnvCfg):
         objects = (
             RigidObjectRef(
                 name="floorlamp",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3793, 1.55 * 0.3793, 1.55 * 0.3793),
             ),
             RigidObjectRef(
                 name="largebox",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3486, 1.55 * 0.3486, 1.55 * 0.3486),
             ),
             RigidObjectRef(
                 name="whitechair",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3129, 1.55 * 0.3129, 1.55 * 0.3129),
             ),
             RigidObjectRef(
                 name="trashcan",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.2326, 1.55 * 0.2326, 1.55 * 0.2326),
             ),
             RigidObjectRef(
                 name="smalltable",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.0162, 1.55 * 0.0162, 1.55 * 0.0162),
             ),
             RigidObjectRef(
                 name="suitcase",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3672, 1.55 * 0.3672, 1.55 * 0.3672),
             ),
         )
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="/localhdd/Datasets/OMOMO/retargeted",
+            clip="dataset://OMOMO/retargeted",
             engine_clips={
-                "isaacsim": "/localhdd/Datasets/OMOMO/retargeted",
-                "mjlab": "~/Datasets/OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
+                "isaacsim": "dataset://OMOMO/retargeted",
+                "mjlab": "dataset://OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
             },
             joints=tuple(robot.joint_names),
             links=(
@@ -253,65 +253,65 @@ class G1PerceptiveHoiShadowingEnvCfg_PLAY(PerceptiveHoiShadowingEnvCfg):
         objects = (
             RigidObjectRef(
                 name="floorlamp",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/floorlamp_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3793, 1.55 * 0.3793, 1.55 * 0.3793),
             ),
             RigidObjectRef(
                 name="largebox",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/largebox_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3486, 1.55 * 0.3486, 1.55 * 0.3486),
             ),
             RigidObjectRef(
                 name="whitechair",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/whitechair_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3129, 1.55 * 0.3129, 1.55 * 0.3129),
             ),
             RigidObjectRef(
                 name="trashcan",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/trashcan_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.2326, 1.55 * 0.2326, 1.55 * 0.2326),
             ),
             RigidObjectRef(
                 name="smalltable",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/smalltable_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.0162, 1.55 * 0.0162, 1.55 * 0.0162),
             ),
             RigidObjectRef(
                 name="suitcase",
-                mesh="/localhdd/Datasets/OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
+                mesh="dataset://OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
                 engine_meshes={
-                    "isaacsim": "/localhdd/Datasets/OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
-                    "mjlab": "~/Datasets/OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
+                    "isaacsim": "dataset://OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
+                    "mjlab": "dataset://OMOMO/data/captured_objects/suitcase_cleaned_simplified.obj",
                 },
                 scale=(1.55 * 0.3672, 1.55 * 0.3672, 1.55 * 0.3672),
             ),
         )
         motion_reference = MotionReferenceRef(
             name="motion_reference",
-            clip="/localhdd/Datasets/OMOMO/retargeted",
+            clip="dataset://OMOMO/retargeted",
             engine_clips={
-                "isaacsim": "/localhdd/Datasets/OMOMO/retargeted",
-                "mjlab": "~/Datasets/OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
+                "isaacsim": "dataset://OMOMO/retargeted",
+                "mjlab": "dataset://OMOMO/retargeted_omniretarget_instinctmj_torso_v10_object_xy_align_foot_lock",
             },
             joints=tuple(robot.joint_names),
             links=(

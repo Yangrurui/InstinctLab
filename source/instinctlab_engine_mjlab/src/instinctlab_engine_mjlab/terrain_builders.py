@@ -7,8 +7,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from instinctlab_engine.data import resolve_data_path
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
-from instinctlab_engine.spec.task import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
+from instinctlab_engine.spec.task import (
+    SubTerrainSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
+)
 
 
 def _validate_material(spec: TerrainSpec) -> None:
@@ -251,7 +256,7 @@ def build_motion_matched(spec: TerrainSpec, profile: Mapping[str, Any]) -> Any:
         collision_coacd_auto_align_resolution: float = 0.04
         collision_coacd_visualize_collision_hulls: bool = True
 
-    path = os.path.expanduser(spec.params["engine_paths"]["mjlab"])
+    path = str(resolve_data_path(spec.params["engine_paths"]["mjlab"]))
     generator = FiledTerrainGeneratorCfg(
         size=(30.0, 16.0),
         border_width=0.0,

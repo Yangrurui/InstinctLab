@@ -1,5 +1,7 @@
 import os
 
+from instinctlab_engine.data import resolve_data_path
+
 from instinctlab.utils.configclass import configclass
 from instinctlab.utils.wrappers.instinct_rl import (
     InstinctRlConv2dHeadCfg,
@@ -10,8 +12,10 @@ from instinctlab.utils.wrappers.instinct_rl import (
     InstinctRlPpoAlgorithmCfg,
 )
 
-TEACHER_LOGDIR = os.path.expanduser(
-    "~/Datasets/g1_perceptive_vae_teacher/mjlab_gpu7_iter22000"
+TEACHER_LOGDIR = str(
+    resolve_data_path(
+        "dataset://g1_perceptive_vae_teacher/mjlab_gpu7_iter22000"
+    )
 )
 
 

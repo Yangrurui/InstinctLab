@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from instinctlab_engine.bridge.math import combine_frame_transforms, quat_from_matrix
+from instinctlab_engine.data import resolve_data_path
 from instinctlab_engine.math import quat_angular_velocity, quat_slerp_batch
 from instinctlab_engine.name_order import NameOrderError, resolve_name_indices
 
@@ -23,14 +24,14 @@ class JointNameMappingError(ValueError):
 
 
 def resolve_clip_path(path: str) -> str:
-    """Expand ``~`` and follow symlinks. Fail if the result is not a real file."""
-    expanded = os.path.expanduser(path)
-    real = os.path.realpath(expanded)
-    if not os.path.isfile(real):
+    """Resolve dataset URIs/``~``/symlinks and require a real clip file."""
+    real = resolve_data_path(path)
+    if not real.is_file():
         raise FileNotFoundError(
-            f"Motion clip {path!r} resolves to {real!r}, which is not a file. A dangling symlink is the usual cause."
+            f"Motion clip {path!r} resolves to {str(real)!r}, which is not a file. "
+            "Check INSTINCTLAB_DATA_ROOT or a legacy compatibility symlink."
         )
-    return real
+    return str(real)
 
 
 def remap_by_name(

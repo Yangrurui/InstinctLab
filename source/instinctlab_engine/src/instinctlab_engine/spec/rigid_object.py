@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-import math
 from pathlib import Path
+
+from instinctlab_engine.data import resolve_data_path
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,7 @@ class RigidObjectRef:
 
     def resource_path(self, engine: str, *, require_exists: bool = True) -> Path:
         """Resolve this engine's local mesh and optionally require it to exist."""
-        path = Path(self.engine_meshes.get(engine, self.mesh)).expanduser()
+        path = resolve_data_path(self.engine_meshes.get(engine, self.mesh))
         if require_exists and not path.is_file():
             raise FileNotFoundError(
                 f"Rigid object {self.name!r} resource for {engine!r} does not exist: {path}."
@@ -75,6 +77,7 @@ class RigidObjectRef:
         path = self.resource_path(engine, require_exists=False)
         return {
             "name": self.name,
+            "declared_resource": self.engine_meshes.get(engine, self.mesh),
             "resource": str(path),
             "exists": path.is_file(),
             "kinematic": self.kinematic,
