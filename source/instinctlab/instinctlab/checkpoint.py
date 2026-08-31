@@ -17,6 +17,7 @@ from dataclasses import MISSING, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import unquote, urlparse
 
 from instinctlab_engine.spec import TaskSpec, portability_report
 from instinctlab_engine.spec.robot import BackendAsset
@@ -26,7 +27,7 @@ _CHECKPOINT_FORMAT_VERSION = "instinct_rl_on_policy_runner_v1"
 _LEGACY_CONTRACT_VERSIONS = frozenset(
     {"task_spec_v1", "task_contract_v2", "task_manifest_v3"}
 )
-_RUNTIME_PROVENANCE_VERSION = "runtime_provenance_v1"
+_RUNTIME_PROVENANCE_VERSION = "runtime_provenance_v2"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
 _NON_TRAINING_AGENT_FIELDS = frozenset(
     {
@@ -435,6 +436,67 @@ def _git_provenance(repository: Path) -> dict[str, Any]:
     }
 
 
+def _critical_editable_repositories(engine: str) -> list[dict[str, Any]]:
+    """Resolve editable physics/training distributions to Git commit and dirty state."""
+    distributions = [
+        "instinctlab",
+        "instinctlab-engine-core",
+        f"instinctlab-engine-{engine}",
+        "instinct-rl",
+        "isaaclab",
+        "isaaclab_assets",
+        "isaaclab_tasks",
+        "isaaclab_rl",
+        "mjlab",
+    ]
+
+    repositories: dict[str, dict[str, Any]] = {}
+    for name in distributions:
+        try:
+            installed = importlib.metadata.distribution(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        payload = installed.read_text("direct_url.json")
+        if not payload:
+            continue
+        direct_url = json.loads(payload)
+        if not (direct_url.get("dir_info") or {}).get("editable"):
+            continue
+        parsed = urlparse(str(direct_url.get("url", "")))
+        if parsed.scheme != "file":
+            raise RuntimeError(
+                f"Editable physics-critical distribution {name!r} has unsupported "
+                f"source URL {parsed.geturl()!r}."
+            )
+        source = Path(unquote(parsed.path)).resolve()
+        git = _git_provenance(source)
+        if not git.get("available"):
+            raise RuntimeError(
+                f"Editable physics-critical distribution {name!r} at {source} is not "
+                "inside a readable Git checkout; run provenance cannot be verified."
+            )
+        root = str(git["root"])
+        record = repositories.setdefault(
+            root,
+            {
+                "root": root,
+                "commit": git["commit"],
+                "dirty": git["dirty"],
+                "distributions": [],
+            },
+        )
+        if record["commit"] != git["commit"] or record["dirty"] != git["dirty"]:
+            raise RuntimeError(
+                f"Inconsistent Git provenance while resolving editable repository {root}."
+            )
+        record["distributions"].append(
+            {"name": name, "version": installed.version, "source": str(source)}
+        )
+    for record in repositories.values():
+        record["distributions"].sort(key=lambda item: item["name"])
+    return sorted(repositories.values(), key=lambda item: item["root"])
+
+
 def _accelerator_provenance(device: str) -> dict[str, Any]:
     import torch
 
@@ -497,6 +559,7 @@ def runtime_provenance(
             "platform": platform.platform(),
         },
         "packages": _installed_versions(engine),
+        "repositories": _critical_editable_repositories(engine),
         "accelerator": _accelerator_provenance(device),
         "git": _git_provenance(Path(repository).resolve()),
         "datasets": _dataset_provenance(spec, engine),

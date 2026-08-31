@@ -115,6 +115,18 @@ def test_runtime_provenance_records_dataset_checksum_and_run_identity(
         "_git_provenance",
         lambda repository: {"available": True, "root": str(repository)},
     )
+    monkeypatch.setattr(
+        checkpoint_module,
+        "_critical_editable_repositories",
+        lambda engine: [
+            {
+                "root": "/workspace/dependency",
+                "commit": "abc123",
+                "dirty": False,
+                "distributions": [{"name": engine, "version": "1.0"}],
+            }
+        ],
+    )
 
     provenance = runtime_provenance(
         spec,
@@ -131,10 +143,64 @@ def test_runtime_provenance_records_dataset_checksum_and_run_identity(
         "device": "cuda:1",
         "num_envs": 128,
     }
+    assert provenance["version"] == "runtime_provenance_v2"
+    assert provenance["repositories"][0]["commit"] == "abc123"
+    assert provenance["repositories"][0]["dirty"] is False
     assert provenance["datasets"][0]["sha256"] == (
         "68ac8a95dbff11408b29efb6e2e76c6a095e13ff15b9a4a2fa7caebd4ee24b59"
     )
     assert provenance["datasets"][0]["resolved"] == str(clip.resolve())
+
+
+def test_editable_repository_provenance_groups_distributions_by_git_root(
+    monkeypatch,
+) -> None:
+    class _Distribution:
+        version = "1.2.3"
+
+        def __init__(self, source: str) -> None:
+            self.source = source
+
+        def read_text(self, name: str) -> str:
+            assert name == "direct_url.json"
+            return json.dumps(
+                {"dir_info": {"editable": True}, "url": f"file://{self.source}"}
+            )
+
+    sources = {
+        "instinctlab": "/workspace/project/source/instinctlab",
+        "instinctlab-engine-core": "/workspace/project/source/core",
+        "instinctlab-engine-mjlab": "/workspace/project/source/mjlab-engine",
+        "instinct-rl": "/workspace/instinct_rl",
+        "mjlab": "/workspace/mjlab",
+    }
+
+    def distribution(name: str):
+        if name not in sources:
+            raise checkpoint_module.importlib.metadata.PackageNotFoundError(name)
+        return _Distribution(sources[name])
+
+    def git(source):
+        source = str(source)
+        if source.startswith("/workspace/project"):
+            root, commit, dirty = "/workspace/project", "project-sha", True
+        else:
+            root, commit, dirty = source, f"{source}-sha", False
+        return {"available": True, "root": root, "commit": commit, "dirty": dirty}
+
+    monkeypatch.setattr(checkpoint_module.importlib.metadata, "distribution", distribution)
+    monkeypatch.setattr(checkpoint_module, "_git_provenance", git)
+
+    repositories = checkpoint_module._critical_editable_repositories("mjlab")
+
+    project = next(item for item in repositories if item["root"] == "/workspace/project")
+    assert project["commit"] == "project-sha"
+    assert project["dirty"] is True
+    assert [item["name"] for item in project["distributions"]] == [
+        "instinctlab",
+        "instinctlab-engine-core",
+        "instinctlab-engine-mjlab",
+    ]
 
 
 def test_manifest_carries_portability_and_task_metadata() -> None:

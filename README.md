@@ -57,6 +57,12 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     python scripts/install.py
     ```
 
+    Existing Isaac Lab and MJLab checkouts must be at the pinned revision and
+    clean. The installer refuses a mismatch by default. For a deliberate local
+    experiment, `--allow-unverified-checkouts` overrides the refusal and records
+    the exact commit, dirty state, and override in
+    `<python-prefix>/share/instinctlab/install_provenance.json`.
+
     The MJLab backend is installed with the InstinctMJ-compatible physics stack
     (`mujoco==3.10.0`, `mujoco-warp==3.10.0.1`, `warp-lang==1.14.0`). These are exact pins: newer
     patch releases change contact and constraint kernels and are not treated as

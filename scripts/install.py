@@ -20,6 +20,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
@@ -91,33 +92,113 @@ def _git_rev_parse(repo: Path, revision: str) -> str | None:
         return None
 
 
-def _ensure_checkout(url: str, dest: Path, revision: str) -> None:
+def _git_dirty(repo: Path) -> bool:
+    status = subprocess.check_output(
+        ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=normal"],
+        text=True,
+    )
+    return bool(status.strip())
+
+
+def _checkout_report(
+    url: str,
+    dest: Path,
+    revision: str,
+    *,
+    allow_unverified: bool,
+) -> dict:
+    expected = _git_rev_parse(dest, revision)
+    actual = _git_head(dest)
+    dirty = _git_dirty(dest)
+    problems: list[str] = []
+    if expected is None:
+        problems.append(f"checkout does not contain revision {revision!r}")
+    elif actual != expected:
+        problems.append(f"HEAD is {actual}, expected {expected} ({revision})")
+    if dirty:
+        problems.append("checkout has uncommitted or untracked changes")
+    if problems and not allow_unverified:
+        details = "; ".join(problems)
+        raise RuntimeError(
+            f"Refusing unverified dependency checkout {dest}: {details}. "
+            "Reconcile the checkout or pass --allow-unverified-checkouts; the override "
+            "will be recorded in the installation provenance."
+        )
+    if problems:
+        print(f"[WARN] Using unverified checkout {dest}: {'; '.join(problems)}", flush=True)
+    return {
+        "url": url,
+        "path": str(dest.resolve()),
+        "requested_revision": revision,
+        "expected_commit": expected,
+        "actual_commit": actual,
+        "dirty": dirty,
+        "problems": problems,
+        "override_used": bool(problems and allow_unverified),
+    }
+
+
+def _ensure_checkout(
+    url: str,
+    dest: Path,
+    revision: str,
+    *,
+    allow_unverified: bool,
+) -> dict:
     if dest.exists():
         print(f"[INFO] Using existing checkout: {dest}", flush=True)
-        expected = _git_rev_parse(dest, revision)
-        actual = _git_head(dest)
-        if expected is None:
-            print(f"[WARN] {dest} does not contain revision {revision}", flush=True)
-        elif not actual.startswith(expected) and not expected.startswith(actual):
-            print(f"[WARN] {dest} is at {actual[:12]}, expected {revision}", flush=True)
-        return
+        return _checkout_report(
+            url,
+            dest,
+            revision,
+            allow_unverified=allow_unverified,
+        )
     dest.parent.mkdir(parents=True, exist_ok=True)
     _run(["git", "clone", url, str(dest)])
     _run(["git", "-C", str(dest), "checkout", "--detach", revision])
+    return _checkout_report(
+        url,
+        dest,
+        revision,
+        allow_unverified=allow_unverified,
+    )
 
 
-def _install_isaaclab(workspace: Path, pins: dict, *, force: bool) -> None:
+def _install_isaaclab(
+    workspace: Path,
+    pins: dict,
+    *,
+    force: bool,
+    allow_unverified: bool,
+) -> dict:
     cfg = pins["isaaclab"]
     root = workspace / "IsaacLab"
-    _ensure_checkout(cfg["git"], root, cfg["commit"])
+    report = _ensure_checkout(
+        cfg["git"],
+        root,
+        cfg["commit"],
+        allow_unverified=allow_unverified,
+    )
     for name in cfg["packages"]:
         _pip_editable(name, root / "source" / name, force=force)
+    return report
 
 
-def _install_mjlab(workspace: Path, pins: dict, *, force: bool) -> None:
+def _install_mjlab(
+    workspace: Path,
+    pins: dict,
+    *,
+    force: bool,
+    allow_unverified: bool,
+) -> dict:
     cfg = pins["mjlab"]
     root = workspace / "mjlab"
-    _ensure_checkout(cfg["git"], root, cfg["tag"])
+    report = _ensure_checkout(
+        cfg["git"],
+        root,
+        cfg["tag"],
+        allow_unverified=allow_unverified,
+    )
     # MJLab's declared lower bounds allow newer MJWarp/Warp releases. Those
     # releases change the contact and constraint kernels, so satisfying the
     # version range does not reproduce InstinctMJ's training plant. Install
@@ -126,6 +207,29 @@ def _install_mjlab(workspace: Path, pins: dict, *, force: bool) -> None:
     # place.
     _pip(*cfg["runtime"])
     _pip_editable("mjlab", root, force=force)
+    return report
+
+
+def _write_install_provenance(
+    path: Path,
+    *,
+    checkouts: dict[str, dict],
+    allow_unverified: bool,
+) -> None:
+    payload = {
+        "version": "instinctlab_install_provenance_v1",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "python": sys.executable,
+        "allow_unverified_checkouts": allow_unverified,
+        "checkouts": checkouts,
+    }
+    path = path.expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+    temporary.replace(path)
+    print(f"[INFO] Wrote installation provenance: {path}", flush=True)
 
 
 def main() -> None:
@@ -139,6 +243,20 @@ def main() -> None:
     parser.add_argument("--skip-isaaclab", action="store_true")
     parser.add_argument("--skip-mjlab", action="store_true")
     parser.add_argument("--force", action="store_true", help="Reinstall backends even if already present.")
+    parser.add_argument(
+        "--allow-unverified-checkouts",
+        action="store_true",
+        help=(
+            "Allow wrong-revision or dirty Isaac Lab/MJLab checkouts. The default refuses "
+            "them; use of this override is recorded in the installation provenance."
+        ),
+    )
+    parser.add_argument(
+        "--provenance-output",
+        type=Path,
+        default=Path(sys.prefix) / "share" / "instinctlab" / "install_provenance.json",
+        help="Installation provenance receipt path inside the selected Python environment.",
+    )
     args = parser.parse_args()
 
     pins = _load_pins()
@@ -146,10 +264,21 @@ def main() -> None:
     print(f"[INFO] Workspace: {workspace}", flush=True)
     print(f"[INFO] Python: {sys.executable}", flush=True)
 
+    checkouts: dict[str, dict] = {}
     if not args.skip_isaaclab:
-        _install_isaaclab(workspace, pins, force=args.force)
+        checkouts["isaaclab"] = _install_isaaclab(
+            workspace,
+            pins,
+            force=args.force,
+            allow_unverified=args.allow_unverified_checkouts,
+        )
     if not args.skip_mjlab:
-        _install_mjlab(workspace, pins, force=args.force)
+        checkouts["mjlab"] = _install_mjlab(
+            workspace,
+            pins,
+            force=args.force,
+            allow_unverified=args.allow_unverified_checkouts,
+        )
 
     # Install the stable task/engine contract before the application. Keeping it
     # as a separate editable distribution exercises the same package boundary as
@@ -179,6 +308,11 @@ def main() -> None:
     # Refresh InstinctLab in place. --no-deps avoids re-resolving Isaac/MJLab pins.
     instinctlab_src = REPO_ROOT / "source" / "instinctlab"
     _pip("-e", str(instinctlab_src), "--no-deps")
+    _write_install_provenance(
+        args.provenance_output,
+        checkouts=checkouts,
+        allow_unverified=args.allow_unverified_checkouts,
+    )
     print(
         "[INFO] InstinctLab Engine Core, InstinctLab, Isaac Lab, and MJLab are installed.",
         flush=True,
