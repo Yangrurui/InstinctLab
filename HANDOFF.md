@@ -22,10 +22,6 @@ chronological audit section.
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
 
-The worktree retains the pre-existing user deletion of
-`source/instinctlab/instinctlab/tasks/parkour/tools/convert_urdf.py`. Do not
-discard, overwrite, or include it in an unrelated commit.
-
 ## Current architecture
 
 InstinctLab is a modular monolith with independently packaged engine adapters
