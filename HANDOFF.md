@@ -15,9 +15,8 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified implementation commits: `d343fdc` (locked-arm G1 robot and
-  task onboarding), `7ca22a3` (external live stock-sensor composition),
-  `c5fdfc5` (release/data/operator hardening), and `36f229d`
+- Latest verified implementation commits: `7ca22a3` (external live stock-sensor
+  composition), `c5fdfc5` (release/data/operator hardening), and `36f229d`
   (terrain/actuator extensions)
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
@@ -55,18 +54,12 @@ The central design is sound and should be retained:
   engines do not import tasks, concrete asset packages, or one another.
 - `TaskSpec` and `RobotSpec` contain stable engine-neutral contracts, not native
   actuator parameters, reward weights, solver values, or runner settings.
-- Each G1 variant owns an explicit canonical DFS order in `RobotSpec`. The
-  stock variants retain 29 joints; the locked-arm onboarding variant has 15
-  movable joints. Isaac's articulation remains native BFS; every boundary
-  resolves names and gathers/scatters explicitly. MJLab is naturally DFS.
+- Canonical G1 joint order is the explicit 29-joint DFS order in `RobotSpec`.
+  Isaac's articulation remains native BFS; every boundary resolves names and
+  gathers/scatters explicitly. MJLab is naturally DFS.
 - G1 native assets and every final actuator parameter remain explicit in
   `assets/unitree_g1/isaacsim.py` and `assets/unitree_g1/mjlab.py`. The neutral
   asset interface routes only `package/variant` ids.
-- `unitree_g1/popsicle_torsobase_locked_arms_v1` is the concrete changed
-  joint-count onboarding example. Its dedicated URDF and MJCF lock the 14 arm
-  joints, both native configs expose the remaining 12 leg and 3 waist joints, and
-  `Instinct-Velocity-Flat-G1-15DoF` owns a complete Locomotion config without
-  an arm-joint reward.
 - The application wheel publishes its `perlin_*` generated-terrain tiles via
   `instinctlab.terrains`; both SDK-free registrations point at lazy native
   builders that remain in the selected backend package. Parkour similarly
@@ -120,7 +113,7 @@ deformable, fluid, or service-runtime APIs that no current task requires.
 |---|---|---|
 | Backend | Independent lazy plugins; the current four-way isolated wheel matrix and live external extension pass | Registry publication is an operator action |
 | Task | Immutable application-owned registrations | External task catalogs are optional, not a current goal |
-| Robot asset | Versioned native API and conformance command; stock 29-DoF and locked-arm 15-DoF G1 construct on both engines | Broader object/articulation catalogs |
+| Robot asset | Versioned native API and conformance command | Broader object/articulation catalogs |
 | Actuator/controller | Lazy native model registry, explicit groups, live stiffness bindings, stateful `compute(command)`/`control_dt`/snapshot/reset contract | New controller families need native temporal evidence |
 | Terrain | Whole-terrain and tile plugins | Region semantics; dynamic/deformable terrain only on demand |
 | Sensor | Built-ins plus lazy native builders with timing/reset capabilities | New sensor families need fixed-state and temporal evidence |
@@ -242,7 +235,7 @@ delayed-PD identity.
 The latest committed platform evidence is:
 
 ```text
-1522 passed, 13 skipped, 33 deselected, 1 warning (full tests/ suite)
+1512 passed, 13 skipped, 31 deselected, 1 warning (full tests/ suite)
 Parkour contract subset: 1 passed, 24 deselected
 Pyright: 0 errors, 140 warnings under the Python 3.11 configuration
 Ruff ratchet: 677 findings, below the reviewed maximum of 694
@@ -292,10 +285,6 @@ application extension wiring: 122 focused tests passed; both Parkour preflights
   and the worktree-accessible non-live suite passed 1,400 tests with 3 skipped
   and 33 deliberately deselected
 G1 asset conformance passed on both engines
-locked-arm G1 onboarding: both SDK-free conformance reports found exactly 15
-  canonical joints and complete actuator coverage; MJLab and Isaac Sim each
-  constructed four environments with a 15-dimensional action axis, reset, and
-  stepped five times
 Isaac collision exclusions passed cloned-target validation and a
   4,096-environment, five-step capacity probe
 ```
@@ -470,7 +459,6 @@ meshes are absent. Do not substitute other motions or objects silently.
 | Workload | Current verdict |
 |---|---|
 | Locomotion Flat | Accepted on both engines |
-| Locomotion Flat, locked-arm G1 15-DoF | Declaration, preflight, native construction, reset, and five-step smoke accepted on both engines; no convergence claim |
 | Locomotion Rough | Construction/stepping accepted; post-unification convergence pending |
 | Parkour | Declarations and pre-terrain reproduction accepted on both engines; current terrain/sensor live construction passes; post-unification convergence pending |
 | Whole Body plane Shadowing | Short-horizon parity accepted; retained Isaac 4,096-environment, 50,000-iteration run audited and accepted |

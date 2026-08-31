@@ -289,24 +289,6 @@ python scripts/train.py --engine isaacsim --task Instinct-My-Task
 python scripts/train.py --engine mjlab --task Instinct-My-Task
 ```
 
-The checked-in onboarding example is
-`Instinct-Velocity-Flat-G1-15DoF`. It selects
-`unitree_g1/popsicle_torsobase_locked_arms_v1`, whose URDF and MJCF lock all 14
-arm joints while retaining the 12 leg and 3 waist joints. The task therefore
-has a real 15-dimensional native action axis on both engines; it is not a
-29-DoF model with a masked policy output. Run its fast contract checks and
-optional live construction probes with:
-
-```bash
-PYTHONPATH=source/instinctlab python -m pytest -q \
-  tests/test_g1_15dof_onboarding.py
-
-INSTINCTLAB_LIVE_DEVICE=cuda:2 python -m pytest -q -o addopts= \
-  -m mjlab tests/test_g1_15dof_mjlab_live.py
-INSTINCTLAB_LIVE_DEVICE=cuda:2 python -m pytest -q -o addopts= \
-  -m isaacsim tests/test_g1_15dof_isaacsim_live.py
-```
-
 See [AGENTS.md](AGENTS.md) for the detailed dependency and configuration rules
 used in this repository.
 
