@@ -47,10 +47,12 @@ def test_application_wheel_manifest_contains_native_robot_resources() -> None:
     assert "recursive-include instinctlab/assets/resources *" in manifest
 
 
-def test_readme_factory_accepts_the_engine_normalized_robot() -> None:
+def test_readme_documents_the_registry_boundary() -> None:
     readme = (ROOT / "README.md").read_text()
-    assert "def my_task(robot: RobotSpec) -> TaskSpec:" in readme
-    assert "TaskSpec(robot=robot, ...)" in readme
+    assert "def my_robot_task(robot: RobotSpec) -> TaskSpec:" in readme
+    assert "config = MyRobotEnvCfg(robot)" in readme
+    assert "robot=config.robot," in readme
+    assert '_REGISTRATIONS["Instinct-My-Task"] = TaskRegistration(' in readme
 
 
 def test_wheel_verifier_declares_all_four_install_matrices() -> None:

@@ -7,95 +7,73 @@
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://pre-commit.com/)
 [![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-blue.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 
-## Overview
+InstinctLab is the environment layer of
+[Project Instinct](https://project-instinct.github.io/). It declares humanoid
+reinforcement-learning tasks once and compiles the same task contract for Isaac
+Sim or MJLab. Training uses
+[Instinct-RL](https://github.com/project-instinct/instinct_rl), and exported
+policies can be deployed with
+[instinct_onboard](https://github.com/project-instinct/instinct_onboard).
 
-This repository is the environment side of [Project-Instinct](https://project-instinct.github.io/).
+> [!WARNING]
+> This project uses the [CC BY-NC 4.0 license](LICENSE), together with inherited
+> Isaac Lab licensing. Commercial use is not permitted; this includes product
+> advertising demos and commercial wrappers.
 
-We aim at industralize Reinforcement Learning for Humanoid (legged robots) whole-body control.
+## Quick start
 
-**Key Features:**
+### 1. Install
 
-- `Isolation` Work outside the core Isaac Lab repository, ensuring that your development efforts remain self-contained.
-- `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
-- `Unified Ecosystem` This repository is a part of the Project-Instinct ecosystem, which includes the [instinct_rl](https://github.com/project-instinct/instinct_rl) and [instinct_onboard](https://github.com/project-instinct/instinct_onboard) repositories.
-    - The core design of this ecosystem is to treat each experiment as a standalone structured folder, which start with a timestamp as a unique identifier.
-    - Adding `--exportonnx` flag to the `play.py` script will export the policy as an ONNX model. After that, you should directly copy the logdir to the robot computer and use the `instinct_onboard` workflow to run the policy on the real robot.
+Use pip (not uv) in a Python 3.11 conda environment. Clone InstinctLab outside
+the Isaac Lab source tree:
 
-**Keywords:** humanoid, reinforcement learning, Isaac Sim, MJLab
+```bash
+conda create -n instinctlab python=3.11
+conda activate instinctlab
 
-## Warning
-This codebase is under [CC BY-NC 4.0 license](LICENSE), with inherited license in IsaacLab. You may not use the material for commercial purposes, e.g., to make demos to advertise your commercial products or wrap the code for your own commercial purposes.
+git clone https://github.com/project-instinct/instinct_rl.git
+python -m pip install -e instinct_rl
 
-## Contributing
-See our [Contributor Agreement](CONTRIBUTOR_AGREEMENT.md) for contribution guidelines. By contributing or submitting a pull request, you agree to transfer copyright ownership of your contributions to the project maintainers.
+git clone https://github.com/project-instinct/instinctlab.git
+cd instinctlab
+python scripts/install.py
+```
 
-See [CONTRIBUTORS.md](CONTRIBUTORS.md) for a list of acknowledged contributors.
+The installer prepares the engine core, both backends, and the task application.
+It clones the pinned Isaac Lab (`f73c331738`) and MJLab (`v1.5.0`) revisions next
+to this repository when they are absent. Existing dependency checkouts must be
+clean and at those revisions. A deliberate local experiment can bypass that
+check with `--allow-unverified-checkouts`; the installer records the exact
+revision, dirty state, and override in
+`<python-prefix>/share/instinctlab/install_provenance.json`.
 
-## Installation
+Install [Isaac Sim 5.1.0](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html)
+when using the Isaac Sim backend (`isaacsim[all,extscache]==5.1.0`). The MJLab
+backend uses the InstinctMJ-compatible physics stack:
+`mujoco==3.10.0`, `mujoco-warp==3.10.0.1`, and `warp-lang==1.14.0`. These exact
+versions are part of the training plant because newer patch releases can change
+contact and constraint kernels.
 
-Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project can pull **Isaac Lab** and **MJLab** in the same command.
+For a pip-only editable install without sibling checkouts, install the packages
+in dependency order:
 
-- Install [Isaac Sim 5.1.0](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html) if you need the Isaac Sim backend (`isaacsim[all,extscache]==5.1.0`).
+```bash
+python -m pip install -e source/instinctlab_engine
+python -m pip install -e source/instinctlab_engine_isaacsim
+python -m pip install -e source/instinctlab_engine_mjlab
+python -m pip install -e source/instinctlab
+```
 
-- Install Instinct-RL:
+For a single backend, omit the other backend package. The application can also
+install published backend extras with `instinctlab[isaaclab]`,
+`instinctlab[mjlab]`, or `instinctlab[all]` once coordinated packages have been
+published.
 
-    ```bash
-    git clone https://github.com/project-instinct/instinct_rl.git
-    python -m pip install -e instinct_rl
-    ```
+### 2. Configure datasets
 
-- Clone this repository **outside** the Isaac Lab tree:
-
-    ```bash
-    git clone https://github.com/project-instinct/instinctlab.git
-    cd instinctlab
-    ```
-
-- Install InstinctLab **with both simulator backends** (recommended). This clones Isaac Lab (`f73c331738`) and MJLab (`v1.5.0`) next to this repo if they are missing, then installs engine core, both backend packages, and the task application:
-
-    ```bash
-    python scripts/install.py
-    ```
-
-    Existing Isaac Lab and MJLab checkouts must be at the pinned revision and
-    clean. The installer refuses a mismatch by default. For a deliberate local
-    experiment, `--allow-unverified-checkouts` overrides the refusal and records
-    the exact commit, dirty state, and override in
-    `<python-prefix>/share/instinctlab/install_provenance.json`.
-
-    The MJLab backend is installed with the InstinctMJ-compatible physics stack
-    (`mujoco==3.10.0`, `mujoco-warp==3.10.0.1`, `warp-lang==1.14.0`). These are exact pins: newer
-    patch releases change contact and constraint kernels and are not treated as
-    the same training plant. The shared Isaac/MJLab environment keeps its existing
-    compatible Torch build; Torch is not upgraded by these pins.
-
-    Equivalent pip-only installation (no sibling checkouts; Isaac Lab comes
-    from git):
-
-    ```bash
-    python -m pip install -e source/instinctlab_engine
-    python -m pip install -e source/instinctlab_engine_isaacsim
-    python -m pip install -e source/instinctlab_engine_mjlab
-    python -m pip install -e source/instinctlab
-    ```
-
-    Install a single backend extra if needed:
-
-    ```bash
-    python -m pip install -e source/instinctlab_engine
-    python -m pip install -e source/instinctlab_engine_isaacsim
-    python -m pip install -e source/instinctlab  # Isaac only
-
-    python -m pip install -e source/instinctlab_engine_mjlab
-    python -m pip install -e source/instinctlab  # MJLab only
-    ```
-
-### Dataset mounts
-
-Task declarations use portable `dataset://...` paths instead of server-specific
-home-directory links. They resolve below `INSTINCTLAB_DATA_ROOT`, which defaults
-to `~/Datasets`. Verify the mounted data and write a portable receipt before a
-production run:
+Tasks use portable `dataset://...` URIs instead of server-specific home paths.
+Set the data root, verify the versioned manifest, and keep the receipt with the
+run:
 
 ```bash
 export INSTINCTLAB_DATA_ROOT=/absolute/path/to/Datasets
@@ -103,26 +81,131 @@ PYTHONPATH=source/instinctlab_engine/src python scripts/verify_datasets.py \
   --receipt dataset-verification.json
 ```
 
-The versioned expected paths and SHA-256 values live in
-`datasets/manifest.json`. Run manifests retain both the readable `dataset://`
-declaration and its resolved local path. The optional OMOMO entry is recorded
-as unavailable and is checked only when explicitly selected or when
-`--include-optional` is used.
+`INSTINCTLAB_DATA_ROOT` defaults to `~/Datasets`. Expected relative paths and
+SHA-256 values live in [datasets/manifest.json](datasets/manifest.json). URI
+resolution is fail-closed: encoded separators, traversal, and symlink escapes
+cannot leave the configured root, and manifest resources and conversion targets
+must remain below that root. Run manifests retain both the portable URI and its
+resolved local path.
 
-### Container image
+The optional OMOMO entry is verified only when selected explicitly or when
+`--include-optional` is passed.
 
-The operator helper first builds the four coordinated InstinctLab wheels and
-source archives from a clean checkout using the isolated pinned release toolchain.
-The application image then installs those verified artifacts onto an externally
-supplied, immutable dual-backend runtime. Isaac Sim is not rebuilt or redistributed here:
-its runtime/EULA, NVIDIA driver boundary, and large SDK caches belong in the
-site-managed base image. That base must contain the exact packages in
-`docker/runtime-lock.json` and an
-`/opt/instinctlab-runtime/runtime_provenance.json` receipt matching
-`docker/runtime-provenance.example.json`.
+### 3. List and train tasks
 
-The maintainer of that base writes the receipt only from clean pinned source
-checkouts:
+List every engine-neutral task ID without importing a simulator SDK:
+
+```bash
+python scripts/list_envs.py
+```
+
+Train the same task on either backend:
+
+```bash
+python scripts/train.py \
+  --engine isaacsim \
+  --task Instinct-Velocity-Flat-G1 \
+  --num_envs 4096 \
+  --device cuda:0 \
+  --headless
+
+python scripts/train.py \
+  --engine mjlab \
+  --task Instinct-Velocity-Flat-G1 \
+  --num_envs 4096 \
+  --device cuda:0
+```
+
+The selected engine contributes its own launch flags, so options such as
+`--headless` are accepted only when that backend defines them. By default,
+training requires a clean task compilation: no term resolution may be skipped,
+emulated, or profile-omitted. `--allow-nonclean-resolution` is an explicit
+diagnostic override and is recorded in the run's `manifest.json`.
+
+Runs are written below `logs/<engine>/<experiment>/`. Useful shared options
+include `--seed`, `--max_iterations`, `--logroot`, and `--run_name`; for
+example, `python scripts/train.py --engine mjlab --help` includes the MJLab
+backend's options.
+
+### 4. Resume or transfer a checkpoint
+
+Use strict resume only when the task and effective agent contract are unchanged:
+
+```bash
+python scripts/train.py \
+  --engine mjlab \
+  --task Instinct-Velocity-Flat-G1 \
+  --resume \
+  --checkpoint /absolute/path/to/run/model_1000.pt \
+  --device cuda:0
+```
+
+Strict resume requires the adjacent `manifest.json`. It verifies task identity,
+the task contract, and the effective agent configuration before restoring the
+model, optimizer, normalizers, and learning iteration. Supplying
+`--load_run` or `--checkpoint` without a mode also defaults to strict resume.
+
+Use transfer when a declared task or agent change is intentional, or when
+loading a legacy checkpoint without the current strict metadata:
+
+```bash
+python scripts/train.py \
+  --engine mjlab \
+  --task Instinct-Velocity-Flat-G1 \
+  --transfer \
+  --checkpoint /absolute/path/to/run/model_1000.pt \
+  --device cuda:0
+```
+
+Transfer performs a permissive runner-state load and starts the learning
+iteration at zero. Both modes create and reset a fresh environment; neither
+restores simulator lifecycle snapshots or common RNG state.
+
+### 5. Play and export a policy
+
+Play a trained checkpoint. `auto` chooses the native viewer when a display is
+available and Viser otherwise:
+
+```bash
+python scripts/play.py \
+  --engine mjlab \
+  --task Instinct-Velocity-Flat-G1 \
+  --checkpoint /absolute/path/to/run/model_1000.pt \
+  --viewer auto \
+  --device cuda:0
+```
+
+To smoke-test an environment without a checkpoint, use `--agent zero` or
+`--agent random`. Export requires a trained policy and exactly one environment:
+
+```bash
+python scripts/play.py \
+  --engine mjlab \
+  --task Instinct-Velocity-Flat-G1 \
+  --checkpoint /absolute/path/to/run/model_1000.pt \
+  --num_envs 1 \
+  --export-onnx \
+  --export-only \
+  --device cuda:0
+```
+
+By default, the ONNX policy and normalizer are written beside the checkpoint;
+use `--export-dir` to select another directory. Copy the complete structured run
+directory to the robot computer when handing the policy to the
+`instinct_onboard` workflow.
+
+## Operator container
+
+The operator image installs four coordinated InstinctLab artifacts onto an
+externally supplied immutable dual-backend runtime. Isaac Sim is not rebuilt or
+redistributed here: the runtime/EULA, NVIDIA driver boundary, and SDK caches
+belong in the site-managed base image.
+
+The base must contain the exact packages in
+[docker/runtime-lock.json](docker/runtime-lock.json) and a receipt at
+`/opt/instinctlab-runtime/runtime_provenance.json` matching
+[docker/runtime-provenance.example.json](docker/runtime-provenance.example.json).
+Create that receipt only from clean pinned dependency checkouts:
 
 ```bash
 python scripts/write_container_runtime_provenance.py \
@@ -132,7 +215,8 @@ python scripts/write_container_runtime_provenance.py \
   --output /opt/instinctlab-runtime/runtime_provenance.json
 ```
 
-Use an immutable digest, not a mutable tag:
+Build from a clean InstinctLab checkout and an absent or empty `dist/release`
+directory. Use a runtime digest, never a mutable image tag:
 
 ```bash
 export INSTINCTLAB_RUNTIME_IMAGE='registry/image@sha256:<64-hex-digest>'
@@ -146,91 +230,80 @@ PYTHONPATH= python /opt/instinctlab/bin/verify_datasets.py \
   --receipt /workspace/logs/dataset-verification.json
 ```
 
-The image build fails if the base reference is not digest-pinned, its receipt
-does not name the pinned IsaacLab/MJLab commits, any locked SDK or application
-dependency is missing or has drifted, a required module cannot be imported, or
-a coordinated wheel checksum/version is wrong. The
-repository itself and sibling checkouts are not bind-mounted into the operator
-container.
+The helper builds wheels and source archives only from Git-tracked files at the
+current clean commit, verifies their versions and checksums, and binds that
+commit into the image. The build fails when the runtime is not digest-pinned,
+its provenance or locked dependencies drift, imports fail, or coordinated
+artifacts disagree. The repository and sibling checkouts are not bind-mounted
+into the running container.
 
-- Train any registered unified task on either engine. One declaration, compiled by the chosen engine's
-  adapter; `--headless` and the other launch flags belong to the engine and are accepted only where
-  it defines them.
+## Development
 
-    ```bash
-    python scripts/train.py --engine isaacsim --task Instinct-Velocity-Flat-G1 --num_envs 4096 --device cuda:0 --headless
-    python scripts/train.py --engine mjlab    --task Instinct-Velocity-Flat-G1 --num_envs 4096 --device cuda:1
-    ```
+### Add a task
 
-## Documentation of Critical Components
+Each public task has one engine-neutral configuration and one immutable
+registration in
+[`source/instinctlab/instinctlab/tasks/registry.py`](source/instinctlab/instinctlab/tasks/registry.py).
+Do not add Gym registrations or backend-specific task entry points.
 
-- [Instinct-RL Documentation](https://github.com/project-instinct/instinct_rl/blob/main/README.md)
-- [InstinctLab Documentation](DOCS.md)
+For Locomotion, Parkour, and Shadowing task families:
 
-### Set up IDE (Optional)
-
-To setup the IDE, please follow these instructions:
-
-- Run VSCode Tasks, by pressing `Ctrl+Shift+P`, selecting `Tasks: Run Task` and running the `setup_python_env` in the drop down menu. When running this task, you will be prompted to add the absolute path to your Isaac Sim installation.
-
-If everything executes correctly, it should create a file .python.env in the `.vscode` directory. The file contains the python paths to all the extensions provided by Isaac Sim and Omniverse. This helps in indexing all the python modules for intelligent suggestions while writing code.
-
-
-## Code formatting
-
-We have a pre-commit template to automatically format your code.
-To install pre-commit:
-
-```bash
-pip install pre-commit
-```
-
-Then you can run pre-commit with:
-
-```bash
-pre-commit run --all-files
-```
-
-To make the `pre-commit` run automatically on every commit, you can use the following command in your repository:
-
-```bash
-pre-commit install
-```
-
-## Add a task
-
-Define one engine-neutral task factory under `source/instinctlab/instinctlab/tasks/`. Keep the
-concrete environment values together in that task's config file and return a `TaskSpec`. Register
-the factory path once in `tasks/registry.py`; do not add a Gym registration or an engine-specific
-entry point.
+1. Put the robot-neutral base `EnvCfg`, `RewardsCfg`, observation configuration
+   classes, and the complete family-owned MDP implementation outside robot
+   directories.
+2. Add one concrete robot `EnvCfg` that inherits from the base once. Write final
+   parameter values and complete `EntityRef` selectors directly where they are
+   consumed.
+3. Add a small registry-boundary factory that instantiates the complete config
+   and converts it to `TaskSpec`. Do not dispatch variants or carry reward and
+   observation override dictionaries through the factory.
+4. Register the factory together with its engine-neutral asset ID:
 
 ```python
-# source/instinctlab/instinctlab/tasks/my_task/config.py
-from instinctlab_engine.spec import RobotSpec, TaskSpec
-
-def my_task(robot: RobotSpec) -> TaskSpec:
-    return TaskSpec(robot=robot, ...)
-
-# source/instinctlab/instinctlab/tasks/registry.py
-TASKS["Instinct-My-Task"] = "instinctlab.tasks.my_task.config:my_task"
+_REGISTRATIONS["Instinct-My-Task"] = TaskRegistration(
+    factory_path="instinctlab.tasks.my_task.config.my_robot:my_robot_task",
+    asset_id="my_robot/default",
+)
 ```
 
-Both engines then use the same commands:
+The factory accepts the `RobotSpec` already normalized by the selected engine:
+
+```python
+def my_robot_task(robot: RobotSpec) -> TaskSpec:
+    config = MyRobotEnvCfg(robot)
+    return TaskSpec(
+        task_id="Instinct-My-Task",
+        robot=config.robot,
+        scene=config.scene,
+        sim=config.sim,
+        mdp=MdpSpec(...),
+        agent=config.agent,
+        engines=("isaacsim", "mjlab"),
+    )
+```
+
+Both engines can then compile the same declaration:
 
 ```bash
 python scripts/train.py --engine isaacsim --task Instinct-My-Task
 python scripts/train.py --engine mjlab --task Instinct-My-Task
 ```
 
-## Extend without editing a backend
+See [AGENTS.md](AGENTS.md) for the detailed dependency and configuration rules
+used in this repository.
+
+### Extend without editing a backend
 
 Portable observations, rewards, terminations, commands, and events carry their
-task-owned callable and need no backend registration. Native extensions ship as
-separate Python packages using entry points:
+task-owned callables and need no backend registration. Native extensions ship
+as separate Python packages using entry points:
 
 ```toml
 [project.entry-points."instinctlab.assets"]
 my_robot = "my_robot_assets.interface:native_module"
+
+[project.entry-points."instinctlab.actuators"]
+"mjlab.my_controller" = "my_extension.mjlab:register_actuators"
 
 [project.entry-points."instinctlab.engine_terms"]
 "mjlab.my_randomizer" = "my_extension.mjlab:register_terms"
@@ -242,15 +315,27 @@ my_terrain = "my_extension.terrain:register_terrains"
 myengine = "my_engine_backend:register"
 ```
 
-An engine-term registrar receives the selected backend's `TermRegistry`; a
-terrain registrar receives the shared terrain registry. Keep simulator imports
-inside native builders so discovery remains SDK-free.
+Registrars receive the relevant shared registry. Keep simulator imports inside
+native builders so task discovery remains SDK-free.
 
-## Troubleshooting
+### Formatting
 
-### Pylance Missing Indexing of Extensions
+Install and run the repository hooks:
 
-In some VsCode versions, the indexing of part of the extensions is missing. In this case, add the path to your extension in `.vscode/settings.json` under the key `"python.analysis.extraPaths"`.
+```bash
+python -m pip install pre-commit
+pre-commit run --all-files
+pre-commit install
+```
+
+### VS Code setup (optional)
+
+Open the command palette with `Ctrl+Shift+P`, choose `Tasks: Run Task`, and run
+`setup_python_env`. Enter the absolute Isaac Sim path when prompted. The task
+creates `.vscode/.python.env` so Pylance can index the simulator extensions.
+
+If an extension is still missing from the index, add its source path under
+`python.analysis.extraPaths` in `.vscode/settings.json`:
 
 ```json
 {
@@ -262,3 +347,38 @@ In some VsCode versions, the indexing of part of the extensions is missing. In t
     ]
 }
 ```
+
+## Release operators
+
+InstinctLab publishes four distributions with one coordinated semantic version:
+engine core, Isaac Sim backend, MJLab backend, and the task application. Build
+from a clean checkout into an absent or empty output directory:
+
+```bash
+python scripts/check_release.py --expected-version VERSION
+python scripts/check_release_handoff.py
+python scripts/build_release.py --expected-version VERSION
+```
+
+A `vX.Y.Z` tag runs four gates on the same commit: the fast suite, isolated
+wheel matrix, live GPU checks, and the release-candidate operator workflow. The
+protected release-candidate environment must configure `INSTINCTLAB_DATA_ROOT`,
+`INSTINCTLAB_RUNTIME_IMAGE`, `INSTINCTLAB_RELEASE_DEVICE`,
+`INSTINCTLAB_RELEASE_NUM_ENVS`, `INSTINCTLAB_ISAACSIM_LIFECYCLE_THRESHOLDS`, and
+`INSTINCTLAB_MJLAB_LIFECYCLE_THRESHOLDS`. Publication is a separate dispatch
+and fails closed unless all four tagged workflows succeeded.
+
+See [RELEASE.md](RELEASE.md) for the complete gate and publication checklist.
+Server locations, accepted evidence, unfinished operational work, and known
+risks are maintained in [HANDOFF.md](HANDOFF.md).
+
+## Documentation and contributing
+
+- [InstinctLab critical components](DOCS.md)
+- [Instinct-RL documentation](https://github.com/project-instinct/instinct_rl/blob/main/README.md)
+- [Contributor Agreement](CONTRIBUTOR_AGREEMENT.md)
+- [Acknowledged contributors](CONTRIBUTORS.md)
+
+By contributing or submitting a pull request, you agree to the contributor
+agreement and transfer copyright ownership of the contribution to the project
+maintainers.
