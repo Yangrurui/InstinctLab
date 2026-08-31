@@ -15,7 +15,7 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified production-code commit: `1a62fe7`
+- Latest verified implementation commit: `d34ecdd`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
@@ -64,10 +64,12 @@ The central design is sound and should be retained:
   recorded for providers actually used by a compilation.
 - Production train/play compilation is strict and clean by default. Omissions
   or emulation require an explicit override and remain visible in the manifest.
-- Checkpoint loading is deliberately not hash-driven. Manifests contain readable
-  task, effective agent, source, package, hardware, and dataset information;
-  explicit format versions and the runner's strict tensor loading own
-  compatibility.
+- Checkpoint manifests contain a readable versioned task, robot, policy-I/O,
+  effective-agent, and training-semantic contract. Strict `--resume` rejects
+  drift before environment construction and restores runner training state;
+  explicit `--transfer` permits declaration drift and restarts learning at
+  iteration zero. Both modes construct and reset a fresh environment and do not
+  restore lifecycle snapshots or common RNG state.
 - `scripts/train.py` and `scripts/play.py` select and bootstrap a backend before
   importing its SDK. Playback handlers are application-owned, not adapter APIs.
 - Shared semantic meanings live in `spec/`; motion state lives in
@@ -80,16 +82,16 @@ The central design is sound and should be retained:
 Overall verdict: stock Locomotion, Parkour, and Shadowing paths have strong
 contract and construction coverage, and the external extension wheel proves
 real native integration on both engines. The declared single-agent rigid-body
-training architecture, including its lifecycle boundary, is ready for a 1.0
-claim. A public 1.0 release is not yet accepted: the release wheel probe has
-drifted from the current preflight report schema, and automated publication,
-versioning, and quality gates remain open. This does not imply multi-agent,
-ROS/HIL, deformable, fluid, or service-runtime APIs that no current task
-requires.
+training architecture, including its lifecycle boundary and release-engineering
+gates, is ready for a 1.0 claim. The coordinated packages intentionally remain
+version `0.1.0`; no public tag, registry image, or package publication was
+performed in this handoff. A maintainer may make that release decision using
+the accepted process in `RELEASE.md`. This does not imply multi-agent, ROS/HIL,
+deformable, fluid, or service-runtime APIs that no current task requires.
 
 | Capability | Current state | Remaining boundary |
 |---|---|---|
-| Backend | Independent lazy plugins; the last isolated wheel matrix passed before the additional-articulation report change | Refresh and rerun the current wheel matrix; publication/release process |
+| Backend | Independent lazy plugins; the current four-way isolated wheel matrix and live external extension pass | Registry publication is an operator action |
 | Task | Immutable application-owned registrations | External task catalogs are optional, not a current goal |
 | Robot asset | Versioned native API and conformance command | Broader object/articulation catalogs |
 | Actuator/controller | Lazy native model registry, explicit groups, live stiffness bindings, stateful `compute(command)`/`control_dt`/snapshot/reset contract | New controller families need native temporal evidence |
@@ -100,6 +102,7 @@ requires.
 | Multiple articulations | Primary robot plus canonical `ArticulationRef` entities, each with its own `RobotSpec`; entity-targeted selectors lower on both engines | Broader task evidence on demand |
 | Lifecycle | Named exact-rational clocks, phase/latency, component state ownership, and full/partial reset semantics lower on both engines | No open 1.0 boundary |
 | Record/replay | Versioned safe same-engine snapshots plus normalized asynchronous episode traces and strict/tolerant replay | Cross-engine/native-solver bit equality is intentionally not promised |
+| Operator packaging | Coordinated wheels/sdists, dataset manifests, and an immutable externally supplied dual-SDK container contract | No registry image was built or published on this Docker-less server |
 
 ### Lifecycle 1.0 acceptance
 
@@ -203,10 +206,10 @@ undefined-name failure that could hide the actual extension contract violation.
 The latest committed platform evidence is:
 
 ```text
-1457 passed, 3 skipped, 30 deselected, 1 warning (full tests/ suite)
-180 passed, 1 deselected (actuator, Parkour, spec, preflight, asset, and
-  architecture focus)
+1492 passed, 13 skipped, 30 deselected, 1 warning (full tests/ suite)
 Parkour contract subset: 1 passed, 24 deselected
+Pyright: 0 errors, 140 warnings under the Python 3.11 configuration
+Ruff ratchet: 688 findings, below the reviewed maximum of 694
 selected-SDK MJLab CUDA sync-debug: partial-group native stiffness changed after
   class-term initialization and motor-power changed from 9 to 2.25 with
   synchronization treated as an error
@@ -225,23 +228,26 @@ lifecycle benchmark smoke: MJLab and Isaac constructed native environments,
   traces, and matched replay under each report's declared tolerance; the Isaac
   fail-threshold probe returned exit code 2
 core-only, Isaac-only, MJLab-only, and dual-backend isolated wheels passed at
-the then-current report schema; the current release probe needs re-acceptance
-after the additional-articulation selected-component schema change
+  the current report schema using a pinned isolated build toolchain
 external fixture installed, passed SDK-free probes, constructed two real
   environments per engine, combined startup gain randomization with a live
   stiffness-normalized reward, passed native action/delay/reset checks, then
   uninstalled without breaking built-in backends
+four coordinated wheels and four sdists passed `twine check`; their checksum
+  manifest and the installed dual-runtime lock passed the container verifier
+five required datasets and 78 resources passed the versioned SHA-256 manifest
 G1 asset conformance passed on both engines
 Isaac collision exclusions passed cloned-target validation and a
   4,096-environment, five-step capacity probe
 ```
 
-These results establish declaration, compilation, construction, and targeted
-runtime behavior. They do not establish long-run convergence or native-physics
-equality. Repository-wide Ruff is not currently a green gate; the last full
-run reported 709 existing/current errors. Ruff and diff checks pass for the
-latest lifecycle files; the prior actuator remediation files also passed their
-targeted Ruff, compileall, and diff checks.
+These results establish declaration, compilation, construction, targeted
+runtime behavior, and a reproducible release path. They do not establish
+long-run convergence or native-physics equality. Repository-wide Ruff is a
+ratcheted gate rather than a zero-finding gate; changes may not exceed the
+reviewed baseline. The simulator environment deliberately retains
+`packaging==23.0`; release and wheel builders use isolated tooling instead of
+mutating that SDK environment.
 
 The MJLab Parkour first-depth P1 is closed by `d15ea14`. MJLab's observation
 manager samples class terms during construction, then the first environment
@@ -263,6 +269,14 @@ Isaac's optional Iray loader reports missing `libGLU.so.1` on this server. The
 headless physics probes continue successfully, so this is not a current startup
 blocker.
 
+This server has no Docker CLI, so no final image build or registry push is
+claimed. The operator boundary was accepted through clean-copy release builds,
+four isolated wheel matrices, real installed-SDK/source-receipt verification,
+and fail-closed tests for mutable image references, dirty or wrong backend
+sources, SDK-version drift, and artifact checksum drift. The application
+Dockerfile consumes a site-managed Isaac Sim/MJLab base by immutable digest;
+the rationale and required receipt are documented in `README.md`.
+
 ## External checkouts and runtime stack
 
 These sibling checkouts are not submodules:
@@ -270,14 +284,15 @@ These sibling checkouts are not submodules:
 | Checkout | Revision | Purpose |
 |---|---|---|
 | `/root/InstinctLab-main` | `ba28d3d2655b15a19b729476a630937a19610a3b` | Isaac/main reference |
-| `/root/InstinctMJ` | `4ed2b32f8719ff9fc138708341031e935afda0d2` | MJLab reference |
+| `/root/InstinctMJ` | `8d05c122c78714ef7a00d5dc3cfe61787a767a5a` | MJLab reference plus play-device fix |
 | `/root/IsaacLab` | `f73c33173801f5f8afea4142482e47b7710c2b75` | Isaac Lab dependency |
 | `/root/mjlab` | `08090e8a77228e733373f3b5c54f8b5a68d19d9d` | MJLab dependency |
 | `/root/instinct_rl` | `64d7e01` (detached HEAD) | RL runner and batched rollout logging |
 
-Uncommitted `/root/InstinctMJ` changes make terrain debug visualization depend
-on `debug_vis` and map the selected CUDA device to EGL/Warp before play
-construction. Commit, export, or reapply them before leaving this server.
+The former uncommitted `/root/InstinctMJ` changes are preserved in `8d05c12`:
+terrain debug visualization is capability-checked and play maps the selected
+CUDA device to EGL/Warp before environment/viewer construction. That checkout
+is clean and one commit ahead of its `origin/main`; it was not pushed.
 
 Use `/root/miniconda3/envs/env_isaaclab/bin/python` (Python 3.11):
 
@@ -301,13 +316,17 @@ monitor Warp warnings and native contact/constraint budgets in production.
 
 ### Parkour and Whole Body
 
-Required Parkour compatibility links:
+Task declarations use `dataset://` URIs resolved below
+`INSTINCTLAB_DATA_ROOT` (default `~/Datasets`). The versioned contract is
+`datasets/manifest.json`; `scripts/verify_datasets.py` checks required paths,
+SHA-256 values, and conversion indexes and can write a run/release receipt. The
+current `/root/Datasets` verification accepted 5 datasets and 78 resources.
+
+Parkour resolves directly to the release directory:
 
 ```text
-/root/Datasets/parkour_motion_without_run.yaml
-  -> /root/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run.yaml
-/root/Datasets/parkour_motion_without_run_retargetted.npz
-  -> /root/Datasets/parkour_release/parkour_motion_reference/parkour_motion_without_run_retargetted.npz
+dataset://parkour_release/parkour_motion_reference
+  -> /root/Datasets/parkour_release/parkour_motion_reference
 ```
 
 Released checksums:
@@ -322,13 +341,17 @@ parkour_motion_without_run_retargetted.npz
 Active Whole Body clip:
 
 ```text
-/root/Datasets/NoKov-Marslab-Motions-instinctnpz/20251016_diveroll4_single
+dataset://deep_whole_body_parkour_g1_release/
+  20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall
   -> /root/Datasets/deep_whole_body_parkour_g1_release/
      20251116_50cm_kneeClimbStep1/20251106_diveroll4_roadRamp_noWall
 diveroll4-ziwen-0-retargeted.npz
   751 frames, 29 joints
   SHA-256 8274d93046811824640ad373bba13ecd46ed347af8cc6d3d7c116df35a1bec59
 ```
+
+Older compatibility symlinks may remain on this server, but active task
+declarations no longer depend on them.
 
 ### BeyondMimic
 
@@ -343,6 +366,11 @@ Official dataset `lvhaidong/LAFAN1_Retargeting_Dataset` is pinned at revision
 /root/Xyk/Datasets/UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz
   -> the directory above
 ```
+
+The active logical root is
+`dataset://UbisoftLAFAN1_GMR_g1_29dof_torsoBase_retargetted_instinctnpz`.
+Manifest verification reads `conversion_manifest.json` and checks every
+declared converted output, rather than accepting only the index file hash.
 
 Selected production clip hashes:
 
@@ -382,7 +410,7 @@ meshes are absent. Do not substitute other motions or objects silently.
 | Locomotion Flat | Accepted on both engines |
 | Locomotion Rough | Construction/stepping accepted; post-unification convergence pending |
 | Parkour | Declarations and pre-terrain reproduction accepted on both engines; current terrain/sensor live construction passes; post-unification convergence pending |
-| Whole Body plane Shadowing | Short-horizon parity accepted; retained long-run final output still needs audit |
+| Whole Body plane Shadowing | Short-horizon parity accepted; retained Isaac 4,096-environment, 50,000-iteration run audited and accepted |
 | Perceptive Shadowing | Four narrow collision exclusions accepted for contact/termination semantics; fixed-bin and 256-environment seed-42 A/B complete, but no post-fix long or multi-seed convergence claim |
 | BeyondMimic | Official-data L7, 256 environments, seed 42, 700 iterations accepted on both engines; multi-seed and 4,096-environment baselines not promoted |
 | Perceptive VAE | Canonical data and two-iteration training-chain smoke passed on both engines; no accepted production reproduction |
@@ -394,7 +422,7 @@ training reproductions. Construction smoke is never convergence evidence.
 
 ## Retained runs and diagnostics
 
-Process check at 2026-08-31 05:38 UTC found no active `scripts/train.py`
+Process check at 2026-08-31 07:37 UTC found no active `scripts/train.py`
 process. The runs listed below are retained outputs, not active jobs. Do not
 restart them without explicit operator approval.
 
@@ -419,7 +447,14 @@ logs/mjlab/g1_beyondmimic/
 These processes predate portable termination metric units; do not compare raw
 termination tags across engines without normalizing or regenerating them.
 
-Whole Body Shadowing log still needing final audit:
+The retained Whole Body Shadowing run completed 50,000 iterations and is now
+audited. Across its last 1,000 TensorBoard samples, mean episode length was
+261.54, mean reward per step was 0.07394, mean episode reward was 19.33, and
+mean FPS was 32,479. All 40 scalar tags were finite. Mean termination tags were
+0.96575 dataset exhausted, 0.02971 link position, 0.00667 base position,
+0.00113 projected gravity, and zero each for timeout and out of border. This is
+accepted retained Isaac convergence evidence for that run's declaration; it
+does not by itself establish multi-seed or cross-engine long-run equality.
 
 ```text
 logs/isaacsim/g1_shadowing/
@@ -519,71 +554,32 @@ logs/diagnostics/perceptive_collision_ab_20260831/
 
 ## Open work
 
-No platform lifecycle item remains open for the declared 1.0 scope.
+No platform implementation item remains open for the declared scope. The
+former release-hardening list is closed by these independently verified
+changes:
 
-### Public release and architecture hardening
+1. `4008f07` aligned the external fixture with `preflight_v1`; `d34ecdd`
+   isolated and pinned its build tools. All four wheel matrices and both live
+   native extension paths pass.
+2. `d1bacb0` separated fail-closed resume from explicit permissive transfer and
+   recorded the fresh-environment/RNG semantics.
+3. `8d459e2` made dependency checkout selection fail closed and expanded
+   editable-source runtime provenance.
+4. `3a58365` established coordinated package/API metadata, fast/wheel/GPU/
+   release workflows, the Python 3.11 type gate, Ruff ratchet, isolated release
+   builder, and `RELEASE.md`.
+5. `3e05864` flattened concrete Locomotion configs and made selectors local and
+   explicit; `f6f2860` records the reviewed duplicate native-friction overlay
+   required by those independent declarations.
+6. `81a4d42` added portable dataset resolution and checksum manifests;
+   `42cc328` added coordinated operator artifacts and the immutable external
+   simulator-runtime contract.
 
-The items below are ordered. They harden delivery and operator semantics; they
-do not authorize a rewrite of the compiler-style modular monolith, a global MDP
-layer, generated task declarations, or premature multi-agent abstractions.
-
-1. **P0 — repair and rerun the isolated wheel release gate.**
-   `scripts/verify_wheel_matrix.py` still compares the external fixture's
-   `selected_components` with the pre-additional-articulation shape. Current
-   preflight reports also contain `articulation_asset_ids`, and actuator-group
-   selections contain `entity`. Update the fixture assertion and add a
-   regression that keeps the probe aligned with the versioned preflight report.
-   Re-accept only after the core-only, Isaac-only, MJLab-only, and dual-backend
-   wheel matrices pass, the external fixture installs/exercises/uninstalls, and
-   built-in backends still preflight afterward. Run the live extension matrix
-   when release GPU capacity is available.
-
-2. **P1 — distinguish strict resume from transfer initialization.**
-   Today checkpoint declaration drift is operator-visible metadata rather than
-   a load gate, and `--resume` starts from a freshly reset simulator and motion
-   runtime. Preserve permissive loading as an explicit transfer-learning path,
-   but define a strict resume path that rejects task, robot schema, policy I/O,
-   effective agent, and training-semantic drift. Decide explicitly whether
-   strict resume also restores the lifecycle snapshot and common RNG state.
-   Re-accept with tests for unchanged resume, changed reward/observation/robot
-   rejection, explicit transfer acceptance, and the chosen environment-state
-   semantics.
-
-3. **P1 — make dependency selection and run provenance fail closed.**
-   `scripts/install.py` currently warns and continues when an existing Isaac Lab
-   or MJLab checkout is not at the pinned revision. Default installation must
-   refuse that state; any override must be explicit and recorded. Run manifests
-   must record commit and dirty state for editable Isaac Lab, MJLab,
-   Instinct-RL, and other physics-critical repositories, not only distribution
-   versions and the InstinctLab repository. Re-accept with wrong-revision,
-   dirty-checkout, explicit-override, and manifest-provenance tests.
-
-4. **P1 — establish automated release governance.**
-   Add separate fast SDK-free pull-request checks, isolated wheel/package
-   checks, and scheduled or release-triggered GPU live checks. Align Pyright
-   with Python 3.11, establish a ratcheted Ruff baseline, define package/plugin
-   API versioning and deprecation rules, and publish a release checklist. A
-   public 1.0 claim requires all four distributions to have coordinated
-   versions and a reproducible publication path; the existing lifecycle 1.0
-   acceptance alone is not that release claim.
-
-5. **P2 — bring task configuration back under its declared structural rules.**
-   Flatten `G1LocomotionRoughEnvCfg` so a concrete robot configuration does not
-   inherit through another concrete robot configuration. Remove constructor
-   selector aliases such as `joints` and `feet`; write complete `EntityRef`
-   values on consuming terms. Preserve explicit declaration order and values —
-   do not replace them with loops, generated dictionaries, helper dispatchers,
-   or additional inheritance. Add architecture tests for one-level concrete
-   inheritance and selector ownership, then rerun declaration, preflight, and
-   fixed-state term tests.
-
-6. **P2 — complete reproducible operator packaging.**
-   Replace the current template Dockerfile with a build that identifies the
-   verified dual-backend runtime and application wheels, or document why the
-   simulator runtime must remain externally supplied. Move server-specific
-   dataset links toward versioned manifests/resolvers with checksums while
-   retaining readable paths in run provenance. Re-accept on a clean machine or
-   isolated environment without relying on undocumented sibling state.
+Remaining actions are operational choices, not unfinished implementation: push
+the local InstinctLab branch and the one local InstinctMJ commit, choose a public
+version/tag, build the application image against a licensed site runtime digest
+on a Docker-capable host, and publish the selected artifacts. None was performed
+implicitly.
 
 A multi-agent API is intentionally not part of that scope. Define one only when
 an actual multi-agent task establishes policy, reward, termination,
@@ -615,6 +611,23 @@ PYTHONPATH=source/instinctlab \
   /root/miniconda3/envs/env_isaaclab/bin/python -m pytest -q \
   tests/test_parkour_g1_declaration.py -k contract
 ```
+
+Release/operator checks:
+
+```bash
+/root/miniconda3/envs/env_isaaclab/bin/python scripts/check_release.py \
+  --expected-version 0.1.0
+/root/miniconda3/envs/env_isaaclab/bin/python scripts/check_ruff_ratchet.py
+INSTINCTLAB_DATA_ROOT=/root/Datasets PYTHONPATH=source/instinctlab_engine \
+  /root/miniconda3/envs/env_isaaclab/bin/python scripts/verify_datasets.py
+/root/miniconda3/envs/env_isaaclab/bin/python scripts/verify_wheel_matrix.py \
+  --live-extension --live-device cuda:0
+```
+
+CI installs `pyright[nodejs]` and runs `pyright`. This server's system Node 12
+is too old for the current Pyright bundle; when rechecking locally, set
+`PYRIGHT_PYTHON_GLOBAL_NODE=0` so the installed Python wrapper uses its managed
+Node environment.
 
 For term, timing, or physics changes, add fixed-state and temporal probes.
 Compare episode length and termination behavior as well as reward. Terrain,
