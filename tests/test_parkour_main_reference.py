@@ -731,7 +731,8 @@ def test_train_scripts_agree_on_seed_num_envs_and_tf32() -> None:
     assert theirs["sets_tf32"] is True
     assert "allow_tf32 = True" in adapter
     assert theirs["calls_runner_load"] is True
-    assert "load_runner_checkpoint(runner, resume_path, distributed)" in ours
+    assert "load_runner_checkpoint(" in ours
+    assert "mode=checkpoint_mode" in ours
     assert theirs["init_at_random_ep_len"] is True
     assert "init_at_random_ep_len" in ours
     assert theirs["wrapper"] is True

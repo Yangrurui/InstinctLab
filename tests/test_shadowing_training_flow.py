@@ -191,6 +191,28 @@ def test_distributed_resume_restores_optimizer_noise_normalizer_and_iteration(
     assert infos == {"source": "resume"}
 
 
+def test_transfer_loads_runner_state_but_restarts_learning_iteration() -> None:
+    class _Runner:
+        current_learning_iteration = 0
+
+        def load(self, path):
+            self.loaded = path
+            self.current_learning_iteration = 37
+            return {"source": "transfer"}
+
+    runner = _Runner()
+    infos = load_runner_checkpoint(
+        runner,
+        "model_37.pt",
+        DistributedRun(False, 0, 0, 1),
+        mode="transfer",
+    )
+
+    assert runner.loaded == "model_37.pt"
+    assert runner.current_learning_iteration == 0
+    assert infos == {"source": "transfer"}
+
+
 def test_shadowing_play_and_export_validate_checkpoint_contract_before_loading() -> None:
     text = (Path(__file__).resolve().parents[1] / "scripts" / "play.py").read_text()
     validation = text.index("validate_checkpoint_contract(")

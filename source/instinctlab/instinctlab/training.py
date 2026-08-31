@@ -66,15 +66,27 @@ def shared_run_directory(path: str, run: DistributedRun) -> str:
     return str(payload[0])
 
 
-def load_runner_checkpoint(runner: Any, checkpoint: str | Path, run: DistributedRun) -> Any:
-    """Restore model, optimizer, normalizers and iteration on every DDP rank.
+def load_runner_checkpoint(
+    runner: Any,
+    checkpoint: str | Path,
+    run: DistributedRun,
+    *,
+    mode: str = "resume",
+) -> Any:
+    """Load runner state on every rank, with explicit resume/transfer iteration semantics.
 
     `instinct_rl` deliberately makes `runner.load` rank-zero-only after a process group exists.
     That is sufficient for model broadcast but leaves resumed optimizer moments different on the
     other ranks. Unified training loads the same state on each worker before DDP wrapping.
     """
+    if mode not in {"resume", "transfer"}:
+        raise ValueError(f"unknown checkpoint load mode {mode!r}")
     if not run.enabled:
-        return runner.load(str(checkpoint))
+        starting_iteration = int(runner.current_learning_iteration)
+        result = runner.load(str(checkpoint))
+        if mode == "transfer":
+            runner.current_learning_iteration = starting_iteration
+        return result
     if runner.cfg.get("ckpt_manipulator", False):
         raise ValueError("distributed resume does not support ckpt_manipulator")
 
@@ -87,7 +99,8 @@ def load_runner_checkpoint(runner: Any, checkpoint: str | Path, run: Distributed
         if key not in state:
             raise KeyError(f"distributed checkpoint is missing {key!r}")
         normalizer.load_state_dict(state[key])
-    runner.current_learning_iteration = int(state["iter"])
+    if mode == "resume":
+        runner.current_learning_iteration = int(state["iter"])
     return state.get("infos")
 
 

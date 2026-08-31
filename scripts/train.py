@@ -49,7 +49,20 @@ def _parse() -> argparse.Namespace:
     parser.add_argument("--max_iterations", type=int, default=None, help="Override the agent's iteration count.")
     parser.add_argument("--logroot", type=str, default=None, help="Override the log root, default logs/<engine>/.")
     parser.add_argument("--run_name", type=str, default="", help="Suffix appended to the run directory.")
-    parser.add_argument("--resume", action="store_true", help="Resume training from a checkpoint.")
+    checkpoint_mode = parser.add_mutually_exclusive_group()
+    checkpoint_mode.add_argument(
+        "--resume",
+        action="store_true",
+        help="Strictly resume an unchanged training contract from a checkpoint.",
+    )
+    checkpoint_mode.add_argument(
+        "--transfer",
+        action="store_true",
+        help=(
+            "Initialize from a checkpoint while allowing declared task or agent drift; "
+            "the learning iteration restarts at zero."
+        ),
+    )
     parser.add_argument("--distributed", action="store_true", help="Enable torchrun distributed training.")
     parser.add_argument("--local-rank", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument(
@@ -105,8 +118,14 @@ def _log_dir(args: argparse.Namespace, experiment: str) -> str:
 
 
 def _resolve_resume_checkpoint(args: argparse.Namespace, agent_cfg: object) -> Path | None:
-    """Resolve the legacy runner's run/checkpoint expressions without engine imports."""
-    requested = bool(args.resume or args.load_run or args.checkpoint or getattr(agent_cfg, "resume", False))
+    """Resolve runner run/checkpoint expressions for strict resume or transfer."""
+    requested = bool(
+        args.resume
+        or getattr(args, "transfer", False)
+        or args.load_run
+        or args.checkpoint
+        or getattr(agent_cfg, "resume", False)
+    )
     if not requested:
         return None
 
@@ -135,6 +154,22 @@ def _resolve_resume_checkpoint(args: argparse.Namespace, agent_cfg: object) -> P
         run_pattern=run_pattern,
         checkpoint_pattern=str(checkpoint_selector),
     )
+
+
+def _checkpoint_load_mode(
+    args: argparse.Namespace,
+    agent_cfg: object,
+) -> str | None:
+    """Make permissive loading explicit; selectors otherwise mean strict resume."""
+    if getattr(args, "transfer", False):
+        return "transfer"
+    requested = bool(
+        args.resume
+        or args.load_run
+        or args.checkpoint
+        or getattr(agent_cfg, "resume", False)
+    )
+    return "resume" if requested else None
 
 
 def _close_runner_writer(runner: object) -> None:
@@ -177,7 +212,8 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
         agent_cfg.load_run = args.load_run
     if args.checkpoint is not None:
         agent_cfg.load_checkpoint = args.checkpoint
-    agent_cfg.resume = bool(args.resume or args.load_run or args.checkpoint or agent_cfg.resume)
+    checkpoint_mode = _checkpoint_load_mode(args, agent_cfg)
+    agent_cfg.resume = checkpoint_mode == "resume"
     agent_config = agent_cfg.to_dict()
 
     resume_path = _resolve_resume_checkpoint(args, agent_cfg)
@@ -187,6 +223,8 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
         validate_checkpoint_contract(
             resume_path,
             spec,
+            mode=checkpoint_mode,
+            agent_config=agent_config,
         )
 
     from instinctlab.training import shared_run_directory
@@ -207,11 +245,12 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
         "rank_seed_rule": "agent_seed + global_rank",
         "rank_seeds": [agent_cfg.seed + rank for rank in range(distributed.world_size)],
     }
-    manifest["resume_environment_state"] = "fresh reset; simulator and motion runtime are resampled"
-    manifest["resume_contract"] = {
-        "checkpoint": str(resume_path) if resume_path is not None else None,
-        "tensor_compatibility": "runner strict state-dict load",
-    }
+    from instinctlab.checkpoint import checkpoint_load_semantics
+
+    manifest["checkpoint_load"] = checkpoint_load_semantics(checkpoint_mode)
+    manifest["checkpoint_load"]["checkpoint"] = (
+        str(resume_path) if resume_path is not None else None
+    )
     manifest["allow_nonclean_resolution"] = bool(args.allow_nonclean_resolution)
     manifest["preflight"] = preflight
     if distributed.is_primary:
@@ -249,10 +288,18 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
     resources.callback(_close_runner_writer, runner)
     runner.add_git_repo_to_log(__file__)
     if resume_path is not None:
-        print(f"[INFO] Loading training checkpoint from {resume_path}")
+        print(
+            f"[INFO] Loading training checkpoint from {resume_path} "
+            f"in {checkpoint_mode} mode"
+        )
         from instinctlab.training import load_runner_checkpoint
 
-        load_runner_checkpoint(runner, resume_path, distributed)
+        load_runner_checkpoint(
+            runner,
+            resume_path,
+            distributed,
+            mode=checkpoint_mode,
+        )
 
     if distributed.is_primary:
         with open(os.path.join(log_dir, "agent.json"), "w") as handle:

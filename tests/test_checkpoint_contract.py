@@ -3,17 +3,18 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
-import pytest
-
 import instinctlab.checkpoint as checkpoint_module
+import pytest
 from instinctlab.checkpoint import (
     add_task_contract,
+    checkpoint_load_semantics,
     latest_checkpoint,
     latest_run_checkpoint,
     runtime_provenance,
     task_contract,
     validate_checkpoint_contract,
 )
+
 from tests.task_specs import task_spec
 
 PARKOUR_ID = "Instinct-Parkour-Target-G1"
@@ -32,7 +33,7 @@ def test_task_manifest_is_readable_data_without_compatibility_hashes() -> None:
     spec = task_spec(PARKOUR_ID)
     contract = task_contract(spec)
 
-    assert contract["version"] == "task_manifest_v3"
+    assert contract["version"] == "task_manifest_v4"
     assert contract["checkpoint_format_version"] == "instinct_rl_on_policy_runner_v1"
     assert contract["task_id"] == spec.task_id
     assert contract["joint_names"] == list(spec.robot.joint_names)
@@ -42,6 +43,14 @@ def test_task_manifest_is_readable_data_without_compatibility_hashes() -> None:
     assert "experiment_semantics" not in contract
     assert "provenance" not in contract
     assert "hash" not in json.dumps(contract)
+    assert contract["strict_resume"]["task_id"] == spec.task_id
+    assert set(contract["strict_resume"]) == {
+        "task_id",
+        "robot",
+        "policy_io",
+        "effective_agent_config",
+        "training_semantics",
+    }
 
 
 def test_effective_engine_and_cli_agent_configuration_is_recorded_directly() -> None:
@@ -144,6 +153,119 @@ def test_checkpoint_validation_accepts_supported_readable_format(tmp_path) -> No
     _write_manifest(tmp_path, spec)
 
     validate_checkpoint_contract(checkpoint, spec)
+
+
+def test_strict_resume_accepts_an_unchanged_contract(tmp_path) -> None:
+    spec = task_spec(PARKOUR_ID)
+    agent_config = _agent_config(spec)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    _write_manifest(tmp_path, spec, agent_config=agent_config)
+
+    validate_checkpoint_contract(
+        checkpoint,
+        spec,
+        mode="resume",
+        agent_config=agent_config,
+    )
+
+
+def test_strict_resume_rejects_robot_schema_drift(tmp_path) -> None:
+    spec = task_spec(PARKOUR_ID)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    _write_manifest(tmp_path, spec)
+    changed = replace(
+        spec,
+        robot=replace(spec.robot, schema_version="changed_dfs"),
+    )
+
+    with pytest.raises(ValueError, match="robot schema drift"):
+        validate_checkpoint_contract(checkpoint, changed, mode="resume")
+
+
+def test_strict_resume_rejects_observation_drift(tmp_path) -> None:
+    spec = task_spec(PARKOUR_ID)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    _write_manifest(tmp_path, spec)
+    group_name, group = next(iter(spec.mdp.observations.items()))
+    term_name, term = next(iter(group.terms.items()))
+    changed_terms = dict(group.terms)
+    changed_terms[term_name] = replace(term, scale=1.25)
+    changed_observations = dict(spec.mdp.observations)
+    changed_observations[group_name] = replace(group, terms=changed_terms)
+    changed = replace(
+        spec,
+        mdp=replace(spec.mdp, observations=changed_observations),
+    )
+
+    with pytest.raises(ValueError, match="policy I/O drift"):
+        validate_checkpoint_contract(checkpoint, changed, mode="resume")
+
+
+def test_strict_resume_rejects_reward_drift(tmp_path) -> None:
+    spec = task_spec(PARKOUR_ID)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    _write_manifest(tmp_path, spec)
+    group_name, terms = next(iter(spec.mdp.rewards.items()))
+    term_name, term = next(iter(terms.items()))
+    changed_terms = dict(terms)
+    changed_terms[term_name] = replace(term, weight=term.weight + 0.5)
+    changed_rewards = dict(spec.mdp.rewards)
+    changed_rewards[group_name] = changed_terms
+    changed = replace(spec, mdp=replace(spec.mdp, rewards=changed_rewards))
+
+    with pytest.raises(ValueError, match="training semantics drift"):
+        validate_checkpoint_contract(checkpoint, changed, mode="resume")
+
+
+def test_strict_resume_rejects_effective_agent_drift(tmp_path) -> None:
+    spec = task_spec(PARKOUR_ID)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    stored_agent = _agent_config(spec)
+    _write_manifest(tmp_path, spec, agent_config=stored_agent)
+    current_agent = _agent_config(spec)
+    current_agent["num_steps_per_env"] += 1
+
+    with pytest.raises(ValueError, match="effective agent drift"):
+        validate_checkpoint_contract(
+            checkpoint,
+            spec,
+            mode="resume",
+            agent_config=current_agent,
+        )
+
+
+def test_explicit_transfer_accepts_declared_training_drift(tmp_path) -> None:
+    spec = task_spec(PARKOUR_ID)
+    checkpoint = tmp_path / "model_100.pt"
+    checkpoint.touch()
+    _write_manifest(tmp_path, spec)
+    group_name, terms = next(iter(spec.mdp.rewards.items()))
+    term_name, term = next(iter(terms.items()))
+    changed_terms = dict(terms)
+    changed_terms[term_name] = replace(term, weight=term.weight + 0.5)
+    changed_rewards = dict(spec.mdp.rewards)
+    changed_rewards[group_name] = changed_terms
+    changed = replace(spec, mdp=replace(spec.mdp, rewards=changed_rewards))
+
+    validate_checkpoint_contract(checkpoint, changed, mode="transfer")
+
+
+def test_checkpoint_load_semantics_explicitly_use_fresh_environment_state() -> None:
+    resume = checkpoint_load_semantics("resume")
+    transfer = checkpoint_load_semantics("transfer")
+
+    assert resume["lifecycle_snapshot"] == "not restored"
+    assert resume["environment_state"] == "fresh environment construction and reset"
+    assert resume["common_rng_state"] == (
+        "not restored; initialized from the current run seed"
+    )
+    assert "learning iteration restored" in resume["runner_state"]
+    assert "learning iteration reset to zero" in transfer["runner_state"]
 
 
 def test_checkpoint_validation_rejects_unknown_manifest_schema(tmp_path) -> None:

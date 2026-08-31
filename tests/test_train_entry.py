@@ -150,6 +150,30 @@ def test_train_resume_selects_the_highest_numeric_checkpoint(tmp_path: pathlib.P
     assert module._resolve_resume_checkpoint(args, agent).name == "model_1000.pt"
 
 
+def test_train_checkpoint_mode_defaults_selectors_to_strict_resume() -> None:
+    module_spec = importlib.util.spec_from_file_location("_instinctlab_train_mode", _ENTRY)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    agent = SimpleNamespace(resume=False)
+
+    strict = SimpleNamespace(
+        resume=False,
+        transfer=False,
+        load_run="source-run",
+        checkpoint=None,
+    )
+    transfer = SimpleNamespace(
+        resume=False,
+        transfer=True,
+        load_run="source-run",
+        checkpoint=None,
+    )
+
+    assert module._checkpoint_load_mode(strict, agent) == "resume"
+    assert module._checkpoint_load_mode(transfer, agent) == "transfer"
+
+
 def test_train_releases_process_group_and_application_when_training_fails(monkeypatch) -> None:
     module_spec = importlib.util.spec_from_file_location("_instinctlab_train_cleanup", _ENTRY)
     assert module_spec is not None and module_spec.loader is not None

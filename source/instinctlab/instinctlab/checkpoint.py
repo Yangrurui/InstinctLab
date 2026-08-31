@@ -11,21 +11,36 @@ import re
 import subprocess
 import sys
 import warnings
-from copy import deepcopy
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import MISSING, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from instinctlab_engine.spec import TaskSpec, portability_report
 from instinctlab_engine.spec.robot import BackendAsset
 
-_CONTRACT_VERSION = "task_manifest_v3"
+_CONTRACT_VERSION = "task_manifest_v4"
 _CHECKPOINT_FORMAT_VERSION = "instinct_rl_on_policy_runner_v1"
-_LEGACY_CONTRACT_VERSIONS = frozenset({"task_spec_v1", "task_contract_v2"})
+_LEGACY_CONTRACT_VERSIONS = frozenset(
+    {"task_spec_v1", "task_contract_v2", "task_manifest_v3"}
+)
 _RUNTIME_PROVENANCE_VERSION = "runtime_provenance_v1"
 _DEFAULT_CHECKPOINT_PATTERN = r"model_.*\.pt"
+_NON_TRAINING_AGENT_FIELDS = frozenset(
+    {
+        "device",
+        "experiment_name",
+        "load_checkpoint",
+        "load_run",
+        "log_interval",
+        "max_iterations",
+        "resume",
+        "run_name",
+        "save_interval",
+    }
+)
 _PUBLIC_TYPE_MODULES = {
     "instinctlab_engine.spec.motion_reference": "instinctlab_engine.spec.sensor",
     "instinctlab_engine.spec.volume": "instinctlab_engine.spec.sensor",
@@ -178,6 +193,67 @@ def _agent_config(spec: TaskSpec, engine: str | None = None) -> Mapping[str, Any
     return _as_agent_config(config)
 
 
+def _strict_agent_config(config: Mapping[str, Any] | object) -> dict[str, Any]:
+    """Return learning semantics without checkpoint, logging, or run-length controls."""
+    return {
+        key: value
+        for key, value in _as_agent_config(config).items()
+        if key not in _NON_TRAINING_AGENT_FIELDS
+    }
+
+
+def _strict_resume_contract(
+    spec: TaskSpec,
+    agent_config: Mapping[str, Any] | object,
+) -> dict[str, Any]:
+    """Readable fields which must match before restoring training state."""
+    return {
+        "task_id": spec.task_id,
+        "robot": _canonical(
+            spec.robot,
+            include_omitted_fields=True,
+        ),
+        "policy_io": {
+            "observations": _canonical(
+                spec.mdp.observations,
+                include_omitted_fields=True,
+            ),
+            "actions": _canonical(
+                spec.mdp.actions,
+                include_omitted_fields=True,
+            ),
+        },
+        "effective_agent_config": _strict_agent_config(agent_config),
+        "training_semantics": {
+            "scene": _canonical(spec.scene, include_omitted_fields=True),
+            "simulation": _canonical(spec.sim, include_omitted_fields=True),
+            "rewards": _canonical(spec.mdp.rewards, include_omitted_fields=True),
+            "terminations": _canonical(
+                spec.mdp.terminations,
+                include_omitted_fields=True,
+            ),
+            "events": _canonical(spec.mdp.events, include_omitted_fields=True),
+            "commands": _canonical(
+                spec.mdp.commands,
+                include_omitted_fields=True,
+            ),
+            "curriculum": _canonical(
+                spec.mdp.curriculum,
+                include_omitted_fields=True,
+            ),
+            "engines": list(spec.engines),
+            "engine_extras": _canonical(
+                spec.engine_extras,
+                include_omitted_fields=True,
+            ),
+            "lifecycle": _canonical(
+                spec.lifecycle,
+                include_omitted_fields=True,
+            ),
+        },
+    }
+
+
 def task_contract(
     spec: TaskSpec,
     *,
@@ -207,11 +283,34 @@ def task_contract(
         "body_names": list(spec.robot.body_names),
         "portability": portability_report(spec),
         "effective_agent_config": resolved_agent_config,
+        "strict_resume": _strict_resume_contract(spec, resolved_agent_config),
         "task_declaration": _canonical(
             spec,
             include_asset_paths=True,
             include_omitted_fields=True,
         ),
+    }
+
+
+def checkpoint_load_semantics(
+    mode: Literal["resume", "transfer"] | None,
+) -> dict[str, Any]:
+    """Describe exactly what a checkpoint load does to runner and environment state."""
+    if mode not in {None, "resume", "transfer"}:
+        raise ValueError(f"unknown checkpoint load mode {mode!r}")
+    runner_state = {
+        None: "fresh",
+        "resume": "model, optimizer, normalizers, and learning iteration restored",
+        "transfer": (
+            "permissive runner state load; learning iteration reset to zero"
+        ),
+    }[mode]
+    return {
+        "mode": mode or "none",
+        "runner_state": runner_state,
+        "lifecycle_snapshot": "not restored",
+        "environment_state": "fresh environment construction and reset",
+        "common_rng_state": "not restored; initialized from the current run seed",
     }
 
 
@@ -459,15 +558,19 @@ def validate_checkpoint_contract(
     spec: TaskSpec,
     *,
     checkpoint_task_id: str | None = None,
+    mode: Literal["resume", "transfer"] = "transfer",
+    agent_config: Mapping[str, Any] | object | None = None,
 ) -> None:
-    """Validate checkpoint readability and its explicit on-disk format version.
+    """Validate a strict resume or an explicitly permissive transfer load.
 
-    Task identity and declaration data remain operator-visible metadata, not a
-    tensor load gate. The runner's strict state-dict loader reports missing,
-    unexpected, and shape-incompatible tensors after this inexpensive check.
-    Legacy runs remain loadable with a warning because they predate explicit
-    adjacent format metadata.
+    Resume rejects task, robot, policy I/O, effective learning-agent, and
+    training-semantic drift before environment construction. Transfer keeps
+    those declarations informational and delegates tensor compatibility to the
+    runner. Legacy runs therefore remain available for explicit transfer but
+    cannot be called a verified resume.
     """
+    if mode not in {"resume", "transfer"}:
+        raise ValueError(f"unknown checkpoint load mode {mode!r}")
     checkpoint_path = Path(checkpoint).expanduser().resolve()
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"checkpoint not found: {checkpoint_path}")
@@ -479,6 +582,11 @@ def validate_checkpoint_contract(
 
     manifest_path = checkpoint_path.parent / "manifest.json"
     if not manifest_path.is_file():
+        if mode == "resume":
+            raise ValueError(
+                f"Strict resume requires an adjacent manifest.json for {checkpoint_path}. "
+                "Use explicit transfer mode for a legacy checkpoint."
+            )
         warnings.warn(
             f"Checkpoint {checkpoint_path} has no adjacent manifest.json; its format version "
             "cannot be verified before the runner loads it.",
@@ -490,6 +598,11 @@ def validate_checkpoint_contract(
         manifest = json.load(handle)
     stored = manifest.get("task_contract")
     if not isinstance(stored, dict):
+        if mode == "resume":
+            raise ValueError(
+                f"Strict resume requires task_contract metadata in {manifest_path}. "
+                "Use explicit transfer mode for a legacy checkpoint."
+            )
         warnings.warn(
             f"Checkpoint manifest {manifest_path} predates explicit checkpoint format metadata; "
             "the runner will validate its tensors directly.",
@@ -500,9 +613,15 @@ def validate_checkpoint_contract(
 
     stored_version = stored.get("version")
     if stored_version in _LEGACY_CONTRACT_VERSIONS:
+        if mode == "resume":
+            raise ValueError(
+                f"Strict resume requires {_CONTRACT_VERSION!r} metadata; checkpoint "
+                f"{checkpoint_path} has legacy {stored_version!r}. Use explicit transfer "
+                "mode if this initialization is intentional."
+            )
         warnings.warn(
             f"Checkpoint manifest {manifest_path} has legacy metadata {stored_version!r} "
-            "without an explicit checkpoint format version; the runner will validate tensors.",
+            "without a strict resume contract; the runner will validate transfer tensors.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -521,6 +640,11 @@ def validate_checkpoint_contract(
 
     expected_task_id = checkpoint_task_id or spec.task_id
     if stored.get("task_id") != expected_task_id:
+        if mode == "resume":
+            raise ValueError(
+                f"Strict resume rejected task identity drift for {checkpoint_path}: "
+                f"checkpoint={stored.get('task_id')!r}; current={expected_task_id!r}."
+            )
         warnings.warn(
             f"Checkpoint metadata task {stored.get('task_id')!r} differs from expected "
             f"{expected_task_id!r}; task metadata is informational and the runner will "
@@ -529,9 +653,36 @@ def validate_checkpoint_contract(
             stacklevel=2,
         )
 
+    if mode == "transfer":
+        return
+
+    current_agent = _agent_config(spec) if agent_config is None else agent_config
+    expected = _strict_resume_contract(spec, current_agent)
+    stored_resume = stored.get("strict_resume")
+    if not isinstance(stored_resume, dict):
+        raise ValueError(  # noqa: TRY004 - missing contract data, not caller type misuse
+            f"Strict resume metadata is missing from {manifest_path}. Use explicit "
+            "transfer mode if this initialization is intentional."
+        )
+    labels = {
+        "task_id": "task identity",
+        "robot": "robot schema",
+        "policy_io": "policy I/O",
+        "effective_agent_config": "effective agent",
+        "training_semantics": "training semantics",
+    }
+    for field, label in labels.items():
+        if stored_resume.get(field) != expected[field]:
+            raise ValueError(
+                f"Strict resume rejected {label} drift for {checkpoint_path}; "
+                f"checkpoint and current {field!r} declarations differ. Use explicit "
+                "transfer mode if this change is intentional."
+            )
+
 
 __all__ = [
     "add_task_contract",
+    "checkpoint_load_semantics",
     "checkpoint_sort_key",
     "latest_checkpoint",
     "latest_run_checkpoint",
