@@ -15,10 +15,11 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified implementation commits: `d343fdc` (locked-arm G1 robot and
-  task onboarding), `7ca22a3` (external live stock-sensor composition),
-  `c5fdfc5` (release/data/operator hardening), and `36f229d`
-  (terrain/actuator extensions)
+- Latest verified implementation commits: `cca7bd3` (training provenance and
+  self-contained policy deployment), `d343fdc` (locked-arm G1 robot and task
+  onboarding), `7ca22a3` (external live stock-sensor composition), `c5fdfc5`
+  (release/data/operator hardening), and `36f229d` (terrain/actuator extensions).
+  The deployment and current release lines are integrated by `eb3c668`.
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
@@ -97,6 +98,17 @@ The central design is sound and should be retained:
   explicit `--transfer` permits declaration drift and restarts learning at
   iteration zero. Both modes construct and reset a fresh environment and do not
   restore lifecycle snapshots or common RNG state.
+- Every primary training run records the final environment and agent
+  configurations as `params/env.yaml` and `params/agent.yaml`; Instinct-RL keeps
+  the source-repository diffs under `git/` before writing checkpoints. This
+  matches the retained InstinctMJ run layout without moving configuration into
+  the engine-neutral task contract.
+- Deployment export is a single self-contained `policy.onnx`. Observation
+  normalization, encoders, fixed I/O shape, provenance, an integrity digest,
+  and a numerical oracle are embedded in the model. The verifier checks ONNX
+  structure, integrity, finite output, PyTorch/ONNX parity, an optional trusted
+  external digest, and optional ONNX Runtime p95 latency; recurrent policies
+  fail closed until a hidden-state deployment contract is declared.
 - `scripts/train.py` and `scripts/play.py` select and bootstrap a backend before
   importing its SDK. Playback handlers are application-owned, not adapter APIs.
 - Shared semantic meanings live in `spec/`; motion state lives in
@@ -129,6 +141,7 @@ deformable, fluid, or service-runtime APIs that no current task requires.
 | Multiple articulations | Primary robot plus canonical `ArticulationRef` entities, each with its own `RobotSpec`; entity-targeted selectors lower on both engines | Broader task evidence on demand |
 | Lifecycle | Named exact-rational clocks, phase/latency, component state ownership, and full/partial reset semantics lower on both engines | No open 1.0 boundary |
 | Record/replay | Versioned safe same-engine snapshots plus normalized asynchronous episode traces and strict/tolerant replay | Cross-engine/native-solver bit equality is intentionally not promised |
+| Training/deployment artifacts | Checkpoints plus Git diffs and final environment/agent YAML; one verified self-contained `policy.onnx` with no data sidecar | Target hardware must supply its trusted digest and latency budget before promotion |
 | Operator packaging | Coordinated clean-source wheels/sdists, contained dataset manifests, complete direct runtime lock/import smoke, and an immutable externally supplied dual-SDK container contract | The protected tag candidate still needs a Docker/GPU release runner; no registry image was built or published on this server |
 
 ### Lifecycle 1.0 acceptance
@@ -296,6 +309,14 @@ locked-arm G1 onboarding: both SDK-free conformance reports found exactly 15
   canonical joints and complete actuator coverage; MJLab and Isaac Sim each
   constructed four environments with a 15-dimensional action axis, reset, and
   stepped five times
+deployment artifact acceptance: 11 deployment/training-artifact tests passed;
+  a retained MJLab BeyondMimic checkpoint exported exactly one 1,140,353-byte
+  `policy.onnx` with input `[1, 163]`, output `[1, 29]`, SHA-256
+  `7a8dcbf70acc39394ab5dd2ac43503f489ef6d05b5eb49436e8a02c7924dd849`,
+  ONNX Runtime CPU maximum absolute error `4.4703484e-07`, maximum relative
+  error `2.6555465e-06`, and measured p95 latency about `0.059 ms`; compiled
+  native MJLab configs also produced a 42,363-byte `params/env.yaml` and an
+  876-byte `params/agent.yaml`
 Isaac collision exclusions passed cloned-target validation and a
   4,096-environment, five-step capacity probe
 ```
@@ -367,6 +388,9 @@ mujoco-warp==3.10.0.1
 warp-lang==1.14.0
 instinct-rl==1.0.2
 instinctlab==0.1.0
+PyYAML==6.0.2
+onnx==1.22.0 (deployment extra)
+onnxruntime==1.29.0 (deployment extra)
 ```
 
 The MuJoCo-Warp/Warp pins are intentional. The newer
@@ -643,6 +667,10 @@ changes:
    both URI and manifest paths; `4e5e23f` locked every direct application/runtime
    dependency, isolated its import smoke, and bound artifacts to the requested
    clean source commit.
+7. `cca7bd3` aligned training outputs with InstinctMJ by retaining Git diffs and
+   writing final environment/agent YAML, then replaced the old multi-file ONNX
+   export with one integrity-checked, self-testing `policy.onnx` and a target
+   verification command.
 
 Remaining actions are operational choices, not unfinished implementation: push
 the local InstinctLab branch and the one local InstinctMJ commit; configure the
