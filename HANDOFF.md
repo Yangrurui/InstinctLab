@@ -1055,8 +1055,10 @@ The four P1 gaps remain mandatory before declaring the extension APIs stable
 
 #### Extension platform audit remediation (2026-08-31)
 
-All findings in the audit above are resolved through `73e6f57`; they no longer
-block Rough/Parkour preflight or extension-platform acceptance:
+The two stock production regressions in the audit above are resolved through
+`73e6f57`: Rough/Parkour preflight and Isaac Parkour `VolumePoints` no longer
+block those registered task paths. The follow-up audit below supersedes the
+broader claim that every P1 extension-contract finding is closed.
 
 - `4523773` validates generated terrain providers from each
   `SubTerrainSpec.kind` and covers every registered task/declared-engine pair.
@@ -1097,6 +1099,70 @@ The retained GPU 6 Perceptive training process was not stopped, restarted, or
 signaled during remediation or verification. Isaac's optional Iray loader still
 reports the server's missing `libGLU.so.1`; the headless Parkour physics test is
 unaffected and passed.
+
+#### Extension platform remediation follow-up audit (2026-08-31)
+
+Verdict: the stock-task P0 fixes are accepted, but the remediation is not fully
+correct as a stable third-party actuator and scene protocol. Terrain kind
+selection, Isaac `VolumePoints` construction, the original external fixture's
+stiffness/effort method mismatch, group identity metadata, and fixed-joint URDF
+traversal are implemented in the responsible layers and pass their focused
+tests. Two adversarial probes still reproduce contract failures that the green
+suite does not cover:
+
+1. **High -- mixed-actuator preflight and runtime disagree.** Preflight now
+   requests stiffness only from actuator groups whose canonical joints
+   intersect a term's `EntityRef`. At runtime, however,
+   `motors_power_square()` calls `joint_stiffness_groups()` before selecting the
+   term's joints, and that bridge requests stiffness from every joint actuator
+   group. A two-group probe with a selected stiffness-capable group and an
+   unselected group without stiffness passes preflight by design but fails in
+   the reward with `does not declare capability 'stiffness'`. This is a fail-late
+   contract violation and means `04cc719` has not yet delivered usable mixed
+   actuator models. Pass the selected native joint ids into the bridge, skip
+   non-intersecting groups before resolving their adapters, and validate that
+   returned ids belong to the owning group and have a broadcast-compatible
+   stiffness shape.
+2. **Medium -- the Isaac scene reserved-name set is incomplete.** The installed
+   Isaac Lab `InteractiveSceneCfg` declares `clone_in_fabric`, but
+   `_SCENE_RESERVED_NAMES` omits it. A rigid object named `clone_in_fabric`
+   passes `IsaacSimAdapter.contract_report()` and would later overwrite that
+   configuration field through `setattr`. Add the missing field and a
+   selected-SDK conformance test that compares the maintained SDK-free reserved
+   set with the actual native config fields so an SDK upgrade cannot silently
+   reopen the namespace.
+
+There is also a **medium acceptance-evidence gap** in the actuator wheel. The
+fixture still advertises `joint_position_command`, `gain_randomization`, and
+`stateful_reset` in addition to the bridge capabilities. Its probe exercises a
+stand-in `compute/reset` lifecycle and the real shared stiffness/effort reward
+consumers, but it does not construct a native external actuator in either
+engine or run the engines' gain-randomization event against it. The registry
+only enforces capability-specific adapter methods for stiffness and effort
+limits. Keep the current wheel as SDK-free contract evidence, but do not use it
+as stable-1.0 evidence for every advertised capability until a live native
+fixture exercises action, randomization, reset, and partial reset on both
+selected backends.
+
+Follow-up verification:
+
+```text
+121 passed (preflight, VolumePoints, actuator, asset, and scene focused tests)
+1389 passed, 3 skipped, 28 deselected, 1 warning (full tests/ suite)
+MJLab Flat G1: 16 environments constructed/reset and stepped five times;
+  39 terms resolved, canonical DFS action order true, finite reward,
+  zero terminations
+compileall and git diff --check passed
+direct mixed-actuator probe: selected stiffness group still failed because an
+  unselected group lacked stiffness
+direct Isaac symbol probe: clone_in_fabric was accepted
+```
+
+Re-accept the mixed-actuator and unified-symbol findings only after both
+adversarial cases become regression tests and pass. Stable-1.0 actuator
+acceptance additionally requires the live native external-capability gate
+above. The retained GPU 6 training process was observed and was not stopped,
+restarted, or signaled during this follow-up review.
 
 #### P1: make scenes and failures reproducible
 
@@ -2566,9 +2632,11 @@ production configuration.
 
 ## Open risks and next work
 
-The extension-platform P0 and P1 findings recorded above are resolved through
-`73e6f57`. Rough and Parkour now pass complete registry preflight, and the
-Isaac Parkour production path has live construction/reset/step evidence.
+The extension-platform stock-task P0 regressions are resolved through
+`73e6f57`: Rough and Parkour pass complete registry preflight, and Isaac
+Parkour has live construction/reset/step evidence. The follow-up audit above
+keeps mixed-actuator runtime selection, complete Isaac scene-name reservation,
+and live native external-actuator capability evidence open before stable 1.0.
 
 1. Let the retained GPU 6 Perceptive run continue; do not restart it or promote
    its checkpoint yet. The four MJCF-equivalent PhysX filtered pairs have passed
