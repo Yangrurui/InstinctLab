@@ -68,6 +68,53 @@ def test_wheel_verifier_declares_all_four_install_matrices() -> None:
     assert tuple(matrices) == ("core", "isaacsim", "mjlab", "both")
 
 
+def test_wheel_extension_probe_tracks_the_versioned_preflight_selection() -> None:
+    source = (ROOT / "scripts/verify_wheel_matrix.py").read_text()
+    module = ast.parse(source)
+    probe_assignment = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "EXTENSION_PROBE"
+            for target in node.targets
+        )
+    )
+    probe = ast.literal_eval(probe_assignment.value)
+    tree = ast.parse(probe)
+
+    schema_check = next(
+        node.test
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and "schema_version" in ast.unparse(node.test)
+    )
+    assert ast.literal_eval(schema_check.comparators[0]) == "preflight_v1"
+
+    selection_check = next(
+        node.test
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and "selected_components" in ast.unparse(node.test)
+    )
+    expected = ast.literal_eval(selection_check.comparators[0])
+    assert expected == {
+        "asset_id": "fixture_bot/v1",
+        "articulation_asset_ids": {"robot": "fixture_bot/v1"},
+        "actuator_model_ids": ["fixture.stateful.v1"],
+        "actuator_groups": [
+            {
+                "entity": "robot",
+                "name": "joint",
+                "model_id": "fixture.stateful.v1",
+            }
+        ],
+        "sensor_kinds": ["fixture.imu"],
+        "terrain_kind": "fixture_plane",
+        "sub_terrain_kinds": [],
+    }
+
+
 def test_each_backend_publishes_its_native_actuator_registrar() -> None:
     expected = {
         "instinctlab_engine_isaacsim": "isaacsim.isaaclab_pd",

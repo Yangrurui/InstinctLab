@@ -124,11 +124,18 @@ task = TaskSpec(
     engines=(engine_name,),
 )
 report = require_preflight(task, engine_name, selected_adapter=selected)
+if report["schema_version"] != "preflight_v1":
+    raise AssertionError(report["schema_version"])
 if report["selected_components"] != {
     "asset_id": "fixture_bot/v1",
+    "articulation_asset_ids": {"robot": "fixture_bot/v1"},
     "actuator_model_ids": ["fixture.stateful.v1"],
     "actuator_groups": [
-        {"name": "joint", "model_id": "fixture.stateful.v1"}
+        {
+            "entity": "robot",
+            "name": "joint",
+            "model_id": "fixture.stateful.v1",
+        }
     ],
     "sensor_kinds": ["fixture.imu"],
     "terrain_kind": "fixture_plane",
