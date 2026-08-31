@@ -378,7 +378,7 @@ meshes are absent. Do not substitute other motions or objects silently.
 | Locomotion Rough | Construction/stepping accepted; post-unification convergence pending |
 | Parkour | Declarations and pre-terrain reproduction accepted on both engines; current terrain/sensor live construction passes; post-unification convergence pending |
 | Whole Body plane Shadowing | Short-horizon parity accepted; retained long-run final output still needs audit |
-| Perceptive Shadowing | No accepted post-fix long convergence; retained run ended and needs final-log audit plus a collision-filter A/B |
+| Perceptive Shadowing | Four narrow collision exclusions accepted for contact/termination semantics; fixed-bin and 256-environment seed-42 A/B complete, but no post-fix long or multi-seed convergence claim |
 | BeyondMimic | Official-data L7, 256 environments, seed 42, 700 iterations accepted on both engines; multi-seed and 4,096-environment baselines not promoted |
 | Perceptive VAE | Canonical data and two-iteration training-chain smoke passed on both engines; no accepted production reproduction |
 | Perceptive HOI | Declarations/fixed-state coverage only; motions and meshes missing |
@@ -389,20 +389,8 @@ training reproductions. Construction smoke is never convergence evidence.
 
 ## Retained runs and diagnostics
 
-Process check at 2026-08-31 05:10 UTC found one operator-owned active job. Do
-not stop, restart, signal, or reuse its log directory:
-
-```text
-PID 1947325
-scripts/train.py --engine isaacsim \
-  --task Instinct-Perceptive-Shadowing-G1-v0 --num_envs 256 --seed 42 \
-  --max_iterations 700 --device cuda:2 --headless \
-  --logroot logs/diagnostics/perceptive_collision_ab_20260831/training_control_95041_retry1 \
-  --run_name no_exclusions_95041_256_seed42_700_cuda2
-```
-
-The lifecycle work and smoke probes used CUDA 0/1 and did not alter this job.
-The runs listed below are retained outputs, not additional active jobs. Do not
+Process check at 2026-08-31 05:38 UTC found no active `scripts/train.py`
+process. The runs listed below are retained outputs, not active jobs. Do not
 restart them without explicit operator approval.
 
 Accepted BeyondMimic L7 seed-42 runs:
@@ -426,11 +414,24 @@ logs/mjlab/g1_beyondmimic/
 These processes predate portable termination metric units; do not compare raw
 termination tags across engines without normalizing or regenerating them.
 
-Current Shadowing logs needing final audit:
+Whole Body Shadowing log still needing final audit:
 
 ```text
 logs/isaacsim/g1_shadowing/
   20260827_153315_jointref_fixed_final_long_4096_gpu5_20260827
+```
+
+The retained Perceptive run below completed 50,000 iterations and has now been
+audited. Across its last 1,000 TensorBoard samples, mean episode length was
+206.14, mean reward per step was 0.07267, and mean FPS was 15,181. Selected
+loss, gradient, reward, and termination metrics contained no non-finite values.
+Mean termination tags were 0.6664 dataset-exhausted, 0.2240 illegal reset
+contact, 0.0745 link position, 0.0270 timeout, and 0.0074 each for base position
+and projected gravity. This pre-exclusion run proves that the old configuration
+eventually learned, not that its early contact semantics were correct, and is
+not a post-fix convergence baseline.
+
+```text
 logs/isaacsim/g1_perceptive_shadowing/
   20260827_151020_jointref_fixed_final_long_4096_gpu6_20260827
 ```
@@ -469,13 +470,46 @@ self-collision disablement raised mean first-episode length from 12.58 to 50.79
 steps, close to MJLab's 48.46, but it is broader than an acceptable fix.
 
 The four narrow MJCF-equivalent exclusions now lower portably and passed cloned
-relationship checks plus a 4,096-environment PhysX capacity probe. Training
-behavior still needs a fresh A/B. Diagnostic reports and the reusable probe are:
+relationship checks plus a 4,096-environment PhysX capacity probe. A native
+PhysX A/B on CUDA 2 is complete:
+
+- The fixed-bin probe used the same `model_6000.pt`, 2,048 environments, seed
+  42, bin 12, 400 steps, and identical initial-start hash. Filtered versus
+  unfiltered step-1 non-support contact median was 84.75 versus 5,969.41 N, and
+  the fraction above 500 N was 27.88% versus 90.77%. Mean first-episode length
+  was 48.03 versus 12.58 steps, and first illegal-reset-contact terminations
+  were 226 versus 1,737. Per-step reward was slightly lower at 0.05310 versus
+  0.05453, which is why reward alone was not used as the verdict.
+- The training A/B used 256 environments, seed 42, 700 iterations, the same
+  CUDA device, and byte-identical effective agent configs. All 42 scalar tags
+  had 70 samples through iteration 690 and no non-finite values. In the final
+  100-iteration window, filtered versus strict unfiltered mean episode length
+  was 43.312 versus 46.296, per-step reward was 0.023091 versus 0.023898, and
+  illegal-reset-contact was 0.026058 versus 0.046517. FPS was 2,373.7 versus
+  2,383.6. A second unfiltered control produced the same overall learning and
+  illegal-contact pattern.
+
+The exclusions are therefore accepted as a physical/contact and termination
+semantics fix, not as a short-training performance optimization. This one-seed
+700-iteration run does not show a reward or episode-length improvement, and no
+post-fix long or multi-seed convergence claim is accepted. During the first
+treatment startup, a concurrent lifecycle commit changed only the order of the
+empty `lifecycle` and `engine_extras` declaration fields. The strict control
+has the same empty values; after normalizing that order, repository paths, and
+the intended collision field, the task declarations and datasets match.
+
+Diagnostic reports, runs, and the reusable probe are:
 
 ```text
 logs/diagnostics/perceptive_reset_bin12_model6000/
 scripts/probe_perceptive_reset.py
 logs/diagnostics/perceptive_collision_exclusions_4096_20260830.json
+logs/diagnostics/perceptive_collision_ab_20260831/
+  treatment_fixed_bin12_retry1.json
+  control_fixed_bin12.json
+  training_treatment_retry1/20260831_120042_narrow4_256_seed42_700_cuda2
+  training_control_95041_retry1/20260831_130618_no_exclusions_95041_256_seed42_700_cuda2
+  training_control/20260831_123247_no_exclusions_256_seed42_700_cuda2
 ```
 
 ## Open work
