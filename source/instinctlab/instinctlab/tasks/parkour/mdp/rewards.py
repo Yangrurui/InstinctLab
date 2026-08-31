@@ -23,7 +23,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import torch
-
 from instinctlab_engine.actuators import (
     APPLIED_EFFORT,
     EFFORT_LIMITS,
@@ -34,7 +33,11 @@ from instinctlab_engine.bridge import math as math_utils
 from instinctlab_engine.bridge import robot as compat_robot
 from instinctlab_engine.bridge import sensors as compat_sensors
 from instinctlab_engine.bridge.env import RlEnv, get_command
-from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
+from instinctlab_engine.spec.sensor import (
+    ContactSensorRef,
+    RayCasterRef,
+    VolumePointsRef,
+)
 
 from .observations import _body_index_list, _joint_ids, _name
 
@@ -98,35 +101,74 @@ def joint_torques_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
 
 
 @requires_actuator_capabilities(APPLIED_EFFORT, STIFFNESS)
-def motors_power_square(
-    env: RlEnv,
-    asset_cfg: Any = None,
-    normalize_by_stiffness: bool = True,
-    normalize_by_num_joints: bool = False,
-) -> torch.Tensor:
-    """Square native joint power, with the task-selected normalization."""
-    asset = env.scene[_name(asset_cfg)]
-    power_per_joint = (
-        compat_robot.joint_applied_torque(env, asset) * asset.data.joint_vel
-    )
-    selected_joint_ids = _joint_ids(asset_cfg)
-    if normalize_by_stiffness:
-        for joint_ids, stiffness in compat_robot.joint_stiffness_groups(
-            env,
-            asset,
-            selected_joint_ids,
-            requesting_term="motors_power_square",
-        ):
-            power_per_joint[:, joint_ids] /= torch.as_tensor(
-                stiffness,
+class MotorsPowerSquare:
+    """Square native joint power after resolving static actuator bindings once."""
+
+    def __init__(self, cfg: Any, env: RlEnv) -> None:
+        asset_cfg = cfg.params.get("asset_cfg")
+        asset = env.scene[_name(asset_cfg)]
+        self._selected_joint_ids = _joint_ids(asset_cfg)
+        self._normalize_by_stiffness = bool(
+            cfg.params.get("normalize_by_stiffness", True)
+        )
+        if self._normalize_by_stiffness:
+            self._stiffness_groups = tuple(
+                (
+                    joint_ids,
+                    torch.as_tensor(
+                        stiffness,
+                        device=asset.data.joint_vel.device,
+                        dtype=asset.data.joint_vel.dtype,
+                    ),
+                )
+                for joint_ids, stiffness in compat_robot.resolve_joint_stiffness_groups(
+                    env,
+                    asset,
+                    self._selected_joint_ids,
+                    requesting_term="motors_power_square",
+                )
+            )
+        else:
+            self._stiffness_groups = ()
+
+    def __call__(
+        self,
+        env: RlEnv,
+        asset_cfg: Any = None,
+        normalize_by_stiffness: bool = True,
+        normalize_by_num_joints: bool = False,
+    ) -> torch.Tensor:
+        asset = env.scene[_name(asset_cfg)]
+        power_per_joint = (
+            compat_robot.joint_applied_torque(env, asset) * asset.data.joint_vel
+        )
+        if normalize_by_stiffness:
+            if not self._normalize_by_stiffness:
+                raise RuntimeError(
+                    "motors_power_square was initialized without stiffness normalization."
+                )
+            penalty = torch.zeros(
+                power_per_joint.shape[0],
                 device=power_per_joint.device,
                 dtype=power_per_joint.dtype,
             )
-    power_per_joint = power_per_joint[:, selected_joint_ids]
-    penalty = torch.sum(torch.square(power_per_joint), dim=-1)
-    if normalize_by_num_joints:
-        penalty = penalty / power_per_joint.shape[-1]
-    return penalty
+            selected_joint_count = 0
+            for joint_ids, stiffness in self._stiffness_groups:
+                group_power = torch.index_select(power_per_joint, 1, joint_ids)
+                group_power = group_power / stiffness
+                penalty += torch.sum(torch.square(group_power), dim=-1)
+                selected_joint_count += joint_ids.shape[0]
+        else:
+            selected_power = power_per_joint[:, self._selected_joint_ids]
+            penalty = torch.sum(torch.square(selected_power), dim=-1)
+            selected_joint_count = selected_power.shape[-1]
+        if normalize_by_num_joints:
+            penalty = penalty / selected_joint_count
+        return penalty
+
+
+# Keep the adapted task's public term spelling while using the manager's class-term lifecycle.
+motors_power_square = MotorsPowerSquare
 
 
 @requires_actuator_capabilities(APPLIED_EFFORT, EFFORT_LIMITS)

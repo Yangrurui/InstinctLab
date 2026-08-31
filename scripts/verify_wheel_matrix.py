@@ -187,7 +187,11 @@ from instinctlab.tasks.parkour.mdp.rewards import (
 )
 
 asset_cfg = SimpleNamespace(name="robot", joint_ids=[0])
-power = motors_power_square(env, asset_cfg=asset_cfg)
+power_term = motors_power_square(
+    SimpleNamespace(params={"asset_cfg": asset_cfg}),
+    env,
+)
+power = power_term(env, asset_cfg=asset_cfg)
 torch.testing.assert_close(power, torch.tensor([16.0, 56.25]))
 limit_penalty = applied_torque_limits_by_ratio(
     env, asset_cfg=asset_cfg, limit_ratio=0.8

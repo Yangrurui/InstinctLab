@@ -14,8 +14,8 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from instinctlab_engine.compile import joint_position_target
 from instinctlab_engine.actuators import JOINT_POSITION_COMMAND
+from instinctlab_engine.compile import joint_position_target
 from instinctlab_engine.registry import TermRegistry
 
 from .event_terms import register_event_terms
@@ -41,9 +41,10 @@ def _import_cfgs() -> dict[str, Any]:
 def _as_isaac_manager_term(cls: type) -> type:
     """Isaac Lab refuses a class term that is not a ``ManagerTermBase`` subclass.
 
-    mjlab instantiates any class with ``(cfg=, env=)``. The delay / history buffer
-    for the depth image is portable and cannot inherit Isaac's type, so this
-    wrapper is the Isaac-only tax -- not a second implementation of the pipeline.
+    mjlab instantiates any class with ``(cfg=, env=)``. Portable class terms such
+    as the depth-history observation and cached motor-power reward cannot inherit
+    Isaac's type, so this wrapper is the Isaac-only tax -- not a second task
+    implementation.
     """
     from isaaclab.managers import ManagerTermBase
 
@@ -55,7 +56,10 @@ def _as_isaac_manager_term(cls: type) -> type:
             self._impl = cls(cfg, env)
 
         def reset(self, env_ids=None):
-            return self._impl.reset(env_ids)
+            reset = getattr(self._impl, "reset", None)
+            if callable(reset):
+                return reset(env_ids)
+            return super().reset(env_ids)
 
         def __call__(self, *args, **kwargs):
             return self._impl(*args, **kwargs)
@@ -84,8 +88,11 @@ def _observation(spec, ctx):
 
 @TERMS.portable("reward")
 def _reward(spec, ctx):
+    func = spec.func
+    if inspect.isclass(func):
+        func = _as_isaac_manager_term(func)
     return _import_cfgs()["reward"](
-        func=spec.func, weight=spec.weight, params=ctx.params(spec)
+        func=func, weight=spec.weight, params=ctx.params(spec)
     )
 
 

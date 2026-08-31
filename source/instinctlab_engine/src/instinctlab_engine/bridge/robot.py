@@ -12,6 +12,7 @@ engine implementation.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from numbers import Integral
 from typing import Any, Literal
 
 import torch
@@ -28,6 +29,7 @@ __all__ = [
     "joint_applied_torque",
     "joint_effort_limits",
     "joint_stiffness_groups",
+    "resolve_joint_stiffness_groups",
     "root_angular_velocity_b",
     "root_linear_velocity_b",
 ]
@@ -157,12 +159,12 @@ def _actuator_groups(asset: Any) -> Iterable[tuple[str, Any]]:
     if isinstance(actuators, Mapping):
         yield from ((str(name), actuator) for name, actuator in actuators.items())
     else:
-        yield from (
-            (str(index), actuator) for index, actuator in enumerate(actuators)
-        )
+        yield from ((str(index), actuator) for index, actuator in enumerate(actuators))
 
 
-def _joint_index_tuple(value: Any, joint_count: int, *, context: str) -> tuple[int, ...]:
+def _joint_index_tuple(
+    value: Any, joint_count: int, *, context: str
+) -> tuple[int, ...]:
     if value is None:
         indices = tuple(range(joint_count))
     elif isinstance(value, slice):
@@ -170,14 +172,38 @@ def _joint_index_tuple(value: Any, joint_count: int, *, context: str) -> tuple[i
     elif isinstance(value, torch.Tensor):
         if value.ndim != 1:
             raise RuntimeError(f"{context} joint ids must be one-dimensional.")
-        indices = tuple(int(index) for index in value.tolist())
-    elif isinstance(value, int):
-        indices = (value,)
+        if value.dtype not in {
+            torch.uint8,
+            torch.uint16,
+            torch.uint32,
+            torch.uint64,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        }:
+            raise RuntimeError(
+                f"{context} joint ids must use an integer tensor dtype, got {value.dtype}."
+            )
+        # Actuator ownership is static. Callers resolve this helper once while a manager term is
+        # initialized, never from the per-step reward path where a CUDA ``tolist()`` would force
+        # device-to-host synchronization.
+        indices = tuple(value.tolist())
+    elif isinstance(value, Integral) and not isinstance(value, bool):
+        indices = (int(value),)
     else:
         try:
-            indices = tuple(int(index) for index in value)
-        except (TypeError, ValueError):
+            raw_indices = tuple(value)
+        except TypeError:
             raise RuntimeError(f"{context} has invalid joint ids {value!r}.") from None
+        if any(
+            not isinstance(index, Integral) or isinstance(index, bool)
+            for index in raw_indices
+        ):
+            raise RuntimeError(
+                f"{context} joint ids must contain only integral values, got {value!r}."
+            )
+        indices = tuple(int(index) for index in raw_indices)
     if len(indices) != len(set(indices)):
         raise RuntimeError(f"{context} repeats joint ids {indices!r}.")
     invalid = tuple(index for index in indices if index < 0 or index >= joint_count)
@@ -237,14 +263,13 @@ def _selected_stiffness(
     return selected
 
 
-def joint_stiffness_groups(
+def _resolve_joint_stiffness_groups(
     env: Any,
     asset: Any,
     joint_ids: Any,
     *,
     requesting_term: str = "joint stiffness reader",
-) -> Iterable[tuple[Any, Any]]:
-    """Yield stiffness for selected joints through their owning native adapters."""
+) -> Iterable[tuple[tuple[int, ...], torch.Tensor, Any]]:
     engine = _native_engine(env, asset)
     joint_count = int(getattr(asset, "num_joints", asset.data.joint_vel.shape[-1]))
     selected_ids = _joint_index_tuple(
@@ -254,6 +279,8 @@ def joint_stiffness_groups(
     )
     selected_set = set(selected_ids)
     num_envs = int(asset.data.joint_vel.shape[0])
+    device = asset.data.joint_vel.device
+    all_covered: set[int] = set()
     for native_group, actuator in _actuator_groups(asset):
         if getattr(actuator, "transmission_type", "joint") != "joint":
             continue
@@ -320,6 +347,12 @@ def joint_stiffness_groups(
                     f"Engine {engine!r} actuator adapter for group {native_group!r} "
                     f"returned duplicate selected joint ids: {sorted(duplicates)}."
                 )
+            duplicates = all_covered.intersection(relevant_ids)
+            if duplicates:
+                raise RuntimeError(
+                    f"Engine {engine!r} actuator groups return stiffness more than once "
+                    f"for selected joint ids {sorted(duplicates)}."
+                )
             stiffness = _selected_stiffness(
                 group[1],
                 returned_ids=returned_ids,
@@ -329,13 +362,58 @@ def joint_stiffness_groups(
                 native_group=native_group,
             )
             covered.update(relevant_ids)
-            yield relevant_ids, stiffness
+            all_covered.update(relevant_ids)
+            yield (
+                relevant_ids,
+                torch.tensor(relevant_ids, device=device, dtype=torch.long),
+                stiffness,
+            )
         missing = required_ids - covered
         if missing:
             raise RuntimeError(
                 f"Engine {engine!r} actuator adapter for group {native_group!r} did "
                 f"not return stiffness for selected joint ids {sorted(missing)}."
             )
+    missing = selected_set - all_covered
+    if missing:
+        raise RuntimeError(
+            f"Engine {engine!r} actuator groups do not provide stiffness for selected "
+            f"joint ids {sorted(missing)} requested by {requesting_term!r}."
+        )
+
+
+def joint_stiffness_groups(
+    env: Any,
+    asset: Any,
+    joint_ids: Any,
+    *,
+    requesting_term: str = "joint stiffness reader",
+) -> Iterable[tuple[tuple[int, ...], Any]]:
+    """Yield the public Python-id stiffness interface for diagnostics and probes."""
+    for python_ids, _device_ids, stiffness in _resolve_joint_stiffness_groups(
+        env,
+        asset,
+        joint_ids,
+        requesting_term=requesting_term,
+    ):
+        yield python_ids, stiffness
+
+
+def resolve_joint_stiffness_groups(
+    env: Any,
+    asset: Any,
+    joint_ids: Any,
+    *,
+    requesting_term: str = "joint stiffness reader",
+) -> Iterable[tuple[torch.Tensor, Any]]:
+    """Resolve static stiffness bindings once for a device-side manager term."""
+    for _python_ids, device_ids, stiffness in _resolve_joint_stiffness_groups(
+        env,
+        asset,
+        joint_ids,
+        requesting_term=requesting_term,
+    ):
+        yield device_ids, stiffness
 
 
 def joint_effort_limits(env: Any, asset: Any, joint_ids: Any) -> torch.Tensor:
