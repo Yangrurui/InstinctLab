@@ -1,0 +1,34 @@
+{
+  "application_version": "0.1.0",
+  "distributions": {
+    "instinct-rl": "1.0.2",
+    "instinctlab": "0.1.0",
+    "instinctlab-engine-core": "0.1.0",
+    "instinctlab-engine-isaacsim": "0.1.0",
+    "instinctlab-engine-mjlab": "0.1.0",
+    "isaaclab": "0.54.4",
+    "isaaclab_assets": "0.2.4",
+    "isaaclab_mimic": "1.0.16",
+    "isaaclab_rl": "0.5.1",
+    "isaaclab_tasks": "0.11.16",
+    "isaacsim": "5.1.0.0",
+    "mjlab": "1.5.0",
+    "mujoco": "3.10.0",
+    "mujoco-warp": "3.10.0.1",
+    "torch": "2.7.0+cu128",
+    "warp-lang": "1.14.0"
+  },
+  "python": "3.11",
+  "schema_version": "instinctlab_container_runtime_lock_v1",
+  "sources": {
+    "isaaclab": {
+      "commit": "f73c33173801f5f8afea4142482e47b7710c2b75",
+      "url": "https://github.com/isaac-sim/IsaacLab.git"
+    },
+    "mjlab": {
+      "commit": "08090e8a77228e733373f3b5c54f8b5a68d19d9d",
+      "tag": "v1.5.0",
+      "url": "https://github.com/mujocolab/mjlab.git"
+    }
+  }
+}

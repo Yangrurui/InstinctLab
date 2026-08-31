@@ -27,7 +27,9 @@ def _script(name: str):
 def test_all_release_distributions_and_plugin_apis_are_coordinated() -> None:
     release = _script("check_release.py")
 
-    assert release.validate_release_metadata(release.collect_release_metadata()) == "0.1.0"
+    assert (
+        release.validate_release_metadata(release.collect_release_metadata()) == "0.1.0"
+    )
 
 
 def test_python_tooling_targets_the_supported_python_311() -> None:
@@ -79,3 +81,17 @@ def test_release_builder_uses_clean_sources_and_isolated_pinned_tools() -> None:
     assert "shutil.copytree(" in source
     assert "venv.EnvBuilder(with_pip=True)" in source
     assert '"__pycache__"' in source
+    assert '"shadowing_probe.py"' in source
+
+
+def test_release_builder_excludes_gitignored_diagnostic_modules(tmp_path: Path) -> None:
+    builder = _script("build_release.py")
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "production.py").write_text("PRODUCTION = True\n")
+    (source / "shadowing_probe.py").write_text("LOCAL_ONLY = True\n")
+
+    copied = builder._copy_project(source, tmp_path / "copied")
+
+    assert (copied / "production.py").is_file()
+    assert not (copied / "shadowing_probe.py").exists()

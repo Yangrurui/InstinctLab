@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import re
 import sys
 from pathlib import Path
@@ -14,9 +15,7 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECTS = {
     "instinctlab-engine-core": REPO_ROOT / "source" / "instinctlab_engine",
-    "instinctlab-engine-isaacsim": REPO_ROOT
-    / "source"
-    / "instinctlab_engine_isaacsim",
+    "instinctlab-engine-isaacsim": REPO_ROOT / "source" / "instinctlab_engine_isaacsim",
     "instinctlab-engine-mjlab": REPO_ROOT / "source" / "instinctlab_engine_mjlab",
 }
 APPLICATION = REPO_ROOT / "source" / "instinctlab"
@@ -32,7 +31,10 @@ def _constant(path: Path, name: str) -> str:
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
-        if any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+        if any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        ):
             value = ast.literal_eval(node.value)
             if isinstance(value, str):
                 return value
@@ -67,10 +69,15 @@ def collect_release_metadata() -> dict:
             "NATIVE_ASSET_API_VERSION",
         ),
         "application_setup": (APPLICATION / "setup.py").read_text(),
+        "container_runtime": json.loads(
+            (REPO_ROOT / "docker" / "runtime-lock.json").read_text()
+        ),
     }
 
 
-def validate_release_metadata(metadata: dict, *, expected_version: str | None = None) -> str:
+def validate_release_metadata(
+    metadata: dict, *, expected_version: str | None = None
+) -> str:
     packages = metadata["packages"]
     versions = {name: values["version"] for name, values in packages.items()}
     unique_versions = set(versions.values())
@@ -105,11 +112,28 @@ def validate_release_metadata(metadata: dict, *, expected_version: str | None = 
     if 'python_requires=">=3.11"' not in setup:
         raise RuntimeError("application setup does not require Python >=3.11")
 
+    container_runtime = metadata["container_runtime"]
+    if container_runtime.get("application_version") != version:
+        raise RuntimeError(
+            "container runtime application version is not coordinated with the release: "
+            f"{container_runtime.get('application_version')!r} != {version!r}"
+        )
+    locked_distributions = container_runtime.get("distributions", {})
+    for distribution in (*packages, "instinct-rl"):
+        expected = "1.0.2" if distribution == "instinct-rl" else version
+        if locked_distributions.get(distribution) != expected:
+            raise RuntimeError(
+                f"container runtime pins {distribution}="
+                f"{locked_distributions.get(distribution)!r}, expected {expected!r}"
+            )
+
     public_api = ".".join(version.split(".")[:2])
     for name in ("engine_core_api", "native_asset_api"):
         api_version = metadata[name]
         if not re.fullmatch(r"\d+\.\d+", api_version):
-            raise RuntimeError(f"{name} is not a major.minor API version: {api_version!r}")
+            raise RuntimeError(
+                f"{name} is not a major.minor API version: {api_version!r}"
+            )
         if api_version != public_api:
             raise RuntimeError(
                 f"{name}={api_version!r} is not coordinated with package version {version!r}"

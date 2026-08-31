@@ -46,6 +46,12 @@ Every release candidate must satisfy all of the following on one source commit:
    engine reports pass those thresholds at the intended environment count.
 7. `HANDOFF.md` contains no unresolved P0/P1 release blocker and records the
    exact accepted evidence, datasets, external revisions, and known limits.
+8. `scripts/verify_datasets.py` accepts every required entry in the versioned
+   dataset manifest, and its receipt is archived with the run/release evidence.
+9. The operator image builds from the coordinated wheel artifacts on an
+   immutable external runtime digest. The runtime lock, clean source receipt,
+   installed distribution versions, and all wheel checksums pass
+   `scripts/verify_container_runtime.py`.
 
 ## Build and publication
 

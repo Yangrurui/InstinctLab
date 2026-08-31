@@ -90,6 +90,67 @@ Use **pip** (not uv) in a Python 3.11 conda environment. Installing this project
     python -m pip install -e source/instinctlab  # MJLab only
     ```
 
+### Dataset mounts
+
+Task declarations use portable `dataset://...` paths instead of server-specific
+home-directory links. They resolve below `INSTINCTLAB_DATA_ROOT`, which defaults
+to `~/Datasets`. Verify the mounted data and write a portable receipt before a
+production run:
+
+```bash
+export INSTINCTLAB_DATA_ROOT=/absolute/path/to/Datasets
+PYTHONPATH=source/instinctlab_engine python scripts/verify_datasets.py \
+  --receipt dataset-verification.json
+```
+
+The versioned expected paths and SHA-256 values live in
+`datasets/manifest.json`. Run manifests retain both the readable `dataset://`
+declaration and its resolved local path. The optional OMOMO entry is recorded
+as unavailable and is checked only when explicitly selected or when
+`--include-optional` is used.
+
+### Container image
+
+The application image builds the four coordinated InstinctLab wheels in an
+isolated Python 3.11 stage and installs them onto an externally supplied,
+immutable dual-backend runtime. Isaac Sim is not rebuilt or redistributed here:
+its runtime/EULA, NVIDIA driver boundary, and large SDK caches belong in the
+site-managed base image. That base must contain the exact packages in
+`docker/runtime-lock.json` and an
+`/opt/instinctlab-runtime/runtime_provenance.json` receipt matching
+`docker/runtime-provenance.example.json`.
+
+The maintainer of that base writes the receipt only from clean pinned source
+checkouts:
+
+```bash
+python scripts/write_container_runtime_provenance.py \
+  --lock docker/runtime-lock.json \
+  --isaaclab-checkout /workspace/IsaacLab \
+  --mjlab-checkout /workspace/mjlab \
+  --output /opt/instinctlab-runtime/runtime_provenance.json
+```
+
+Use an immutable digest, not a mutable tag:
+
+```bash
+export INSTINCTLAB_RUNTIME_IMAGE='registry/image@sha256:<64-hex-digest>'
+export INSTINCTLAB_WHEEL_BUILDER_IMAGE='python:3.11-slim@sha256:<64-hex-digest>'
+export INSTINCTLAB_HOST_DATA_ROOT=/absolute/path/to/Datasets
+docker/docker-compose.sh
+
+# Inside the container, validate the read-only dataset mount.
+PYTHONPATH= python /opt/instinctlab/bin/verify_datasets.py \
+  --manifest /opt/instinctlab/dataset-manifest.json \
+  --receipt /workspace/logs/dataset-verification.json
+```
+
+The image build fails if the base reference is not digest-pinned, its receipt
+does not name the pinned IsaacLab/MJLab commits, any locked SDK distribution is
+missing or has drifted, or a coordinated wheel checksum/version is wrong. The
+repository itself and sibling checkouts are not bind-mounted into the operator
+container.
+
 - Train any registered unified task on either engine. One declaration, compiled by the chosen engine's
   adapter; `--headless` and the other launch flags belong to the engine and are accepted only where
   it defines them.

@@ -3,10 +3,11 @@
 set -e
 set -u
 
-profile="instinctlab"
+service="instinctlab"
 if [ $# -eq 1 ]
 then
-    profile=$1
+    service=$1
 fi
 
-docker compose --file docker-compose.yaml --env-file .env.base down $profile
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+docker compose --file "$script_dir/docker-compose.yaml" --env-file "$script_dir/.env.base" stop "$service"

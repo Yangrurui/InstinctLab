@@ -1,0 +1,15 @@
+{
+  "schema_version": "instinctlab_external_runtime_v1",
+  "sources": {
+    "isaaclab": {
+      "commit": "f73c33173801f5f8afea4142482e47b7710c2b75",
+      "dirty": false,
+      "url": "https://github.com/isaac-sim/IsaacLab.git"
+    },
+    "mjlab": {
+      "commit": "08090e8a77228e733373f3b5c54f8b5a68d19d9d",
+      "dirty": false,
+      "url": "https://github.com/mujocolab/mjlab.git"
+    }
+  }
+}

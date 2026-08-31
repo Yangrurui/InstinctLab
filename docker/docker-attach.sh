@@ -3,10 +3,10 @@
 set -e
 set -u
 
-profile="instinctlab"
+service="instinctlab"
 if [ $# -eq 1 ]
 then
-    profile=$1
+    service=$1
 fi
 
-docker exec --interactive --tty $profile bash
+docker exec --interactive --tty "$service" bash

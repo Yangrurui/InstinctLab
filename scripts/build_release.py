@@ -43,6 +43,9 @@ def _copy_project(source: Path, destination: Path) -> Path:
             "__pycache__",
             ".pytest_cache",
             ".ruff_cache",
+            # Maintainer-only diagnostic module is intentionally gitignored;
+            # a local copy must never leak into an application artifact.
+            "shadowing_probe.py",
         ),
     )
     return destination
@@ -108,7 +111,9 @@ def main() -> int:
                 check=True,
             )
         artifacts = sorted(
-            path for path in stage.iterdir() if path.suffix == ".whl" or path.name.endswith(".tar.gz")
+            path
+            for path in stage.iterdir()
+            if path.suffix == ".whl" or path.name.endswith(".tar.gz")
         )
         if len(artifacts) != 8:
             raise RuntimeError(
@@ -116,7 +121,13 @@ def main() -> int:
                 f"{[path.name for path in artifacts]}"
             )
         subprocess.run(
-            [str(tool_python), "-m", "twine", "check", *(str(path) for path in artifacts)],
+            [
+                str(tool_python),
+                "-m",
+                "twine",
+                "check",
+                *(str(path) for path in artifacts),
+            ],
             cwd=REPO_ROOT,
             check=True,
         )

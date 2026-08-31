@@ -1,66 +1,34 @@
-x-default-isaac-lab-template-environment: &default-isaac-lab-template-environment
-  - OMNI_KIT_ALLOW_ROOT=1
-
-x-default-isaac-lab-template-deploy: &default-isaac-lab-template-deploy
+x-instinctlab-gpu: &instinctlab-gpu
   resources:
     reservations:
       devices:
         - driver: nvidia
           count: all
-          capabilities: [ gpu ]
+          capabilities: [gpu]
 
 services:
   instinctlab:
-    env_file: .env.base
     build:
-      context: ../
+      context: ..
       dockerfile: docker/Dockerfile
       args:
-        - ISAACLAB_BASE_IMAGE_ARG=${ISAACLAB_BASE_IMAGE}
-        - DOCKER_ISAACLAB_EXTENSION_TEMPLATE_PATH_ARG=${DOCKER_ISAACLAB_EXTENSION_TEMPLATE_PATH}
-    image: instinctlab
+        INSTINCTLAB_RUNTIME_IMAGE: ${INSTINCTLAB_RUNTIME_IMAGE:?set an immutable dual-backend image@sha256 reference}
+        INSTINCTLAB_WHEEL_BUILDER_IMAGE: ${INSTINCTLAB_WHEEL_BUILDER_IMAGE:?set an immutable Python 3.11 image@sha256 reference}
+    image: ${INSTINCTLAB_APPLICATION_IMAGE:-instinctlab:0.1.0}
     container_name: instinctlab
+    network_mode: host
+    environment:
+      INSTINCTLAB_DATA_ROOT: /datasets
+      OMNI_KIT_ALLOW_ROOT: "1"
     volumes:
       - type: bind
-        source: ../
-        target: ${DOCKER_ISAACLAB_EXTENSION_TEMPLATE_PATH}
-    network_mode: host
-    environment: *default-isaac-lab-template-environment
-    deploy: *default-isaac-lab-template-deploy
-    # This is the entrypoint for the container
-    entrypoint: bash
-    stdin_open: true
-    tty: true
-  ziwenz-instinctlab:
-    env_file: .env.base
-    build:
-      context: ../
-      dockerfile: docker/Dockerfile
-      args:
-        - ISAACLAB_BASE_IMAGE_ARG=${ISAACLAB_BASE_IMAGE}
-        - DOCKER_ISAACLAB_EXTENSION_TEMPLATE_PATH_ARG=${DOCKER_ISAACLAB_EXTENSION_TEMPLATE_PATH}
-    image: ziwenz-instinctlab
-    container_name: ziwenz-instinctlab
-    volumes:
+        source: ${INSTINCTLAB_HOST_DATA_ROOT:?set the host dataset root}
+        target: /datasets
+        read_only: true
       - type: bind
-        source: ../../
-        target: /root/ziwenz
-      - type: bind
-        source: /public/MARS/Users/zzw/Data
-        target: /root/Data
-      - type: bind
-        source: /public/MARS/Users/zzw/Data
-        target: /home/zzw/Data
-      - type: bind
-        source: /public/MARS/Users/zzw/Datasets
-        target: /root/Datasets
-      - type: bind
-        source: /public/MARS/Users/zzw/Datasets
-        target: /home/zzw/Datasets
-    network_mode: host
-    environment: *default-isaac-lab-template-environment
-    deploy: *default-isaac-lab-template-deploy
-    # This is the entrypoint for the container
+        source: ${INSTINCTLAB_HOST_LOG_ROOT:-../logs}
+        target: /workspace/logs
+    deploy: *instinctlab-gpu
     entrypoint: bash
     stdin_open: true
     tty: true
