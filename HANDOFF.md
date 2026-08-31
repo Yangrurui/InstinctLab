@@ -15,8 +15,8 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified implementation commits: `d34ecdd` (target baseline) and
-  `36f229d` (terrain/actuator extensions)
+- Latest verified implementation commits: `c5fdfc5` (release/data/operator
+  hardening) and `36f229d` (terrain/actuator extensions)
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
@@ -76,6 +76,13 @@ The central design is sound and should be retained:
   recorded for providers actually used by a compilation.
 - Production train/play compilation is strict and clean by default. Omissions
   or emulation require an explicit override and remain visible in the manifest.
+- Portable dataset resolution rejects decoded separators, traversal, absolute
+  paths, and symlink escapes. Manifest resources and conversion targets must
+  remain below their declared dataset root after canonical resolution.
+- Release builds refuse dirty checkouts, stage only Git-tracked files, pin the
+  complete build backend, and record their clean source commit. A `vX.Y.Z` tag
+  must pass the fast, wheel, GPU-live, and protected operator-candidate workflows
+  on that same commit before the PyPI job can run.
 - Checkpoint manifests contain a readable versioned task, robot, policy-I/O,
   effective-agent, and training-semantic contract. Strict `--resume` rejects
   drift before environment construction and restores runner training state;
@@ -114,7 +121,7 @@ deformable, fluid, or service-runtime APIs that no current task requires.
 | Multiple articulations | Primary robot plus canonical `ArticulationRef` entities, each with its own `RobotSpec`; entity-targeted selectors lower on both engines | Broader task evidence on demand |
 | Lifecycle | Named exact-rational clocks, phase/latency, component state ownership, and full/partial reset semantics lower on both engines | No open 1.0 boundary |
 | Record/replay | Versioned safe same-engine snapshots plus normalized asynchronous episode traces and strict/tolerant replay | Cross-engine/native-solver bit equality is intentionally not promised |
-| Operator packaging | Coordinated wheels/sdists, dataset manifests, and an immutable externally supplied dual-SDK container contract | No registry image was built or published on this Docker-less server |
+| Operator packaging | Coordinated clean-source wheels/sdists, contained dataset manifests, complete direct runtime lock/import smoke, and an immutable externally supplied dual-SDK container contract | The protected tag candidate still needs a Docker/GPU release runner; no registry image was built or published on this server |
 
 ### Lifecycle 1.0 acceptance
 
@@ -257,6 +264,14 @@ external fixture installed, passed SDK-free probes, constructed two real
 four coordinated wheels and four sdists passed `twine check`; their checksum
   manifest and the installed dual-runtime lock passed the container verifier
 five required datasets and 78 resources passed the versioned SHA-256 manifest
+release/data re-acceptance: 14 dataset tests and 19 release/operator tests passed;
+  encoded-authority and symlink escapes fail closed, arbitrary untracked build
+  files are excluded, dirty release checkouts are rejected, and workflow YAML
+  parses successfully
+clean clone at `c5fdfc5` built four wheels and four sdists with the fully pinned
+  backend, all eight passed `twine check`, the manifest recorded the exact clean
+  source commit, and the runtime verifier passed every locked distribution and
+  isolated module import
 application extension wiring: 122 focused tests passed; both Parkour preflights
   reported `ok`; MJLab generated a 25,600-vertex/50,562-face `perlin_wave`
   collision surface; an Isaac Kit test generated the corresponding native mesh;
@@ -297,12 +312,15 @@ headless physics probes continue successfully, so this is not a current startup
 blocker.
 
 This server has no Docker CLI, so no final image build or registry push is
-claimed. The operator boundary was accepted through clean-copy release builds,
-four isolated wheel matrices, real installed-SDK/source-receipt verification,
-and fail-closed tests for mutable image references, dirty or wrong backend
-sources, SDK-version drift, and artifact checksum drift. The application
-Dockerfile consumes a site-managed Isaac Sim/MJLab base by immutable digest;
-the rationale and required receipt are documented in `README.md`.
+claimed. The operator boundary was accepted through clean tracked-source release
+builds, four isolated wheel matrices, real installed-SDK/source-receipt
+verification, the complete direct application dependency lock and isolated
+import smoke, and fail-closed tests for mutable image references, dirty or wrong
+backend sources, source-commit drift, SDK-version drift, and artifact checksum
+drift. The application Dockerfile consumes prebuilt coordinated artifacts and a
+site-managed Isaac Sim/MJLab base by immutable digest; the protected
+`release-candidate` workflow is the required Docker-capable acceptance path. The
+rationale and required receipt are documented in `README.md`.
 
 ## External checkouts and runtime stack
 
@@ -594,19 +612,27 @@ changes:
    editable-source runtime provenance.
 4. `3a58365` established coordinated package/API metadata, fast/wheel/GPU/
    release workflows, the Python 3.11 type gate, Ruff ratchet, isolated release
-   builder, and `RELEASE.md`.
+   builder, and `RELEASE.md`. `3399713`, `4edeefe`, `4e5e23f`, and `c5fdfc5`
+   then made the builder tracked-source and fully pinned, normalized the broken
+   LFS asset, added exact-tag/same-commit publication gates, and added the
+   protected full operator candidate.
 5. `3e05864` flattened concrete Locomotion configs and made selectors local and
    explicit; `f6f2860` records the reviewed duplicate native-friction overlay
    required by those independent declarations.
 6. `81a4d42` added portable dataset resolution and checksum manifests;
    `42cc328` added coordinated operator artifacts and the immutable external
-   simulator-runtime contract.
+   simulator-runtime contract. `51a8618` closed decoded and symlink traversal in
+   both URI and manifest paths; `4e5e23f` locked every direct application/runtime
+   dependency, isolated its import smoke, and bound artifacts to the requested
+   clean source commit.
 
 Remaining actions are operational choices, not unfinished implementation: push
-the local InstinctLab branch and the one local InstinctMJ commit, choose a public
-version/tag, build the application image against a licensed site runtime digest
-on a Docker-capable host, and publish the selected artifacts. None was performed
-implicitly.
+the local InstinctLab branch and the one local InstinctMJ commit; configure the
+protected `release-candidate` environment with the data root, immutable runtime
+digest, intended environment count, and reviewed lifecycle thresholds; choose
+and push a public version tag; let all four exact-commit workflows build and
+verify the application image on a Docker/GPU runner; and only then dispatch
+publication from that tag. None was performed implicitly.
 
 A multi-agent API is intentionally not part of that scope. Define one only when
 an actual multi-agent task establishes policy, reward, termination,
@@ -644,8 +670,9 @@ Release/operator checks:
 ```bash
 /root/miniconda3/envs/env_isaaclab/bin/python scripts/check_release.py \
   --expected-version 0.1.0
+/root/miniconda3/envs/env_isaaclab/bin/python scripts/check_release_handoff.py
 /root/miniconda3/envs/env_isaaclab/bin/python scripts/check_ruff_ratchet.py
-INSTINCTLAB_DATA_ROOT=/root/Datasets PYTHONPATH=source/instinctlab_engine \
+INSTINCTLAB_DATA_ROOT=/root/Datasets PYTHONPATH=source/instinctlab_engine/src \
   /root/miniconda3/envs/env_isaaclab/bin/python scripts/verify_datasets.py
 /root/miniconda3/envs/env_isaaclab/bin/python scripts/verify_wheel_matrix.py \
   --live-extension --live-device cuda:0

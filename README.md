@@ -99,7 +99,7 @@ production run:
 
 ```bash
 export INSTINCTLAB_DATA_ROOT=/absolute/path/to/Datasets
-PYTHONPATH=source/instinctlab_engine python scripts/verify_datasets.py \
+PYTHONPATH=source/instinctlab_engine/src python scripts/verify_datasets.py \
   --receipt dataset-verification.json
 ```
 
