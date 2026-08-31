@@ -23,6 +23,7 @@ from instinctlab_engine_mjlab.assets import robot_spec
 from instinctlab_engine_mjlab.native_event_functions import randomize_default_joint_pos
 from instinctlab_engine.motion_reference.buffers import fill_buffers, make_buffers
 from instinctlab_engine.motion_reference.clip import MotionSample
+from instinctlab_engine.spec.sensor import RayCasterRef, RayPatternRef
 from instinctlab.tasks import registry
 from instinctlab.tasks.shadowing.mdp import commands as shadowing_commands
 from instinctlab.tasks.shadowing.mdp import observations as shadowing_observations
@@ -375,6 +376,55 @@ def test_shadowing_depth_image_accepts_play_debug_vis(monkeypatch) -> None:
     torch.testing.assert_close(processed, torch.full((1, 1, 1, 2), 0.5))
     assert captured["window"] == "depth_image"
     assert captured["frames"].shape == (1, 1, 2)
+
+
+def test_shadowing_delayed_depth_primes_reset_env_with_unchanged_sensor_epoch() -> (
+    None
+):
+    sensor = RayCasterRef(
+        name="camera",
+        attach="torso_link",
+        pattern=RayPatternRef(kind="pinhole", width=2, height=2),
+        hit=("terrain",),
+        max_distance=2.5,
+    )
+    raw = torch.ones(2, 2, 2, 1)
+    camera = SimpleNamespace(
+        data=SimpleNamespace(output={"distance_to_image_plane": raw}),
+        frame_sequence=7,
+    )
+    env = SimpleNamespace(
+        num_envs=2,
+        device="cpu",
+        scene=SimpleNamespace(sensors={"camera": camera}),
+    )
+    cfg = SimpleNamespace(
+        params={
+            "sensor": sensor,
+            "history_skip_frames": 1,
+            "num_output_frames": 1,
+            "delayed_frame_ranges": (0, 0),
+            "history_length": 1,
+            "blur_kernel_size": 1,
+            "blur_sigma": 0.0,
+        }
+    )
+    term = shadowing_observations.DelayedDepthImage(cfg, env)
+    term(env, sensor)
+    kept = term._history[0].clone()
+    write_before = term._write
+
+    term.clear_history(env_ids=torch.tensor([1]))
+    raw[1].fill_(1.25)
+    out = term(env, sensor)
+
+    processed = 1.25 / 2.5
+    assert term._write == write_before
+    assert torch.equal(term._history[0], kept)
+    assert torch.allclose(
+        term._history[1], torch.full_like(term._history[1], processed)
+    )
+    assert torch.allclose(out[1], torch.full_like(out[1], processed))
 
 
 def test_shadowing_imitation_rewards_use_current_reference_frame_not_lookahead_data() -> (

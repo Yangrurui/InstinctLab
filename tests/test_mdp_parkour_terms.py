@@ -677,6 +677,29 @@ def test_delayed_depth_subset_reset_does_not_prime_unreset_envs() -> None:
     assert torch.allclose(out[2], torch.full_like(out[2], processed))
 
 
+def test_delayed_depth_subset_reset_primes_when_sensor_epoch_is_unchanged() -> None:
+    term, env, sensor, raw = _delayed_depth_term(num_envs=3)
+    camera = env.scene.sensors["camera"]
+    camera.frame_sequence = 7
+    raw.fill_(1.0)
+    term(env, sensor)
+    kept = term._history[0].clone()
+    write_before = term._write
+
+    term.clear_history(env_ids=torch.tensor([1, 2]))
+    raw[1:].fill_(1.25)
+    term._delay.fill_(0)
+    out = term(env, sensor)
+
+    processed = 1.25 / 2.5
+    assert term._write == write_before
+    assert torch.equal(term._history[0], kept)
+    assert torch.allclose(
+        term._history[1:], torch.full_like(term._history[1:], processed)
+    )
+    assert torch.allclose(out[1:], torch.full_like(out[1:], processed))
+
+
 def test_delayed_depth_prime_is_identical_for_delay_0_and_1() -> None:
     term, env, sensor, raw = _delayed_depth_term(num_envs=2)
     raw.fill_(1.25)

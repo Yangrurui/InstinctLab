@@ -259,11 +259,16 @@ class DelayedDepthImage:
         new_frame = epoch is None or epoch != self._last_sensor_epoch
         if new_frame:
             self._history[:, self._write] = processed
-            unprimed = ~self._primed
-            self._history[unprimed] = processed[unprimed].unsqueeze(1)
-            self._primed[unprimed] = True
             self._write = (self._write + 1) % self.sensor_history_length
             self._last_sensor_epoch = epoch
+        # A reset environment needs the current valid image even when the native
+        # sensor epoch is unchanged. MJLab samples once during manager setup and
+        # senses again on reset without a scene update, so those two reads share
+        # an epoch. Prime only cleared environments and leave the global ring
+        # position and every continuing environment untouched.
+        unprimed = ~self._primed
+        self._history[unprimed] = processed[unprimed].unsqueeze(1)
+        self._primed[unprimed] = True
         order = (
             torch.arange(self.sensor_history_length, device=self._history.device)
             + self._write
