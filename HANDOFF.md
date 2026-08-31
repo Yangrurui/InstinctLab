@@ -87,7 +87,7 @@ third-party simulation surface is not yet a stable 1.0 protocol.
 | Backend | Independent lazy plugins; isolated wheel matrices pass | Publication/release process |
 | Task | Immutable application-owned registrations | External task catalogs are optional, not a current goal |
 | Robot asset | Versioned native API and conformance command | Broader object/articulation catalogs |
-| Actuator | Lazy native model registry, explicit groups, capability adapters, one-time device-native reward bindings, live external fixture | Broader controller clock/lifecycle semantics |
+| Actuator | Lazy native model registry, explicit groups, capability adapters, device-native reward ids, live external fixture | Dynamic stiffness semantics and a composed live gain/reward gate; broader controller clocks |
 | Terrain | Whole-terrain and tile plugins | Region semantics; dynamic/deformable terrain only on demand |
 | Sensor | Built-ins plus lazy native builders with timing/reset capabilities | New sensor families need fixed-state and temporal evidence |
 | Rigid object | Mesh-backed construction on both engines | Full HOI resources and behavioral evidence |
@@ -98,7 +98,8 @@ third-party simulation surface is not yet a stable 1.0 protocol.
 
 ### Actuator protocol acceptance
 
-The actuator protocol is re-accepted through `bafd83d`. The committed boundary
+The stock Parkour actuator path is accepted through `bafd83d`, but the general
+actuator protocol is not yet re-accepted. The committed boundary correctly
 provides:
 
 - selected-joint-aware mixed actuator capability resolution;
@@ -109,8 +110,8 @@ provides:
   `DelayedPDActuator` and MJLab `BuiltinPdActuator` subclasses and exercises
   action, gain randomization, delay, full reset, and partial reset;
 - a class-based motor-power term that resolves actuator ownership, adapter
-  selection, device-native ids, and stiffness tensors once during manager-term
-  initialization; its reward call performs only device-side tensor work;
+  selection, and device-native ids once during manager-term initialization;
+  its reward call performs only device-side tensor work;
 - strict joint-id validation that accepts genuine integral values and integer
   tensors, rejects floats, strings, booleans, and non-integral tensor dtypes,
   and fails closed for duplicate, foreign, missing, or overlapping groups;
@@ -118,15 +119,34 @@ provides:
   plus a separate device-native initialization interface, so external probes do
   not inherit the hot-path representation.
 
-Both manager lifecycles are covered: MJLab instantiates and resets the portable
-class term directly; Isaac wraps it in `ManagerTermBase` and falls back to the
-native no-op reset when the portable term owns no reset state. Fixed-state tests
-preserve selected/unselected mixed-group results, scalar and per-environment
-stiffness broadcasting, and the external fixture's power values. A selected-SDK
-CUDA sync-debug test rejects any synchronization after initialization. This
-closes the prior high-severity synchronization and medium-severity id-coercion
-findings; broader clock, replay, and multi-entity lifecycle work still prevents
-a platform-wide stable-1.0 claim.
+Both manager lifecycles are covered: MJLab instantiates the portable class term
+directly; Isaac wraps it in `ManagerTermBase` and falls back to the native no-op
+reset when the portable term owns no reset state. Fixed-state tests preserve
+selected/unselected mixed-group results, scalar and per-environment stiffness
+broadcasting, and the external fixture's current fixed power values. A
+selected-SDK CUDA sync-debug test rejects synchronization after initialization.
+This closes the original per-step id-conversion and non-integral-id defects for
+the stock task.
+
+One **high-severity extension-contract correctness finding remains**: the class
+term caches selected stiffness values, not only static ownership and device ids.
+Selecting part of an actuator group uses advanced indexing and stores a tensor
+snapshot before startup events run. A direct probe initialized selected joint 0
+at stiffness 2, then changed the native stiffness to 4; the reward incorrectly
+remained `4.0` instead of changing to `1.0`. The protocol explicitly permits one
+model to advertise both `stiffness` and `gain_randomization`, so silently using
+the pre-randomization value is a supported-composition failure even though the
+current Parkour leg selector happens to cover its complete native leg/foot
+groups and has no gain-randomization event.
+
+The external live wheel does not cover this composition. Its real native task
+applies startup gain randomization but has zero reward terms; its stiffness
+reward runs separately in an SDK-free, one-joint probe before any native event.
+Re-accept the general protocol only after static binding metadata is cached
+without freezing dynamic stiffness, a partial-group test changes stiffness
+after term initialization and observes the new reward without CUDA sync, and a
+real external environment combines gain randomization with the stiffness reward
+in the same task.
 
 ## Accepted verification snapshot
 
@@ -134,6 +154,8 @@ The latest committed platform evidence is:
 
 ```text
 1412 passed, 3 skipped, 30 deselected, 1 warning (full tests/ suite)
+180 passed, 1 deselected (actuator, Parkour, spec, preflight, asset, and
+  architecture focus)
 Parkour contract subset: 1 passed, 24 deselected
 selected-SDK MJLab CUDA sync-debug: motor-power evaluation passed with
   synchronization treated as an error after class-term initialization
@@ -172,7 +194,9 @@ global epoch advancement, without rolling the ring or changing continuing
 environments. Fixed-state partial-reset regressions pin the unchanged-epoch
 case. The full 16-environment native Parkour tests passed afterward on MJLab
 (`1 passed` in 248.05 s) and Isaac (`1 passed` in 172.40 s), restoring the
-MJLab Parkour live path to accepted status.
+MJLab Parkour live path to accepted status. This audit independently repeated
+the complete native paths on CUDA 3: MJLab passed in 251.95 s and Isaac passed
+in 168.87 s, including reward construction and finite reward steps.
 
 Isaac's optional Iray loader reports missing `libGLU.so.1` on this server. The
 headless physics probes continue successfully, so this is not a current startup
@@ -389,22 +413,27 @@ logs/diagnostics/perceptive_collision_exclusions_4096_20260830.json
 
 ## Open work, in order
 
-1. **Run a fresh Perceptive collision-filter A/B** with the four narrow pair
+1. **Keep dynamic stiffness live after actuator binding resolution.** Cache
+   ownership, adapter identity, selected positions, and device ids once, but do
+   not freeze a stiffness value that gain randomization may change. Add an
+   after-initialization partial-group mutation test with CUDA sync-debug and put
+   gain randomization plus the stiffness reward in the same external live task.
+2. **Run a fresh Perceptive collision-filter A/B** with the four narrow pair
    exclusions. Do not use global self-collision disablement as the production
    configuration. Audit the retained GPU 6 final log before considering its
    checkpoint.
-2. **Recover or train a post-fix Perceptive teacher**, then run long VAE
+3. **Recover or train a post-fix Perceptive teacher**, then run long VAE
    reproductions on both engines. Install authoritative OMOMO motions and the
    six meshes before strict HOI preflight/construction/reset/contact/rollout.
-3. **Audit BeyondMimic multi-seed and 4,096-environment outputs** against final
+4. **Audit BeyondMimic multi-seed and 4,096-environment outputs** against final
    checkpoints, finite optimization, capacity warnings, normalized reward
    terms, episode length, termination mix, action noise, and throughput.
-4. **Recover Parkour motion segment boundaries.** The released NPZ concatenates
+5. **Recover Parkour motion segment boundaries.** The released NPZ concatenates
    clips without boundary metadata; 55 of 18,981 transitions exceed conservative
    discontinuity thresholds and up to 2.81% of ten-frame AMP windows may cross
    a jump.
-5. **Validate real multi-node distributed training.**
-6. **Complete platform lifecycle work before a 1.0 claim:** named clock domains,
+6. **Validate real multi-node distributed training.**
+7. **Complete platform lifecycle work before a 1.0 claim:** named clock domains,
    component timing/reset semantics, episode trace and replay, same-engine state
    snapshots, canonical additional-articulation schemas, stateful controller
    contracts, and construction/throughput/memory/reset benchmarks. Define a
