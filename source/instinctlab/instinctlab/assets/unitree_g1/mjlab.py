@@ -732,37 +732,37 @@ G1_29DOF_PARKOUR_CFG = MjlabRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 2),
-    actuator_model_ids=("mjlab.builtin_pd.v1",),
+    actuator_model_ids=("instinctlab.delayed_pd.v1",),
     actuator_group_count=7,
     actuator_groups=(
         NativeActuatorGroup(
             name="0",
-            model_id="mjlab.builtin_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
         ),
         NativeActuatorGroup(
             name="1",
-            model_id="mjlab.builtin_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=("waist_yaw_joint",),
         ),
         NativeActuatorGroup(
             name="2",
-            model_id="mjlab.builtin_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(".*_hip_roll_joint", ".*_knee_joint"),
         ),
         NativeActuatorGroup(
             name="3",
-            model_id="mjlab.builtin_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
         ),
         NativeActuatorGroup(
             name="4",
-            model_id="mjlab.builtin_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=("waist_roll_joint", "waist_pitch_joint"),
         ),
         NativeActuatorGroup(
             name="5",
-            model_id="mjlab.builtin_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(
                 ".*_shoulder_pitch_joint",
                 ".*_shoulder_roll_joint",
@@ -773,7 +773,7 @@ G1_29DOF_PARKOUR_CFG = MjlabRobotCfg(
         ),
         NativeActuatorGroup(
             name="6",
-            model_id="mjlab.builtin_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(".*_wrist_pitch_joint", ".*_wrist_yaw_joint"),
         ),
     ),
@@ -1133,12 +1133,11 @@ def entity(variant: str, robot: Any, *, actuator_order=None) -> Any:
             f"Unknown MJLab Unitree G1 variant {variant!r}; registered: {sorted(ENTITIES)}"
         )
 
-    from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
     from instinctlab_engine.actuators import native_actuator_factory
+    from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
-    BuiltinPdActuatorCfg = native_actuator_factory(
-        "mjlab", "mjlab.builtin_pd.v1"
-    )
+    actuator_model_id = NATIVE_CONFIGS[variant].actuator_model_ids[0]
+    BuiltinPdActuatorCfg = native_actuator_factory("mjlab", actuator_model_id)
 
     asset = robot.asset_for("mjlab")
     path = Path(asset.path)

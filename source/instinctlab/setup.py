@@ -56,6 +56,19 @@ setup(
         "instinctlab.assets": [
             "unitree_g1 = instinctlab.assets.unitree_g1.interface:native_module",
         ],
+        "instinctlab.actuators": [
+            (
+                "isaacsim.instinctlab_delayed_pd = "
+                "instinctlab.actuators.registration:register_isaacsim"
+            ),
+            (
+                "mjlab.instinctlab_delayed_pd = "
+                "instinctlab.actuators.registration:register_mjlab"
+            ),
+        ],
+        "instinctlab.terrains": [
+            "instinctlab_rough = instinctlab.terrains.registration:register_terrains",
+        ],
     },
     license=EXTENSION_TOML_DATA["package"]["license"],
     project_urls={

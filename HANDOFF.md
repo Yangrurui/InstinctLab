@@ -15,7 +15,8 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified implementation commit: `d34ecdd`
+- Latest verified implementation commits: `d34ecdd` (target baseline) and
+  `36f229d` (terrain/actuator extensions)
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
@@ -58,6 +59,17 @@ The central design is sound and should be retained:
 - G1 native assets and every final actuator parameter remain explicit in
   `assets/unitree_g1/isaacsim.py` and `assets/unitree_g1/mjlab.py`. The neutral
   asset interface routes only `package/variant` ids.
+- The application wheel publishes its `perlin_*` generated-terrain tiles via
+  `instinctlab.terrains`; both SDK-free registrations point at lazy native
+  builders that remain in the selected backend package. Parkour similarly
+  selects the application semantic actuator id `instinctlab.delayed_pd.v1`
+  through engine-scoped `instinctlab.actuators` entry points while retaining
+  every final group parameter in the two G1 native asset modules.
+- `perlin_wave` is the terrain-extension conformance example. It is registered
+  by the application with one dedicated builder per backend, builds native
+  height-field collision geometry on both engines without adding a scene-builder
+  kind branch, and has a reproducible review render at
+  `source/instinctlab/docs/perlin_wave_review.png`.
 - Backends, assets, actuator models, native terms, native sensors, whole
   terrains, and generated-terrain tiles use transactional lazy registries.
   Discovery is SDK-free until the selected backend bootstraps and provenance is
@@ -201,6 +213,15 @@ config object that cannot retain `instinctlab_model_id` now raise the public
 applicable, and regressions cover both paths. This replaces the prior
 undefined-name failure that could hide the actual extension contract violation.
 
+Application actuator aliases use identity-scoped runtime adapters rather than
+registering the backend adapter object a second time. An unlabelled native PD
+group therefore continues to match exactly one backend model, while a group
+built through `instinctlab.delayed_pd.v1` resolves the application alias and
+delegates its observable stiffness and effort-limit behavior to the selected
+backend. The wrapper carries both `model_id` and `delegate_path`, so a second
+application actuator identity can reuse the same boundary without matching the
+delayed-PD identity.
+
 ## Accepted verification snapshot
 
 The latest committed platform evidence is:
@@ -236,6 +257,12 @@ external fixture installed, passed SDK-free probes, constructed two real
 four coordinated wheels and four sdists passed `twine check`; their checksum
   manifest and the installed dual-runtime lock passed the container verifier
 five required datasets and 78 resources passed the versioned SHA-256 manifest
+application extension wiring: 122 focused tests passed; both Parkour preflights
+  reported `ok`; MJLab generated a 25,600-vertex/50,562-face `perlin_wave`
+  collision surface; an Isaac Kit test generated the corresponding native mesh;
+  the dual-backend wheel matrix plus external live actuator extension passed;
+  and the worktree-accessible non-live suite passed 1,400 tests with 3 skipped
+  and 33 deliberately deselected
 G1 asset conformance passed on both engines
 Isaac collision exclusions passed cloned-target validation and a
   4,096-environment, five-step capacity probe
