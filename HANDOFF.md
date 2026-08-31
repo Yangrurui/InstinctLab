@@ -15,7 +15,7 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified production-code commit: `bafd83d`
+- Latest verified production-code commit: `d15ea14`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
@@ -133,7 +133,7 @@ a platform-wide stable-1.0 claim.
 The latest committed platform evidence is:
 
 ```text
-1410 passed, 3 skipped, 30 deselected, 1 warning (full tests/ suite)
+1412 passed, 3 skipped, 30 deselected, 1 warning (full tests/ suite)
 Parkour contract subset: 1 passed, 24 deselected
 selected-SDK MJLab CUDA sync-debug: motor-power evaluation passed with
   synchronization treated as an error after class-term initialization
@@ -142,6 +142,9 @@ all registered task/engine pairs passed preflight with absent HOI resources
 Isaac Parkour: 16 CUDA environments constructed, reset, and stepped; terrain,
   depth, foot scanners, VolumePoints, observation shapes, DFS policy axis,
   AMP, and finite rewards passed
+MJLab Parkour: 16 CUDA environments constructed, repeatedly reset, and stepped;
+  the first policy depth stack, terrain, foot scanners, VolumePoints,
+  observation shapes, DFS policy axis, AMP, and finite rewards passed
 MJLab Flat G1: 16 environments constructed, reset, and stepped five times;
   all 39 terms resolved, DFS action order, finite reward, zero terminations
 core-only, Isaac-only, MJLab-only, and dual-backend isolated wheels passed
@@ -159,13 +162,17 @@ equality. Repository-wide Ruff is not currently a green gate; the last full
 run reported 709 existing/current errors. Ruff, compileall, and diff checks pass
 for the actuator remediation files.
 
-One MJLab Parkour live recheck constructed all 16 environments and initialized
-all 26 rewards, including the class-based energy term, but later failed the
-existing first-policy-depth assertion because the newest frame was all zero.
-The failure occurred before the rollout reward check and does not reproduce an
-actuator-path error, but it is an unresolved P1 live-test failure. Re-accept the
-MJLab Parkour live path only after reproducing and fixing or explaining the
-depth priming result, then rerunning the complete native test.
+The MJLab Parkour first-depth P1 is closed by `d15ea14`. MJLab's observation
+manager samples class terms during construction, then the first environment
+reset senses a valid image without the `scene.update()` call that increments
+the native camera epoch. The cleared depth ring therefore saw the same epoch as
+the construction sample and previously stayed zero. Parkour and Shadowing now
+prime only cleared environments from the current valid image independently of
+global epoch advancement, without rolling the ring or changing continuing
+environments. Fixed-state partial-reset regressions pin the unchanged-epoch
+case. The full 16-environment native Parkour tests passed afterward on MJLab
+(`1 passed` in 248.05 s) and Isaac (`1 passed` in 172.40 s), restoring the
+MJLab Parkour live path to accepted status.
 
 Isaac's optional Iray loader reports missing `libGLU.so.1` on this server. The
 headless physics probes continue successfully, so this is not a current startup
@@ -382,27 +389,22 @@ logs/diagnostics/perceptive_collision_exclusions_4096_20260830.json
 
 ## Open work, in order
 
-1. **Resolve the MJLab Parkour first-depth live failure.** A 16-environment
-   construction initialized every manager, then the newest policy depth frame
-   was all zero after reset. Reproduce it independently, identify whether the
-   camera sample or history priming is responsible, and rerun the full live
-   test before restoring its accepted status.
-2. **Run a fresh Perceptive collision-filter A/B** with the four narrow pair
+1. **Run a fresh Perceptive collision-filter A/B** with the four narrow pair
    exclusions. Do not use global self-collision disablement as the production
    configuration. Audit the retained GPU 6 final log before considering its
    checkpoint.
-3. **Recover or train a post-fix Perceptive teacher**, then run long VAE
+2. **Recover or train a post-fix Perceptive teacher**, then run long VAE
    reproductions on both engines. Install authoritative OMOMO motions and the
    six meshes before strict HOI preflight/construction/reset/contact/rollout.
-4. **Audit BeyondMimic multi-seed and 4,096-environment outputs** against final
+3. **Audit BeyondMimic multi-seed and 4,096-environment outputs** against final
    checkpoints, finite optimization, capacity warnings, normalized reward
    terms, episode length, termination mix, action noise, and throughput.
-5. **Recover Parkour motion segment boundaries.** The released NPZ concatenates
+4. **Recover Parkour motion segment boundaries.** The released NPZ concatenates
    clips without boundary metadata; 55 of 18,981 transitions exceed conservative
    discontinuity thresholds and up to 2.81% of ten-frame AMP windows may cross
    a jump.
-6. **Validate real multi-node distributed training.**
-7. **Complete platform lifecycle work before a 1.0 claim:** named clock domains,
+5. **Validate real multi-node distributed training.**
+6. **Complete platform lifecycle work before a 1.0 claim:** named clock domains,
    component timing/reset semantics, episode trace and replay, same-engine state
    snapshots, canonical additional-articulation schemas, stateful controller
    contracts, and construction/throughput/memory/reset benchmarks. Define a
