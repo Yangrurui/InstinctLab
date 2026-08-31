@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
-import sys
 import tempfile
 import venv
 from pathlib import Path
@@ -58,6 +57,12 @@ EXPECTED_ENGINES = {
     "mjlab": ("mjlab",),
     "both": ("isaacsim", "mjlab"),
 }
+WHEEL_BUILD_REQUIREMENTS = (
+    "setuptools==81.0.0",
+    "wheel==0.45.1",
+    "packaging==25.0",
+    "toml==0.10.2",
+)
 
 EXTENSION_PROBE = r"""
 import importlib.metadata as metadata
@@ -432,9 +437,23 @@ def _build_wheels(root: Path) -> dict[str, Path]:
     wheel_dir = root / "wheels"
     wheel_dir.mkdir()
     projects = _copy_projects(root)
+    build_environment = root / "build-tools"
+    venv.EnvBuilder(with_pip=True).create(build_environment)
+    build_python = build_environment / "bin" / "python"
     _run(
         [
-            sys.executable,
+            str(build_python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            *WHEEL_BUILD_REQUIREMENTS,
+        ],
+        cwd=root,
+    )
+    _run(
+        [
+            str(build_python),
             "-m",
             "pip",
             "wheel",

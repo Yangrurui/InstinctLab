@@ -69,6 +69,32 @@ def test_wheel_verifier_declares_all_four_install_matrices() -> None:
     assert tuple(matrices) == ("core", "isaacsim", "mjlab", "both")
 
 
+def test_wheel_verifier_pins_an_isolated_build_toolchain() -> None:
+    source = (ROOT / "scripts/verify_wheel_matrix.py").read_text()
+    tree = ast.parse(source)
+    assignment = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "WHEEL_BUILD_REQUIREMENTS"
+            for target in node.targets
+        )
+    )
+
+    assert ast.literal_eval(assignment.value) == (
+        "setuptools==81.0.0",
+        "wheel==0.45.1",
+        "packaging==25.0",
+        "toml==0.10.2",
+    )
+    assert "venv.EnvBuilder(with_pip=True).create(build_environment)" in source
+    assert (
+        'str(build_python),\n            "-m",\n            "pip",\n            "wheel"'
+        in source
+    )
+
+
 def test_wheel_extension_probe_tracks_the_versioned_preflight_selection() -> None:
     source = (ROOT / "scripts/verify_wheel_matrix.py").read_text()
     module = ast.parse(source)
@@ -87,16 +113,14 @@ def test_wheel_extension_probe_tracks_the_versioned_preflight_selection() -> Non
     schema_check = next(
         node.test
         for node in ast.walk(tree)
-        if isinstance(node, ast.If)
-        and "schema_version" in ast.unparse(node.test)
+        if isinstance(node, ast.If) and "schema_version" in ast.unparse(node.test)
     )
     assert ast.literal_eval(schema_check.comparators[0]) == "preflight_v1"
 
     selection_check = next(
         node.test
         for node in ast.walk(tree)
-        if isinstance(node, ast.If)
-        and "selected_components" in ast.unparse(node.test)
+        if isinstance(node, ast.If) and "selected_components" in ast.unparse(node.test)
     )
     expected = ast.literal_eval(selection_check.comparators[0])
     assert expected == {
