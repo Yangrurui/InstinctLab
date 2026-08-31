@@ -171,6 +171,36 @@ it to `DelayedPDActuatorCfg`, while MJLab maps it to its delay-capable
 `BuiltinPdActuatorCfg`. The shared identity describes the application contract,
 not equal native physics internals.
 
+## Training and deployment artifacts
+
+The primary training rank writes the final native environment and runner
+configuration to `params/env.yaml` and `params/agent.yaml`. Instinct-RL also
+captures the InstinctLab and Instinct-RL Git status/diff under `git/` before
+learning, while `manifest.json` records task, engine, dataset, runtime, and
+checkpoint-contract provenance. These files stay beside every `model_*.pt`.
+
+Deployment has one authoritative artifact: `policy.onnx`. The graph accepts a
+raw policy observation and produces an action, so the policy normalizer and
+any encoders are part of the graph. Versioned metadata inside that same file
+contains the fixed I/O contract, checkpoint/task provenance, a content digest,
+and the input/output oracle captured from PyTorch at export time. There is no
+normalizer, manifest, or sample sidecar.
+
+`scripts/play.py --export-onnx --num_envs 1` exports to a new or empty
+directory and immediately checks the model. Run the independent verifier again
+after transfer and on final target hardware:
+
+```bash
+python scripts/verify_deployment.py /path/to/policy.onnx \
+  --runtime onnxruntime \
+  --sha256 <trusted-64-hex-digest> \
+  --max-p95-latency-ms <target-budget-ms> \
+  --report /path/to/release-evidence/policy-verification.json
+```
+
+Release evidence must use ONNX Runtime rather than the reference evaluator.
+The latter is available only as an SDK-free development diagnostic.
+
 ## Verification
 
 Choose checks appropriate to the change:

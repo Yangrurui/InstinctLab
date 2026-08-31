@@ -304,6 +304,10 @@ def _train(args, engine, distributed, resources: ExitStack) -> None:
     if distributed.is_primary:
         with open(os.path.join(log_dir, "agent.json"), "w") as handle:
             json.dump(agent_config, handle, indent=2, sort_keys=True, default=str)
+        from instinctlab.training import write_run_parameters
+
+        write_run_parameters(log_dir, compiled.env_cfg, agent_config)
+        print(f"[INFO] Wrote final environment and agent parameters to {Path(log_dir) / 'params'}")
 
     print(f"[INFO] Training {args.task} on {args.engine}: {args.num_envs} envs on {args.device}, logs in {log_dir}")
     runner.learn(

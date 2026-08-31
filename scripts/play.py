@@ -17,7 +17,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 from contextlib import ExitStack
@@ -54,11 +53,31 @@ def _parse() -> argparse.Namespace:
         help="auto picks viser when there is no display.",
     )
     parser.add_argument("--port", type=int, default=8080, help="Viser port.")
-    parser.add_argument("--export-onnx", action="store_true", help="Export the loaded policy and normalizer.")
+    parser.add_argument(
+        "--export-onnx",
+        action="store_true",
+        help="Export one self-contained and verified policy.onnx.",
+    )
     parser.add_argument(
         "--export-dir", type=str, default=None, help="ONNX output directory; defaults beside checkpoint."
     )
     parser.add_argument("--export-only", action="store_true", help="Exit after ONNX export without opening a viewer.")
+    parser.add_argument(
+        "--deployment-runtime",
+        choices=("auto", "onnxruntime", "reference"),
+        default="auto",
+        help="Runtime used for post-export numerical verification; auto prefers ONNX Runtime.",
+    )
+    parser.add_argument("--deployment-atol", type=float, default=1.0e-4)
+    parser.add_argument("--deployment-rtol", type=float, default=1.0e-4)
+    parser.add_argument("--deployment-warmup", type=int, default=10)
+    parser.add_argument("--deployment-runs", type=int, default=100)
+    parser.add_argument(
+        "--max-p95-latency-ms",
+        type=float,
+        default=None,
+        help="Optional target-hardware ONNX Runtime p95 latency gate.",
+    )
     parser.add_argument(
         "--allow-nonclean-resolution",
         action="store_true",
@@ -108,6 +127,21 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("ONNX export requires --agent trained")
     if args.export_onnx and args.num_envs != 1:
         raise ValueError("ONNX export requires --num_envs 1")
+    if getattr(args, "deployment_atol", 0.0) < 0.0 or getattr(args, "deployment_rtol", 0.0) < 0.0:
+        raise ValueError("Deployment tolerances must be non-negative")
+    if getattr(args, "deployment_warmup", 0) < 0 or getattr(args, "deployment_runs", 1) < 1:
+        raise ValueError("Deployment warmup must be non-negative and runs must be positive")
+    if getattr(args, "max_p95_latency_ms", None) is not None and args.max_p95_latency_ms <= 0.0:
+        raise ValueError("--max-p95-latency-ms must be positive")
+
+
+def _prepare_export_dir(path: Path) -> None:
+    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+        raise FileExistsError(
+            f"Deployment export directory must be absent or empty: {path}. "
+            "Use --export-dir with a new directory to avoid mixing artifacts."
+        )
+    path.mkdir(parents=True, exist_ok=True)
 
 
 def _play(args, engine, resources: ExitStack) -> None:
@@ -195,28 +229,40 @@ def _play(args, engine, resources: ExitStack) -> None:
             export_dir = (
                 Path(args.export_dir).expanduser().resolve() if args.export_dir else checkpoint_dir / "exported"
             )
-            export_dir.mkdir(parents=True, exist_ok=True)
+            _prepare_export_dir(export_dir)
             obs, _ = env.get_observations()
-            runner.export_as_onnx(obs, str(export_dir))
             from instinctlab.checkpoint import task_contract
+            from instinctlab.deployment import (
+                export_deployment_policy,
+                verify_deployment_policy,
+            )
 
-            with (export_dir / "export.json").open("w") as handle:
-                json.dump(
-                    {
-                        "checkpoint": str(checkpoint),
-                        "checkpoint_task_id": checkpoint_task_id(args.task),
-                        "task_contract": task_contract(
-                            spec, agent_config=agent_config
-                        ),
-                        "allow_nonclean_resolution": bool(
-                            args.allow_nonclean_resolution
-                        ),
-                    },
-                    handle,
-                    indent=2,
-                    sort_keys=True,
-                )
-            print(f"[INFO] Exported ONNX policy to {export_dir}", flush=True)
+            policy_path = export_deployment_policy(
+                runner,
+                obs,
+                export_dir,
+                {
+                    "checkpoint": str(checkpoint),
+                    "checkpoint_task_id": checkpoint_task_id(args.task),
+                    "task_contract": task_contract(spec, agent_config=agent_config),
+                    "allow_nonclean_resolution": bool(args.allow_nonclean_resolution),
+                },
+                atol=args.deployment_atol,
+                rtol=args.deployment_rtol,
+            )
+            report = verify_deployment_policy(
+                policy_path,
+                runtime=args.deployment_runtime,
+                warmup=args.deployment_warmup,
+                runs=args.deployment_runs,
+                max_p95_latency_ms=args.max_p95_latency_ms,
+            )
+            runtime_name = report["runtime"]["name"]
+            policy_hash = report["policy_sha256"]
+            print(
+                f"[INFO] Exported and verified {policy_path} with {runtime_name}; sha256={policy_hash}",
+                flush=True,
+            )
 
     if args.export_only:
         return

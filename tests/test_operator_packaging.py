@@ -69,6 +69,7 @@ def test_runtime_lock_matches_release_and_backend_source_pins() -> None:
     assert 'commit = "f73c331738"' in backend_pins
     assert lock["sources"]["mjlab"]["tag"] == "v1.5.0"
     assert 'tag = "v1.5.0"' in backend_pins
+    assert lock["distributions"]["PyYAML"] == "6.0.2"
     for distribution in (
         "instinctlab",
         "instinctlab-engine-core",

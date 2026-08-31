@@ -47,6 +47,15 @@ def test_application_wheel_manifest_contains_native_robot_resources() -> None:
     assert "recursive-include instinctlab/assets/resources *" in manifest
 
 
+def test_application_exposes_the_optional_deployment_verifier() -> None:
+    setup = (SOURCE / "instinctlab/setup.py").read_text()
+
+    assert '"deployment": DEPLOYMENT_REQUIRES' in setup
+    assert '"onnx==1.22.0"' in setup
+    assert '"onnxruntime==1.29.0"' in setup
+    assert "instinctlab-verify-deployment = instinctlab.deployment_cli:main" in setup
+
+
 def test_readme_factory_accepts_the_engine_normalized_robot() -> None:
     readme = (ROOT / "README.md").read_text()
     assert "def my_task(robot: RobotSpec) -> TaskSpec:" in readme

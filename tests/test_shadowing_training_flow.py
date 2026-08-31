@@ -9,8 +9,6 @@ from types import SimpleNamespace
 import pytest
 import torch
 from instinctlab.checkpoint import task_contract
-from instinctlab_engine_isaacsim.adapter import IsaacSimAdapter
-from instinctlab_engine_mjlab.adapter import MjlabAdapter
 from instinctlab.shadowing_probe import shadowing_task_with_motion
 from instinctlab.tasks import registry
 from instinctlab.training import (
@@ -20,6 +18,9 @@ from instinctlab.training import (
     load_runner_checkpoint,
     rank_device,
 )
+from instinctlab_engine_isaacsim.adapter import IsaacSimAdapter
+from instinctlab_engine_mjlab.adapter import MjlabAdapter
+
 from tests.task_specs import task_spec, with_rigid_object_fixture
 
 SHADOW_IDS = tuple(
@@ -218,6 +219,7 @@ def test_shadowing_play_and_export_validate_checkpoint_contract_before_loading()
     validation = text.index("validate_checkpoint_contract(")
     assert validation < text.index("runner.load(str(checkpoint))")
     assert "checkpoint_task_id=checkpoint_task_id(args.task)" in text[validation : validation + 300]
-    assert text.index("runner.load(str(checkpoint))") < text.index("runner.export_as_onnx")
+    assert text.index("runner.load(str(checkpoint))") < text.index("export_deployment_policy(")
     assert '"task_contract": task_contract(' in text
     assert "spec, agent_config=agent_config" in text
+    assert "runner.export_as_onnx" not in text

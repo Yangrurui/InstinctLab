@@ -27,14 +27,17 @@ INSTALL_REQUIRES = [
     "scikit-learn",
     "opencv-python",
     "packaging",
+    "PyYAML==6.0.2",
     "pyvista",
 ]
 
 ISAACLAB_REQUIRES = ["instinctlab-engine-isaacsim==0.1.0"]
 MJLAB_REQUIRES = ["instinctlab-engine-mjlab==0.1.0"]
+DEPLOYMENT_REQUIRES = ["onnx==1.22.0", "onnxruntime==1.29.0"]
 EXTRAS_REQUIRE = {
     "isaaclab": ISAACLAB_REQUIRES,
     "mjlab": MJLAB_REQUIRES,
+    "deployment": DEPLOYMENT_REQUIRES,
     "all": ISAACLAB_REQUIRES + MJLAB_REQUIRES,
 }
 
@@ -53,6 +56,9 @@ setup(
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
     entry_points={
+        "console_scripts": [
+            "instinctlab-verify-deployment = instinctlab.deployment_cli:main",
+        ],
         "instinctlab.assets": [
             "unitree_g1 = instinctlab.assets.unitree_g1.interface:native_module",
         ],

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import tempfile
+from collections.abc import Mapping
+from dataclasses import dataclass, fields, is_dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +69,56 @@ def shared_run_directory(path: str, run: DistributedRun) -> str:
     return str(payload[0])
 
 
+def _yaml_data(value: Any) -> Any:
+    """Convert native config values to the explicit YAML form used by InstinctMJ."""
+    if isinstance(value, Enum):
+        return _yaml_data(value.value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _yaml_data(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, Mapping):
+        return {str(key): _yaml_data(item) for key, item in value.items()}
+    if isinstance(value, set):
+        return [_yaml_data(item) for item in sorted(value, key=repr)]
+    if isinstance(value, (tuple, list)):
+        return [_yaml_data(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if callable(value):
+        module = getattr(value, "__module__", type(value).__module__)
+        name = getattr(value, "__qualname__", type(value).__qualname__)
+        return f"{module}:{name}"
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return _yaml_data(to_dict())
+    return repr(value)
+
+
+def _write_yaml(path: Path, value: Any) -> None:
+    import yaml
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        temporary = Path(handle.name)
+        yaml.safe_dump(_yaml_data(value), handle, sort_keys=False)
+    os.replace(temporary, path)
+
+
+def write_run_parameters(log_dir: str | Path, env_config: Any, agent_config: Any) -> None:
+    """Persist the final environment and agent parameters beside training checkpoints."""
+    params_dir = Path(log_dir) / "params"
+    _write_yaml(params_dir / "env.yaml", env_config)
+    _write_yaml(params_dir / "agent.yaml", agent_config)
+
+
 def load_runner_checkpoint(
     runner: Any,
     checkpoint: str | Path,
@@ -121,4 +174,5 @@ __all__ = [
     "load_runner_checkpoint",
     "rank_device",
     "shared_run_directory",
+    "write_run_parameters",
 ]

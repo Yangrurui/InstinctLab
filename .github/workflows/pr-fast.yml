@@ -21,7 +21,7 @@ jobs:
       - name: Install SDK-free test tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest ruff "pyright[nodejs]" toml
+          python -m pip install pytest ruff "pyright[nodejs]" toml "PyYAML==6.0.2" "onnx==1.22.0" "onnxruntime==1.29.0"
           python -m pip install -e source/instinctlab_engine
           python -m pip install -e source/instinctlab --no-deps
           python -m pip install instinct-rl==1.0.2 psutil pytorch-kinematics joblib trimesh scikit-learn packaging

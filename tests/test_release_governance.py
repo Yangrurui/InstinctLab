@@ -49,6 +49,7 @@ def test_release_automation_has_separate_fast_wheel_and_gpu_gates() -> None:
 
     assert "scripts/check_ruff_ratchet.py" in fast
     assert "pyright" in fast
+    assert "onnxruntime" in fast
     assert "scripts/verify_wheel_matrix.py" in wheels
     assert "--live-extension" not in wheels
     assert "schedule:" in gpu and "release:" in gpu
@@ -68,6 +69,8 @@ def test_release_policy_defines_versioning_deprecation_and_publication() -> None
     assert "DeprecationWarning" in policy
     assert "python scripts/build_release.py" in policy
     assert "SHA256SUMS.json" in policy
+    assert "scripts/verify_deployment.py" in policy
+    assert "policy.onnx" in policy
 
 
 def test_release_builder_uses_clean_sources_and_isolated_pinned_tools() -> None:

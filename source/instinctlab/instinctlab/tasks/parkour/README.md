@@ -22,7 +22,7 @@ python scripts/play.py --engine <isaacsim|mjlab> --task Instinct-Parkour-Target-
 4. Export trained policy (load_run must be provided, absolute path is recommended):
 
 ```bash
-python scripts/play.py --engine <isaacsim|mjlab> --task Instinct-Parkour-Target-G1 --load_run <run_name> --exportonnx --useonnx
+python scripts/play.py --engine <isaacsim|mjlab> --task Instinct-Parkour-Target-G1 --load_run <run_name> --num_envs 1 --export-onnx --export-only --deployment-runtime onnxruntime
 ```
 
 ## Common Options
@@ -31,5 +31,5 @@ python scripts/play.py --engine <isaacsim|mjlab> --task Instinct-Parkour-Target-
 - `--keyboard_control`: Enable keyboard control during playing
 - `--load_run`: Run name to load checkpoint from for playing
 - `--video`: Record training/playback videos
-- `--exportonnx`: Export the trained model to ONNX format for onboard deployment during playing
-- `--useonnx`: Use the ONNX model for inference during playing (requires `--exportonnx`)
+- `--export-onnx`: Export a single self-contained `policy.onnx` for onboard deployment
+- `--export-only`: Verify the exported policy and exit without opening a viewer

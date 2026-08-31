@@ -52,6 +52,10 @@ Every release candidate must satisfy all of the following on one source commit:
    immutable external runtime digest. The runtime lock, clean source receipt,
    installed distribution versions, and all wheel checksums pass
    `scripts/verify_container_runtime.py`.
+10. Every promoted robot policy is exactly one self-contained `policy.onnx`.
+    `scripts/verify_deployment.py` passes on target hardware with ONNX Runtime,
+    the trusted release SHA-256, and the reviewed p95 latency threshold. Archive
+    its explicitly located JSON report outside the deployment directory.
 
 ## Build and publication
 

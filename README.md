@@ -19,7 +19,9 @@ We aim at industralize Reinforcement Learning for Humanoid (legged robots) whole
 - `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
 - `Unified Ecosystem` This repository is a part of the Project-Instinct ecosystem, which includes the [instinct_rl](https://github.com/project-instinct/instinct_rl) and [instinct_onboard](https://github.com/project-instinct/instinct_onboard) repositories.
     - The core design of this ecosystem is to treat each experiment as a standalone structured folder, which start with a timestamp as a unique identifier.
-    - Adding `--exportonnx` flag to the `play.py` script will export the policy as an ONNX model. After that, you should directly copy the logdir to the robot computer and use the `instinct_onboard` workflow to run the policy on the real robot.
+    - `scripts/play.py --export-onnx` exports one self-contained and verified
+      `policy.onnx`. Copy that single file to the robot computer and use the
+      `instinct_onboard` workflow to run it.
 
 **Keywords:** humanoid, reinforcement learning, Isaac Sim, MJLab
 
@@ -159,6 +161,51 @@ container.
     python scripts/train.py --engine isaacsim --task Instinct-Velocity-Flat-G1 --num_envs 4096 --device cuda:0 --headless
     python scripts/train.py --engine mjlab    --task Instinct-Velocity-Flat-G1 --num_envs 4096 --device cuda:1
     ```
+
+    Each primary training run stores checkpoints together with `git/*.diff`,
+    `params/env.yaml`, `params/agent.yaml`, and `manifest.json`. The YAML layout
+    matches InstinctMJ and records the final post-override configuration used to
+    construct the runner.
+
+### Export and verify a deployment policy
+
+Install the deployment verifier once:
+
+```bash
+python -m pip install -e "source/instinctlab[deployment]"
+```
+
+Export into a new or empty directory. The command embeds observation
+normalization, policy encoders, provenance, the I/O contract, and a PyTorch
+self-test oracle in the ONNX model, then immediately executes that oracle:
+
+```bash
+python scripts/play.py \
+  --engine mjlab \
+  --task Instinct-Velocity-Flat-G1 \
+  --checkpoint /absolute/path/model_1000.pt \
+  --num_envs 1 \
+  --export-onnx --export-only \
+  --deployment-runtime onnxruntime \
+  --export-dir /absolute/path/exported
+```
+
+`/absolute/path/exported` contains only `policy.onnx`; no normalizer or data
+sidecar is required. Verify the copied file again on the target machine. Use a
+trusted SHA-256 from release or transfer metadata when promoting it:
+
+```bash
+python scripts/verify_deployment.py /absolute/path/exported/policy.onnx \
+  --runtime onnxruntime \
+  --sha256 <64-hex-policy-digest> \
+  --max-p95-latency-ms <target-budget-ms> \
+  --report /absolute/path/release-evidence/policy-verification.json
+```
+
+The verifier checks the external digest when supplied, the embedded content
+checksum, ONNX structure and fixed I/O shape, PyTorch/ONNX numerical parity,
+finite outputs, and optional target-hardware p95 latency. It writes no sidecar
+unless `--report` is explicitly given.
 
 ## Documentation of Critical Components
 
