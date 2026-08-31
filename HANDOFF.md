@@ -80,13 +80,16 @@ The central design is sound and should be retained:
 Overall verdict: stock Locomotion, Parkour, and Shadowing paths have strong
 contract and construction coverage, and the external extension wheel proves
 real native integration on both engines. The declared single-agent rigid-body
-training surface, including its lifecycle boundary, is ready for a 1.0 claim.
-This does not imply multi-agent, ROS/HIL, deformable, fluid, or service-runtime
-APIs that no current task requires.
+training architecture, including its lifecycle boundary, is ready for a 1.0
+claim. A public 1.0 release is not yet accepted: the release wheel probe has
+drifted from the current preflight report schema, and automated publication,
+versioning, and quality gates remain open. This does not imply multi-agent,
+ROS/HIL, deformable, fluid, or service-runtime APIs that no current task
+requires.
 
 | Capability | Current state | Remaining boundary |
 |---|---|---|
-| Backend | Independent lazy plugins; isolated wheel matrices pass | Publication/release process |
+| Backend | Independent lazy plugins; the last isolated wheel matrix passed before the additional-articulation report change | Refresh and rerun the current wheel matrix; publication/release process |
 | Task | Immutable application-owned registrations | External task catalogs are optional, not a current goal |
 | Robot asset | Versioned native API and conformance command | Broader object/articulation catalogs |
 | Actuator/controller | Lazy native model registry, explicit groups, live stiffness bindings, stateful `compute(command)`/`control_dt`/snapshot/reset contract | New controller families need native temporal evidence |
@@ -221,7 +224,9 @@ lifecycle benchmark smoke: MJLab and Isaac constructed native environments,
   measured construction/throughput/memory/reset, round-tripped snapshots and
   traces, and matched replay under each report's declared tolerance; the Isaac
   fail-threshold probe returned exit code 2
-core-only, Isaac-only, MJLab-only, and dual-backend isolated wheels passed
+core-only, Isaac-only, MJLab-only, and dual-backend isolated wheels passed at
+the then-current report schema; the current release probe needs re-acceptance
+after the additional-articulation selected-component schema change
 external fixture installed, passed SDK-free probes, constructed two real
   environments per engine, combined startup gain randomization with a live
   stiffness-normalized reward, passed native action/delay/reset checks, then
@@ -515,6 +520,70 @@ logs/diagnostics/perceptive_collision_ab_20260831/
 ## Open work
 
 No platform lifecycle item remains open for the declared 1.0 scope.
+
+### Public release and architecture hardening
+
+The items below are ordered. They harden delivery and operator semantics; they
+do not authorize a rewrite of the compiler-style modular monolith, a global MDP
+layer, generated task declarations, or premature multi-agent abstractions.
+
+1. **P0 — repair and rerun the isolated wheel release gate.**
+   `scripts/verify_wheel_matrix.py` still compares the external fixture's
+   `selected_components` with the pre-additional-articulation shape. Current
+   preflight reports also contain `articulation_asset_ids`, and actuator-group
+   selections contain `entity`. Update the fixture assertion and add a
+   regression that keeps the probe aligned with the versioned preflight report.
+   Re-accept only after the core-only, Isaac-only, MJLab-only, and dual-backend
+   wheel matrices pass, the external fixture installs/exercises/uninstalls, and
+   built-in backends still preflight afterward. Run the live extension matrix
+   when release GPU capacity is available.
+
+2. **P1 — distinguish strict resume from transfer initialization.**
+   Today checkpoint declaration drift is operator-visible metadata rather than
+   a load gate, and `--resume` starts from a freshly reset simulator and motion
+   runtime. Preserve permissive loading as an explicit transfer-learning path,
+   but define a strict resume path that rejects task, robot schema, policy I/O,
+   effective agent, and training-semantic drift. Decide explicitly whether
+   strict resume also restores the lifecycle snapshot and common RNG state.
+   Re-accept with tests for unchanged resume, changed reward/observation/robot
+   rejection, explicit transfer acceptance, and the chosen environment-state
+   semantics.
+
+3. **P1 — make dependency selection and run provenance fail closed.**
+   `scripts/install.py` currently warns and continues when an existing Isaac Lab
+   or MJLab checkout is not at the pinned revision. Default installation must
+   refuse that state; any override must be explicit and recorded. Run manifests
+   must record commit and dirty state for editable Isaac Lab, MJLab,
+   Instinct-RL, and other physics-critical repositories, not only distribution
+   versions and the InstinctLab repository. Re-accept with wrong-revision,
+   dirty-checkout, explicit-override, and manifest-provenance tests.
+
+4. **P1 — establish automated release governance.**
+   Add separate fast SDK-free pull-request checks, isolated wheel/package
+   checks, and scheduled or release-triggered GPU live checks. Align Pyright
+   with Python 3.11, establish a ratcheted Ruff baseline, define package/plugin
+   API versioning and deprecation rules, and publish a release checklist. A
+   public 1.0 claim requires all four distributions to have coordinated
+   versions and a reproducible publication path; the existing lifecycle 1.0
+   acceptance alone is not that release claim.
+
+5. **P2 — bring task configuration back under its declared structural rules.**
+   Flatten `G1LocomotionRoughEnvCfg` so a concrete robot configuration does not
+   inherit through another concrete robot configuration. Remove constructor
+   selector aliases such as `joints` and `feet`; write complete `EntityRef`
+   values on consuming terms. Preserve explicit declaration order and values —
+   do not replace them with loops, generated dictionaries, helper dispatchers,
+   or additional inheritance. Add architecture tests for one-level concrete
+   inheritance and selector ownership, then rerun declaration, preflight, and
+   fixed-state term tests.
+
+6. **P2 — complete reproducible operator packaging.**
+   Replace the current template Dockerfile with a build that identifies the
+   verified dual-backend runtime and application wheels, or document why the
+   simulator runtime must remain externally supplied. Move server-specific
+   dataset links toward versioned manifests/resolvers with checksums while
+   retaining readable paths in run provenance. Re-accept on a clean machine or
+   isolated environment without relying on undocumented sibling state.
 
 A multi-agent API is intentionally not part of that scope. Define one only when
 an actual multi-agent task establishes policy, reward, termination,
