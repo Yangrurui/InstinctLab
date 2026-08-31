@@ -15,6 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from instinctlab_engine.actuators import STIFFNESS, ActuatorRegistry
+from instinctlab_engine.bridge import robot as robot_bridge
 from instinctlab_engine_isaacsim.terms import TERMS as ISAAC_TERMS
 from instinctlab_engine_isaacsim.event_terms import merge_friction_params as isaac_merge_friction
 from instinctlab_engine_mjlab.native_event_functions import reset_joints_by_offset, reset_joints_by_scale
@@ -159,6 +161,85 @@ def test_mjlab_motors_power_square_maps_stiffness_by_native_joint_ids() -> None:
     out = motors_power_square(env, asset_cfg=SimpleNamespace(name="robot", joint_ids=[1, 2]))
 
     assert torch.equal(out, torch.tensor([(8.0 * 1.0 / 4.0) ** 2 + (6.0 * 2.0 / 2.0) ** 2]))
+
+
+def test_mixed_actuator_reward_skips_unselected_group_without_stiffness() -> None:
+    from mjlab.actuator import BuiltinPdActuator
+
+    unrelated = SimpleNamespace(
+        transmission_type="joint",
+        target_ids=torch.tensor([0]),
+        cfg=SimpleNamespace(velocity_limit=20.0),
+    )
+    selected = object.__new__(BuiltinPdActuator)
+    selected.cfg = SimpleNamespace(transmission_type="joint", stiffness=4.0)
+    selected._target_ids = torch.tensor([1])
+    robot = SimpleNamespace(
+        actuators=(unrelated, selected),
+        data=SimpleNamespace(
+            qfrc_actuator=torch.tensor([[2.0, 8.0]]),
+            joint_vel=torch.tensor([[3.0, 2.0]]),
+        ),
+    )
+    env = SimpleNamespace(scene={"robot": robot})
+
+    out = motors_power_square(
+        env,
+        asset_cfg=SimpleNamespace(name="robot", joint_ids=[1]),
+    )
+
+    assert torch.equal(out, torch.tensor([(8.0 * 2.0 / 4.0) ** 2]))
+
+
+@pytest.mark.parametrize(
+    ("returned_ids", "stiffness", "message"),
+    (
+        ((0,), 2.0, "outside its owning group"),
+        ((1,), torch.ones(3), "broadcast-compatible"),
+    ),
+)
+def test_stiffness_adapter_output_is_bounded_by_its_native_group(
+    monkeypatch: pytest.MonkeyPatch,
+    returned_ids,
+    stiffness,
+    message: str,
+) -> None:
+    class NativeActuator:
+        instinctlab_model_id = "test.bad_stiffness.v1"
+        transmission_type = "joint"
+        target_ids = torch.tensor([1])
+
+    class RuntimeAdapter:
+        def matches(self, actuator: object) -> bool:
+            return isinstance(actuator, NativeActuator)
+
+        def stiffness_groups(self, actuator: object):
+            del actuator
+            return ((returned_ids, stiffness),)
+
+    registry = ActuatorRegistry(load_entry_points=False)
+    registry.register(
+        engine="mjlab",
+        model_id="test.bad_stiffness.v1",
+        config_factory=lambda: None,
+        runtime_adapter=RuntimeAdapter,
+        capabilities={STIFFNESS},
+    )
+    monkeypatch.setattr(robot_bridge, "ACTUATORS", registry)
+    robot = SimpleNamespace(
+        actuators=(NativeActuator(),),
+        data=SimpleNamespace(
+            qfrc_actuator=torch.tensor([[2.0, 8.0], [3.0, 9.0]]),
+            joint_vel=torch.tensor([[3.0, 2.0], [4.0, 1.0]]),
+        ),
+    )
+    env = SimpleNamespace(scene={"robot": robot})
+
+    with pytest.raises(RuntimeError, match=message):
+        motors_power_square(
+            env,
+            asset_cfg=SimpleNamespace(name="robot", joint_ids=[1]),
+        )
 
 
 def test_mjlab_applied_torque_limits_by_ratio_reads_joint_effort_limits_when_present() -> None:

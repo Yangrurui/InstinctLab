@@ -169,7 +169,9 @@ asset = SimpleNamespace(
 )
 env = SimpleNamespace(scene={"robot": asset})
 stiffness = list(
-    joint_stiffness_groups(env, asset, requesting_term="fixture power reward")
+    joint_stiffness_groups(
+        env, asset, [0], requesting_term="fixture power reward"
+    )
 )
 if stiffness != [((0,), 2.0)]:
     raise AssertionError(f"runtime stiffness contract is wrong: {stiffness}")

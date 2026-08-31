@@ -162,13 +162,108 @@ def _actuator_groups(asset: Any) -> Iterable[tuple[str, Any]]:
         )
 
 
+def _joint_index_tuple(value: Any, joint_count: int, *, context: str) -> tuple[int, ...]:
+    if value is None:
+        indices = tuple(range(joint_count))
+    elif isinstance(value, slice):
+        indices = tuple(range(joint_count))[value]
+    elif isinstance(value, torch.Tensor):
+        if value.ndim != 1:
+            raise RuntimeError(f"{context} joint ids must be one-dimensional.")
+        indices = tuple(int(index) for index in value.tolist())
+    elif isinstance(value, int):
+        indices = (value,)
+    else:
+        try:
+            indices = tuple(int(index) for index in value)
+        except (TypeError, ValueError):
+            raise RuntimeError(f"{context} has invalid joint ids {value!r}.") from None
+    if len(indices) != len(set(indices)):
+        raise RuntimeError(f"{context} repeats joint ids {indices!r}.")
+    invalid = tuple(index for index in indices if index < 0 or index >= joint_count)
+    if invalid:
+        raise RuntimeError(
+            f"{context} has joint ids outside [0, {joint_count}): {invalid!r}."
+        )
+    return indices
+
+
+def _actuator_joint_ids(
+    actuator: Any,
+    joint_count: int,
+    *,
+    native_group: str,
+) -> tuple[int, ...]:
+    ids = getattr(actuator, "target_ids", None)
+    if ids is None:
+        ids = getattr(actuator, "joint_indices", None)
+    if ids is None:
+        raise RuntimeError(
+            f"Native actuator group {native_group!r} exposes neither target_ids nor "
+            "joint_indices, so its joint ownership cannot be validated."
+        )
+    return _joint_index_tuple(
+        ids,
+        joint_count,
+        context=f"native actuator group {native_group!r}",
+    )
+
+
+def _selected_stiffness(
+    stiffness: Any,
+    *,
+    returned_ids: tuple[int, ...],
+    selected_positions: tuple[int, ...],
+    target_shape: tuple[int, int],
+    engine: str,
+    native_group: str,
+) -> Any:
+    tensor = torch.as_tensor(stiffness)
+    selected = stiffness
+    if tensor.ndim > 0 and tensor.shape[-1] == len(returned_ids):
+        tensor = tensor[..., list(selected_positions)]
+        if len(selected_positions) != len(returned_ids):
+            selected = tensor
+    try:
+        broadcast_shape = torch.broadcast_shapes(tuple(tensor.shape), target_shape)
+    except RuntimeError:
+        broadcast_shape = None
+    if broadcast_shape != target_shape:
+        raise RuntimeError(
+            f"Engine {engine!r} actuator adapter for group {native_group!r} returned "
+            f"stiffness shape {tuple(tensor.shape)}; it must be broadcast-compatible "
+            f"with selected joint shape {target_shape}."
+        )
+    return selected
+
+
 def joint_stiffness_groups(
-    env: Any, asset: Any, *, requesting_term: str = "joint stiffness reader"
+    env: Any,
+    asset: Any,
+    joint_ids: Any,
+    *,
+    requesting_term: str = "joint stiffness reader",
 ) -> Iterable[tuple[Any, Any]]:
-    """Yield stiffness only through the matched native actuator capability adapter."""
+    """Yield stiffness for selected joints through their owning native adapters."""
     engine = _native_engine(env, asset)
+    joint_count = int(getattr(asset, "num_joints", asset.data.joint_vel.shape[-1]))
+    selected_ids = _joint_index_tuple(
+        joint_ids,
+        joint_count,
+        context=f"term {requesting_term!r}",
+    )
+    selected_set = set(selected_ids)
+    num_envs = int(asset.data.joint_vel.shape[0])
     for native_group, actuator in _actuator_groups(asset):
         if getattr(actuator, "transmission_type", "joint") != "joint":
+            continue
+        owning_ids = _actuator_joint_ids(
+            actuator,
+            joint_count,
+            native_group=native_group,
+        )
+        required_ids = selected_set.intersection(owning_ids)
+        if not required_ids:
             continue
         _registration, adapter = ACTUATORS.runtime_adapter(
             engine,
@@ -191,13 +286,56 @@ def joint_stiffness_groups(
                 f"Engine {engine!r} actuator adapter for group {native_group!r} "
                 "must return an iterable of (joint_ids, stiffness) pairs."
             ) from None
+        covered: set[int] = set()
         for group in iterator:
             if not isinstance(group, (tuple, list)) or len(group) != 2:
                 raise RuntimeError(
                     f"Engine {engine!r} actuator adapter for group {native_group!r} "
                     "must return (joint_ids, stiffness) pairs."
                 )
-            yield group[0], group[1]
+            returned_ids = _joint_index_tuple(
+                group[0],
+                joint_count,
+                context=(
+                    f"engine {engine!r} actuator adapter for group {native_group!r}"
+                ),
+            )
+            outside = set(returned_ids) - set(owning_ids)
+            if outside:
+                raise RuntimeError(
+                    f"Engine {engine!r} actuator adapter for group {native_group!r} "
+                    f"returned joint ids outside its owning group: {sorted(outside)}."
+                )
+            relevant_positions = tuple(
+                index
+                for index, joint_id in enumerate(returned_ids)
+                if joint_id in required_ids
+            )
+            if not relevant_positions:
+                continue
+            relevant_ids = tuple(returned_ids[index] for index in relevant_positions)
+            duplicates = covered.intersection(relevant_ids)
+            if duplicates:
+                raise RuntimeError(
+                    f"Engine {engine!r} actuator adapter for group {native_group!r} "
+                    f"returned duplicate selected joint ids: {sorted(duplicates)}."
+                )
+            stiffness = _selected_stiffness(
+                group[1],
+                returned_ids=returned_ids,
+                selected_positions=relevant_positions,
+                target_shape=(num_envs, len(relevant_ids)),
+                engine=engine,
+                native_group=native_group,
+            )
+            covered.update(relevant_ids)
+            yield relevant_ids, stiffness
+        missing = required_ids - covered
+        if missing:
+            raise RuntimeError(
+                f"Engine {engine!r} actuator adapter for group {native_group!r} did "
+                f"not return stiffness for selected joint ids {sorted(missing)}."
+            )
 
 
 def joint_effort_limits(env: Any, asset: Any, joint_ids: Any) -> torch.Tensor:
