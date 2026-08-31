@@ -17,9 +17,17 @@ class MjlabBuiltinPdRuntimeAdapter:
 
         return isinstance(_base_actuator(actuator), BuiltinPdActuator)
 
-    def stiffness_groups(self, actuator: Any):
+    def stiffness_groups(self, env: Any, asset: Any, actuator: Any):
+        del asset
         base = _base_actuator(actuator)
-        return ((actuator.target_ids, base.cfg.stiffness),)
+        target_count = len(base.target_ids)
+        position_ids = base.global_ctrl_ids[:target_count]
+        gain_parameters = env.sim.model.actuator_gainprm
+        if gain_parameters.ndim == 3:
+            stiffness = gain_parameters[:, position_ids, 0]
+        else:
+            stiffness = gain_parameters[position_ids, 0]
+        return ((actuator.target_ids, stiffness),)
 
     def effort_limit_for_joint(
         self,

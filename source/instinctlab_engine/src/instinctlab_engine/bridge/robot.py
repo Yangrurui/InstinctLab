@@ -12,6 +12,7 @@ engine implementation.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from numbers import Integral
 from typing import Any, Literal
 
@@ -23,6 +24,7 @@ from .env import env_engine
 from .errors import PortabilityError
 
 __all__ = [
+    "JointStiffnessBinding",
     "body_angular_velocity_w",
     "body_linear_velocity_w",
     "joint_acceleration",
@@ -263,13 +265,126 @@ def _selected_stiffness(
     return selected
 
 
+def _stiffness_group_iterator(
+    env: Any,
+    asset: Any,
+    actuator: Any,
+    adapter: Any,
+    *,
+    engine: str,
+    native_group: str,
+) -> Iterable[tuple[Any, Any]]:
+    try:
+        groups = adapter.stiffness_groups(env, asset, actuator)
+    except AttributeError:
+        raise RuntimeError(
+            f"Engine {engine!r} actuator adapter for group {native_group!r} "
+            f"declares {STIFFNESS!r} but does not implement stiffness_groups()."
+        ) from None
+    try:
+        return iter(groups)
+    except TypeError:
+        raise RuntimeError(
+            f"Engine {engine!r} actuator adapter for group {native_group!r} "
+            "must return an iterable of (joint_ids, stiffness) pairs."
+        ) from None
+
+
+@dataclass(frozen=True, slots=True)
+class JointStiffnessBinding:
+    """Static actuator ownership plus a live reader for one stiffness group."""
+
+    joint_ids: torch.Tensor
+    _env: Any
+    _asset: Any
+    _actuator: Any
+    _adapter: Any
+    _group_index: int
+    _returned_ids: tuple[int, ...]
+    _selected_positions: tuple[int, ...]
+    _selected_position_ids: torch.Tensor | None
+    _engine: str
+    _native_group: str
+
+    def _current_value(self) -> Any:
+        iterator = _stiffness_group_iterator(
+            self._env,
+            self._asset,
+            self._actuator,
+            self._adapter,
+            engine=self._engine,
+            native_group=self._native_group,
+        )
+        for index, group in enumerate(iterator):
+            if index != self._group_index:
+                continue
+            if not isinstance(group, (tuple, list)) or len(group) != 2:
+                raise RuntimeError(
+                    f"Engine {self._engine!r} actuator adapter for group "
+                    f"{self._native_group!r} must return "
+                    "(joint_ids, stiffness) pairs."
+                )
+            return group[1]
+        raise RuntimeError(
+            f"Engine {self._engine!r} actuator adapter for group "
+            f"{self._native_group!r} no longer returns stiffness group "
+            f"{self._group_index}."
+        )
+
+    def diagnostic_value(self) -> Any:
+        """Read the current value while preserving the public diagnostic shape."""
+        return _selected_stiffness(
+            self._current_value(),
+            returned_ids=self._returned_ids,
+            selected_positions=self._selected_positions,
+            target_shape=(
+                int(self._asset.data.joint_vel.shape[0]),
+                len(self._selected_positions),
+            ),
+            engine=self._engine,
+            native_group=self._native_group,
+        )
+
+    def read(self, target: torch.Tensor) -> torch.Tensor:
+        """Read current native stiffness, selected and cast like ``target``."""
+        stiffness = torch.as_tensor(
+            self._current_value(),
+            device=target.device,
+            dtype=target.dtype,
+        )
+        if (
+            stiffness.ndim > 0
+            and stiffness.shape[-1] == len(self._returned_ids)
+            and self._selected_position_ids is not None
+        ):
+            stiffness = torch.index_select(
+                stiffness,
+                stiffness.ndim - 1,
+                self._selected_position_ids,
+            )
+        try:
+            broadcast_shape = torch.broadcast_shapes(
+                tuple(stiffness.shape), tuple(target.shape)
+            )
+        except RuntimeError:
+            broadcast_shape = None
+        if broadcast_shape != tuple(target.shape):
+            raise RuntimeError(
+                f"Engine {self._engine!r} actuator adapter for group "
+                f"{self._native_group!r} returned stiffness shape "
+                f"{tuple(stiffness.shape)}; it must be broadcast-compatible "
+                f"with selected joint shape {tuple(target.shape)}."
+            )
+        return stiffness
+
+
 def _resolve_joint_stiffness_groups(
     env: Any,
     asset: Any,
     joint_ids: Any,
     *,
     requesting_term: str = "joint stiffness reader",
-) -> Iterable[tuple[tuple[int, ...], torch.Tensor, Any]]:
+) -> Iterable[tuple[tuple[int, ...], JointStiffnessBinding]]:
     engine = _native_engine(env, asset)
     joint_count = int(getattr(asset, "num_joints", asset.data.joint_vel.shape[-1]))
     selected_ids = _joint_index_tuple(
@@ -299,22 +414,16 @@ def _resolve_joint_stiffness_groups(
             native_group=native_group,
             requesting_term=requesting_term,
         )
-        try:
-            groups = adapter.stiffness_groups(actuator)
-        except AttributeError:
-            raise RuntimeError(
-                f"Engine {engine!r} actuator adapter for group {native_group!r} "
-                f"declares {STIFFNESS!r} but does not implement stiffness_groups()."
-            ) from None
-        try:
-            iterator = iter(groups)
-        except TypeError:
-            raise RuntimeError(
-                f"Engine {engine!r} actuator adapter for group {native_group!r} "
-                "must return an iterable of (joint_ids, stiffness) pairs."
-            ) from None
+        iterator = _stiffness_group_iterator(
+            env,
+            asset,
+            actuator,
+            adapter,
+            engine=engine,
+            native_group=native_group,
+        )
         covered: set[int] = set()
-        for group in iterator:
+        for group_index, group in enumerate(iterator):
             if not isinstance(group, (tuple, list)) or len(group) != 2:
                 raise RuntimeError(
                     f"Engine {engine!r} actuator adapter for group {native_group!r} "
@@ -353,7 +462,7 @@ def _resolve_joint_stiffness_groups(
                     f"Engine {engine!r} actuator groups return stiffness more than once "
                     f"for selected joint ids {sorted(duplicates)}."
                 )
-            stiffness = _selected_stiffness(
+            _selected_stiffness(
                 group[1],
                 returned_ids=returned_ids,
                 selected_positions=relevant_positions,
@@ -363,10 +472,32 @@ def _resolve_joint_stiffness_groups(
             )
             covered.update(relevant_ids)
             all_covered.update(relevant_ids)
+            selected_position_ids = None
+            if len(relevant_positions) != len(returned_ids):
+                selected_position_ids = torch.tensor(
+                    relevant_positions,
+                    device=device,
+                    dtype=torch.long,
+                )
             yield (
                 relevant_ids,
-                torch.tensor(relevant_ids, device=device, dtype=torch.long),
-                stiffness,
+                JointStiffnessBinding(
+                    joint_ids=torch.tensor(
+                        relevant_ids,
+                        device=device,
+                        dtype=torch.long,
+                    ),
+                    _env=env,
+                    _asset=asset,
+                    _actuator=actuator,
+                    _adapter=adapter,
+                    _group_index=group_index,
+                    _returned_ids=returned_ids,
+                    _selected_positions=relevant_positions,
+                    _selected_position_ids=selected_position_ids,
+                    _engine=engine,
+                    _native_group=native_group,
+                ),
             )
         missing = required_ids - covered
         if missing:
@@ -390,13 +521,13 @@ def joint_stiffness_groups(
     requesting_term: str = "joint stiffness reader",
 ) -> Iterable[tuple[tuple[int, ...], Any]]:
     """Yield the public Python-id stiffness interface for diagnostics and probes."""
-    for python_ids, _device_ids, stiffness in _resolve_joint_stiffness_groups(
+    for python_ids, binding in _resolve_joint_stiffness_groups(
         env,
         asset,
         joint_ids,
         requesting_term=requesting_term,
     ):
-        yield python_ids, stiffness
+        yield python_ids, binding.diagnostic_value()
 
 
 def resolve_joint_stiffness_groups(
@@ -405,15 +536,15 @@ def resolve_joint_stiffness_groups(
     joint_ids: Any,
     *,
     requesting_term: str = "joint stiffness reader",
-) -> Iterable[tuple[torch.Tensor, Any]]:
-    """Resolve static stiffness bindings once for a device-side manager term."""
-    for _python_ids, device_ids, stiffness in _resolve_joint_stiffness_groups(
+) -> Iterable[JointStiffnessBinding]:
+    """Resolve static ownership while keeping native stiffness values live."""
+    for _python_ids, binding in _resolve_joint_stiffness_groups(
         env,
         asset,
         joint_ids,
         requesting_term=requesting_term,
     ):
-        yield device_ids, stiffness
+        yield binding
 
 
 def joint_effort_limits(env: Any, asset: Any, joint_ids: Any) -> torch.Tensor:

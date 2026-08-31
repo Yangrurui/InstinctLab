@@ -58,6 +58,7 @@ def _parse() -> tuple[argparse.Namespace, object]:
 
 
 def _task(selected, engine_name: str):
+    from instinctlab.tasks.parkour.mdp.rewards import motors_power_square
     from instinctlab_engine.spec import (
         ActionTermSpec,
         AgentSpec,
@@ -66,6 +67,7 @@ def _task(selected, engine_name: str):
         MdpSpec,
         ObsGroupSpec,
         ObsTermSpec,
+        RewardTermSpec,
         SceneSpec,
         SimSpec,
         TaskSpec,
@@ -110,6 +112,18 @@ def _task(selected, engine_name: str):
                         "operation": "scale",
                     },
                 )
+            },
+            rewards={
+                "rewards": {
+                    "power": RewardTermSpec(
+                        func=motors_power_square,
+                        weight=-1.0,
+                        params={
+                            "asset_cfg": joints,
+                            "normalize_by_stiffness": True,
+                        },
+                    )
+                }
             },
         ),
         agent=AgentSpec(runner="builtins:object"),
@@ -234,6 +248,24 @@ def _assert_mjlab_native_state(env, actuator, torch, device: str) -> None:
     torch.testing.assert_close(cleared, zeros)
 
 
+def _assert_randomized_stiffness_reward(env, torch) -> list[float]:
+    from instinctlab_engine.bridge.robot import joint_applied_torque
+
+    reward_cfg = env.reward_manager.get_term_cfg("power")
+    reward_term = getattr(reward_cfg.func, "_impl", reward_cfg.func)
+    value = reward_term(env, **reward_cfg.params)
+    asset = env.scene["robot"]
+    native_power = joint_applied_torque(env, asset) * asset.data.joint_vel
+    expected = torch.sum(torch.square(native_power / 3.0), dim=1)
+    if float(torch.max(torch.abs(native_power))) <= 1.0e-6:
+        raise AssertionError("native steps did not make the stiffness reward observable")
+    torch.testing.assert_close(value, expected)
+    stale_default = torch.sum(torch.square(native_power / 2.0), dim=1)
+    if torch.allclose(value, stale_default):
+        raise AssertionError("reward still uses the pre-randomization stiffness")
+    return value.detach().cpu().tolist()
+
+
 def _run(args, selected) -> dict[str, object]:
     engine_name = args.engine
     import torch
@@ -244,6 +276,7 @@ def _run(args, selected) -> dict[str, object]:
     required = {
         "action/joint_pos": ["joint_position_command"],
         "event/randomize_actuator_gains": ["gain_randomization"],
+        "reward/rewards/power": ["applied_effort", "stiffness"],
     }
     actual_requirements = report["requested_capabilities"]["actuator_by_term"]
     if actual_requirements != required:
@@ -267,6 +300,7 @@ def _run(args, selected) -> dict[str, object]:
         actions = torch.full((2, 1), 0.4, device=args.device)
         env.step(actions)
         env.step(actions)
+        power_reward = _assert_randomized_stiffness_reward(env, torch)
         action_term = env.action_manager.get_term("joint_pos")
         target_names = tuple(
             getattr(
@@ -280,6 +314,7 @@ def _run(args, selected) -> dict[str, object]:
             "actuator_class": f"{type(actuator).__module__}.{type(actuator).__name__}",
             "action_class": f"{type(action_term).__module__}.{type(action_term).__name__}",
             "gain_randomization": "native-startup-event",
+            "stiffness_reward": power_reward,
             "full_reset": "passed",
             "partial_reset": "passed",
             "steps": 2,

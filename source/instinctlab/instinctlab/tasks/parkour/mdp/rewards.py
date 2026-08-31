@@ -102,7 +102,7 @@ def joint_torques_l2(env: RlEnv, asset_cfg: Any = None) -> torch.Tensor:
 
 @requires_actuator_capabilities(APPLIED_EFFORT, STIFFNESS)
 class MotorsPowerSquare:
-    """Square native joint power after resolving static actuator bindings once."""
+    """Square native joint power using static ownership and live stiffness."""
 
     def __init__(self, cfg: Any, env: RlEnv) -> None:
         asset_cfg = cfg.params.get("asset_cfg")
@@ -112,16 +112,8 @@ class MotorsPowerSquare:
             cfg.params.get("normalize_by_stiffness", True)
         )
         if self._normalize_by_stiffness:
-            self._stiffness_groups = tuple(
-                (
-                    joint_ids,
-                    torch.as_tensor(
-                        stiffness,
-                        device=asset.data.joint_vel.device,
-                        dtype=asset.data.joint_vel.dtype,
-                    ),
-                )
-                for joint_ids, stiffness in compat_robot.resolve_joint_stiffness_groups(
+            self._stiffness_bindings = tuple(
+                compat_robot.resolve_joint_stiffness_groups(
                     env,
                     asset,
                     self._selected_joint_ids,
@@ -129,7 +121,7 @@ class MotorsPowerSquare:
                 )
             )
         else:
-            self._stiffness_groups = ()
+            self._stiffness_bindings = ()
 
     def __call__(
         self,
@@ -153,11 +145,13 @@ class MotorsPowerSquare:
                 dtype=power_per_joint.dtype,
             )
             selected_joint_count = 0
-            for joint_ids, stiffness in self._stiffness_groups:
-                group_power = torch.index_select(power_per_joint, 1, joint_ids)
-                group_power = group_power / stiffness
+            for binding in self._stiffness_bindings:
+                group_power = torch.index_select(
+                    power_per_joint, 1, binding.joint_ids
+                )
+                group_power = group_power / binding.read(group_power)
                 penalty += torch.sum(torch.square(group_power), dim=-1)
-                selected_joint_count += joint_ids.shape[0]
+                selected_joint_count += binding.joint_ids.shape[0]
         else:
             selected_power = power_per_joint[:, self._selected_joint_ids]
             penalty = torch.sum(torch.square(selected_power), dim=-1)

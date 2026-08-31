@@ -191,8 +191,9 @@ power_term = motors_power_square(
     SimpleNamespace(params={"asset_cfg": asset_cfg}),
     env,
 )
+actuator.stiffness = 4.0
 power = power_term(env, asset_cfg=asset_cfg)
-torch.testing.assert_close(power, torch.tensor([16.0, 56.25]))
+torch.testing.assert_close(power, torch.tensor([4.0, 14.0625]))
 limit_penalty = applied_torque_limits_by_ratio(
     env, asset_cfg=asset_cfg, limit_ratio=0.8
 )

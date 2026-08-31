@@ -56,9 +56,16 @@ class ActuatorRuntimeAdapter(Protocol):
 
 @runtime_checkable
 class StiffnessRuntimeAdapter(ActuatorRuntimeAdapter, Protocol):
-    """Runtime surface required by the ``stiffness`` capability."""
+    """Runtime surface required by the ``stiffness`` capability.
 
-    def stiffness_groups(self, actuator: object) -> Iterable[tuple[Any, Any]]: ...
+    Joint ownership is static after construction, but stiffness values must be read from the
+    current native state on every invocation.  ``env`` and ``asset`` let adapters reach state that
+    is owned by the simulator rather than by the actuator wrapper.
+    """
+
+    def stiffness_groups(
+        self, env: object, asset: object, actuator: object
+    ) -> Iterable[tuple[Any, Any]]: ...
 
 
 @runtime_checkable

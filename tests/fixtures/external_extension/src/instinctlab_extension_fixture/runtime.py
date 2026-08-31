@@ -62,10 +62,21 @@ class RuntimeAdapter:
             or getattr(getattr(actuator, "cfg", None), "instinctlab_model_id", None)
         ) == "fixture.stateful.v1"
 
-    def stiffness_groups(self, actuator):
+    def stiffness_groups(self, env, asset, actuator):
+        del asset
         joint_ids = getattr(actuator, "target_ids", None)
         if joint_ids is None:
             joint_ids = actuator.joint_indices
+        global_ctrl_ids = getattr(actuator, "global_ctrl_ids", None)
+        model = getattr(getattr(env, "sim", None), "model", None)
+        gain_parameters = getattr(model, "actuator_gainprm", None)
+        if global_ctrl_ids is not None and gain_parameters is not None:
+            position_ids = global_ctrl_ids[: len(joint_ids)]
+            if gain_parameters.ndim == 3:
+                stiffness = gain_parameters[:, position_ids, 0]
+            else:
+                stiffness = gain_parameters[position_ids, 0]
+            return ((joint_ids, stiffness),)
         stiffness = getattr(actuator, "stiffness", None)
         if stiffness is None:
             stiffness = actuator.cfg.stiffness

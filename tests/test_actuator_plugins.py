@@ -215,7 +215,7 @@ def test_runtime_capability_is_checked_against_the_matched_model(
         def matches(self, actuator: object) -> bool:
             return isinstance(actuator, NativeActuator)
 
-        def stiffness_groups(self, _actuator: object):
+        def stiffness_groups(self, _env: object, _asset: object, _actuator: object):
             return (((0,), 1.0),)
 
     provider.Config = type("Config", (), {})

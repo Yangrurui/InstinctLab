@@ -19,7 +19,8 @@ class IsaacPdRuntimeAdapter:
             return isinstance(actuator, DelayedPDActuator)
         raise RuntimeError(f"unknown Isaac PD runtime model {self.model!r}")
 
-    def stiffness_groups(self, actuator: Any):
+    def stiffness_groups(self, env: Any, asset: Any, actuator: Any):
+        del env, asset
         return ((actuator.joint_indices, actuator.stiffness),)
 
 

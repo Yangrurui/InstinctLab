@@ -278,9 +278,14 @@ def test_mjlab_motors_power_square_maps_stiffness_by_native_joint_ids() -> None:
     first = object.__new__(BuiltinPdActuator)
     first.cfg = SimpleNamespace(transmission_type="joint", stiffness=2.0)
     first._target_ids = torch.tensor([2, 0])
+    first._global_ctrl_ids = torch.tensor([0, 1, 3, 4])
     second = object.__new__(BuiltinPdActuator)
     second.cfg = SimpleNamespace(transmission_type="joint", stiffness=4.0)
     second._target_ids = torch.tensor([1])
+    second._global_ctrl_ids = torch.tensor([2, 5])
+    gain_parameters = torch.zeros(6, 10)
+    gain_parameters[[0, 1], 0] = 2.0
+    gain_parameters[2, 0] = 4.0
     robot = SimpleNamespace(
         actuators=(first, second),
         data=SimpleNamespace(
@@ -288,7 +293,12 @@ def test_mjlab_motors_power_square_maps_stiffness_by_native_joint_ids() -> None:
             joint_vel=torch.tensor([[3.0, 1.0, 2.0]]),
         ),
     )
-    env = SimpleNamespace(scene={"robot": robot})
+    env = SimpleNamespace(
+        scene={"robot": robot},
+        sim=SimpleNamespace(
+            model=SimpleNamespace(actuator_gainprm=gain_parameters)
+        ),
+    )
 
     out = _evaluate_class_term(
         motors_power_square,
@@ -310,6 +320,9 @@ def test_motors_power_square_does_not_read_device_ids_after_term_initialization(
     actuator = object.__new__(BuiltinPdActuator)
     actuator.cfg = SimpleNamespace(transmission_type="joint", stiffness=2.0)
     actuator._target_ids = torch.tensor([1, 0])
+    actuator._global_ctrl_ids = torch.tensor([0, 1, 2, 3])
+    gain_parameters = torch.zeros(4, 10)
+    gain_parameters[[0, 1], 0] = 2.0
     robot = SimpleNamespace(
         actuators=(actuator,),
         data=SimpleNamespace(
@@ -317,7 +330,12 @@ def test_motors_power_square_does_not_read_device_ids_after_term_initialization(
             joint_vel=torch.tensor([[3.0, 1.0]]),
         ),
     )
-    env = SimpleNamespace(scene={"robot": robot})
+    env = SimpleNamespace(
+        scene={"robot": robot},
+        sim=SimpleNamespace(
+            model=SimpleNamespace(actuator_gainprm=gain_parameters)
+        ),
+    )
     asset_cfg = SimpleNamespace(name="robot", joint_ids=torch.tensor([0, 1]))
     term = motors_power_square(
         SimpleNamespace(params={"asset_cfg": asset_cfg}),
@@ -336,9 +354,58 @@ def test_motors_power_square_does_not_read_device_ids_after_term_initialization(
     )
 
 
+def test_motors_power_square_reads_partial_group_stiffness_after_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class NativeActuator:
+        instinctlab_model_id = "test.dynamic_stiffness.v1"
+        transmission_type = "joint"
+        target_ids = (0, 1)
+
+        def __init__(self) -> None:
+            self.stiffness = torch.tensor([[2.0, 8.0]])
+
+    class RuntimeAdapter:
+        def matches(self, actuator: object) -> bool:
+            return isinstance(actuator, NativeActuator)
+
+        def stiffness_groups(self, env, asset, actuator: NativeActuator):
+            del env, asset
+            return ((actuator.target_ids, actuator.stiffness),)
+
+    registry = ActuatorRegistry(load_entry_points=False)
+    registry.register(
+        engine="mjlab",
+        model_id="test.dynamic_stiffness.v1",
+        config_factory=lambda: None,
+        runtime_adapter=RuntimeAdapter,
+        capabilities={STIFFNESS},
+    )
+    monkeypatch.setattr(robot_bridge, "ACTUATORS", registry)
+    actuator = NativeActuator()
+    robot = SimpleNamespace(
+        actuators=(actuator,),
+        data=SimpleNamespace(
+            qfrc_actuator=torch.tensor([[4.0, 1.0]]),
+            joint_vel=torch.tensor([[1.0, 1.0]]),
+        ),
+    )
+    env = SimpleNamespace(scene={"robot": robot})
+    asset_cfg = SimpleNamespace(name="robot", joint_ids=[0])
+    term = motors_power_square(
+        SimpleNamespace(params={"asset_cfg": asset_cfg}),
+        env,
+    )
+
+    torch.testing.assert_close(term(env, asset_cfg=asset_cfg), torch.tensor([4.0]))
+    actuator.stiffness[:, 0] = 4.0
+
+    torch.testing.assert_close(term(env, asset_cfg=asset_cfg), torch.tensor([1.0]))
+
+
 @pytest.mark.mjlab
 def test_motors_power_square_has_no_cuda_sync_after_term_initialization() -> None:
-    """Selected-SDK regression for the synchronization hidden by numerical tests."""
+    """A partial-group gain mutation stays live without synchronizing CUDA."""
     from mjlab.actuator import BuiltinPdActuator
 
     from tests.parkour_live_expect import require_live_device
@@ -347,6 +414,9 @@ def test_motors_power_square_has_no_cuda_sync_after_term_initialization() -> Non
     actuator = object.__new__(BuiltinPdActuator)
     actuator.cfg = SimpleNamespace(transmission_type="joint", stiffness=2.0)
     actuator._target_ids = torch.tensor([1, 0], device=device)
+    actuator._global_ctrl_ids = torch.tensor([0, 1, 2, 3], device=device)
+    gain_parameters = torch.zeros(1, 4, 10, device=device)
+    gain_parameters[:, [0, 1], 0] = 2.0
     robot = SimpleNamespace(
         actuators=(actuator,),
         data=SimpleNamespace(
@@ -354,10 +424,15 @@ def test_motors_power_square_has_no_cuda_sync_after_term_initialization() -> Non
             joint_vel=torch.tensor([[3.0, 1.0]], device=device),
         ),
     )
-    env = SimpleNamespace(scene={"robot": robot})
+    env = SimpleNamespace(
+        scene={"robot": robot},
+        sim=SimpleNamespace(
+            model=SimpleNamespace(actuator_gainprm=gain_parameters)
+        ),
+    )
     asset_cfg = SimpleNamespace(
         name="robot",
-        joint_ids=torch.tensor([0, 1], device=device),
+        joint_ids=torch.tensor([0], device=device),
     )
     term = motors_power_square(
         SimpleNamespace(params={"asset_cfg": asset_cfg}),
@@ -367,16 +442,19 @@ def test_motors_power_square_has_no_cuda_sync_after_term_initialization() -> Non
     original_mode = torch.cuda.get_sync_debug_mode()
     torch.cuda.set_sync_debug_mode("error")
     try:
-        out = term(env, asset_cfg=asset_cfg)
+        before = term(env, asset_cfg=asset_cfg)
+        gain_parameters[:, 1, 0] = 4.0
+        after = term(env, asset_cfg=asset_cfg)
     finally:
         torch.cuda.set_sync_debug_mode(original_mode)
 
     torch.testing.assert_close(
-        out,
-        torch.tensor(
-            [(2.0 * 3.0 / 2.0) ** 2 + (8.0 * 1.0 / 2.0) ** 2],
-            device=device,
-        ),
+        before,
+        torch.tensor([(2.0 * 3.0 / 2.0) ** 2], device=device),
+    )
+    torch.testing.assert_close(
+        after,
+        torch.tensor([(2.0 * 3.0 / 4.0) ** 2], device=device),
     )
 
 
@@ -391,6 +469,9 @@ def test_mixed_actuator_reward_skips_unselected_group_without_stiffness() -> Non
     selected = object.__new__(BuiltinPdActuator)
     selected.cfg = SimpleNamespace(transmission_type="joint", stiffness=4.0)
     selected._target_ids = torch.tensor([1])
+    selected._global_ctrl_ids = torch.tensor([0, 1])
+    gain_parameters = torch.zeros(2, 10)
+    gain_parameters[0, 0] = 4.0
     robot = SimpleNamespace(
         actuators=(unrelated, selected),
         data=SimpleNamespace(
@@ -398,7 +479,12 @@ def test_mixed_actuator_reward_skips_unselected_group_without_stiffness() -> Non
             joint_vel=torch.tensor([[3.0, 2.0]]),
         ),
     )
-    env = SimpleNamespace(scene={"robot": robot})
+    env = SimpleNamespace(
+        scene={"robot": robot},
+        sim=SimpleNamespace(
+            model=SimpleNamespace(actuator_gainprm=gain_parameters)
+        ),
+    )
 
     out = _evaluate_class_term(
         motors_power_square,
@@ -431,8 +517,8 @@ def test_stiffness_adapter_output_is_bounded_by_its_native_group(
         def matches(self, actuator: object) -> bool:
             return isinstance(actuator, NativeActuator)
 
-        def stiffness_groups(self, actuator: object):
-            del actuator
+        def stiffness_groups(self, env, asset, actuator: object):
+            del env, asset, actuator
             return ((returned_ids, stiffness),)
 
     registry = ActuatorRegistry(load_entry_points=False)
@@ -502,7 +588,8 @@ def test_stiffness_groups_reject_duplicate_missing_and_overlapping_ids(
         def matches(self, actuator: object) -> bool:
             return isinstance(actuator, NativeActuator)
 
-        def stiffness_groups(self, actuator: NativeActuator):
+        def stiffness_groups(self, env, asset, actuator: NativeActuator):
+            del env, asset
             return actuator.groups
 
     registry = ActuatorRegistry(load_entry_points=False)
@@ -544,8 +631,8 @@ def test_stiffness_adapter_preserves_per_environment_broadcasting(
         def matches(self, actuator: object) -> bool:
             return isinstance(actuator, NativeActuator)
 
-        def stiffness_groups(self, actuator: object):
-            del actuator
+        def stiffness_groups(self, env, asset, actuator: object):
+            del env, asset, actuator
             return (((0,), torch.tensor([[2.0], [4.0]])),)
 
     registry = ActuatorRegistry(load_entry_points=False)
@@ -598,8 +685,8 @@ def test_stiffness_adapter_rejects_non_integral_joint_ids(
         def matches(self, actuator: object) -> bool:
             return isinstance(actuator, NativeActuator)
 
-        def stiffness_groups(self, actuator: object):
-            del actuator
+        def stiffness_groups(self, env, asset, actuator: object):
+            del env, asset, actuator
             return ((returned_ids, 2.0),)
 
     registry = ActuatorRegistry(load_entry_points=False)
