@@ -119,6 +119,42 @@ terrain extension registry and registers the backend implementations it
 provides. If a kind is not registered for the selected backend, compilation
 fails explicitly.
 
+InstinctLab's `perlin_*` tiles use this same public path. Their SDK-free
+registrar lives in `instinctlab.terrains.registration`; the native builders
+remain in the selected backend package. Adding a task recipe to
+`tasks/terrain.py` needs no registration when it only composes existing kinds.
+A genuinely new tile kind must be registered for every engine the task claims.
+
+## Actuator extensions
+
+Concrete gain, limit, armature, selector, and delay values belong on every
+native actuator group in `assets/<robot>/<engine>.py`. A new actuator model is
+registered separately through an `instinctlab.actuators` entry point whose name
+is `<engine>.<extension>`:
+
+```python
+def register_isaacsim(registry):
+    registry.register(
+        model_id="my_package.motor.v1",
+        config_factory="my_package.isaacsim_actuator:MotorCfg",
+        runtime_adapter="my_package.isaacsim_runtime:RUNTIME",
+        capabilities={"joint_position_command", "stiffness"},
+    )
+```
+
+The registrar must stay SDK-free and use dotted paths. The native asset names
+the same `model_id` in `actuator_model_ids` and every `NativeActuatorGroup`,
+resolves its factory with `native_actuator_factory()`, writes all final native
+parameters explicitly, and calls `validate_native_actuator_groups()` after
+construction. A runtime adapter is required when portable terms observe
+stiffness, effort limits, gain randomization, applied effort, or reset state.
+Preflight rejects a missing provider or capability before native construction.
+
+Parkour's delayed PD uses this path as `instinctlab.delayed_pd.v1`: Isaac maps
+it to `DelayedPDActuatorCfg`, while MJLab maps it to its delay-capable
+`BuiltinPdActuatorCfg`. The shared identity describes the application contract,
+not equal native physics internals.
+
 ## Verification
 
 Choose checks appropriate to the change:

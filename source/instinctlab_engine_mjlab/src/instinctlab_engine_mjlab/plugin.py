@@ -19,17 +19,6 @@ _STANDARD_TILES = (
     "hf_pyramid_slope_inv",
 )
 
-_ROUGH_TILES = (
-    "perlin_plane",
-    "perlin_square_gap",
-    "perlin_pyramid_stairs",
-    "perlin_pyramid_stairs_inv",
-    "perlin_discrete_obstacles",
-    "perlin_random_multi_box",
-    "perlin_pyramid_slope_inv",
-)
-
-
 def register() -> None:
     """Register lazy MJLab builders without importing an implementation module."""
     register_adapter(
@@ -47,12 +36,6 @@ def register() -> None:
             "mjlab",
             kind,
             "instinctlab_engine_mjlab.terrain_builders:build_standard_tile",
-        )
-    for kind in _ROUGH_TILES:
-        register_sub_terrain(
-            "mjlab",
-            kind,
-            "instinctlab_engine_mjlab.terrain_builders:build_rough_tile",
         )
     _entity.register(
         "mjlab",

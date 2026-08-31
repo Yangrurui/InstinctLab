@@ -58,6 +58,12 @@ The central design is sound and should be retained:
 - G1 native assets and every final actuator parameter remain explicit in
   `assets/unitree_g1/isaacsim.py` and `assets/unitree_g1/mjlab.py`. The neutral
   asset interface routes only `package/variant` ids.
+- The application wheel publishes its `perlin_*` generated-terrain tiles via
+  `instinctlab.terrains`; both SDK-free registrations point at lazy native
+  builders that remain in the selected backend package. Parkour similarly
+  selects the application semantic actuator id `instinctlab.delayed_pd.v1`
+  through engine-scoped `instinctlab.actuators` entry points while retaining
+  every final group parameter in the two G1 native asset modules.
 - Backends, assets, actuator models, native terms, native sensors, whole
   terrains, and generated-terrain tiles use transactional lazy registries.
   Discovery is SDK-free until the selected backend bootstraps and provenance is
@@ -197,6 +203,13 @@ config object that cannot retain `instinctlab_model_id` now raise the public
 `ActuatorContractError`; the native assignment cause is preserved where
 applicable, and regressions cover both paths. This replaces the prior
 undefined-name failure that could hide the actual extension contract violation.
+
+Application actuator aliases use identity-scoped runtime adapters rather than
+registering the backend adapter object a second time. An unlabelled native PD
+group therefore continues to match exactly one backend model, while a group
+built through `instinctlab.delayed_pd.v1` resolves the application alias and
+delegates its observable stiffness and effort-limit behavior to the selected
+backend.
 
 ## Accepted verification snapshot
 

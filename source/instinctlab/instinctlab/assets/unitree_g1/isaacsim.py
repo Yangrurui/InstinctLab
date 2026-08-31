@@ -772,12 +772,12 @@ G1_29DOF_PARKOUR_CFG = IsaacRobotCfg(
     default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     soft_joint_pos_limit_factor=0.9,
     actuator_delay=(0, 2),
-    actuator_model_ids=("isaaclab.delayed_pd.v1",),
+    actuator_model_ids=("instinctlab.delayed_pd.v1",),
     actuator_group_count=5,
     actuator_groups=(
         NativeActuatorGroup(
             name="legs",
-            model_id="isaaclab.delayed_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(
                 ".*_hip_yaw_joint",
                 ".*_hip_roll_joint",
@@ -787,22 +787,22 @@ G1_29DOF_PARKOUR_CFG = IsaacRobotCfg(
         ),
         NativeActuatorGroup(
             name="feet",
-            model_id="isaaclab.delayed_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
         ),
         NativeActuatorGroup(
             name="waist",
-            model_id="isaaclab.delayed_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=("waist_roll_joint", "waist_pitch_joint"),
         ),
         NativeActuatorGroup(
             name="waist_yaw",
-            model_id="isaaclab.delayed_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=("waist_yaw_joint",),
         ),
         NativeActuatorGroup(
             name="arms",
-            model_id="isaaclab.delayed_pd.v1",
+            model_id="instinctlab.delayed_pd.v1",
             selectors=(
                 ".*_shoulder_pitch_joint",
                 ".*_shoulder_roll_joint",
@@ -1054,7 +1054,7 @@ def _load_isaac() -> None:
     from instinctlab_engine.actuators import native_actuator_factory
 
     DelayedPDActuatorCfg = native_actuator_factory(
-        "isaacsim", "isaaclab.delayed_pd.v1"
+        "isaacsim", "instinctlab.delayed_pd.v1"
     )
     ImplicitActuatorCfg = native_actuator_factory(
         "isaacsim", "isaaclab.implicit_pd.v1"
