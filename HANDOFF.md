@@ -1102,19 +1102,20 @@ unaffected and passed.
 
 #### Extension platform remediation follow-up audit (2026-08-31)
 
-Verdict: the three follow-up findings are resolved. The mixed-actuator runtime
-bridge now has the same selected-joint scope as preflight, Isaac's SDK-free
-scene namespace is checked against the installed native config fields, and the
-external wheel now proves its advertised stateful actuator capabilities with
-real native classes on both engines. This closes the specific follow-up
-re-acceptance conditions; the broader P1 lifecycle, replay, and multi-entity
-work below still prevents calling every extension interface stable 1.0.
+Verdict: the three original functional cases are corrected, but the actuator
+bridge implementation is not yet re-accepted as a stable protocol. A repeated
+audit found one high-severity hot-path performance regression and one
+medium-severity fail-closed validation gap in `1df39e5`. Isaac scene-field
+tracking in `00439db` and the real native external-actuator wheel in `a750396`
+are correct. The broader P1 lifecycle, replay, and multi-entity work below also
+still prevents calling every extension interface stable 1.0.
 
 - `1df39e5` passes the selected native joint ids into
   `joint_stiffness_groups()`, skips non-intersecting groups before adapter
   resolution, and validates adapter ids and stiffness shapes. Adversarial tests
   cover a selected capable group beside an unselected incapable group, foreign
-  ids, and invalid shapes.
+  ids, and invalid shapes. This fixes the reported mixed-actuator numerical
+  failure, but the two implementation findings below remain.
 - `00439db` derives Isaac reserved scene names from one exact maintained field
   set including `clone_in_fabric`. A selected-SDK test requires equality with
   every installed `InteractiveSceneCfg` field, so additions fail closed.
@@ -1140,7 +1141,49 @@ live external wheel on CUDA 2: Isaac and MJLab each constructed two real
   environments, applied the native startup gain-randomization event, exercised
   the native joint-position action for two steps, and passed full/partial reset
   and one-step actuator-delay checks
-Ruff, compileall, and git diff --check passed
+compileall and git diff --check passed
+```
+
+Repeated-audit findings, in priority order:
+
+1. **High — actuator metadata forces device-to-host synchronization in every
+   reward step.** `_joint_index_tuple()` calls `.tolist()` on tensor ids.
+   `joint_stiffness_groups()` invokes that conversion for native group
+   ownership and again for adapter-returned ids. Isaac and MJLab store these
+   selected ids as tensors on the runtime device. With the stock G1 grouping,
+   an all-joint motor-power term can therefore perform up to 10 Isaac or 14
+   MJLab explicit device-to-host conversions per evaluation. CUDA sync-debug
+   emitted the warning at `bridge/robot.py` for both conversions in a
+   single-group probe. Resolve and validate static actuator ownership and
+   adapter bindings once during construction or term initialization, then keep
+   ids device-native in the per-step reward path. Add a selected-SDK profiler
+   or sync-debug regression test; numerical reward tests do not detect this
+   throughput failure.
+2. **Medium — actuator ids are coerced instead of validated.**
+   `_joint_index_tuple()` applies `int()` to every value, so values such as
+   `0.5`, booleans, and numeric strings can silently become valid joint ids. A
+   direct adversarial adapter returning `(0.5,)` for owned id `0` was accepted
+   and produced a reward instead of failing. Accept only genuine integral
+   values or integer-dtype tensors, reject booleans and non-integral dtypes,
+   and add Python and tensor cases for floats, strings, and booleans.
+
+Repeated-audit evidence:
+
+```text
+144 passed (focused bridge, spec, plugin, native-asset, preflight, volume, and
+  package-metadata tests)
+1392 passed, 3 skipped, 29 deselected, 1 warning (full tests/ suite)
+live external wheel on CUDA 2 independently passed both native engines and
+  clean uninstall/backend-preservation checks
+direct mixed-actuator probe returned the expected selected-only reward 9.0;
+  clone_in_fabric was rejected as a reserved Isaac scene name
+direct fractional-id probe accepted adapter id 0.5 as id 0 (incorrect)
+CUDA sync-debug warned on tensor.tolist() twice in a one-group motor-power
+  reward probe
+compileall and git diff --check passed
+scoped Ruff found four import-order errors in changed files; repository-wide
+  Ruff is not a green gate (709 existing/current errors), so the earlier
+  unqualified Ruff-passed statement is withdrawn
 ```
 
 The opt-in native gate is:
@@ -2627,11 +2670,14 @@ production configuration.
 
 ## Open risks and next work
 
-The extension-platform stock-task P0 regressions are resolved through
-`a750396`: Rough and Parkour pass complete registry preflight, Isaac Parkour has
-live construction/reset/step evidence, and the three extension-platform
-follow-up findings are closed. The P1 lifecycle, replay, and multi-entity work
-above remains open before declaring every extension interface stable 1.0.
+The extension-platform stock-task P0 functional regressions are resolved
+through `a750396`: Rough and Parkour pass complete registry preflight, Isaac
+Parkour has live construction/reset/step evidence, and the external wheel uses
+real native actuators. Stable actuator-protocol acceptance remains open because
+the bridge performs repeated CUDA-to-host id conversion in a per-step reward
+path and does not strictly validate integral ids. The P1 lifecycle, replay, and
+multi-entity work above also remains open before declaring every extension
+interface stable 1.0.
 
 1. The retained GPU 6 Perceptive process is no longer active; audit its final
    log before considering the checkpoint, and do not restart it without an
