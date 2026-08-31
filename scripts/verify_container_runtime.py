@@ -8,12 +8,14 @@ import hashlib
 import json
 import platform
 import re
+import subprocess
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
 IMAGE_DIGEST = re.compile(r".+@sha256:[0-9a-f]{64}")
+IMPORT_NAME = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 
 
 def _sha256(path: Path) -> str:
@@ -54,6 +56,31 @@ def _verify_distributions(expected: dict[str, str]) -> None:
         )
 
 
+def _verify_imports(expected: dict[str, str], distributions: dict[str, str]) -> None:
+    problems = []
+    for distribution, module in expected.items():
+        if distribution not in distributions:
+            problems.append(f"{distribution}: import check has no distribution lock")
+            continue
+        if not isinstance(module, str) or not IMPORT_NAME.fullmatch(module):
+            problems.append(f"{distribution}: invalid import name {module!r}")
+            continue
+        completed = subprocess.run(
+            [sys.executable, "-c", f"import {module}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip().splitlines()
+            problems.append(
+                f"{distribution}: import {module!r} failed"
+                + (f" ({detail[-1]})" if detail else "")
+            )
+    if problems:
+        raise RuntimeError("Container import smoke failed:\n  " + "\n  ".join(problems))
+
+
 def _verify_external_runtime(
     lock: dict[str, Any], provenance: dict[str, Any], base_image: str
 ) -> None:
@@ -75,7 +102,9 @@ def _verify_external_runtime(
             )
 
 
-def _verify_release_artifacts(wheel_dir: Path, expected_version: str) -> dict[str, Any]:
+def _verify_release_artifacts(
+    wheel_dir: Path, expected_version: str, expected_commit: str
+) -> dict[str, Any]:
     manifest = _load(
         wheel_dir / "SHA256SUMS.json",
         "instinctlab_release_artifacts_v1",
@@ -85,6 +114,19 @@ def _verify_release_artifacts(wheel_dir: Path, expected_version: str) -> dict[st
         raise ValueError(
             f"Release artifacts are {manifest.get('package_version')!r}; "
             f"runtime lock expects {expected_version!r}."
+        )
+    if not re.fullmatch(r"[0-9a-f]{40}", expected_commit):
+        raise ValueError(
+            f"Expected source commit is not a full Git SHA: {expected_commit!r}."
+        )
+    if (
+        manifest.get("source_commit") != expected_commit
+        or manifest.get("source_dirty") is not False
+    ):
+        raise ValueError(
+            "Release artifact source receipt does not match the clean requested commit: "
+            f"{manifest.get('source_commit')!r}, dirty={manifest.get('source_dirty')!r}; "
+            f"expected {expected_commit}."
         )
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict) or len(artifacts) != 8:
@@ -122,6 +164,7 @@ def verify(
     runtime_provenance_path: Path,
     wheel_dir: Path,
     base_image: str,
+    source_commit: str,
 ) -> None:
     lock = _load(lock_path, "instinctlab_container_runtime_lock_v1")
     if platform.python_version().rsplit(".", 1)[0] != lock["python"]:
@@ -130,8 +173,9 @@ def verify(
         )
     provenance = _load(runtime_provenance_path, "instinctlab_external_runtime_v1")
     _verify_external_runtime(lock, provenance, base_image)
-    _verify_release_artifacts(wheel_dir, lock["application_version"])
+    _verify_release_artifacts(wheel_dir, lock["application_version"], source_commit)
     _verify_distributions(lock["distributions"])
+    _verify_imports(lock.get("imports", {}), lock["distributions"])
 
 
 def main() -> int:
@@ -140,12 +184,14 @@ def main() -> int:
     parser.add_argument("--runtime-provenance", type=Path, required=True)
     parser.add_argument("--wheel-dir", type=Path, required=True)
     parser.add_argument("--base-image", required=True)
+    parser.add_argument("--source-commit", required=True)
     args = parser.parse_args()
     verify(
         lock_path=args.lock.resolve(),
         runtime_provenance_path=args.runtime_provenance.resolve(),
         wheel_dir=args.wheel_dir.resolve(),
         base_image=args.base_image,
+        source_commit=args.source_commit,
     )
     print("Verified immutable dual-backend runtime and coordinated application wheels.")
     return 0

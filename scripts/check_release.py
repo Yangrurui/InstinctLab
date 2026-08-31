@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 
 import tomllib
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECTS = {
@@ -41,16 +43,34 @@ def _constant(path: Path, name: str) -> str:
     raise RuntimeError(f"{path} does not define a string constant {name}")
 
 
+def _string_sequence(path: Path, name: str) -> list[str]:
+    tree = ast.parse(path.read_text(), filename=str(path))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        ):
+            value = ast.literal_eval(node.value)
+            if isinstance(value, (list, tuple)) and all(
+                isinstance(item, str) for item in value
+            ):
+                return list(value)
+    raise RuntimeError(f"{path} does not define a string sequence {name}")
+
+
 def collect_release_metadata() -> dict:
     packages = {
         name: _toml(path / "pyproject.toml")["project"]
         for name, path in PROJECTS.items()
     }
     extension = _toml(APPLICATION / "config" / "extension.toml")["package"]
+    application_setup_path = APPLICATION / "setup.py"
     packages["instinctlab"] = {
         "version": extension["version"],
         "requires-python": ">=3.11",
-        "dependencies": [],
+        "dependencies": _string_sequence(application_setup_path, "INSTALL_REQUIRES"),
     }
     return {
         "packages": packages,
@@ -68,7 +88,7 @@ def collect_release_metadata() -> dict:
             / "assets.py",
             "NATIVE_ASSET_API_VERSION",
         ),
-        "application_setup": (APPLICATION / "setup.py").read_text(),
+        "application_setup": application_setup_path.read_text(),
         "container_runtime": json.loads(
             (REPO_ROOT / "docker" / "runtime-lock.json").read_text()
         ),
@@ -126,6 +146,58 @@ def validate_release_metadata(
                 f"container runtime pins {distribution}="
                 f"{locked_distributions.get(distribution)!r}, expected {expected!r}"
             )
+
+    locked_by_name = {
+        canonicalize_name(name): locked_version
+        for name, locked_version in locked_distributions.items()
+    }
+    local_packages = {
+        canonicalize_name(name): values for name, values in packages.items()
+    }
+    pending = [
+        Requirement(declared)
+        for values in packages.values()
+        for declared in values.get("dependencies", ())
+    ]
+    checked: set[str] = set()
+    while pending:
+        requirement = pending.pop()
+        name = canonicalize_name(requirement.name)
+        identity = str(requirement)
+        if identity in checked:
+            continue
+        checked.add(identity)
+        locked_version = locked_by_name.get(name)
+        if locked_version is None:
+            raise RuntimeError(
+                f"container runtime does not lock required distribution {requirement.name!r}"
+            )
+        if requirement.specifier and locked_version not in requirement.specifier:
+            raise RuntimeError(
+                f"container runtime locks {requirement.name}=={locked_version}, "
+                f"which does not satisfy {requirement}"
+            )
+        local = local_packages.get(name)
+        if local is not None:
+            optional = local.get("optional-dependencies", {})
+            for extra in requirement.extras:
+                declarations = optional.get(extra)
+                if declarations is None:
+                    raise RuntimeError(
+                        f"coordinated package {requirement.name} has no extra {extra!r}"
+                    )
+                pending.extend(Requirement(declared) for declared in declarations)
+
+    imports = container_runtime.get("imports")
+    if not isinstance(imports, dict) or not imports:
+        raise RuntimeError("container runtime does not declare import smoke checks")
+    unknown_imports = sorted(
+        name for name in imports if canonicalize_name(name) not in locked_by_name
+    )
+    if unknown_imports:
+        raise RuntimeError(
+            f"container runtime imports unlocked distributions: {unknown_imports}"
+        )
 
     public_api = ".".join(version.split(".")[:2])
     for name in ("engine_core_api", "native_asset_api"):

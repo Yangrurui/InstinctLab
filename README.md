@@ -111,9 +111,10 @@ as unavailable and is checked only when explicitly selected or when
 
 ### Container image
 
-The application image builds the four coordinated InstinctLab wheels in an
-isolated Python 3.11 stage and installs them onto an externally supplied,
-immutable dual-backend runtime. Isaac Sim is not rebuilt or redistributed here:
+The operator helper first builds the four coordinated InstinctLab wheels and
+source archives from a clean checkout using the isolated pinned release toolchain.
+The application image then installs those verified artifacts onto an externally
+supplied, immutable dual-backend runtime. Isaac Sim is not rebuilt or redistributed here:
 its runtime/EULA, NVIDIA driver boundary, and large SDK caches belong in the
 site-managed base image. That base must contain the exact packages in
 `docker/runtime-lock.json` and an
@@ -135,8 +136,8 @@ Use an immutable digest, not a mutable tag:
 
 ```bash
 export INSTINCTLAB_RUNTIME_IMAGE='registry/image@sha256:<64-hex-digest>'
-export INSTINCTLAB_WHEEL_BUILDER_IMAGE='python:3.11-slim@sha256:<64-hex-digest>'
 export INSTINCTLAB_HOST_DATA_ROOT=/absolute/path/to/Datasets
+export INSTINCTLAB_BUILD_PYTHON=/path/to/python3.11
 docker/docker-compose.sh
 
 # Inside the container, validate the read-only dataset mount.
@@ -146,8 +147,9 @@ PYTHONPATH= python /opt/instinctlab/bin/verify_datasets.py \
 ```
 
 The image build fails if the base reference is not digest-pinned, its receipt
-does not name the pinned IsaacLab/MJLab commits, any locked SDK distribution is
-missing or has drifted, or a coordinated wheel checksum/version is wrong. The
+does not name the pinned IsaacLab/MJLab commits, any locked SDK or application
+dependency is missing or has drifted, a required module cannot be imported, or
+a coordinated wheel checksum/version is wrong. The
 repository itself and sibling checkouts are not bind-mounted into the operator
 container.
 

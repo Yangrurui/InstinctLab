@@ -64,14 +64,26 @@ python -m twine upload dist/release/*.whl dist/release/*.tar.gz
 ```
 
 `build_release.py` refuses a non-empty output directory, builds a wheel and
-source distribution for each package from clean temporary source copies, uses
-an isolated pinned build/twine tool environment, runs `twine check`, and writes
-artifact sizes and SHA-256 digests to `dist/release/SHA256SUMS.json`. Install a
+source distribution for each package from Git-tracked files in a clean checkout,
+uses an isolated and fully pinned build/twine tool environment, runs `twine check`,
+and writes the clean source commit, artifact sizes, and SHA-256 digests to
+`dist/release/SHA256SUMS.json`. Install a
 current `twine` only for the final upload command. Archive that file,
 the workflow URLs, wheel-matrix logs, GPU reports, installer receipt, and
 lifecycle threshold reports with the release. Publish only after a maintainer
 verifies the tag points at the tested commit and the index contains all four
 coordinated distributions.
+
+Pushing a `vX.Y.Z` tag runs the fast, isolated-wheel, GPU-live, and release
+candidate operator workflows on that exact commit. The operator workflow runs
+on a protected `release-candidate` environment and requires a Docker/GPU runner,
+the release dataset root, immutable runtime digest, intended environment count,
+and reviewed lifecycle threshold documents. It builds the clean artifacts,
+checks dependency source receipts, full tests, both native extension paths,
+datasets, lifecycle thresholds, and the final operator image. A publication
+dispatch must select that same tag; `release.yml` queries the workflow-run API
+and refuses PyPI publication unless all four named workflows succeeded for the
+tag commit.
 
 After publication, create a fresh Python 3.11 environment, install the four
 artifacts from the index without editable sibling state, rerun the isolated

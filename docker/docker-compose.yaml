@@ -13,7 +13,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         INSTINCTLAB_RUNTIME_IMAGE: ${INSTINCTLAB_RUNTIME_IMAGE:?set an immutable dual-backend image@sha256 reference}
-        INSTINCTLAB_WHEEL_BUILDER_IMAGE: ${INSTINCTLAB_WHEEL_BUILDER_IMAGE:?set an immutable Python 3.11 image@sha256 reference}
+        INSTINCTLAB_SOURCE_COMMIT: ${INSTINCTLAB_SOURCE_COMMIT:?operator helper records the clean source commit}
     image: ${INSTINCTLAB_APPLICATION_IMAGE:-instinctlab:0.1.0}
     container_name: instinctlab
     network_mode: host

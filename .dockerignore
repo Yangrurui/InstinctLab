@@ -6,7 +6,9 @@
 **/__pycache__
 **/*.egg-info
 build
-dist
+dist/*
+!dist/release/
+!dist/release/**
 logs
 docker/.env.base
 source/instinctlab/instinctlab/shadowing_probe.py

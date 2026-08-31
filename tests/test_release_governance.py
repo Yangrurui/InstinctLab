@@ -34,6 +34,15 @@ def test_all_release_distributions_and_plugin_apis_are_coordinated() -> None:
     )
 
 
+def test_release_metadata_rejects_an_unlocked_application_dependency() -> None:
+    release = _script("check_release.py")
+    metadata = release.collect_release_metadata()
+    metadata["container_runtime"]["distributions"].pop("psutil")
+
+    with pytest.raises(RuntimeError, match="required distribution 'psutil'"):
+        release.validate_release_metadata(metadata)
+
+
 def test_python_tooling_targets_the_supported_python_311() -> None:
     with (ROOT / "pyproject.toml").open("rb") as handle:
         tools = tomllib.load(handle)["tool"]
@@ -48,17 +57,50 @@ def test_release_automation_has_separate_fast_wheel_and_gpu_gates() -> None:
     wheels = (workflows / "wheel-matrix.yml").read_text()
     gpu = (workflows / "gpu-live.yml").read_text()
     release = (workflows / "release.yml").read_text()
+    candidate = (workflows / "release-candidate.yml").read_text()
 
     assert "scripts/check_ruff_ratchet.py" in fast
     assert "pyright" in fast
     assert "scripts/verify_wheel_matrix.py" in wheels
     assert "--live-extension" not in wheels
-    assert "schedule:" in gpu and "release:" in gpu
+    assert "schedule:" in gpu and 'tags: ["v*"]' in gpu
     assert "--live-extension" in gpu
     assert "self-hosted" in gpu
     assert "scripts/build_release.py" in release
     assert "gh-action-pypi-publish" in release
     assert "environment: pypi" in release
+    assert "GITHUB_REF_TYPE" in release
+    assert "needs: [build, verify-gates]" in release
+    for gate in (
+        "PR fast SDK-free checks",
+        "Isolated package and wheel matrix",
+        "Scheduled and release GPU live checks",
+        "Release candidate operator gates",
+    ):
+        assert gate in release
+    assert "scripts/check_release_handoff.py" in candidate
+    assert "scripts/verify_datasets.py" in candidate
+    assert "scripts/benchmark_lifecycle.py" in candidate
+    assert "scripts/verify_wheel_matrix.py" in candidate
+    assert "docker build" in candidate
+    assert "operator imports ok" in candidate
+
+
+def test_release_handoff_gate_rejects_p0_p1_and_merge_markers(tmp_path: Path) -> None:
+    gate = _script("check_release_handoff.py")
+    handoff = tmp_path / "HANDOFF.md"
+    handoff.write_text("# State\n\n## Open work\n\nNo blockers.\n\n## Bring-up\n")
+    gate.validate_handoff(handoff)
+
+    handoff.write_text("# State\n\n## Open work\n\n1. **P1 — broken**\n\n## Bring-up\n")
+    with pytest.raises(RuntimeError, match="release blockers"):
+        gate.validate_handoff(handoff)
+
+    handoff.write_text(
+        "# State\n\n<<<<<<< HEAD\n\n## Open work\n\nNone.\n\n## Bring-up\n"
+    )
+    with pytest.raises(RuntimeError, match="merge marker"):
+        gate.validate_handoff(handoff)
 
 
 def test_release_policy_defines_versioning_deprecation_and_publication() -> None:
