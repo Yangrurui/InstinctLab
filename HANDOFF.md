@@ -16,7 +16,8 @@ chronological audit section.
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
 - Latest verified implementation commits: `d343fdc` (locked-arm G1 robot and
-  task onboarding), `c5fdfc5` (release/data/operator hardening), and `36f229d`
+  task onboarding), `7ca22a3` (external live stock-sensor composition),
+  `c5fdfc5` (release/data/operator hardening), and `36f229d`
   (terrain/actuator extensions)
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
@@ -266,8 +267,13 @@ core-only, Isaac-only, MJLab-only, and dual-backend isolated wheels passed at
   the current report schema using a pinned isolated build toolchain
 external fixture installed, passed SDK-free probes, constructed two real
   environments per engine, combined startup gain randomization with a live
-  stiffness-normalized reward, passed native action/delay/reset checks, then
-  uninstalled without breaking built-in backends
+  stiffness-normalized reward, added contact-history and terrain-height sensors
+  under their declared names, consumed them from a reward and policy
+  observation, passed native action/delay/reset checks, then uninstalled without
+  breaking built-in backends; both engines reported contact history
+  `(2, 2, 2, 3)`, four height hits, and finite policy observations `(2, 5)`;
+  the Isaac probe now preserves a nonzero exception status through Kit shutdown
+  and pins its native first-sample delay-buffer behavior
 four coordinated wheels and four sdists passed `twine check`; their checksum
   manifest and the installed dual-runtime lock passed the container verifier
 five required datasets and 78 resources passed the versioned SHA-256 manifest
