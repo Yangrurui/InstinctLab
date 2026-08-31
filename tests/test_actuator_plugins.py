@@ -6,13 +6,13 @@ import sys
 from types import ModuleType
 
 import pytest
-
 from instinctlab_engine import actuators as actuator_module
 from instinctlab_engine import plugins as plugin_module
 from instinctlab_engine.actuators import (
     EFFORT_LIMITS,
     JOINT_POSITION_COMMAND,
     STIFFNESS,
+    ActuatorContractError,
     ActuatorRegistry,
 )
 from instinctlab_engine.plugins import (
@@ -123,6 +123,46 @@ def test_factory_resolution_is_lazy_and_records_the_used_model(
     assert len(provenance) == 1
     assert provenance[0]["distribution"] == "test-isaac-actuator"
     assert provenance[0]["registered_keys"] == ["isaacsim:test.pd.v1"]
+
+
+def test_native_factory_rejects_a_conflicting_model_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ConflictingConfig:
+        instinctlab_model_id = "other.model.v1"
+
+    registry = ActuatorRegistry(load_entry_points=False)
+    registry.register(
+        engine="isaacsim",
+        model_id="test.pd.v1",
+        config_factory=ConflictingConfig,
+    )
+    monkeypatch.setattr(actuator_module, "ACTUATORS", registry)
+
+    factory = actuator_module.native_actuator_factory("isaacsim", "test.pd.v1")
+    with pytest.raises(
+        ActuatorContractError, match="claiming model 'other.model.v1'"
+    ):
+        factory()
+
+
+def test_native_factory_rejects_config_that_cannot_retain_model_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ImmutableConfig:
+        __slots__ = ()
+
+    registry = ActuatorRegistry(load_entry_points=False)
+    registry.register(
+        engine="mjlab",
+        model_id="test.pd.v1",
+        config_factory=ImmutableConfig,
+    )
+    monkeypatch.setattr(actuator_module, "ACTUATORS", registry)
+
+    factory = actuator_module.native_actuator_factory("mjlab", "test.pd.v1")
+    with pytest.raises(ActuatorContractError, match="cannot retain its model identity"):
+        factory()
 
 
 def test_partial_registration_rolls_back_and_reraises_the_same_error(

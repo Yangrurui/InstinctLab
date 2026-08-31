@@ -13,8 +13,8 @@ from importlib import import_module, metadata
 from typing import Any, Protocol, runtime_checkable
 
 from instinctlab_engine.plugins import (
-    PluginDiscoveryError,
     _PLUGIN_LOCK,
+    PluginDiscoveryError,
     _plugin_locked,
     _restore_provenance,
     _snapshot_provenance,
@@ -45,6 +45,10 @@ ACTUATOR_CAPABILITIES = frozenset(
 )
 
 LazyObject = str | Any
+
+
+class ActuatorContractError(RuntimeError):
+    """A native actuator configuration violated its registered identity."""
 
 
 @runtime_checkable
@@ -448,7 +452,7 @@ def native_actuator_factory(engine: str, model_id: str) -> Callable[..., Any]:
                 f"claiming model {declared!r}."
             )
         try:
-            setattr(config, "instinctlab_model_id", model_id)
+            config.instinctlab_model_id = model_id
         except (AttributeError, TypeError) as exc:
             raise ActuatorContractError(
                 f"Actuator config for {engine!r}:{model_id!r} cannot retain its model "
@@ -497,18 +501,19 @@ def task_actuator_requirements(spec: Any, registry: Any) -> dict[str, list[str]]
 
 
 __all__ = [
-    "ACTUATOR_CAPABILITIES",
     "ACTUATORS",
+    "ACTUATOR_CAPABILITIES",
     "APPLIED_EFFORT",
-    "ActuatorRegistration",
-    "ActuatorRegistry",
-    "ActuatorRuntimeAdapter",
     "EFFORT_LIMITS",
-    "EffortLimitsRuntimeAdapter",
     "GAIN_RANDOMIZATION",
     "JOINT_POSITION_COMMAND",
     "STATEFUL_RESET",
     "STIFFNESS",
+    "ActuatorContractError",
+    "ActuatorRegistration",
+    "ActuatorRegistry",
+    "ActuatorRuntimeAdapter",
+    "EffortLimitsRuntimeAdapter",
     "StiffnessRuntimeAdapter",
     "actuator_models",
     "native_actuator_factory",
