@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
+
 import torch
 
 from instinctlab_engine.spec.sensor import MotionReferenceRef
@@ -230,6 +232,122 @@ class MotionReferenceRuntime:
         for buffers in (self.buffers, self.init_buffers, self.reference_buffers):
             translate_world_positions(buffers, env_ids, delta)
         self.env_origins = origins
+
+    def snapshot_state(self, env_ids=None) -> dict[str, object]:
+        """Copy mutable sampling state without copying the immutable clip dataset."""
+        if env_ids is not None:
+            raise ValueError("Motion-reference snapshots currently require all environments.")
+        buffer_sets = {
+            name: {
+                field.name: getattr(buffers, field.name).clone()
+                for field in fields(buffers)
+                if isinstance(getattr(buffers, field.name), torch.Tensor)
+            }
+            for name, buffers in (
+                ("buffers", self.buffers),
+                ("init_buffers", self.init_buffers),
+                ("reference_buffers", self.reference_buffers),
+            )
+        }
+        return {
+            **buffer_sets,
+            "env_origins": self.env_origins.clone(),
+            "last_update": self.last_update.clone(),
+            "reference_timestamp": self._reference_timestamp.clone(),
+            "mask": self.mask.clone(),
+            "motion_bin_weights": self.motion_bin_weights.clone(),
+            "motion_bin_fail_counter": self.motion_bin_fail_counter.clone(),
+            "current_motion_bin_fail_counter": (
+                self.current_motion_bin_fail_counter.clone()
+            ),
+        }
+
+    def restore_state(self, state, env_ids=None) -> None:
+        """Restore a complete state captured by :meth:`snapshot_state`."""
+        if env_ids is not None:
+            raise ValueError("Motion-reference snapshots currently require all environments.")
+        expected = {
+            "buffers",
+            "init_buffers",
+            "reference_buffers",
+            "env_origins",
+            "last_update",
+            "reference_timestamp",
+            "mask",
+            "motion_bin_weights",
+            "motion_bin_fail_counter",
+            "current_motion_bin_fail_counter",
+        }
+        if set(state) != expected:
+            raise ValueError(
+                f"Motion-reference snapshot fields are {sorted(state)}, "
+                f"expected {sorted(expected)}."
+            )
+        targets: dict[str, torch.Tensor] = {
+            "env_origins": self.env_origins,
+            "last_update": self.last_update,
+            "reference_timestamp": self._reference_timestamp,
+            "mask": self.mask,
+            "motion_bin_weights": self.motion_bin_weights,
+            "motion_bin_fail_counter": self.motion_bin_fail_counter,
+            "current_motion_bin_fail_counter": (
+                self.current_motion_bin_fail_counter
+            ),
+        }
+        for group_name, buffers in (
+            ("buffers", self.buffers),
+            ("init_buffers", self.init_buffers),
+            ("reference_buffers", self.reference_buffers),
+        ):
+            buffer_state = state[group_name]
+            tensor_fields = {
+                field.name: getattr(buffers, field.name)
+                for field in fields(buffers)
+                if isinstance(getattr(buffers, field.name), torch.Tensor)
+            }
+            if set(buffer_state) != set(tensor_fields):
+                raise ValueError(
+                    f"Motion-reference {group_name} snapshot schema changed."
+                )
+            targets.update(
+                {
+                    f"{group_name}.{name}": target
+                    for name, target in tensor_fields.items()
+                }
+            )
+        sources = {
+            **{
+                name: state[name]
+                for name in expected
+                if name not in {"buffers", "init_buffers", "reference_buffers"}
+            },
+            **{
+                f"{group_name}.{name}": value
+                for group_name in (
+                    "buffers",
+                    "init_buffers",
+                    "reference_buffers",
+                )
+                for name, value in state[group_name].items()
+            },
+        }
+        incompatible = {
+            name: (
+                (tuple(source.shape), source.dtype)
+                if isinstance(source, torch.Tensor)
+                else type(source).__name__
+            )
+            for name, source in sources.items()
+            if not isinstance(source, torch.Tensor)
+            or source.shape != targets[name].shape
+            or source.dtype != targets[name].dtype
+        }
+        if incompatible:
+            raise ValueError(
+                f"Motion-reference snapshot tensors are incompatible: {incompatible}."
+            )
+        for name, target in targets.items():
+            target.copy_(sources[name].to(target.device))
 
     def match_terrain_origins(self, terrain: object, *, max_origins_per_motion: int = 49) -> None:
         """Bind each terrain motion to origins containing its declared terrain mesh."""

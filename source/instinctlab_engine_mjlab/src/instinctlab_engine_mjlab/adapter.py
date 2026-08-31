@@ -306,7 +306,10 @@ class MjlabAdapter:
             bind_motion_reference_origins(env.scene, spec.scene.motion_references)
             from instinctlab_engine.lifecycle import attach_lifecycle
 
-            attach_lifecycle(env, spec, engine=self.name)
+            lifecycle = attach_lifecycle(env, spec, engine=self.name)
+            from .lifecycle import MjlabSnapshotProvider
+
+            lifecycle.set_snapshot_provider(MjlabSnapshotProvider(env))
             return env
 
         resolution.capture_plugin_provenance(asset_id=spec.robot.asset_id)

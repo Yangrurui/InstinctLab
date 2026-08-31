@@ -59,6 +59,12 @@ def build_motion_reference_sensor(ref: MotionReferenceRef, robot: Any) -> Any:
         def bind_origins(self, origins: torch.Tensor) -> None:
             self._runtime.bind_origins(origins)
 
+        def snapshot_state(self, env_ids=None):
+            return self._runtime.snapshot_state(env_ids)
+
+        def restore_state(self, state, env_ids=None) -> None:
+            self._runtime.restore_state(state, env_ids)
+
         def match_scene(self, scene) -> None:
             if ref.dataset_kind == "terrain":
                 self._runtime.match_terrain_origins(scene.terrain)

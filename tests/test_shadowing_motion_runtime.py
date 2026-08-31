@@ -649,6 +649,26 @@ def test_frontbackward_velocity_matches_reference_endpoint_semantics() -> None:
     torch.testing.assert_close(velocity, torch.tensor([[[2.0], [6.0], [10.0], [6.0]]]))
 
 
+def test_motion_reference_snapshot_restores_mutable_sampling_state() -> None:
+    runtime = MotionReferenceRuntime.from_clip(
+        _ref("only"), _clip("only", 0.0), 2
+    )
+    runtime.reset(torch.tensor([0, 1]))
+    runtime.advance(0.04)
+    state = runtime.snapshot_state()
+    timestamp = runtime.buffers.timestamp.clone()
+    reference = runtime.reference_frame.joint_pos.clone()
+
+    runtime.buffers.timestamp.zero_()
+    runtime.reference_frame.joint_pos.fill_(-1.0)
+    runtime.motion_bin_weights.zero_()
+    runtime.restore_state(state)
+
+    torch.testing.assert_close(runtime.buffers.timestamp, timestamp)
+    torch.testing.assert_close(runtime.reference_frame.joint_pos, reference)
+    assert runtime.motion_bin_weights.tolist() == [1.0]
+
+
 @pytest.mark.parametrize(
     ("relative", "interval", "frames"),
     [

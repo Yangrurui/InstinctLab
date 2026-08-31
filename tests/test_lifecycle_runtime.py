@@ -6,7 +6,9 @@ import pytest
 import torch
 from instinctlab_engine.lifecycle import (
     ComponentContractError,
+    EnvironmentSnapshot,
     LifecycleRuntime,
+    SnapshotError,
 )
 from instinctlab_engine.spec import ComponentLifecycleSpec, LifecycleSpec
 
@@ -29,7 +31,22 @@ class _Stateful:
         return {"value": torch.arange(3)}
 
     def restore_state(self, state, env_ids=None) -> None:
-        del state, env_ids
+        del env_ids
+        self.restored = state
+
+
+class _SnapshotProvider:
+    provider_id = "test/native"
+    provider_version = 1
+
+    def __init__(self) -> None:
+        self.value = torch.tensor([1.0, 2.0, 3.0])
+
+    def capture(self):
+        return {"value": self.value.clone()}
+
+    def restore(self, state) -> None:
+        self.value.copy_(state["value"])
 
 
 def _runtime() -> LifecycleRuntime:
@@ -119,3 +136,61 @@ def test_failed_native_step_can_be_cancelled_without_advancing_time() -> None:
     runtime.before_step()
     runtime.after_step()
     assert runtime.policy_tick == 1
+
+
+def test_snapshot_round_trip_restores_native_clock_and_component_state(tmp_path) -> None:
+    source = _task()
+    task = replace(
+        source,
+        lifecycle=LifecycleSpec(
+            components={
+                "reward/rewards/alive": ComponentLifecycleSpec(
+                    "policy", "post_physics", "partial", "snapshot"
+                )
+            }
+        ),
+    )
+    runtime = LifecycleRuntime(_Env(), task, engine="test")
+    provider = _SnapshotProvider()
+    component = _Stateful()
+    runtime.set_snapshot_provider(provider)
+    runtime.register_component("reward/rewards/alive", component)
+    runtime.before_step()
+    runtime.after_step()
+
+    snapshot = runtime.snapshot(metadata={"purpose": "unit-test"})
+    path = snapshot.save(tmp_path / "state.snapshot.npz")
+    loaded = EnvironmentSnapshot.load(path)
+
+    provider.value.zero_()
+    runtime.physics_tick = 99
+    runtime.restore(loaded)
+
+    assert provider.value.tolist() == [1.0, 2.0, 3.0]
+    assert runtime.physics_tick == 4
+    assert component.restored["value"].tolist() == [0, 1, 2]
+    assert loaded.metadata == {"purpose": "unit-test"}
+
+
+def test_snapshot_rejects_wrong_engine_before_mutating_provider() -> None:
+    runtime = _runtime()
+    provider = _SnapshotProvider()
+    runtime.set_snapshot_provider(provider)
+    snapshot = runtime.snapshot()
+    incompatible = replace(snapshot, engine="other")
+    provider.value.zero_()
+
+    with pytest.raises(SnapshotError, match="identity does not match"):
+        runtime.restore(incompatible)
+
+    assert provider.value.tolist() == [0.0, 0.0, 0.0]
+
+
+def test_snapshot_requires_an_engine_provider_and_a_closed_step() -> None:
+    runtime = _runtime()
+    with pytest.raises(SnapshotError, match="did not attach"):
+        runtime.snapshot()
+    runtime.set_snapshot_provider(_SnapshotProvider())
+    runtime.before_step()
+    with pytest.raises(SnapshotError, match="step is open"):
+        runtime.snapshot()

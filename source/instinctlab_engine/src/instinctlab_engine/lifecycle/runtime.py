@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from .component import validate_stateful_component
+from .snapshot import EnvironmentSnapshot, SnapshotError, SnapshotProvider
 
 if TYPE_CHECKING:
     from instinctlab_engine.spec.lifecycle import (
@@ -96,6 +97,7 @@ class LifecycleRuntime:
             self.num_envs, dtype=torch.bool, device=self.device
         )
         self._registered: dict[str, _RegisteredComponent] = {}
+        self._snapshot_provider: SnapshotProvider | None = None
 
     @property
     def manifest(self) -> dict[str, Any]:
@@ -144,6 +146,79 @@ class LifecycleRuntime:
                 f"Managed lifecycle component {name!r} has no reset(env_ids) hook."
             )
         self._registered[name] = _RegisteredComponent(component, managed_reset)
+
+    def set_snapshot_provider(self, provider: SnapshotProvider) -> None:
+        """Bind the engine implementation that owns native state restoration."""
+        if self._snapshot_provider is not None and self._snapshot_provider is not provider:
+            raise RuntimeError("A lifecycle snapshot provider is already attached.")
+        self._snapshot_provider = provider
+
+    def snapshot(self, *, metadata: dict[str, Any] | None = None) -> EnvironmentSnapshot:
+        """Capture a complete same-engine snapshot at a step boundary."""
+        if self._step_open:
+            raise SnapshotError("Cannot capture a snapshot while a policy step is open.")
+        provider = self._require_snapshot_provider()
+        component_states: dict[str, Any] = {}
+        for name, registered in sorted(self._registered.items()):
+            contract = self.component_contracts[name]
+            if contract.state != "snapshot":
+                continue
+            component_states[name] = dict(registered.value.snapshot_state())  # type: ignore[attr-defined]
+        return EnvironmentSnapshot(
+            schema_version=self.snapshot_schema_version,
+            engine=self.engine,
+            task_id=self.task_id,
+            num_envs=self.num_envs,
+            provider_id=provider.provider_id,
+            provider_version=provider.provider_version,
+            native_state=dict(provider.capture()),
+            lifecycle_state=self.state_dict(),
+            component_states=component_states,
+            metadata={} if metadata is None else dict(metadata),
+        )
+
+    def restore(self, snapshot: EnvironmentSnapshot) -> None:
+        """Restore a compatible snapshot without invoking reset randomization."""
+        if self._step_open:
+            raise SnapshotError("Cannot restore a snapshot while a policy step is open.")
+        provider = self._require_snapshot_provider()
+        identity = (snapshot.engine, snapshot.task_id, snapshot.num_envs)
+        expected_identity = (self.engine, self.task_id, self.num_envs)
+        if identity != expected_identity:
+            raise SnapshotError(
+                "Snapshot environment identity does not match: "
+                f"got {identity}, expected {expected_identity}."
+            )
+        if snapshot.schema_version != self.snapshot_schema_version:
+            raise SnapshotError(
+                f"Snapshot schema {snapshot.schema_version} is not supported; "
+                f"expected {self.snapshot_schema_version}."
+            )
+        provider_identity = (snapshot.provider_id, snapshot.provider_version)
+        expected_provider = (provider.provider_id, provider.provider_version)
+        if provider_identity != expected_provider:
+            raise SnapshotError(
+                "Snapshot provider does not match: "
+                f"got {provider_identity}, expected {expected_provider}."
+            )
+        expected_components = {
+            name
+            for name, registered in self._registered.items()
+            if self.component_contracts[name].state == "snapshot"
+        }
+        if set(snapshot.component_states) != expected_components:
+            raise SnapshotError(
+                "Snapshot registered-component schema does not match: "
+                f"got {sorted(snapshot.component_states)}, "
+                f"expected {sorted(expected_components)}."
+            )
+        provider.restore(snapshot.native_state)
+        self.load_state_dict(dict(snapshot.lifecycle_state))
+        for name in sorted(expected_components):
+            self._registered[name].value.restore_state(  # type: ignore[attr-defined]
+                snapshot.component_states[name]
+            )
+        self._reset_during_step.zero_()
 
     def before_step(self) -> None:
         """Open one policy transition before native managers consume actions."""
@@ -278,6 +353,13 @@ class LifecycleRuntime:
                 )
             return value
         return value.to(dtype=torch.long).flatten()
+
+    def _require_snapshot_provider(self) -> SnapshotProvider:
+        if self._snapshot_provider is None:
+            raise SnapshotError(
+                f"Engine {self.engine!r} did not attach a snapshot provider."
+            )
+        return self._snapshot_provider
 
     @staticmethod
     def _ticks(elapsed: Any, clock: ResolvedClockDomain) -> Any:
