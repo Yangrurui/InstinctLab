@@ -16,7 +16,7 @@ audit phase.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current verified production code: `f1ff261`
+- Current verified production code: `73e6f57`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -1052,6 +1052,51 @@ targeted regression test, the complete registry-by-engine preflight matrix has
 no unexpected failure, and live Isaac Parkour constructs, resets, and steps.
 The four P1 gaps remain mandatory before declaring the extension APIs stable
 1.0 even if those two blockers are repaired.
+
+#### Extension platform audit remediation (2026-08-31)
+
+All findings in the audit above are resolved through `73e6f57`; they no longer
+block Rough/Parkour preflight or extension-platform acceptance:
+
+- `4523773` validates generated terrain providers from each
+  `SubTerrainSpec.kind` and covers every registered task/declared-engine pair.
+- `5e51d22` restores Isaac `VolumePointsCfg` construction and adds an SDK-free
+  construction probe plus the production Parkour live path.
+- `9f3e38c` makes stiffness and effort-limit runtime adapters explicit,
+  validates their methods and return shapes, and exercises the external
+  fixture through the real bridge and Parkour reward consumers.
+- `04cc719` records every native actuator group's name, registered model id,
+  selectors, and resolved canonical joints. Native construction verifies the
+  factory identity and exact selectors; preflight requests capabilities only
+  from groups whose joints intersect the requesting term.
+- `5c387de` gives robot, terrain, rigid objects, portable sensors, native
+  sensors, and backend-reserved fields one validated scene symbol namespace
+  before native lowering.
+- `73e6f57` traverses fixed URDF edges while excluding the fixed joint itself
+  from the canonical movable-joint axis.
+
+Final acceptance evidence:
+
+```text
+1389 passed, 3 skipped, 28 deselected, 1 warning (full tests/ suite)
+all registered task ids pass preflight for every declared engine with known
+  absent HOI resources supplied by local fixtures
+Isaac Parkour: 16 environments on CUDA 2 constructed/reset/stepped; full
+  terrain, depth camera, foot scanners, VolumePoints, observation dimensions,
+  canonical DFS policy axis, and finite rewards passed (1 passed in 179.38 s)
+MJLab Flat G1: 16 environments constructed/reset and stepped five times;
+  39 terms resolved, canonical DFS action order true, reward finite,
+  zero terminations
+core, Isaac-only, MJLab-only, and dual-backend isolated wheel matrices passed
+external fixture wheel passed both engines, including actuator stiffness and
+  effort-limit reward consumers, then clean uninstall preserved both backends
+Parkour declaration contract passed; compileall and git diff --check passed
+```
+
+The retained GPU 6 Perceptive training process was not stopped, restarted, or
+signaled during remediation or verification. Isaac's optional Iray loader still
+reports the server's missing `libGLU.so.1`; the headless Parkour physics test is
+unaffected and passed.
 
 #### P1: make scenes and failures reproducible
 
@@ -2521,9 +2566,9 @@ production configuration.
 
 ## Open risks and next work
 
-The two extension-platform P0 regressions recorded above take precedence before
-using the production `train.py` or `play.py` entry points for Rough or Parkour;
-do not treat the green default suite as acceptance evidence for those paths.
+The extension-platform P0 and P1 findings recorded above are resolved through
+`73e6f57`. Rough and Parkour now pass complete registry preflight, and the
+Isaac Parkour production path has live construction/reset/step evidence.
 
 1. Let the retained GPU 6 Perceptive run continue; do not restart it or promote
    its checkpoint yet. The four MJCF-equivalent PhysX filtered pairs have passed
