@@ -16,7 +16,7 @@ audit phase.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Current verified production code: `73e6f57`
+- Current verified production code: `a750396`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; its `main` was synced
   through `348a73d`. Later local audit commits still need an explicit push.
@@ -1102,67 +1102,57 @@ unaffected and passed.
 
 #### Extension platform remediation follow-up audit (2026-08-31)
 
-Verdict: the stock-task P0 fixes are accepted, but the remediation is not fully
-correct as a stable third-party actuator and scene protocol. Terrain kind
-selection, Isaac `VolumePoints` construction, the original external fixture's
-stiffness/effort method mismatch, group identity metadata, and fixed-joint URDF
-traversal are implemented in the responsible layers and pass their focused
-tests. Two adversarial probes still reproduce contract failures that the green
-suite does not cover:
+Verdict: the three follow-up findings are resolved. The mixed-actuator runtime
+bridge now has the same selected-joint scope as preflight, Isaac's SDK-free
+scene namespace is checked against the installed native config fields, and the
+external wheel now proves its advertised stateful actuator capabilities with
+real native classes on both engines. This closes the specific follow-up
+re-acceptance conditions; the broader P1 lifecycle, replay, and multi-entity
+work below still prevents calling every extension interface stable 1.0.
 
-1. **High -- mixed-actuator preflight and runtime disagree.** Preflight now
-   requests stiffness only from actuator groups whose canonical joints
-   intersect a term's `EntityRef`. At runtime, however,
-   `motors_power_square()` calls `joint_stiffness_groups()` before selecting the
-   term's joints, and that bridge requests stiffness from every joint actuator
-   group. A two-group probe with a selected stiffness-capable group and an
-   unselected group without stiffness passes preflight by design but fails in
-   the reward with `does not declare capability 'stiffness'`. This is a fail-late
-   contract violation and means `04cc719` has not yet delivered usable mixed
-   actuator models. Pass the selected native joint ids into the bridge, skip
-   non-intersecting groups before resolving their adapters, and validate that
-   returned ids belong to the owning group and have a broadcast-compatible
-   stiffness shape.
-2. **Medium -- the Isaac scene reserved-name set is incomplete.** The installed
-   Isaac Lab `InteractiveSceneCfg` declares `clone_in_fabric`, but
-   `_SCENE_RESERVED_NAMES` omits it. A rigid object named `clone_in_fabric`
-   passes `IsaacSimAdapter.contract_report()` and would later overwrite that
-   configuration field through `setattr`. Add the missing field and a
-   selected-SDK conformance test that compares the maintained SDK-free reserved
-   set with the actual native config fields so an SDK upgrade cannot silently
-   reopen the namespace.
+- `1df39e5` passes the selected native joint ids into
+  `joint_stiffness_groups()`, skips non-intersecting groups before adapter
+  resolution, and validates adapter ids and stiffness shapes. Adversarial tests
+  cover a selected capable group beside an unselected incapable group, foreign
+  ids, and invalid shapes.
+- `00439db` derives Isaac reserved scene names from one exact maintained field
+  set including `clone_in_fabric`. A selected-SDK test requires equality with
+  every installed `InteractiveSceneCfg` field, so additions fail closed.
+- `a750396` moves the fixture's native actuator implementations into lazy
+  engine-specific modules while keeping sensor/terrain discovery SDK-free.
+  The installed external wheel constructs genuine `DelayedPDActuator` and
+  `BuiltinPdActuator` subclasses and provides an opt-in live acceptance gate
+  for native action, startup gain randomization, delay, full reset, and partial
+  environment reset on both engines.
 
-There is also a **medium acceptance-evidence gap** in the actuator wheel. The
-fixture still advertises `joint_position_command`, `gain_randomization`, and
-`stateful_reset` in addition to the bridge capabilities. Its probe exercises a
-stand-in `compute/reset` lifecycle and the real shared stiffness/effort reward
-consumers, but it does not construct a native external actuator in either
-engine or run the engines' gain-randomization event against it. The registry
-only enforces capability-specific adapter methods for stiffness and effort
-limits. Keep the current wheel as SDK-free contract evidence, but do not use it
-as stable-1.0 evidence for every advertised capability until a live native
-fixture exercises action, randomization, reset, and partial reset on both
-selected backends.
-
-Follow-up verification:
+Follow-up acceptance evidence:
 
 ```text
-121 passed (preflight, VolumePoints, actuator, asset, and scene focused tests)
-1389 passed, 3 skipped, 28 deselected, 1 warning (full tests/ suite)
+1392 passed, 3 skipped, 29 deselected, 1 warning (full tests/ suite)
 MJLab Flat G1: 16 environments constructed/reset and stepped five times;
   39 terms resolved, canonical DFS action order true, finite reward,
   zero terminations
-compileall and git diff --check passed
-direct mixed-actuator probe: selected stiffness group still failed because an
-  unselected group lacked stiffness
-direct Isaac symbol probe: clone_in_fabric was accepted
+Parkour declaration contract: 1 passed, 24 deselected
+core, Isaac-only, MJLab-only, and dual-backend isolated wheel matrices passed;
+  external fixture install, both SDK-free probes, uninstall, and built-in
+  backend preservation passed
+live external wheel on CUDA 2: Isaac and MJLab each constructed two real
+  environments, applied the native startup gain-randomization event, exercised
+  the native joint-position action for two steps, and passed full/partial reset
+  and one-step actuator-delay checks
+Ruff, compileall, and git diff --check passed
 ```
 
-Re-accept the mixed-actuator and unified-symbol findings only after both
-adversarial cases become regression tests and pass. Stable-1.0 actuator
-acceptance additionally requires the live native external-capability gate
-above. The retained GPU 6 training process was observed and was not stopped,
-restarted, or signaled during this follow-up review.
+The opt-in native gate is:
+
+```bash
+python scripts/verify_wheel_matrix.py --matrix core --live-extension \
+  --live-device cuda:2
+```
+
+No `scripts/train.py` process was present at the final 2026-08-31 01:52 UTC
+check, and every GPU reported 1 MiB used and zero utilization. No training
+process was stopped, restarted, or signaled during remediation or verification.
 
 #### P1: make scenes and failures reproducible
 
@@ -2518,29 +2508,34 @@ comparison; new processes launched from `c90b24b` use the portable units.
 
 ## Live experiments
 
-Snapshot at 2026-08-28 01:46 UTC. The old GPU 5 and GPU 6 runs were stopped and
-replaced at explicit operator request. GPU 7 was not signaled.
+Current process check at 2026-08-31 01:52 UTC: no `scripts/train.py` process is
+active, and every GPU reports 1 MiB used and zero utilization. The table below
+is the last-observed 2026-08-28 01:46 UTC snapshot, not a list of live jobs. The
+listed processes disappeared or ended outside this remediation session; their
+exact final states have not been audited. The old GPU 5 and GPU 6 runs had been
+stopped and replaced earlier at explicit operator request. GPU 7 was not
+signaled by that earlier operation.
 
-| GPU | Run | Iteration | Reward | Episode length | Status |
+| GPU | Run | Iteration | Reward | Episode length | Last-observed status |
 |---:|---|---:|---:|---:|---|
-| 0 | Isaac BeyondMimic `official_lafan1_production_4096_seed42_30000_gpu0_20260828` | 0 | -1.32 | 16.99 | live; formal production baseline, InstinctLab `9531ad4`, runner `64d7e01` |
-| 1 | MJLab BeyondMimic `official_lafan1_production_4096_seed42_30000_gpu1_20260828` | 50 | 0.15 | 12.48 | live; formal production baseline, InstinctLab `9531ad4`, runner `64d7e01` |
-| 2 | Isaac BeyondMimic L7 seed 43, then seed 44 | 30 | -0.47 | 7.90 | live; two sequential 256-environment noise-floor runs |
-| 3 | MJLab BeyondMimic L7 seed 43, then seed 44 | 90 | -0.15 | 7.21 | live; two sequential 256-environment noise-floor runs |
-| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 21360 | 19.96 | 279.51 | live; recovered from the temporary 3k--3.8k curriculum branch; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 9910 | 3.92 | 74.66 | live; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01` |
-| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 21470 | 16.48 | 240.28 | live; natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes |
+| 0 | Isaac BeyondMimic `official_lafan1_production_4096_seed42_30000_gpu0_20260828` | 0 | -1.32 | 16.99 | formal production baseline, InstinctLab `9531ad4`, runner `64d7e01`; no longer active |
+| 1 | MJLab BeyondMimic `official_lafan1_production_4096_seed42_30000_gpu1_20260828` | 50 | 0.15 | 12.48 | formal production baseline, InstinctLab `9531ad4`, runner `64d7e01`; no longer active |
+| 2 | Isaac BeyondMimic L7 seed 43, then seed 44 | 30 | -0.47 | 7.90 | two sequential 256-environment noise-floor runs; no longer active |
+| 3 | MJLab BeyondMimic L7 seed 43, then seed 44 | 90 | -0.15 | 7.21 | two sequential 256-environment noise-floor runs; no longer active |
+| 5 | unified Isaac Whole Body `jointref_fixed_final_long_4096_gpu5_20260827` | 21360 | 19.96 | 279.51 | recovered from the temporary 3k--3.8k curriculum branch; fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01`; no longer active |
+| 6 | unified Isaac Perceptive `jointref_fixed_final_long_4096_gpu6_20260827` | 9910 | 3.92 | 74.66 | fresh seed 42, InstinctLab `1ee8654`, runner `64d7e01`; no longer active |
+| 7 | unified MJLab Perceptive `stablecaps_final_long_4096_gpu7_20260826` | 21470 | 16.48 | 240.28 | natural DFS order avoids the Isaac BFS/DFS fault, but it predates camera and event-DR fixes; no longer active |
 
-Do not stop or restart these runs without an explicit operator request. Review
-reward, episode length, termination mix, and action noise together before
-promoting any run.
+Do not restart these runs without an explicit operator request. Audit their
+final logs, reward, episode length, termination mix, and action noise together
+before promoting any run.
 
 Current TensorBoard comparison links remain under:
 
 ```text
 logs/tb_compare/g1_shadowing_diveroll/
 logs/tb_compare/g1_perceptive_shadowing/
-logs/tb_compare/g1_beyondmimic_production_4096_seed42/  (live on port 6008)
+logs/tb_compare/g1_beyondmimic_production_4096_seed42/
 ```
 
 The main Perceptive run's position-monitor summaries can be NaN because of its
@@ -2633,16 +2628,17 @@ production configuration.
 ## Open risks and next work
 
 The extension-platform stock-task P0 regressions are resolved through
-`73e6f57`: Rough and Parkour pass complete registry preflight, and Isaac
-Parkour has live construction/reset/step evidence. The follow-up audit above
-keeps mixed-actuator runtime selection, complete Isaac scene-name reservation,
-and live native external-actuator capability evidence open before stable 1.0.
+`a750396`: Rough and Parkour pass complete registry preflight, Isaac Parkour has
+live construction/reset/step evidence, and the three extension-platform
+follow-up findings are closed. The P1 lifecycle, replay, and multi-entity work
+above remains open before declaring every extension interface stable 1.0.
 
-1. Let the retained GPU 6 Perceptive run continue; do not restart it or promote
-   its checkpoint yet. The four MJCF-equivalent PhysX filtered pairs have passed
-   cloning and 4,096-environment capacity probes. A fresh A/B is still required
-   for training-behavior evidence; global self-collision disablement remains
-   diagnostic evidence only.
+1. The retained GPU 6 Perceptive process is no longer active; audit its final
+   log before considering the checkpoint, and do not restart it without an
+   explicit operator request. The four MJCF-equivalent PhysX filtered pairs
+   have passed cloning and 4,096-environment capacity probes. A fresh A/B is
+   still required for training-behavior evidence; global self-collision
+   disablement remains diagnostic evidence only.
 2. The retained MJLab Whole Body CUDA 719 has no attributable source from the
    available log. A causal diagnosis requires an exact checkpoint/policy replay
    with synchronous CUDA diagnostics; do not blame the reported `nonzero()`
@@ -2651,12 +2647,12 @@ and live native external-actuator capability evidence open before stable 1.0.
    reproductions on both engines using the installed canonical dataset. The
    present MJLab teacher and two-iteration VAE run are diagnostic only. HOI
    still lacks both motions and all object meshes.
-4. BeyondMimic has accepted official-data L7 evidence for seed 42. The
-   multi-seed and 4,096-environment production campaign is running; wait for
-   completion and evaluate the acceptance criteria above before promoting it as
-   a production-throughput or paper-performance baseline. Its active processes
-   predate the portable termination metric bridge, so normalize or regenerate
-   those tags before comparing the termination mix.
+4. BeyondMimic has accepted official-data L7 evidence for seed 42. Its
+   multi-seed and 4,096-environment production processes are no longer active;
+   audit the retained final outputs against the acceptance criteria before
+   promoting a production-throughput or paper-performance baseline. Those
+   processes predate the portable termination metric bridge, so normalize or
+   regenerate their tags before comparing the termination mix.
 5. Validate real multi-node distributed training.
 6. Recover authoritative Parkour motion segment boundaries. The released NPZ
    concatenates clips without boundary metadata: 55 of 18,981 transitions
