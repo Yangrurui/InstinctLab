@@ -104,6 +104,7 @@ class Resolution:
     omitted: dict[str, str] = field(default_factory=dict)
     profile: dict[str, Any] = field(default_factory=dict)
     engine_extras_used: tuple[str, ...] = ()
+    lifecycle: dict[str, Any] = field(default_factory=dict)
     strict: bool = False
     plugin_usage_start: int = field(default=-1, repr=False)
     plugins: tuple[dict[str, Any], ...] = field(default=(), repr=False)
@@ -187,6 +188,7 @@ class Resolution:
             "omitted": dict(sorted(self.omitted.items())),
             "profile": dict(sorted(self.profile.items())),
             "engine_extras_used": list(self.engine_extras_used),
+            "lifecycle": self.lifecycle,
             "strict": self.strict,
             "portable": self.is_clean and not self.engine_extras_used,
             "plugins": plugins,

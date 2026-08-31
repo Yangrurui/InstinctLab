@@ -73,12 +73,22 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
         check_contact_overflow(self, phase="construction")
 
     def step(self, action):
-        result = super().step(action)
-        from instinctlab_engine.diagnostics.contact_overflow import (
-            check_contact_overflow,
-        )
+        lifecycle = getattr(self, "lifecycle", None)
+        if lifecycle is not None:
+            lifecycle.before_step()
+        try:
+            result = super().step(action)
+            from instinctlab_engine.diagnostics.contact_overflow import (
+                check_contact_overflow,
+            )
 
-        check_contact_overflow(self, phase="step")
+            check_contact_overflow(self, phase="step")
+        except Exception:
+            if lifecycle is not None:
+                lifecycle.cancel_step()
+            raise
+        if lifecycle is not None:
+            lifecycle.after_step(result[2] | result[3])
         return result
 
     def update_visualizers(self, visualizer) -> None:
@@ -95,3 +105,6 @@ class TerrainAwareRlEnv(ManagerBasedRlEnv):
 
         clear_observation_histories_on_reset(self, env_ids)
         super()._reset_idx(env_ids)
+        lifecycle = getattr(self, "lifecycle", None)
+        if lifecycle is not None:
+            lifecycle.on_reset(env_ids)

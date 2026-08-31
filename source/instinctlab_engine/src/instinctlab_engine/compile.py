@@ -375,6 +375,8 @@ def contract_report(
         if term.kind is not None
         and provided_by_kind.get(f"{key.split('/', 1)[0]}/{term.kind}")
     }
+    from instinctlab_engine.lifecycle.runtime import lifecycle_manifest
+
     return {
         "engine": engine,
         "task_id": spec.task_id,
@@ -383,6 +385,7 @@ def contract_report(
         "omitted": sorted(omitted_keys),
         "engine_extras_used": sorted(spec.engine_extras.get(engine, {})),
         "requested_capabilities": requested_capabilities,
+        "lifecycle": lifecycle_manifest(spec),
     }
 
 

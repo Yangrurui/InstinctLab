@@ -275,6 +275,9 @@ class IsaacSimAdapter:
             engine_extras_used=tuple(sorted(spec.engine_extras.get(self.name, {}))),
             strict=strict,
         )
+        from instinctlab_engine.lifecycle.runtime import lifecycle_manifest
+
+        resolution.lifecycle = lifecycle_manifest(spec)
         ctx = IsaacSimCompileCtx(
             engine=self.name,
             spec=spec,
@@ -312,6 +315,9 @@ class IsaacSimAdapter:
 
             env = env_cls(cfg=env_cfg)
             bind_motion_reference_origins(env.scene, spec.scene.motion_references)
+            from instinctlab_engine.lifecycle import attach_lifecycle
+
+            attach_lifecycle(env, spec, engine=self.name)
             return env
 
         resolution.capture_plugin_provenance(asset_id=spec.robot.asset_id)

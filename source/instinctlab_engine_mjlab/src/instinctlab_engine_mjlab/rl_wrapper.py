@@ -94,6 +94,11 @@ class MjlabVecEnvWrapper(VecEnv):
         return self.env.unwrapped
 
     @property
+    def lifecycle(self):
+        """The engine-neutral lifecycle runtime owned by the native environment."""
+        return self.unwrapped.lifecycle
+
+    @property
     def episode_length_buf(self) -> torch.Tensor:
         return self.unwrapped.episode_length_buf
 
