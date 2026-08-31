@@ -15,7 +15,7 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified production-code commit: `330d783`
+- Latest verified production-code commit: `1a62fe7`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
@@ -79,22 +79,79 @@ The central design is sound and should be retained:
 
 Overall verdict: stock Locomotion, Parkour, and Shadowing paths have strong
 contract and construction coverage, and the external extension wheel proves
-real native integration on both engines. The main layering is mature, but the
-third-party simulation surface is not yet a stable 1.0 protocol.
+real native integration on both engines. The declared single-agent rigid-body
+training surface, including its lifecycle boundary, is ready for a 1.0 claim.
+This does not imply multi-agent, ROS/HIL, deformable, fluid, or service-runtime
+APIs that no current task requires.
 
 | Capability | Current state | Remaining boundary |
 |---|---|---|
 | Backend | Independent lazy plugins; isolated wheel matrices pass | Publication/release process |
 | Task | Immutable application-owned registrations | External task catalogs are optional, not a current goal |
 | Robot asset | Versioned native API and conformance command | Broader object/articulation catalogs |
-| Actuator | Lazy native model registry, explicit groups, live stiffness bindings, device-native reward ids, composed gain/reward external gate | Broader controller clocks |
+| Actuator/controller | Lazy native model registry, explicit groups, live stiffness bindings, stateful `compute(command)`/`control_dt`/snapshot/reset contract | New controller families need native temporal evidence |
 | Terrain | Whole-terrain and tile plugins | Region semantics; dynamic/deformable terrain only on demand |
 | Sensor | Built-ins plus lazy native builders with timing/reset capabilities | New sensor families need fixed-state and temporal evidence |
 | Rigid object | Mesh-backed construction on both engines | Full HOI resources and behavioral evidence |
 | Collision relation | Portable entity-pair exclusions lower to both engines | Broader materials and constraints |
-| Multiple articulations | One canonical primary `TaskSpec.robot` | Canonical schema and entity-targeted actions/observations for additional articulations |
-| Lifecycle | Physics/policy steps and selected sensor periods exist | Named clocks, timestamps, latency, and component reset semantics |
-| Record/replay | Diagnostics and structured run manifests exist | Episode traces and native state snapshot/restore |
+| Multiple articulations | Primary robot plus canonical `ArticulationRef` entities, each with its own `RobotSpec`; entity-targeted selectors lower on both engines | Broader task evidence on demand |
+| Lifecycle | Named exact-rational clocks, phase/latency, component state ownership, and full/partial reset semantics lower on both engines | No open 1.0 boundary |
+| Record/replay | Versioned safe same-engine snapshots plus normalized asynchronous episode traces and strict/tolerant replay | Cross-engine/native-solver bit equality is intentionally not promised |
+
+### Lifecycle 1.0 acceptance
+
+The lifecycle boundary is accepted through `1a62fe7` (implementation sequence
+`95041c1..1a62fe7`). The committed surface provides:
+
+- named physics, policy, and episode clocks resolved with rational integer
+  periods and phases, with explicit global or per-episode reset behavior;
+- a resolved contract for every component's clock, step phase, latency, reset
+  ownership, and snapshot/stateless behavior, attached exactly once to native
+  environments on both engines;
+- schema-, task-, engine-, environment-count-, provider-, and provider-version
+  checked same-engine snapshots. Archives are atomic NPZ documents loaded with
+  `allow_pickle=False`; providers restore native integration/scene state,
+  managers, sensors, actuators/controllers, motion-reference state, environment
+  buffers, lifecycle clocks, and common RNG state;
+- selected-environment asynchronous episode traces at the normalized RL
+  boundary, including full-vector actions, observations, rewards, done and
+  timeout causes, active masks, and a recoverable initial snapshot. Replay is
+  strict by default at absolute/relative tolerance `1e-5`, offers explicit
+  per-field tolerances, and reports the first differing index and values without
+  weakening done/timeout equality;
+- canonical additional articulations through `ArticulationRef`, with one
+  complete `RobotSpec` per entity and no engine import or concrete asset policy
+  in `TaskSpec`;
+- fail-closed stateful controller validation requiring `compute(command)`, a
+  numeric `control_dt` equal to the selected clock, and declared reset/snapshot
+  hooks;
+- `scripts/benchmark_lifecycle.py`, which emits the stable
+  `lifecycle_benchmark_v1` report for compilation, environment/wrapper
+  construction, policy/environment/physics throughput, PyTorch allocator and
+  whole-device resident memory, full/partial reset, snapshot capture/restore/
+  persistence, and trace persistence/replay. Optional threshold documents match
+  metadata and bound named metrics; unknown fields fail closed, and a failed
+  Isaac threshold was verified to exit with code 2 rather than being hidden by
+  SDK shutdown.
+
+The retained two-environment smoke reports are:
+
+```text
+logs/diagnostics/lifecycle_benchmark_mjlab_smoke_20260831.json
+logs/diagnostics/lifecycle_benchmark_isaacsim_smoke_20260831.json
+```
+
+Both reports have status `ok`, clean preflight/resolution, snapshot archive
+round trips, and matched trace replay. MJLab matched the default observation and
+reward tolerance of `1e-5`. Isaac explicitly used observation absolute
+tolerance `1.5` and reward absolute tolerance `0.02`; its GPU policy
+observation includes random corruption and its public scene state does not
+expose PhysX contact-solver caches. These tolerances are recorded in the report
+and are not library defaults. Same-engine snapshot means restoration of the
+declared state contract, not bit-exact native solver history. The smoke reports
+exercise the full path but are deliberately not production-scale performance
+baselines; release hardware must supply reviewed threshold documents and an
+appropriate environment count.
 
 ### Actuator protocol acceptance
 
@@ -143,7 +200,7 @@ undefined-name failure that could hide the actual extension contract violation.
 The latest committed platform evidence is:
 
 ```text
-1415 passed, 3 skipped, 30 deselected, 1 warning (full tests/ suite)
+1457 passed, 3 skipped, 30 deselected, 1 warning (full tests/ suite)
 180 passed, 1 deselected (actuator, Parkour, spec, preflight, asset, and
   architecture focus)
 Parkour contract subset: 1 passed, 24 deselected
@@ -160,6 +217,10 @@ MJLab Parkour: 16 CUDA environments constructed, repeatedly reset, and stepped;
   observation shapes, DFS policy axis, AMP, and finite rewards passed
 MJLab Flat G1: 16 environments constructed, reset, and stepped five times;
   all 39 terms resolved, DFS action order, finite reward, zero terminations
+lifecycle benchmark smoke: MJLab and Isaac constructed native environments,
+  measured construction/throughput/memory/reset, round-tripped snapshots and
+  traces, and matched replay under each report's declared tolerance; the Isaac
+  fail-threshold probe returned exit code 2
 core-only, Isaac-only, MJLab-only, and dual-backend isolated wheels passed
 external fixture installed, passed SDK-free probes, constructed two real
   environments per engine, combined startup gain randomization with a live
@@ -173,8 +234,9 @@ Isaac collision exclusions passed cloned-target validation and a
 These results establish declaration, compilation, construction, and targeted
 runtime behavior. They do not establish long-run convergence or native-physics
 equality. Repository-wide Ruff is not currently a green gate; the last full
-run reported 709 existing/current errors. Ruff, compileall, and diff checks pass
-for the actuator remediation files.
+run reported 709 existing/current errors. Ruff and diff checks pass for the
+latest lifecycle files; the prior actuator remediation files also passed their
+targeted Ruff, compileall, and diff checks.
 
 The MJLab Parkour first-depth P1 is closed by `d15ea14`. MJLab's observation
 manager samples class terms during construction, then the first environment
@@ -327,10 +389,21 @@ training reproductions. Construction smoke is never convergence evidence.
 
 ## Retained runs and diagnostics
 
-Process check at 2026-08-31 01:52 UTC found no `scripts/train.py` process; all
-GPUs reported 1 MiB used and zero utilization. The runs below are retained
-outputs, not active jobs. Do not restart them without explicit operator
-approval.
+Process check at 2026-08-31 05:10 UTC found one operator-owned active job. Do
+not stop, restart, signal, or reuse its log directory:
+
+```text
+PID 1947325
+scripts/train.py --engine isaacsim \
+  --task Instinct-Perceptive-Shadowing-G1-v0 --num_envs 256 --seed 42 \
+  --max_iterations 700 --device cuda:2 --headless \
+  --logroot logs/diagnostics/perceptive_collision_ab_20260831/training_control_95041_retry1 \
+  --run_name no_exclusions_95041_256_seed42_700_cuda2
+```
+
+The lifecycle work and smoke probes used CUDA 0/1 and did not alter this job.
+The runs listed below are retained outputs, not additional active jobs. Do not
+restart them without explicit operator approval.
 
 Accepted BeyondMimic L7 seed-42 runs:
 
@@ -407,12 +480,12 @@ logs/diagnostics/perceptive_collision_exclusions_4096_20260830.json
 
 ## Open work
 
-1. **Complete platform lifecycle work before a 1.0 claim:** named clock domains,
-   component timing/reset semantics, episode trace and replay, same-engine state
-   snapshots, canonical additional-articulation schemas, stateful controller
-   contracts, and construction/throughput/memory/reset benchmarks. Define a
-   multi-agent API only when an actual multi-agent task establishes its policy,
-   reward, termination, shared-state, and partial-reset needs.
+No platform lifecycle item remains open for the declared 1.0 scope.
+
+A multi-agent API is intentionally not part of that scope. Define one only when
+an actual multi-agent task establishes policy, reward, termination,
+shared-state, observation, and partial-reset requirements; do not pre-design it
+from a single-agent abstraction.
 
 Product-dependent work such as ROS 2/HIL, deformables, fluids, dynamic terrain,
 visual-domain libraries, and hot service orchestration is not a current release
