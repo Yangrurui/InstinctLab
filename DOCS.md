@@ -125,6 +125,18 @@ remain in the selected backend package. Adding a task recipe to
 `tasks/terrain.py` needs no registration when it only composes existing kinds.
 A genuinely new tile kind must be registered for every engine the task claims.
 
+`perlin_wave` is the extension-conformance example: it has one dedicated lazy
+builder per backend and does not add a kind branch to either scene builder or
+the existing rough-tile class maps. Render its native MJLab collision mesh with:
+
+```bash
+PYTHONPATH=source/instinctlab:source/instinctlab_engine/src:source/instinctlab_engine_mjlab/src \
+  /root/miniconda3/envs/env_isaaclab/bin/python scripts/render_custom_terrain.py \
+  --output source/instinctlab/docs/perlin_wave_review.png
+```
+
+![Perlin wave terrain review](source/instinctlab/docs/perlin_wave_review.png)
+
 ## Actuator extensions
 
 Concrete gain, limit, armature, selector, and delay values belong on every
@@ -149,6 +161,10 @@ parameters explicitly, and calls `validate_native_actuator_groups()` after
 construction. A runtime adapter is required when portable terms observe
 stiffness, effort limits, gain randomization, applied effort, or reset state.
 Preflight rejects a missing provider or capability before native construction.
+Application aliases that delegate to a backend runtime adapter should use
+`DeclaredModelRuntimeAdapter(model_id=..., delegate_path=...)`; keeping the
+model id on the wrapper prevents a second alias from claiming unlabelled native
+groups.
 
 Parkour's delayed PD uses this path as `instinctlab.delayed_pd.v1`: Isaac maps
 it to `DelayedPDActuatorCfg`, while MJLab maps it to its delay-capable

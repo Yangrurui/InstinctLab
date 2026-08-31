@@ -64,6 +64,11 @@ The central design is sound and should be retained:
   selects the application semantic actuator id `instinctlab.delayed_pd.v1`
   through engine-scoped `instinctlab.actuators` entry points while retaining
   every final group parameter in the two G1 native asset modules.
+- `perlin_wave` is the terrain-extension conformance example. It is registered
+  by the application with one dedicated builder per backend, builds native
+  height-field collision geometry on both engines without adding a scene-builder
+  kind branch, and has a reproducible review render at
+  `source/instinctlab/docs/perlin_wave_review.png`.
 - Backends, assets, actuator models, native terms, native sensors, whole
   terrains, and generated-terrain tiles use transactional lazy registries.
   Discovery is SDK-free until the selected backend bootstraps and provenance is
@@ -209,7 +214,9 @@ registering the backend adapter object a second time. An unlabelled native PD
 group therefore continues to match exactly one backend model, while a group
 built through `instinctlab.delayed_pd.v1` resolves the application alias and
 delegates its observable stiffness and effort-limit behavior to the selected
-backend.
+backend. The wrapper carries both `model_id` and `delegate_path`, so a second
+application actuator identity can reuse the same boundary without matching the
+delayed-PD identity.
 
 ## Accepted verification snapshot
 
@@ -244,6 +251,12 @@ external fixture installed, passed SDK-free probes, constructed two real
   environments per engine, combined startup gain randomization with a live
   stiffness-normalized reward, passed native action/delay/reset checks, then
   uninstalled without breaking built-in backends
+application extension wiring: 122 focused tests passed; both Parkour preflights
+  reported `ok`; MJLab generated a 25,600-vertex/50,562-face `perlin_wave`
+  collision surface; an Isaac Kit test generated the corresponding native mesh;
+  the dual-backend wheel matrix plus external live actuator extension passed;
+  and the worktree-accessible non-live suite passed 1,400 tests with 3 skipped
+  and 33 deliberately deselected
 G1 asset conformance passed on both engines
 Isaac collision exclusions passed cloned-target validation and a
   4,096-environment, five-step capacity probe

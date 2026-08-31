@@ -7,7 +7,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
-from instinctlab_engine.spec.task import SubTerrainSpec, TerrainGeneratorSpec, TerrainSpec
+from instinctlab_engine.spec.task import (
+    SubTerrainSpec,
+    TerrainGeneratorSpec,
+    TerrainSpec,
+)
 
 
 def _physics_material(spec: TerrainSpec) -> Any:
@@ -67,8 +71,7 @@ def _flat_patches(value: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     from isaaclab.terrains import FlatPatchSamplingCfg
 
     return {
-        name: FlatPatchSamplingCfg(**dict(params))
-        for name, params in value.items()
+        name: FlatPatchSamplingCfg(**dict(params)) for name, params in value.items()
     }
 
 
@@ -99,6 +102,24 @@ def build_rough_tile(tile: SubTerrainSpec, generator: TerrainGeneratorSpec) -> A
         "perlin_pyramid_slope_inv": terrain_gen.PerlinInvertedPyramidSlopedTerrainCfg,
     }
     return classes[tile.kind](proportion=tile.proportion, **fields)
+
+
+def build_perlin_wave_tile(
+    tile: SubTerrainSpec, generator: TerrainGeneratorSpec
+) -> Any:
+    """Lower the independently registered Perlin wave tile for Isaac Sim."""
+    del generator
+    import instinctlab_engine_isaacsim.terrains as terrain_gen
+
+    fields = dict(tile.params)
+    if flat_patches := fields.get("flat_patch_sampling"):
+        fields["flat_patch_sampling"] = _flat_patches(flat_patches)
+    if perlin_cfg := fields.get("perlin_cfg"):
+        fields["perlin_cfg"] = _perlin(perlin_cfg)
+    return terrain_gen.PerlinWaveTerrainCfg(
+        proportion=tile.proportion,
+        **fields,
+    )
 
 
 def _standard_generator(spec: TerrainGeneratorSpec) -> Any:

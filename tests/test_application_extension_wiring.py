@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 from instinctlab.actuators.registration import (
     DELAYED_PD_MODEL_ID,
@@ -15,10 +15,19 @@ from instinctlab.actuators.registration import (
 from instinctlab.actuators.runtime import (
     ISAACSIM_DELAYED_PD_RUNTIME,
     MJLAB_DELAYED_PD_RUNTIME,
+    DeclaredModelRuntimeAdapter,
 )
 from instinctlab.assets.unitree_g1 import isaacsim, mjlab
-from instinctlab.terrains.registration import ROUGH_TILE_KINDS, register_terrains
-from instinctlab_engine.actuators import ACTUATOR_CAPABILITIES, ActuatorRegistry
+from instinctlab.terrains.registration import (
+    PERLIN_WAVE_KIND,
+    ROUGH_TILE_KINDS,
+    register_terrains,
+)
+from instinctlab_engine.actuators import (
+    ACTUATOR_CAPABILITIES,
+    STIFFNESS,
+    ActuatorRegistry,
+)
 from instinctlab_engine.registry import TerrainExtensionRegistry
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +113,67 @@ def test_application_runtime_aliases_do_not_claim_unlabelled_native_models() -> 
     for adapter in (ISAACSIM_DELAYED_PD_RUNTIME, MJLAB_DELAYED_PD_RUNTIME):
         assert adapter.matches(unlabelled) is False
         assert adapter.matches(other) is False
+
+
+def test_identity_adapter_can_scope_a_second_application_model(monkeypatch) -> None:
+    class RuntimeDelegate:
+        @staticmethod
+        def matches(actuator) -> bool:
+            return getattr(actuator, "native_family", None) == "review_motor"
+
+    module = ModuleType("instinctlab_review_actuator_runtime")
+    module.RUNTIME = RuntimeDelegate()
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+    adapter = DeclaredModelRuntimeAdapter(
+        model_id="review.custom_motor.v1",
+        delegate_path=f"{module.__name__}:RUNTIME",
+    )
+    module.APP_ADAPTER = adapter
+    selected = SimpleNamespace(
+        native_family="review_motor",
+        cfg=SimpleNamespace(instinctlab_model_id="review.custom_motor.v1"),
+    )
+    delayed = SimpleNamespace(
+        native_family="review_motor",
+        cfg=SimpleNamespace(instinctlab_model_id=DELAYED_PD_MODEL_ID),
+    )
+
+    assert adapter.matches(selected) is True
+    assert adapter.matches(delayed) is False
+
+    registry = ActuatorRegistry(load_entry_points=False)
+    registry.register(
+        engine="isaacsim",
+        model_id="review.custom_motor.v1",
+        config_factory=lambda **values: values,
+        runtime_adapter=f"{module.__name__}:APP_ADAPTER",
+        capabilities={STIFFNESS},
+    )
+    registration, selected_adapter = registry.runtime_adapter(
+        "isaacsim",
+        selected,
+        capability=STIFFNESS,
+        native_group="review_motor",
+        requesting_term="extension conformance",
+    )
+    assert registration.model_id == "review.custom_motor.v1"
+    assert selected_adapter is adapter
+
+
+def test_perlin_wave_has_one_dedicated_lazy_builder_per_engine() -> None:
+    terrains = TerrainExtensionRegistry(load_entry_points=False)
+    register_terrains(terrains)
+
+    expected = {
+        "isaacsim": "instinctlab_engine_isaacsim.terrain_builders",
+        "mjlab": "instinctlab_engine_mjlab.terrain_builders",
+    }
+    for engine, module_name in expected.items():
+        builder = terrains.sub_terrain(engine, PERLIN_WAVE_KIND)
+        assert builder is not None
+        assert builder.__module__ == module_name
+        assert builder.__name__ == "build_perlin_wave_tile"
 
 
 def test_rough_kinds_are_application_owned_not_backend_registered() -> None:

@@ -26,6 +26,7 @@ class DeclaredModelRuntimeAdapter:
     id preserves the registry's one-model-per-group invariant.
     """
 
+    model_id: str
     delegate_path: str
 
     def _delegate(self) -> Any:
@@ -33,7 +34,7 @@ class DeclaredModelRuntimeAdapter:
         return getattr(import_module(module_name), attribute)
 
     def matches(self, actuator: object) -> bool:
-        if _model_id(actuator) != DELAYED_PD_MODEL_ID:
+        if _model_id(actuator) != self.model_id:
             return False
         return bool(self._delegate().matches(actuator))
 
@@ -53,10 +54,12 @@ class DeclaredModelRuntimeAdapter:
 
 
 ISAACSIM_DELAYED_PD_RUNTIME = DeclaredModelRuntimeAdapter(
-    "instinctlab_engine_isaacsim.actuator_runtime:DELAYED_PD_RUNTIME"
+    model_id=DELAYED_PD_MODEL_ID,
+    delegate_path="instinctlab_engine_isaacsim.actuator_runtime:DELAYED_PD_RUNTIME",
 )
 MJLAB_DELAYED_PD_RUNTIME = DeclaredModelRuntimeAdapter(
-    "instinctlab_engine_mjlab.actuator_runtime:BUILTIN_PD_RUNTIME"
+    model_id=DELAYED_PD_MODEL_ID,
+    delegate_path="instinctlab_engine_mjlab.actuator_runtime:BUILTIN_PD_RUNTIME",
 )
 
 __all__ = [

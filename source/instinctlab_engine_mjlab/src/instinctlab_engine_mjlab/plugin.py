@@ -19,6 +19,7 @@ _STANDARD_TILES = (
     "hf_pyramid_slope_inv",
 )
 
+
 def register() -> None:
     """Register lazy MJLab builders without importing an implementation module."""
     register_adapter(

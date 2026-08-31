@@ -23,6 +23,7 @@ _STANDARD_TILES = (
     "hf_pyramid_slope_inv",
 )
 
+
 def register() -> None:
     """Register lazy Isaac builders without importing an implementation module."""
     register_adapter(
