@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -232,6 +234,9 @@ class ReplayDifference:
     step: int
     field: str
     max_absolute_error: float
+    max_index: tuple[int, ...] | None = None
+    actual_at_max: float | bool | None = None
+    expected_at_max: float | bool | None = None
 
 
 @dataclass(frozen=True)
@@ -248,9 +253,11 @@ def replay_trace(
     strict: bool = True,
     atol: float = 1.0e-5,
     rtol: float = 1.0e-5,
+    field_tolerances: Mapping[str, tuple[float, float]] | None = None,
 ) -> ReplayReport:
     """Restore and replay a trace through the normalized RL environment boundary."""
     trace.validate()
+    tolerances = _resolve_tolerances(atol, rtol, field_tolerances)
     lifecycle = env.lifecycle
     if lifecycle.trace_active:
         raise TraceError("Cannot replay while another episode trace is active.")
@@ -279,15 +286,27 @@ def replay_trace(
                 equal = torch.equal(selected_actual, selected_expected)
                 error = 0.0 if equal else 1.0
             else:
+                field_atol, field_rtol = tolerances[field]
                 equal = torch.allclose(
                     selected_actual,
                     selected_expected,
-                    atol=atol,
-                    rtol=rtol,
+                    atol=field_atol,
+                    rtol=field_rtol,
                 )
                 error = _max_absolute_error(selected_actual, selected_expected)
             if not equal:
-                difference = ReplayDifference(step_index, field, error)
+                max_index, actual_at_max, expected_at_max = _max_error_details(
+                    selected_actual,
+                    selected_expected,
+                )
+                difference = ReplayDifference(
+                    step_index,
+                    field,
+                    error,
+                    max_index,
+                    actual_at_max,
+                    expected_at_max,
+                )
                 differences.append(difference)
                 if strict:
                     raise ReplayMismatch(
@@ -305,6 +324,51 @@ def _max_absolute_error(actual: torch.Tensor, expected: torch.Tensor) -> float:
     if actual.numel() == 0:
         return 0.0
     return float((actual - expected).abs().max().item())
+
+
+def _max_error_details(
+    actual: torch.Tensor,
+    expected: torch.Tensor,
+) -> tuple[tuple[int, ...] | None, float | bool | None, float | bool | None]:
+    if actual.numel() == 0:
+        return None, None, None
+    if actual.dtype == torch.bool:
+        flat_index = int((actual != expected).flatten().nonzero()[0].item())
+    else:
+        flat_index = int((actual - expected).abs().flatten().argmax().item())
+    coordinates: list[int] = []
+    remaining = flat_index
+    for size in reversed(actual.shape):
+        coordinates.append(remaining % size)
+        remaining //= size
+    index = tuple(reversed(coordinates))
+    actual_value = actual.flatten()[flat_index].item()
+    expected_value = expected.flatten()[flat_index].item()
+    return index, actual_value, expected_value
+
+
+def _resolve_tolerances(
+    atol: float,
+    rtol: float,
+    field_tolerances: Mapping[str, tuple[float, float]] | None,
+) -> dict[str, tuple[float, float]]:
+    tolerances = {
+        "observation": (float(atol), float(rtol)),
+        "reward": (float(atol), float(rtol)),
+    }
+    if field_tolerances is not None:
+        unknown = set(field_tolerances) - set(tolerances)
+        if unknown:
+            raise TraceError(f"Unknown replay tolerance fields: {sorted(unknown)}.")
+        tolerances.update(field_tolerances)
+    for field, values in tolerances.items():
+        if len(values) != 2:
+            raise TraceError(f"Replay tolerance for {field} must be (atol, rtol).")
+        absolute, relative = (float(value) for value in values)
+        if not all(math.isfinite(value) and value >= 0.0 for value in (absolute, relative)):
+            raise TraceError(f"Replay tolerances for {field} must be finite and non-negative.")
+        tolerances[field] = (absolute, relative)
+    return tolerances
 
 
 __all__ = [

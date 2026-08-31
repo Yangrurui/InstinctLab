@@ -99,6 +99,27 @@ def test_strict_replay_reports_first_normalized_boundary_difference() -> None:
     with pytest.raises(ReplayMismatch, match="step 0 field observation"):
         replay_trace(env, incompatible)
 
+    report = replay_trace(env, incompatible, strict=False)
+    assert report.differences[0].max_index == (0, 0)
+    assert report.differences[0].actual_at_max == pytest.approx(1.0)
+    assert report.differences[0].expected_at_max == pytest.approx(1.25)
+
+    accepted = replay_trace(
+        env,
+        incompatible,
+        field_tolerances={"observation": (0.3, 0.0)},
+    )
+    assert accepted.matched is True
+
+
+def test_replay_tolerances_fail_closed() -> None:
+    env, trace = _record_complete_trace()
+
+    with pytest.raises(TraceError, match="Unknown replay tolerance"):
+        replay_trace(env, trace, field_tolerances={"unknown": (1.0, 0.0)})
+    with pytest.raises(TraceError, match="finite and non-negative"):
+        replay_trace(env, trace, atol=-1.0)
+
 
 def test_trace_requires_episode_boundary_and_complete_selected_episodes() -> None:
     env = _ReplayEnvironment()
