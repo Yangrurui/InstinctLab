@@ -499,7 +499,7 @@ def test_scene_uses_one_symbol_table_for_objects_and_all_sensor_kinds():
 @pytest.mark.parametrize(
     ("engine", "reserved_name", "message"),
     (
-        ("isaacsim", "lazy_sensor_update", "InteractiveSceneCfg fields"),
+        ("isaacsim", "clone_in_fabric", "InteractiveSceneCfg fields"),
         ("mjlab", "entities", "SceneCfg fields"),
     ),
 )

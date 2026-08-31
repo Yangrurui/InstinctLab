@@ -37,13 +37,19 @@ __all__ = ["IsaacSimAdapter", "IsaacSimCompileCtx"]
 _OBSERVATION_GROUP_RESERVED_NAMES = frozenset(
     {"concatenate_terms", "concatenate_dim", "enable_corruption", "history_length", "flatten_history_dim"}
 )
-_SCENE_RESERVED_NAMES = frozenset(
+_INTERACTIVE_SCENE_CFG_FIELDS = frozenset(
     {
         "env_spacing",
         "filter_collisions",
         "lazy_sensor_update",
         "num_envs",
         "replicate_physics",
+        "clone_in_fabric",
+    }
+)
+_SCENE_RESERVED_NAMES = frozenset(
+    {
+        *_INTERACTIVE_SCENE_CFG_FIELDS,
         "robot",
         "sky_light",
         "terrain",

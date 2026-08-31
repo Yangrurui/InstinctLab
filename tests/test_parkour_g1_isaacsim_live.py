@@ -16,6 +16,19 @@ from tests.parkour_live_expect import ISAAC_PROPORTION_COLUMNS, resolve_live_dev
 pytestmark = pytest.mark.isaacsim
 
 
+def test_scene_reserved_names_match_installed_isaaclab_fields() -> None:
+    device = resolve_live_device()
+    pytest.importorskip("isaaclab")
+    ensure_isaac_app(device=device)
+
+    from isaaclab.scene import InteractiveSceneCfg
+    from instinctlab_engine_isaacsim.adapter import _INTERACTIVE_SCENE_CFG_FIELDS
+
+    assert frozenset(InteractiveSceneCfg.__dataclass_fields__) == (
+        _INTERACTIVE_SCENE_CFG_FIELDS
+    )
+
+
 def test_isaacsim_parkour_target_g1_constructs_and_steps() -> None:
     device = resolve_live_device()
     pytest.importorskip("isaaclab")
