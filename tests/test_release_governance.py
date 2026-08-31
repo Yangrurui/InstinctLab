@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,22 +78,73 @@ def test_release_builder_uses_clean_sources_and_isolated_pinned_tools() -> None:
     assert builder.BUILD_REQUIREMENTS == (
         "build==1.2.2.post1",
         "twine==6.2.0",
+        "setuptools==81.0.0",
+        "wheel==0.45.1",
+        "packaging==25.0",
+        "toml==0.10.2",
     )
     source = (ROOT / "scripts" / "build_release.py").read_text()
-    assert "shutil.copytree(" in source
+    assert '"ls-files"' in source
+    assert '"--porcelain=v1"' in source
     assert "venv.EnvBuilder(with_pip=True)" in source
-    assert '"__pycache__"' in source
-    assert '"shadowing_probe.py"' in source
+    assert '"--no-isolation"' in source
 
 
-def test_release_builder_excludes_gitignored_diagnostic_modules(tmp_path: Path) -> None:
+def _initialize_repository(repository: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.name", "Test"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+
+
+def test_release_builder_copies_only_tracked_project_files(tmp_path: Path) -> None:
     builder = _script("build_release.py")
-    source = tmp_path / "source"
-    source.mkdir()
+    repository = tmp_path / "repository"
+    source = repository / "source"
+    source.mkdir(parents=True)
+    (repository / ".gitignore").write_text("shadowing_probe.py\n")
     (source / "production.py").write_text("PRODUCTION = True\n")
+    _initialize_repository(repository)
+    subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-q", "-m", "source"], check=True
+    )
     (source / "shadowing_probe.py").write_text("LOCAL_ONLY = True\n")
+    (source / "untracked_local.py").write_text("LOCAL_ONLY = True\n")
 
     copied = builder._copy_project(source, tmp_path / "copied")
 
     assert (copied / "production.py").is_file()
     assert not (copied / "shadowing_probe.py").exists()
+    assert not (copied / "untracked_local.py").exists()
+
+
+def test_release_builder_refuses_dirty_or_untracked_checkout(tmp_path: Path) -> None:
+    builder = _script("build_release.py")
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    _initialize_repository(repository)
+    tracked = repository / "tracked.py"
+    tracked.write_text("VALUE = 1\n")
+    subprocess.run(["git", "-C", str(repository), "add", "tracked.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-q", "-m", "source"], check=True
+    )
+
+    assert (
+        builder._require_clean_checkout(repository)
+        == subprocess.run(
+            ["git", "-C", str(repository), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )
+
+    (repository / "untracked.py").write_text("LOCAL_ONLY = True\n")
+    with pytest.raises(RuntimeError, match="clean Git checkout"):
+        builder._require_clean_checkout(repository)

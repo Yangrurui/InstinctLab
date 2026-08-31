@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,14 @@ from check_release import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BUILD_REQUIREMENTS = ("build==1.2.2.post1", "twine==6.2.0")
+BUILD_REQUIREMENTS = (
+    "build==1.2.2.post1",
+    "twine==6.2.0",
+    "setuptools==81.0.0",
+    "wheel==0.45.1",
+    "packaging==25.0",
+    "toml==0.10.2",
+)
 
 
 def _sha256(path: Path) -> str:
@@ -32,22 +40,70 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _copy_project(source: Path, destination: Path) -> Path:
-    shutil.copytree(
-        source,
-        destination,
-        ignore=shutil.ignore_patterns(
-            "build",
-            "dist",
-            "*.egg-info",
-            "__pycache__",
-            ".pytest_cache",
-            ".ruff_cache",
-            # Maintainer-only diagnostic module is intentionally gitignored;
-            # a local copy must never leak into an application artifact.
-            "shadowing_probe.py",
-        ),
+def _git_output(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repository), *arguments],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _require_clean_checkout(repository: Path = REPO_ROOT) -> str:
+    """Return HEAD only when tracked and untracked source state is clean."""
+    commit = _git_output(repository, "rev-parse", "HEAD")
+    status = _git_output(
+        repository,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
     )
+    if status:
+        raise RuntimeError(
+            "Release builds require a clean Git checkout; reconcile these paths first:\n"
+            f"{status}"
+        )
+    return commit
+
+
+def _copy_project(source: Path, destination: Path) -> Path:
+    """Copy only Git-tracked files from one project into the build stage."""
+    repository = Path(_git_output(source, "rev-parse", "--show-toplevel")).resolve()
+    source = source.resolve()
+    try:
+        project_relative = source.relative_to(repository)
+    except ValueError as exc:
+        raise ValueError(
+            f"Project source is outside its Git repository: {source}"
+        ) from exc
+
+    encoded = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "ls-files",
+            "-z",
+            "--",
+            project_relative.as_posix(),
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
+    tracked = [Path(value.decode()) for value in encoded.split(b"\0") if value]
+    if not tracked:
+        raise RuntimeError(f"Project has no Git-tracked files: {source}")
+
+    destination.mkdir(parents=True)
+    for repository_relative in tracked:
+        source_path = repository / repository_relative
+        project_path = repository_relative.relative_to(project_relative)
+        destination_path = destination / project_path
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.is_symlink():
+            destination_path.symlink_to(os.readlink(source_path))
+        else:
+            shutil.copy2(source_path, destination_path)
     return destination
 
 
@@ -61,6 +117,7 @@ def main() -> int:
     )
     parser.add_argument("--expected-version")
     args = parser.parse_args()
+    source_commit = _require_clean_checkout()
     version = validate_release_metadata(
         collect_release_metadata(),
         expected_version=args.expected_version,
@@ -101,6 +158,7 @@ def main() -> int:
                     str(tool_python),
                     "-m",
                     "build",
+                    "--no-isolation",
                     "--wheel",
                     "--sdist",
                     "--outdir",
@@ -137,6 +195,8 @@ def main() -> int:
     manifest = {
         "version": "instinctlab_release_artifacts_v1",
         "package_version": version,
+        "source_commit": source_commit,
+        "source_dirty": False,
         "artifacts": {
             path.name: {"size_bytes": path.stat().st_size, "sha256": _sha256(path)}
             for path in sorted(output.iterdir())
