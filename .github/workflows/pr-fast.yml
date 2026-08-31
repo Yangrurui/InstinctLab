@@ -1,0 +1,37 @@
+name: PR fast SDK-free checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sdk-free:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install SDK-free test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest ruff "pyright[nodejs]" toml
+          python -m pip install -e source/instinctlab_engine
+          python -m pip install -e source/instinctlab --no-deps
+          python -m pip install instinct-rl==1.0.2 psutil pytorch-kinematics joblib trimesh scikit-learn packaging
+      - name: Check coordinated release metadata
+        run: python scripts/check_release.py
+      - name: Enforce Ruff ratchet
+        run: python scripts/check_ruff_ratchet.py
+      - name: Type check for Python 3.11
+        run: pyright
+      - name: Run SDK-free tests
+        env:
+          PYTHONPATH: source/instinctlab
+        run: python -m pytest -q tests

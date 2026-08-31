@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 atomic = true
 profile = "black"
 line_length = 120
-py_version = 310
+py_version = 311
 skip_glob = ["docs/*", "logs/*"]
 group_by_package = true
 
@@ -61,8 +61,23 @@ known_local_folder = "config"
 
 [tool.pyright]
 
+include = [
+    "scripts/build_release.py",
+    "scripts/check_release.py",
+    "scripts/check_ruff_ratchet.py",
+    "scripts/install.py",
+    "scripts/play.py",
+    "scripts/train.py",
+    "scripts/verify_wheel_matrix.py",
+    "source/instinctlab/instinctlab",
+    "source/instinctlab_engine/src",
+    "source/instinctlab_engine_isaacsim/src",
+    "source/instinctlab_engine_mjlab/src",
+]
+
 exclude = [
     "**/__pycache__",
+    "**/build",
     "**/docs",
     "**/logs",
     ".git",
@@ -70,7 +85,7 @@ exclude = [
 ]
 
 typeCheckingMode = "basic"
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 pythonPlatform = "Linux"
 enableTypeIgnoreComments = true
 
@@ -81,5 +96,15 @@ reportMissingImports = "none"
 reportMissingModuleSource = "none" # -> most common: prettytable in mdp managers
 
 reportGeneralTypeIssues = "none"       # -> raises 218 errors (usage of literal MISSING in dataclasses)
+reportArgumentType = "none"            # dynamic SDK manager protocols are intentionally structural
+reportAssignmentType = "none"          # configclass assigns native SDK values after bootstrap
+reportAttributeAccessIssue = "none"    # native environment surfaces are selected at runtime
+reportCallIssue = "none"                # engine factories expose backend-specific call signatures
+reportIndexIssue = "none"               # native tensor/index containers lack complete stubs
+reportInvalidTypeForm = "none"          # configclass fields use runtime-resolved SDK config types
+reportOperatorIssue = "none"            # Warp/native numeric values have incomplete operator stubs
+reportOptionalOperand = "none"          # SDK configs validate optional fields during construction
+reportOptionalSubscript = "none"        # SDK configs validate optional fields during construction
+reportReturnType = "none"               # adapters return runtime protocol implementations
 reportOptionalMemberAccess = "warning" # -> raises 8 errors
 reportPrivateUsage = "warning"

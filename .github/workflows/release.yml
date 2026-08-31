@@ -1,0 +1,55 @@
+name: Build and publish coordinated release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact coordinated package version
+        required: true
+      publish:
+        description: Publish verified artifacts to PyPI
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate coordinated version and build clean artifacts
+        run: |
+          python scripts/check_release.py --expected-version "${{ inputs.version }}"
+          python scripts/build_release.py --expected-version "${{ inputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instinctlab-${{ inputs.version }}
+          path: dist/release/
+          if-no-files-found: error
+
+  publish:
+    if: inputs.publish
+    needs: build
+    runs-on: ubuntu-22.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: instinctlab-${{ inputs.version }}
+          path: dist/release
+      - name: Select Python distributions for publication
+        run: |
+          mkdir -p dist/publish
+          cp dist/release/*.whl dist/release/*.tar.gz dist/publish/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/publish/

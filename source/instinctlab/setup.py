@@ -11,10 +11,13 @@ EXTENSION_PATH = os.path.dirname(os.path.realpath(__file__))
 EXTENSION_TOML_DATA = toml.load(
     os.path.join(EXTENSION_PATH, "config", "extension.toml")
 )
+with open(os.path.join(EXTENSION_PATH, "README.md"), encoding="utf-8") as stream:
+    LONG_DESCRIPTION = stream.read()
 
 # Minimum dependencies required prior to installation
 INSTALL_REQUIRES = [
     "instinctlab-engine-core==0.1.0",
+    "instinct-rl==1.0.2",
     "psutil",
     "pytorch_kinematics",
     "joblib",
@@ -44,6 +47,8 @@ setup(
     url=EXTENSION_TOML_DATA["package"]["repository"],
     version=EXTENSION_TOML_DATA["package"]["version"],
     description=EXTENSION_TOML_DATA["package"]["description"],
+    long_description=LONG_DESCRIPTION,
+    long_description_content_type="text/markdown",
     keywords=EXTENSION_TOML_DATA["package"]["keywords"],
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,

@@ -34,7 +34,8 @@ def test_application_metadata_is_not_the_isaac_extension_template() -> None:
 def test_every_engine_distribution_declares_the_repository_license_and_owner() -> None:
     for project in ENGINE_PROJECTS:
         metadata = _toml(SOURCE / project / "pyproject.toml")["project"]
-        assert metadata["license"]["text"] == "CC BY-NC 4.0"
+        assert metadata["license"] == "CC-BY-NC-4.0"
+        assert metadata["readme"] == "README.md"
         assert metadata["authors"] == [{"name": "Project Instinct"}]
         assert metadata["urls"]["Source"] == (
             "https://github.com/project-instinct/instinctlab"

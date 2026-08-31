@@ -6,8 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "instinctlab-engine-core"
 version = "0.1.0"
 description = "Engine-neutral task contracts, runtime bridges, and compiler interfaces for InstinctLab"
+readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "CC BY-NC 4.0"}
+license = "CC-BY-NC-4.0"
 authors = [{name = "Project Instinct"}]
 maintainers = [{name = "YangRurui"}]
 keywords = ["reinforcement-learning", "simulation", "compiler", "robotics"]
