@@ -28,6 +28,7 @@ from typing import Any
 
 from instinctlab_engine.spec.robot import RobotSpec
 
+from .articulation import ArticulationRef
 from .lifecycle import LifecycleSpec
 from .mdp import MdpSpec
 from .relations import CollisionExclusionRef
@@ -43,6 +44,7 @@ from .sensor import (
 
 __all__ = [
     "AgentSpec",
+    "ArticulationRef",
     "LifecycleSpec",
     "SceneSpec",
     "SimSpec",
@@ -228,8 +230,13 @@ class SceneSpec:
     rigid_objects: tuple[RigidObjectRef, ...] = field(default=(), metadata={"contract_omit_if_default": True})
     """Ankle (or other) volume-point clouds. Penetration is not a raycast."""
     env_spacing: float = 2.5
+    articulations: tuple[ArticulationRef, ...] = field(
+        default=(), metadata={"contract_omit_if_default": True}
+    )
+    """Named non-primary articulations, each with its own canonical joint schema."""
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "articulations", tuple(self.articulations))
         object.__setattr__(self, "contact_sensors", tuple(self.contact_sensors))
         object.__setattr__(self, "ray_casters", tuple(self.ray_casters))
         object.__setattr__(self, "motion_references", tuple(self.motion_references))
@@ -249,6 +256,7 @@ class SceneSpec:
 
     def _dynamic_symbols(self) -> tuple[tuple[str, str], ...]:
         return (
+            *((ref.name, "additional articulation") for ref in self.articulations),
             *((obj.name, "rigid object") for obj in self.rigid_objects),
             *((sensor.name, "contact sensor") for sensor in self.contact_sensors),
             *((sensor.name, "ray caster") for sensor in self.ray_casters),
@@ -320,6 +328,16 @@ class SceneSpec:
                 return sensor
         have = ", ".join(sorted(s.name for s in self.volume_points)) or "none"
         raise KeyError(f"Scene declares no volume-points sensor {name!r}. Declared: {have}.")
+
+    def articulation(self, name: str) -> ArticulationRef:
+        """Return the named non-primary articulation."""
+        for articulation in self.articulations:
+            if articulation.name == name:
+                return articulation
+        have = ", ".join(sorted(item.name for item in self.articulations)) or "none"
+        raise KeyError(
+            f"Scene declares no additional articulation {name!r}. Declared: {have}."
+        )
 
 
 @dataclass(frozen=True)
@@ -428,6 +446,20 @@ class TaskSpec:
 
         return resolve_lifecycle_contract(self)
 
+    def articulation_schema(self, name: str) -> RobotSpec:
+        """Return the canonical schema for any articulated scene entity."""
+        if name == "robot":
+            return self.robot
+        return self.scene.articulation(name).schema
+
+    @property
+    def articulation_schemas(self) -> dict[str, RobotSpec]:
+        """All articulation schemas keyed by their scene entity name."""
+        return {
+            "robot": self.robot,
+            **{ref.name: ref.schema for ref in self.scene.articulations},
+        }
+
     def validate_for_engine(self, engine: str) -> None:
         """Validate the declaration and require it to opt in to ``engine``."""
         self.validate()
@@ -441,6 +473,13 @@ class TaskSpec:
             raise ValueError(
                 f"Task {self.task_id!r} was materialized for {sorted(robot_engines)}, not {engine!r}."
             )
+        for ref in self.scene.articulations:
+            backends = {asset.backend for asset in ref.schema.assets}
+            if backends != {engine}:
+                raise ValueError(
+                    f"Additional articulation {ref.name!r} was materialized for "
+                    f"{sorted(backends)}, not {engine!r}."
+                )
 
     @property
     def is_portable(self) -> bool:

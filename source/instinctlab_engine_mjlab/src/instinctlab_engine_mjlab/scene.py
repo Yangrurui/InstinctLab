@@ -22,7 +22,11 @@ from typing import Any
 from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
 from instinctlab_engine.sensors import NativeSensorBuildContext, native_sensor_builder
-from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
+from instinctlab_engine.spec.sensor import (
+    ContactSensorRef,
+    RayCasterRef,
+    VolumePointsRef,
+)
 from instinctlab_engine.spec.task import SceneSpec, TerrainSpec
 
 from .assets import entity as build_entity
@@ -174,9 +178,23 @@ def build_scene(
 
     entities = {
         "robot": with_collision_exclusions(
-            build_entity(robot), spec.collision_exclusions
+            build_entity(robot),
+            tuple(
+                exclusion
+                for exclusion in spec.collision_exclusions
+                if exclusion.entity == "robot"
+            ),
         )
     }
+    for ref in spec.articulations:
+        entities[ref.name] = with_collision_exclusions(
+            build_entity(ref.schema),
+            tuple(
+                exclusion
+                for exclusion in spec.collision_exclusions
+                if exclusion.entity == ref.name
+            ),
+        )
     from .rigid_objects import rigid_object_cfg
 
     for obj in spec.rigid_objects:

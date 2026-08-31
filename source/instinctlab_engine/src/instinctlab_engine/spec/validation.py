@@ -37,6 +37,19 @@ def _validate_engine_keys(spec: TaskSpec) -> None:
             f"Task {spec.task_id!r} must be materialized with exactly one engine-owned robot asset, "
             f"got {sorted(asset_backends)}."
         )
+    for ref in spec.scene.articulations:
+        backends = {asset.backend for asset in ref.schema.assets}
+        unknown = backends - declared
+        if unknown:
+            raise ValueError(
+                f"Additional articulation {ref.name!r} has assets for undeclared "
+                f"engines {sorted(unknown)}."
+            )
+        if len(backends) != 1:
+            raise ValueError(
+                f"Additional articulation {ref.name!r} must be materialized with "
+                f"exactly one engine-owned asset, got {sorted(backends)}."
+            )
 
     keyed_settings = (
         ("sim.profiles", spec.sim.profiles),
@@ -130,15 +143,22 @@ def _validate_scene_bindings(spec: TaskSpec) -> None:
             )
 
     for exclusion in scene.collision_exclusions:
-        if exclusion.entity != "robot":
+        try:
+            articulation = spec.articulation_schema(exclusion.entity)
+        except KeyError:
             raise ValueError(
                 f"Collision exclusion {exclusion.pair!r} refers to unknown entity "
                 f"{exclusion.entity!r}."
-            )
-        unknown = set(exclusion.pair) - body_name_set
+            ) from None
+        unknown = set(exclusion.pair) - set(articulation.body_names)
         if unknown:
+            entity_label = (
+                "robot bodies"
+                if exclusion.entity == "robot"
+                else f"bodies on {exclusion.entity!r}"
+            )
             raise ValueError(
-                f"Collision exclusion {exclusion.pair!r} names unknown robot bodies: "
+                f"Collision exclusion {exclusion.pair!r} names unknown {entity_label}: "
                 f"{sorted(unknown)}."
             )
 
@@ -230,12 +250,19 @@ def _validate_canonical_joint_ref(
     *,
     label: str,
     ref: EntityRef,
-    joint_names: tuple[str, ...],
+    articulation_schemas: Mapping[str, Any],
     require_ordered: bool = False,
 ) -> None:
-    """Require an order-sensitive robot selector to resolve to a canonical subsequence."""
-    if ref.entity != "robot" or ref.joints is None:
+    """Require an order-sensitive articulation selector to be a canonical subsequence."""
+    if ref.joints is None:
         return
+    try:
+        joint_names = tuple(articulation_schemas[ref.entity].joint_names)
+    except KeyError:
+        raise ValueError(
+            f"{label} selects joints on {ref.entity!r}, which has no canonical "
+            "articulation schema."
+        ) from None
     if not ref.preserve_order:
         if require_ordered:
             raise ValueError(
@@ -254,7 +281,7 @@ def _validate_canonical_joint_ref(
 
 def _validate_mdp_joint_axes(spec: TaskSpec) -> None:
     """Validate order-sensitive and policy-facing joints before native indices exist."""
-    joint_names = tuple(spec.robot.joint_names)
+    articulation_schemas = spec.articulation_schemas
     for term_key, term in spec.mdp.terms().items():
         parameter_sets = (term.params, *term.engine_params.values())
         values = (value for params in parameter_sets for value in params.values())
@@ -265,7 +292,7 @@ def _validate_mdp_joint_axes(spec: TaskSpec) -> None:
             _validate_canonical_joint_ref(
                 label=f"Term {term_key!r}",
                 ref=ref,
-                joint_names=joint_names,
+                articulation_schemas=articulation_schemas,
             )
 
     for action_name, term in spec.mdp.actions.items():
@@ -273,7 +300,7 @@ def _validate_mdp_joint_axes(spec: TaskSpec) -> None:
             _validate_canonical_joint_ref(
                 label=f"Action {action_name!r}",
                 ref=term.target,
-                joint_names=joint_names,
+                articulation_schemas=articulation_schemas,
                 require_ordered=True,
             )
 
@@ -288,7 +315,7 @@ def _validate_mdp_joint_axes(spec: TaskSpec) -> None:
                 _validate_canonical_joint_ref(
                     label=f"Observation {group_name!r}/{term_name!r}",
                     ref=ref,
-                    joint_names=joint_names,
+                    articulation_schemas=articulation_schemas,
                     require_ordered=True,
                 )
 

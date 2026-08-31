@@ -312,7 +312,11 @@ class MjlabAdapter:
             lifecycle.set_snapshot_provider(MjlabSnapshotProvider(env))
             return env
 
-        resolution.capture_plugin_provenance(asset_id=spec.robot.asset_id)
+        resolution.capture_plugin_provenance(
+            asset_ids=tuple(
+                schema.asset_id for schema in spec.articulation_schemas.values()
+            )
+        )
         return CompiledTask(
             env_factory=make_env,
             env_cls=TerrainAwareRlEnv,

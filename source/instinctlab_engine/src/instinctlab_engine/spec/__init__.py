@@ -15,6 +15,7 @@ from importlib import import_module
 from typing import Any
 
 _EXPORTS = {
+    "ArticulationRef": ("articulation", "ArticulationRef"),
     "Requirement": ("capability", "Requirement"),
     "UNIVERSAL_KINDS": ("entity", "UNIVERSAL_KINDS"),
     "EntityRef": ("entity", "EntityRef"),
@@ -73,6 +74,7 @@ __all__ = [
     "UNIVERSAL_KINDS",
     "ActionTermSpec",
     "AgentSpec",
+    "ArticulationRef",
     "BackendAsset",
     "ClockDomainSpec",
     "CollisionExclusionRef",

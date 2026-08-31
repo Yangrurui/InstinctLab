@@ -194,7 +194,12 @@ class Resolution:
             "plugins": plugins,
         }
 
-    def capture_plugin_provenance(self, *, asset_id: str) -> None:
+    def capture_plugin_provenance(
+        self,
+        *,
+        asset_id: str | None = None,
+        asset_ids: tuple[str, ...] = (),
+    ) -> None:
         """Finish the plugin ledger for this compilation.
 
         Engine and asset selection happen immediately before ``Resolution`` is
@@ -203,14 +208,19 @@ class Resolution:
         """
         from instinctlab_engine.plugins import plugin_provenance_since
 
-        asset_package = asset_id.partition("/")[0]
+        selected_asset_ids = (*((asset_id,) if asset_id is not None else ()), *asset_ids)
+        if not selected_asset_ids:
+            raise ValueError("Plugin provenance requires at least one asset ID.")
+        asset_packages = tuple(
+            dict.fromkeys(value.partition("/")[0] for value in selected_asset_ids)
+        )
         self.plugins = tuple(
             plugin_provenance_since(
                 self.plugin_usage_start,
                 engine=self.engine,
                 include_keys=(
                     ("instinctlab.engines", self.engine),
-                    ("instinctlab.assets", asset_package),
+                    *(("instinctlab.assets", package) for package in asset_packages),
                 ),
             )
         )

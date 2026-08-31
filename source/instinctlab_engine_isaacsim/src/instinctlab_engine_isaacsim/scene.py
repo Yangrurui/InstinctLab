@@ -19,7 +19,11 @@ from typing import Any
 from instinctlab_engine.bridge.sensors.ray import refuse_unhonored_ray_alignment
 from instinctlab_engine.registry import TERRAIN_EXTENSIONS
 from instinctlab_engine.sensors import NativeSensorBuildContext, native_sensor_builder
-from instinctlab_engine.spec.sensor import ContactSensorRef, RayCasterRef, VolumePointsRef
+from instinctlab_engine.spec.sensor import (
+    ContactSensorRef,
+    RayCasterRef,
+    VolumePointsRef,
+)
 from instinctlab_engine.spec.task import SceneSpec, TerrainSpec
 
 from .assets import articulation
@@ -326,7 +330,14 @@ def build_scene(
     )
     from .relations import with_collision_exclusions
 
-    spawn = with_collision_exclusions(spawn, spec.collision_exclusions)
+    spawn = with_collision_exclusions(
+        spawn,
+        tuple(
+            exclusion
+            for exclusion in spec.collision_exclusions
+            if exclusion.entity == "robot"
+        ),
+    )
 
     scene = InteractiveSceneCfg(num_envs=num_envs, env_spacing=spec.env_spacing)
     scene.lazy_sensor_update = True
@@ -334,6 +345,27 @@ def build_scene(
     scene.filter_collisions = True
     scene.terrain = _terrain(spec.terrain, profile)
     scene.robot = articulation_cfg.replace(prim_path=_ROBOT_PRIM, spawn=spawn)
+    for ref in spec.articulations:
+        additional_cfg = articulation(ref.schema)
+        additional_spawn = additional_cfg.spawn.replace(
+            **_spawn_overrides(additional_cfg.spawn, spec, profile)
+        )
+        additional_spawn = with_collision_exclusions(
+            additional_spawn,
+            tuple(
+                exclusion
+                for exclusion in spec.collision_exclusions
+                if exclusion.entity == ref.name
+            ),
+        )
+        setattr(
+            scene,
+            ref.name,
+            additional_cfg.replace(
+                prim_path=f"{{ENV_REGEX_NS}}/{ref.name}",
+                spawn=additional_spawn,
+            ),
+        )
     from .rigid_objects import rigid_object_cfg
 
     for obj in spec.rigid_objects:

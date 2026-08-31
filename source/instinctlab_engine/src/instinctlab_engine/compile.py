@@ -95,15 +95,22 @@ class CompileCtx:
         """
         if ref is None:
             return None
-        if ref.entity == "robot" and ref.joints is not None and ref.preserve_order:
+        if ref.joints is not None and ref.preserve_order:
             # A lone ``.*`` does not make either native resolver use the canonical order: it
             # preserves the one regex, then still enumerates matches in the articulation's own
             # order (BFS on Isaac). Expand every order-sensitive robot selector against the
             # canonical RobotSpec before lowering it so native resolution receives exact DFS
             # names, one per policy column.
+            try:
+                articulation = self.spec.articulation_schema(ref.entity)
+            except KeyError:
+                raise ValueError(
+                    f"Entity {ref.entity!r} selects joints but has no canonical "
+                    "articulation schema."
+                ) from None
             canonical_names = resolve_entity_names(
                 ref.joints,
-                self.spec.robot.joint_names,
+                articulation.joint_names,
                 preserve_order=False,
             )
             ref = replace(ref, joints=canonical_names)
@@ -297,15 +304,20 @@ def joint_position_target(spec: TermSpec, ctx: CompileCtx) -> EntityRef:
     target = spec.target
     if target is None:
         target = EntityRef(entity="robot", joints=ctx.spec.robot.joint_names, preserve_order=True)
-    if target.entity != "robot":
+    try:
+        articulation = ctx.spec.articulation_schema(target.entity)
+    except KeyError:
         raise ValueError(
-            f"joint_position actions may target only the TaskSpec robot, got entity {target.entity!r}; "
-            "no canonical joint schema is declared for another articulation."
-        )
+            f"joint_position action entity {target.entity!r} has no canonical joint schema."
+        ) from None
     if target.bodies is not None or target.other:
         raise ValueError("joint_position actions may select joints only")
     if target.joints is None:
-        target = EntityRef(entity=target.entity, joints=ctx.spec.robot.joint_names, preserve_order=True)
+        target = EntityRef(
+            entity=target.entity,
+            joints=articulation.joint_names,
+            preserve_order=True,
+        )
     if not target.preserve_order:
         raise ValueError(
             "A joint_position action must set preserve_order=True; the policy joint axis is the "
@@ -318,7 +330,7 @@ def joint_position_target(spec: TermSpec, ctx: CompileCtx) -> EntityRef:
         target,
         joints=resolve_entity_names(
             target.joints,
-            ctx.spec.robot.joint_names,
+            articulation.joint_names,
             preserve_order=False,
         ),
     )

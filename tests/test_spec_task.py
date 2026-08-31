@@ -15,6 +15,7 @@ import pytest
 from instinctlab_engine.spec import (
     ActionTermSpec,
     AgentSpec,
+    ArticulationRef,
     CommandTermSpec,
     ContactSensorRef,
     DoneTermSpec,
@@ -445,6 +446,58 @@ def test_joint_action_selector_must_follow_the_robot_canonical_order():
     changed = replace(task, mdp=replace(task.mdp, actions={"joint_pos": action}))
 
     with pytest.raises(ValueError, match="joint axis is not the RobotSpec canonical order"):
+        changed.validate()
+
+
+def test_additional_articulation_owns_a_canonical_joint_schema() -> None:
+    task = _task()
+    tool_schema = replace(task.robot, name="tool", asset_id="tool_v1")
+    scene = replace(
+        task.scene,
+        articulations=(ArticulationRef("tool", tool_schema),),
+    )
+    action = ActionTermSpec(
+        kind="joint_position",
+        target=EntityRef(
+            "tool",
+            joints=("hip", "knee"),
+            preserve_order=True,
+        ),
+    )
+    changed = replace(
+        task,
+        scene=scene,
+        mdp=replace(task.mdp, actions={"tool_joint_pos": action}),
+    )
+
+    changed.validate()
+    assert changed.articulation_schema("tool") is tool_schema
+    assert tuple(changed.articulation_schemas) == ("robot", "tool")
+
+
+def test_additional_articulation_rejects_a_noncanonical_policy_axis() -> None:
+    task = _task()
+    scene = replace(
+        task.scene,
+        articulations=(
+            ArticulationRef("tool", replace(task.robot, name="tool")),
+        ),
+    )
+    action = ActionTermSpec(
+        kind="joint_position",
+        target=EntityRef(
+            "tool",
+            joints=("knee", "hip"),
+            preserve_order=True,
+        ),
+    )
+    changed = replace(
+        task,
+        scene=scene,
+        mdp=replace(task.mdp, actions={"tool_joint_pos": action}),
+    )
+
+    with pytest.raises(ValueError, match="canonical order"):
         changed.validate()
 
 

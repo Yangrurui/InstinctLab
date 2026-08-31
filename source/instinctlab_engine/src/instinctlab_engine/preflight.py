@@ -50,8 +50,8 @@ def _term_joint_names(
     spec: TaskSpec,
     engine: str,
     term_key: str,
-) -> tuple[str, ...]:
-    """Resolve the canonical robot joints to which one actuator-aware term applies."""
+) -> dict[str, tuple[str, ...]]:
+    """Resolve canonical joints by articulation for one actuator-aware term."""
     term = spec.mdp.terms().get(term_key)
     if term is None:
         raise ValueError(f"actuator requirements reference unknown term {term_key!r}")
@@ -60,26 +60,34 @@ def _term_joint_names(
         ref
         for value in values
         for ref in _entity_refs(value)
-        if ref.entity == "robot" and ref.joints is not None
+        if ref.joints is not None
     ]
     if not joint_refs:
-        return tuple(spec.robot.joint_names)
-    selected: set[str] = set()
+        return {"robot": tuple(spec.robot.joint_names)}
+    selected: dict[str, set[str]] = {}
     for ref in joint_refs:
-        selected.update(
+        schema = spec.articulation_schema(ref.entity)
+        selected.setdefault(ref.entity, set()).update(
             resolve_entity_names(
                 ref.joints,
-                spec.robot.joint_names,
+                schema.joint_names,
                 preserve_order=ref.preserve_order,
             )
         )
-    return tuple(name for name in spec.robot.joint_names if name in selected)
+    return {
+        entity: tuple(
+            name
+            for name in spec.articulation_schema(entity).joint_names
+            if name in names
+        )
+        for entity, names in selected.items()
+    }
 
 
 def _provider_keys(
     *,
     engine: str,
-    asset_id: str,
+    asset_ids: Iterable[str],
     actuator_model_ids: Iterable[str],
     sensor_kinds: Iterable[str],
     terrain_kind: str,
@@ -87,10 +95,15 @@ def _provider_keys(
 ) -> tuple[tuple[str, str], ...]:
     keys: list[tuple[str, str]] = [
         ("instinctlab.engines", engine),
-        ("instinctlab.assets", asset_id.partition("/")[0]),
         ("instinctlab.terrains", f"whole:{engine}:{terrain_kind}"),
         ("instinctlab.engines", f"terrain:whole:{engine}:{terrain_kind}"),
     ]
+    keys.extend(
+        ("instinctlab.assets", package)
+        for package in dict.fromkeys(
+            asset_id.partition("/")[0] for asset_id in asset_ids
+        )
+    )
     keys.extend(
         ("instinctlab.actuators", f"{engine}:{model_id}")
         for model_id in actuator_model_ids
@@ -194,12 +207,18 @@ def preflight_report(
         f"profile omission {term_key}" for term_key in contract.get("omitted", ())
     )
 
-    asset_report: dict[str, Any] | None
-    try:
-        asset_report = selected_adapter.asset_conformance(spec.robot.asset_id)
-    except Exception as exc:  # noqa: BLE001
-        asset_report = None
-        incompatibilities.append(f"native asset {spec.robot.asset_id}: {exc}")
+    asset_reports: dict[str, dict[str, Any] | None] = {}
+    for entity_name, schema in spec.articulation_schemas.items():
+        try:
+            asset_reports[entity_name] = selected_adapter.asset_conformance(
+                schema.asset_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            asset_reports[entity_name] = None
+            incompatibilities.append(
+                f"native asset {entity_name!r}/{schema.asset_id}: {exc}"
+            )
+    asset_report = asset_reports["robot"]
 
     try:
         actuator_by_term = selected_adapter.actuator_requirements(spec)
@@ -207,13 +226,21 @@ def preflight_report(
         actuator_by_term = {}
         incompatibilities.append(f"actuator term requirements: {exc}")
     actuator_model_ids = tuple(
-        asset_report.get("actuator_model_ids", ()) if asset_report else ()
+        dict.fromkeys(
+            model_id
+            for report in asset_reports.values()
+            if report is not None
+            for model_id in report.get("actuator_model_ids", ())
+        )
     )
     actuator_groups = tuple(
-        asset_report.get("actuator_groups", ()) if asset_report else ()
+        (entity_name, group)
+        for entity_name, report in asset_reports.items()
+        if report is not None
+        for group in report.get("actuator_groups", ())
     )
     actuator_reports: list[dict[str, Any]] = []
-    joint_names_by_term: dict[str, tuple[str, ...]] = {}
+    joint_names_by_term: dict[str, dict[str, tuple[str, ...]]] = {}
     try:
         actuator_registrations = ACTUATORS.registrations(engine)
         if actuator_model_ids and not actuator_groups:
@@ -229,14 +256,16 @@ def preflight_report(
                 incompatibilities.append(
                     f"actuator joint selection for {term_key}: {exc}"
                 )
-        for group in actuator_groups:
+        for entity_name, group in actuator_groups:
             group_name = str(group["name"])
             model_id = str(group["model_id"])
             group_joints = tuple(group["joint_names"])
             requirements_by_term = {
                 term_key: capabilities
                 for term_key, capabilities in actuator_by_term.items()
-                if set(group_joints).intersection(joint_names_by_term.get(term_key, ()))
+                if set(group_joints).intersection(
+                    joint_names_by_term.get(term_key, {}).get(entity_name, ())
+                )
             }
             requested = sorted(
                 {
@@ -260,6 +289,7 @@ def preflight_report(
                 )
             actuator_reports.append(
                 {
+                    "entity": entity_name,
                     "group": group_name,
                     "model_id": model_id,
                     "selectors": list(group.get("selectors", ())),
@@ -345,7 +375,9 @@ def preflight_report(
 
     provider_keys = _provider_keys(
         engine=engine,
-        asset_id=spec.robot.asset_id,
+        asset_ids=(
+            schema.asset_id for schema in spec.articulation_schemas.values()
+        ),
         actuator_model_ids=actuator_model_ids,
         sensor_kinds=sensor_kinds,
         terrain_kind=terrain_kind,
@@ -363,6 +395,14 @@ def preflight_report(
         "engine": engine,
         "task_id": spec.task_id,
         "asset": asset_report,
+        "additional_articulations": [
+            {
+                "name": ref.name,
+                "asset_id": ref.schema.asset_id,
+                "asset": asset_reports[ref.name],
+            }
+            for ref in spec.scene.articulations
+        ],
         "actuators": actuator_reports,
         "native_sensors": sensor_reports,
         "terrain": {
@@ -374,8 +414,11 @@ def preflight_report(
             "engine_terms": contract.get("requested_capabilities", {}),
             "actuator_by_term": actuator_by_term,
             "actuator_joint_names_by_term": {
-                term_key: list(joint_names)
-                for term_key, joint_names in joint_names_by_term.items()
+                term_key: {
+                    entity: list(joint_names)
+                    for entity, joint_names in selections.items()
+                }
+                for term_key, selections in joint_names_by_term.items()
             },
             "native_sensors": {
                 report["name"]: report["requested_capabilities"]
@@ -390,10 +433,18 @@ def preflight_report(
         "providers": providers,
         "selected_components": {
             "asset_id": spec.robot.asset_id,
+            "articulation_asset_ids": {
+                entity: schema.asset_id
+                for entity, schema in spec.articulation_schemas.items()
+            },
             "actuator_model_ids": list(actuator_model_ids),
             "actuator_groups": [
-                {"name": group["name"], "model_id": group["model_id"]}
-                for group in actuator_groups
+                {
+                    "entity": entity,
+                    "name": group["name"],
+                    "model_id": group["model_id"],
+                }
+                for entity, group in actuator_groups
             ],
             "sensor_kinds": list(sensor_kinds),
             "terrain_kind": terrain_kind,

@@ -323,7 +323,11 @@ class IsaacSimAdapter:
             lifecycle.set_snapshot_provider(IsaacSimSnapshotProvider(env))
             return env
 
-        resolution.capture_plugin_provenance(asset_id=spec.robot.asset_id)
+        resolution.capture_plugin_provenance(
+            asset_ids=tuple(
+                schema.asset_id for schema in spec.articulation_schemas.values()
+            )
+        )
         return CompiledTask(
             env_cls=env_cls,
             env_cfg=env_cfg,

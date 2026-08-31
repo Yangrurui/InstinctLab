@@ -17,7 +17,7 @@ from instinctlab_engine.actuators import (
     ActuatorRegistry,
 )
 from instinctlab_engine.preflight import PreflightError, preflight_report, require_preflight
-from instinctlab_engine.spec import EntityRef, NativeSensorRef
+from instinctlab_engine.spec import ArticulationRef, EntityRef, NativeSensorRef
 from instinctlab.tasks import registry
 
 from tests.task_specs import task_spec, with_rigid_object_fixture
@@ -70,6 +70,31 @@ def test_generated_terrain_preflight_uses_registered_tile_kinds() -> None:
     assert "pyramid_stairs" not in report["selected_components"][
         "sub_terrain_kinds"
     ]
+
+
+def test_preflight_accounts_for_every_articulation_asset() -> None:
+    task = task_spec("Instinct-Velocity-Flat-G1", "mjlab")
+    task = replace(
+        task,
+        scene=replace(
+            task.scene,
+            articulations=(
+                ArticulationRef(
+                    "training_partner",
+                    replace(task.robot, name="training_partner"),
+                ),
+            ),
+        ),
+    )
+
+    report = require_preflight(task, "mjlab")
+
+    assert report["additional_articulations"][0]["name"] == "training_partner"
+    assert report["additional_articulations"][0]["asset"]["status"] == "ok"
+    assert report["selected_components"]["articulation_asset_ids"] == {
+        "robot": task.robot.asset_id,
+        "training_partner": task.robot.asset_id,
+    }
 
 
 @pytest.mark.parametrize(("task_id", "engine"), REGISTERED_TASK_ENGINES)

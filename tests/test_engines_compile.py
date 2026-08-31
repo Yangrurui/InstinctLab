@@ -41,6 +41,7 @@ from instinctlab_engine.spec.capability import CONTACT_FORCE_VECTOR, DR_RESTITUT
 from instinctlab_engine.spec.robot import BackendAsset
 from instinctlab_engine.spec import (
     ActionTermSpec,
+    ArticulationRef,
     CommandTermSpec,
     DoneTermSpec,
     EntityRef,
@@ -499,6 +500,36 @@ def test_joint_position_refuses_an_entity_without_a_canonical_joint_schema():
 
     with pytest.raises(ValueError, match="no canonical joint schema"):
         joint_position_target(spec, ctx)
+
+
+def test_joint_position_uses_an_additional_articulation_canonical_schema():
+    from tests.test_spec_task import _task
+
+    task = _task()
+    tool_schema = replace(
+        task.robot,
+        name="tool",
+        joint_names=("knee", "hip"),
+        joint_properties=tuple(reversed(task.robot.joint_properties)),
+    )
+    task = replace(
+        task,
+        scene=replace(
+            task.scene,
+            articulations=(ArticulationRef("tool", tool_schema),),
+        ),
+    )
+    ctx = _ctx()
+    ctx.spec = task
+    spec = ActionTermSpec(
+        kind="joint_position",
+        target=EntityRef("tool", joints=".*", preserve_order=True),
+    )
+
+    target = joint_position_target(spec, ctx)
+
+    assert target.entity == "tool"
+    assert target.joints == ("knee", "hip")
 
 
 def test_reward_qualification_refuses_a_collision_with_an_existing_name():
