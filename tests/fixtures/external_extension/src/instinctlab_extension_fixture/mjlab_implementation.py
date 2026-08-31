@@ -1,15 +1,8 @@
-"""Lazy MJLab-side fixture implementations; deliberately SDK-free for the kit."""
+"""SDK-free MJLab sensor and terrain fixture implementations."""
 
 from __future__ import annotations
 
-from .runtime import ImuRuntime, RuntimeAdapter, StatefulActuatorCfgBase
-
-
-class StatefulActuatorCfg(StatefulActuatorCfgBase):
-    pass
-
-
-RUNTIME_ADAPTER = RuntimeAdapter()
+from .runtime import ImuRuntime
 
 
 def build_imu(sensor, context):

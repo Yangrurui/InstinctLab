@@ -1,4 +1,4 @@
-"""Deterministic stateful fixture implementations with no simulator imports."""
+"""SDK-free fixture stand-ins and the external actuator runtime bridge."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class StatefulActuatorCfgBase:
         self.joint_names_expr = tuple(self.joint_names_expr)
         self.joint_names = tuple(self.joint_names)
 
-    def build(self, num_envs: int) -> "StatefulActuator":
+    def build(self, num_envs: int) -> StatefulActuator:
         return StatefulActuator(
             num_envs=num_envs,
             stiffness=self.stiffness,
@@ -57,15 +57,32 @@ class StatefulActuator:
 
 class RuntimeAdapter:
     def matches(self, actuator: object) -> bool:
-        return isinstance(actuator, StatefulActuator)
+        return (
+            getattr(actuator, "instinctlab_model_id", None)
+            or getattr(getattr(actuator, "cfg", None), "instinctlab_model_id", None)
+        ) == "fixture.stateful.v1"
 
-    def stiffness_groups(self, actuator: StatefulActuator):
-        return ((actuator.target_ids, actuator.stiffness),)
+    def stiffness_groups(self, actuator):
+        joint_ids = getattr(actuator, "target_ids", None)
+        if joint_ids is None:
+            joint_ids = actuator.joint_indices
+        stiffness = getattr(actuator, "stiffness", None)
+        if stiffness is None:
+            stiffness = actuator.cfg.stiffness
+        return ((joint_ids, stiffness),)
 
     def effort_limit_for_joint(
-        self, _env, asset, actuator: StatefulActuator, _local_index: int
+        self, env, asset, actuator: StatefulActuator, local_index: int
     ):
         import torch
+
+        if hasattr(asset, "indexing") and hasattr(env, "sim"):
+            joint_id = int(actuator.target_ids[local_index])
+            global_joint_id = int(asset.indexing.joint_ids[joint_id])
+            ranges = env.sim.model.jnt_actfrcrange
+            if ranges.ndim == 3:
+                return ranges[:, global_joint_id].abs().max(dim=-1).values
+            return ranges[global_joint_id].abs().max()
 
         return torch.full(
             (asset.data.joint_vel.shape[0],),
@@ -73,6 +90,9 @@ class RuntimeAdapter:
             device=asset.data.joint_vel.device,
             dtype=asset.data.joint_vel.dtype,
         )
+
+
+RUNTIME_ADAPTER = RuntimeAdapter()
 
 
 class ImuRuntime:
@@ -94,9 +114,7 @@ class ImuRuntime:
             if len(queue) > self.sensor.history_length + self._delay_steps + 1:
                 queue.pop(0)
             output.append(
-                queue[-self._delay_steps - 1]
-                if len(queue) > self._delay_steps
-                else 0.0
+                queue[-self._delay_steps - 1] if len(queue) > self._delay_steps else 0.0
             )
         self.timestamp = float(timestamp)
         return output

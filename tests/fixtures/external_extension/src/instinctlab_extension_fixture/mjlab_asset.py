@@ -76,27 +76,44 @@ def native_config(variant: str) -> NativeConfig:
 
 
 def entity(variant: str, robot, *, actuator_order=None):
-    """Materialize and validate the fixture's explicit native group values."""
+    """Materialize a genuine MJLab entity after backend selection."""
+    import mujoco
     from instinctlab_engine.actuators import native_actuator_factory
     from instinctlab_engine.assets import validate_native_actuator_groups
+    from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
     config = native_config(variant)
     if actuator_order is not None and tuple(actuator_order) != tuple(robot.joint_names):
         raise ValueError("fixture actuator order must equal canonical DFS joint order")
-    actuator_cfg = native_actuator_factory(
-        "mjlab", "fixture.stateful.v1"
-    )(
-        joint_names=("joint",),
+    actuator_cfg = native_actuator_factory("mjlab", "fixture.stateful.v1")(
+        target_names_expr=("joint",),
         effort_limit=3.0,
         stiffness=2.0,
         damping=0.1,
+        armature=0.01,
+        delay_min_lag=1,
+        delay_max_lag=1,
+        delay_update_period=1_000_000,
+        delay_per_env_phase=False,
     )
-    groups = {"joint": actuator_cfg}
+    groups = (actuator_cfg,)
     validate_native_actuator_groups(
         config.asset_id,
-        groups,
+        {"joint": actuator_cfg},
         tuple(robot.joint_names),
-        selector_field="joint_names",
+        selector_field="target_names_expr",
         expected_groups=config.actuator_groups,
     )
-    return {"engine": "mjlab", "robot": robot, "actuators": groups}
+    return EntityCfg(
+        init_state=EntityCfg.InitialStateCfg(
+            pos=robot.default_root_pos,
+            rot=robot.default_root_quat_wxyz,
+            joint_pos={"joint": 0.0},
+            joint_vel={"joint": 0.0},
+        ),
+        spec_fn=lambda: mujoco.MjSpec.from_file(config.mjcf_path),
+        articulation=EntityArticulationInfoCfg(
+            actuators=groups,
+            soft_joint_pos_limit_factor=config.soft_joint_pos_limit_factor,
+        ),
+    )

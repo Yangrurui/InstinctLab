@@ -8,11 +8,11 @@ on a development machine without letting editable InstinctLab distributions
 affect discovery.
 
 This check covers wheel contents, backend discovery, discovery-time SDK import
-isolation, native asset materialization, and the engine/task contract report.
+isolation, native asset conformance, and the engine/task contract report.
 The default matrix also installs, exercises, and uninstalls a repository-external
 fixture across every public asset, actuator, sensor, and terrain extension seam.
-It deliberately does not construct a simulator environment; use the live
-construction checks documented in ``AGENTS.md`` for that GPU-dependent step.
+Pass ``--live-extension`` to additionally construct and step the fixture's real
+native actuator on both GPU backends before uninstalling its wheel.
 """
 
 from __future__ import annotations
@@ -60,7 +60,6 @@ EXPECTED_ENGINES = {
 }
 
 EXTENSION_PROBE = r"""
-import importlib
 import importlib.metadata as metadata
 import json
 import sys
@@ -137,17 +136,21 @@ if report["selected_components"] != {
 }:
     raise AssertionError(report["selected_components"])
 
-native_assets = importlib.import_module(f"instinctlab_engine_{engine_name}.assets")
-if engine_name == "isaacsim":
-    native = native_assets.articulation(robot)
-    selector = native["actuators"]["joint"].joint_names_expr
-else:
-    native = native_assets.entity(robot, actuator_order=robot.joint_names)
-    selector = native["actuators"]["joint"].joint_names
-if tuple(selector) != ("joint",):
-    raise AssertionError(f"native joint selector lost DFS coverage: {selector}")
+conformance = selected.asset_conformance("fixture_bot/v1")
+if conformance["actuator_groups"] != [{
+    "name": "joint",
+    "model_id": "fixture.stateful.v1",
+    "selectors": ["joint"],
+    "joint_names": ["joint"],
+}]:
+    raise AssertionError(f"native joint selector lost DFS coverage: {conformance}")
 
-actuator = native["actuators"]["joint"].build(num_envs=2)
+# The isolated wheel probe deliberately stays SDK-free.  Its deterministic
+# stand-in exercises the public runtime bridge; --live-extension exercises the
+# selected SDK's real actuator class and environment state in a separate gate.
+from instinctlab_extension_fixture.runtime import StatefulActuatorCfgBase
+
+actuator = StatefulActuatorCfgBase().build(num_envs=2)
 if actuator.compute([2.0, -2.0]) != [0.0, 0.0]:
     raise AssertionError("stateful actuator did not apply its one-step delay")
 if actuator.compute([2.0, -2.0]) != [3.0, -3.0]:
@@ -232,6 +235,7 @@ if not expected_groups <= fixture_groups:
 other_engine = "mjlab" if engine_name == "isaacsim" else "isaacsim"
 unexpected_modules = {
     f"instinctlab_extension_fixture.{other_engine}_asset",
+    f"instinctlab_extension_fixture.{other_engine}_actuator",
     f"instinctlab_extension_fixture.{other_engine}_implementation",
 }
 if unexpected_modules & set(sys.modules):
@@ -478,7 +482,13 @@ def _verify_matrix(
     )
 
 
-def _verify_extension(root: Path, wheels: dict[str, Path]) -> None:
+def _verify_extension(
+    root: Path,
+    wheels: dict[str, Path],
+    *,
+    live: bool,
+    device: str,
+) -> None:
     environment = root / "environments" / "extension"
     venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
     python = environment / "bin" / "python"
@@ -501,6 +511,21 @@ def _verify_extension(root: Path, wheels: dict[str, Path]) -> None:
             [str(python), "-I", "-c", EXTENSION_PROBE, engine_name],
             cwd=root,
         )
+    if live:
+        for engine_name in EXPECTED_ENGINES["both"]:
+            command = [
+                str(python),
+                "-I",
+                "-m",
+                "instinctlab_extension_fixture.live_probe",
+                "--engine",
+                engine_name,
+                "--device",
+                device,
+            ]
+            if engine_name == "isaacsim":
+                command.append("--headless")
+            _run(command, cwd=root)
     _run(
         [
             str(python),
@@ -529,6 +554,19 @@ def main() -> int:
         help="Also install, exercise, and uninstall the external extension fixture wheel.",
     )
     parser.add_argument(
+        "--live-extension",
+        action="store_true",
+        help=(
+            "Construct and step the external wheel's native actuator on both "
+            "backends; implies --extension and requires a GPU."
+        ),
+    )
+    parser.add_argument(
+        "--live-device",
+        default="cuda:0",
+        help="GPU device used by --live-extension (default: cuda:0).",
+    )
+    parser.add_argument(
         "--keep-temp",
         action="store_true",
         help="Keep the temporary wheel and environment directory for inspection.",
@@ -536,7 +574,7 @@ def main() -> int:
     args = parser.parse_args()
 
     selected = tuple(args.matrix or MATRICES)
-    verify_extension = args.extension or args.matrix is None
+    verify_extension = args.extension or args.live_extension or args.matrix is None
     if args.keep_temp:
         root = Path(tempfile.mkdtemp(prefix="instinctlab-wheel-matrix-"))
         print(f"Temporary files: {root}", flush=True)
@@ -544,7 +582,12 @@ def main() -> int:
         for matrix in selected:
             _verify_matrix(root, matrix, wheels)
         if verify_extension:
-            _verify_extension(root, wheels)
+            _verify_extension(
+                root,
+                wheels,
+                live=args.live_extension,
+                device=args.live_device,
+            )
     else:
         with tempfile.TemporaryDirectory(prefix="instinctlab-wheel-matrix-") as temp:
             root = Path(temp)
@@ -552,7 +595,12 @@ def main() -> int:
             for matrix in selected:
                 _verify_matrix(root, matrix, wheels)
             if verify_extension:
-                _verify_extension(root, wheels)
+                _verify_extension(
+                    root,
+                    wheels,
+                    live=args.live_extension,
+                    device=args.live_device,
+                )
 
     suffix = " plus external extension" if verify_extension else ""
     print(f"Verified wheel matrices: {', '.join(selected)}{suffix}", flush=True)

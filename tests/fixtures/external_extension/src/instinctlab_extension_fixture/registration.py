@@ -20,11 +20,9 @@ def _register_actuator(registry, engine: str) -> None:
     registry.register(
         model_id="fixture.stateful.v1",
         config_factory=(
-            f"instinctlab_extension_fixture.{engine}_implementation:StatefulActuatorCfg"
+            f"instinctlab_extension_fixture.{engine}_actuator:StatefulActuatorCfg"
         ),
-        runtime_adapter=(
-            f"instinctlab_extension_fixture.{engine}_implementation:RUNTIME_ADAPTER"
-        ),
+        runtime_adapter="instinctlab_extension_fixture.runtime:RUNTIME_ADAPTER",
         capabilities={
             "joint_position_command",
             "applied_effort",

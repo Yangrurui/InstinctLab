@@ -76,18 +76,22 @@ def native_config(variant: str) -> NativeConfig:
 
 
 def articulation(variant: str, robot):
-    """Materialize and validate the fixture's explicit native group values."""
+    """Materialize a genuine Isaac Lab articulation after Kit bootstrap."""
+    import isaaclab.sim as sim_utils
     from instinctlab_engine.actuators import native_actuator_factory
     from instinctlab_engine.assets import validate_native_actuator_groups
+    from isaaclab.assets import ArticulationCfg
 
     config = native_config(variant)
-    actuator_cfg = native_actuator_factory(
-        "isaacsim", "fixture.stateful.v1"
-    )(
-        joint_names_expr=("joint",),
+    actuator_cfg = native_actuator_factory("isaacsim", "fixture.stateful.v1")(
+        joint_names_expr=["joint"],
         effort_limit=3.0,
+        velocity_limit=4.0,
         stiffness=2.0,
         damping=0.1,
+        armature=0.01,
+        min_delay=1,
+        max_delay=1,
     )
     groups = {"joint": actuator_cfg}
     validate_native_actuator_groups(
@@ -97,4 +101,24 @@ def articulation(variant: str, robot):
         selector_field="joint_names_expr",
         expected_groups=config.actuator_groups,
     )
-    return {"engine": "isaacsim", "robot": robot, "actuators": groups}
+    return ArticulationCfg(
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path=config.urdf_path,
+            fix_base=False,
+            activate_contact_sensors=False,
+            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
+                    stiffness=0.0,
+                    damping=0.0,
+                )
+            ),
+        ),
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=robot.default_root_pos,
+            rot=robot.default_root_quat_wxyz,
+            joint_pos={"joint": 0.0},
+            joint_vel={"joint": 0.0},
+        ),
+        soft_joint_pos_limit_factor=config.soft_joint_pos_limit_factor,
+        actuators=groups,
+    )
