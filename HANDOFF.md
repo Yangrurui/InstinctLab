@@ -405,24 +405,9 @@ scripts/probe_perceptive_reset.py
 logs/diagnostics/perceptive_collision_exclusions_4096_20260830.json
 ```
 
-## Open work, in order
+## Open work
 
-1. **Run a fresh Perceptive collision-filter A/B** with the four narrow pair
-   exclusions. Do not use global self-collision disablement as the production
-   configuration. Audit the retained GPU 6 final log before considering its
-   checkpoint.
-2. **Recover or train a post-fix Perceptive teacher**, then run long VAE
-   reproductions on both engines. Install authoritative OMOMO motions and the
-   six meshes before strict HOI preflight/construction/reset/contact/rollout.
-3. **Audit BeyondMimic multi-seed and 4,096-environment outputs** against final
-   checkpoints, finite optimization, capacity warnings, normalized reward
-   terms, episode length, termination mix, action noise, and throughput.
-4. **Recover Parkour motion segment boundaries.** The released NPZ concatenates
-   clips without boundary metadata; 55 of 18,981 transitions exceed conservative
-   discontinuity thresholds and up to 2.81% of ten-frame AMP windows may cross
-   a jump.
-5. **Validate real multi-node distributed training.**
-6. **Complete platform lifecycle work before a 1.0 claim:** named clock domains,
+1. **Complete platform lifecycle work before a 1.0 claim:** named clock domains,
    component timing/reset semantics, episode trace and replay, same-engine state
    snapshots, canonical additional-articulation schemas, stateful controller
    contracts, and construction/throughput/memory/reset benchmarks. Define a
