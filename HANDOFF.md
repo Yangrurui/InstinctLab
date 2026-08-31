@@ -15,26 +15,14 @@ chronological audit section.
 
 - Repository: `/root/InstinctLab`
 - Branch: `feat/unified-engine`
-- Latest verified production-code commit: `a750396`
+- Latest verified production-code commit: `bafd83d`
 - Local `origin`: `git@github.com:Yangrurui/InstinctLab.git`
 - Export repository: `git@github.com:Yangrurui/XLab.git`; `main` was synced
   through `348a73d`. Later local commits still need an explicit push.
 
-At this handoff cleanup, the worktree contains an uncommitted candidate repair
-for the actuator-bridge findings in:
-
-```text
-source/instinctlab/instinctlab/tasks/parkour/mdp/rewards.py
-source/instinctlab_engine/src/instinctlab_engine/bridge/robot.py
-source/instinctlab_engine_isaacsim/src/instinctlab_engine_isaacsim/terms.py
-tests/test_parkour_engine_terms.py
-```
-
-It also contains the pre-existing deletion of
-`source/instinctlab/instinctlab/tasks/parkour/tools/convert_urdf.py`. These are
-user changes. Do not discard, overwrite, or include them in unrelated commits.
-The candidate actuator repair has not been accepted by this documentation-only
-cleanup.
+The worktree retains the pre-existing user deletion of
+`source/instinctlab/instinctlab/tasks/parkour/tools/convert_urdf.py`. Do not
+discard, overwrite, or include it in an unrelated commit.
 
 ## Current architecture
 
@@ -99,7 +87,7 @@ third-party simulation surface is not yet a stable 1.0 protocol.
 | Backend | Independent lazy plugins; isolated wheel matrices pass | Publication/release process |
 | Task | Immutable application-owned registrations | External task catalogs are optional, not a current goal |
 | Robot asset | Versioned native API and conformance command | Broader object/articulation catalogs |
-| Actuator | Lazy native model registry, explicit groups, capability adapters, live external fixture | Two committed bridge findings remain pending candidate-fix audit |
+| Actuator | Lazy native model registry, explicit groups, capability adapters, one-time device-native reward bindings, live external fixture | Broader controller clock/lifecycle semantics |
 | Terrain | Whole-terrain and tile plugins | Region semantics; dynamic/deformable terrain only on demand |
 | Sensor | Built-ins plus lazy native builders with timing/reset capabilities | New sensor families need fixed-state and temporal evidence |
 | Rigid object | Mesh-backed construction on both engines | Full HOI resources and behavioral evidence |
@@ -110,7 +98,8 @@ third-party simulation surface is not yet a stable 1.0 protocol.
 
 ### Actuator protocol acceptance
 
-The committed state through `a750396` correctly provides:
+The actuator protocol is re-accepted through `bafd83d`. The committed boundary
+provides:
 
 - selected-joint-aware mixed actuator capability resolution;
 - one symbol namespace for robot, terrain, objects, sensors, and backend fields;
@@ -118,38 +107,36 @@ The committed state through `a750396` correctly provides:
 - native group-to-model identity and strict adapter return-shape checks;
 - a repository-external fixture that constructs real Isaac
   `DelayedPDActuator` and MJLab `BuiltinPdActuator` subclasses and exercises
-  action, gain randomization, delay, full reset, and partial reset.
+  action, gain randomization, delay, full reset, and partial reset;
+- a class-based motor-power term that resolves actuator ownership, adapter
+  selection, device-native ids, and stiffness tensors once during manager-term
+  initialization; its reward call performs only device-side tensor work;
+- strict joint-id validation that accepts genuine integral values and integer
+  tensors, rejects floats, strings, booleans, and non-integral tensor dtypes,
+  and fails closed for duplicate, foreign, missing, or overlapping groups;
+- the original public Python-id `joint_stiffness_groups()` diagnostic contract
+  plus a separate device-native initialization interface, so external probes do
+  not inherit the hot-path representation.
 
-The last accepted audit still has two open findings in the committed bridge:
-
-1. **High — per-step CUDA synchronization.** Static actuator ids are converted
-   with tensor `.tolist()` inside the motor-power reward path. The stock G1
-   grouping can trigger up to 10 Isaac or 14 MJLab device-to-host conversions
-   per evaluation. Resolve and validate static bindings at manager-term
-   initialization and keep ids device-native during reward evaluation.
-2. **Medium — non-integral ids are coerced.** `int()` accepts values such as
-   `0.5`, booleans, and numeric strings. Accept only genuine integral values or
-   integer-dtype tensors and fail closed for every other representation.
-
-The dirty candidate repair moves motor-power evaluation to a class-term
-lifecycle, tightens id types, and adds synchronization/id tests. Re-accept it
-only after reviewing both engine manager wrappers and proving:
-
-1. initialization occurs once per environment construction on both engines;
-2. no tensor-to-host id conversion occurs after initialization;
-3. float, string, boolean, float-tensor, duplicate, foreign, missing, and
-   overlapping group ids all fail closed;
-4. selected/unselected mixed groups and stiffness broadcasting preserve the
-   previous numerical result;
-5. full tests, selected-SDK CUDA sync-debug, Isaac Parkour live construction,
-   and the dual-engine external live wheel pass.
+Both manager lifecycles are covered: MJLab instantiates and resets the portable
+class term directly; Isaac wraps it in `ManagerTermBase` and falls back to the
+native no-op reset when the portable term owns no reset state. Fixed-state tests
+preserve selected/unselected mixed-group results, scalar and per-environment
+stiffness broadcasting, and the external fixture's power values. A selected-SDK
+CUDA sync-debug test rejects any synchronization after initialization. This
+closes the prior high-severity synchronization and medium-severity id-coercion
+findings; broader clock, replay, and multi-entity lifecycle work still prevents
+a platform-wide stable-1.0 claim.
 
 ## Accepted verification snapshot
 
 The latest committed platform evidence is:
 
 ```text
-1392 passed, 3 skipped, 29 deselected, 1 warning (full tests/ suite)
+1410 passed, 3 skipped, 30 deselected, 1 warning (full tests/ suite)
+Parkour contract subset: 1 passed, 24 deselected
+selected-SDK MJLab CUDA sync-debug: motor-power evaluation passed with
+  synchronization treated as an error after class-term initialization
 all registered task/engine pairs passed preflight with absent HOI resources
   supplied by local fixtures
 Isaac Parkour: 16 CUDA environments constructed, reset, and stepped; terrain,
@@ -169,8 +156,16 @@ Isaac collision exclusions passed cloned-target validation and a
 These results establish declaration, compilation, construction, and targeted
 runtime behavior. They do not establish long-run convergence or native-physics
 equality. Repository-wide Ruff is not currently a green gate; the last full
-run reported 709 existing/current errors, while the previously reviewed scope
-reported four import-order errors.
+run reported 709 existing/current errors. Ruff, compileall, and diff checks pass
+for the actuator remediation files.
+
+One MJLab Parkour live recheck constructed all 16 environments and initialized
+all 26 rewards, including the class-based energy term, but later failed the
+existing first-policy-depth assertion because the newest frame was all zero.
+The failure occurred before the rollout reward check and does not reproduce an
+actuator-path error, but it is an unresolved P1 live-test failure. Re-accept the
+MJLab Parkour live path only after reproducing and fixing or explaining the
+depth priming result, then rerunning the complete native test.
 
 Isaac's optional Iray loader reports missing `libGLU.so.1` on this server. The
 headless physics probes continue successfully, so this is not a current startup
@@ -387,11 +382,11 @@ logs/diagnostics/perceptive_collision_exclusions_4096_20260830.json
 
 ## Open work, in order
 
-1. **Audit the dirty actuator candidate repair.** Verify class-term lifecycle
-   and reset behavior on both manager implementations, strict id validation,
-   no reward-path CUDA synchronization, numerical equivalence, full tests,
-   Isaac Parkour live construction, and the external live wheel. Do not declare
-   the actuator protocol stable before these pass.
+1. **Resolve the MJLab Parkour first-depth live failure.** A 16-environment
+   construction initialized every manager, then the newest policy depth frame
+   was all zero after reset. Reproduce it independently, identify whether the
+   camera sample or history priming is responsible, and rerun the full live
+   test before restoring its accepted status.
 2. **Run a fresh Perceptive collision-filter A/B** with the four narrow pair
    exclusions. Do not use global self-collision disablement as the production
    configuration. Audit the retained GPU 6 final log before considering its
