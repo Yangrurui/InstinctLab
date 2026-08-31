@@ -1,9 +1,10 @@
-"""Live conformance gate for the repository-external actuator wheel.
+"""Live conformance gate for repository-external components and stock sensors.
 
 The module is shipped inside the fixture wheel so the test cannot accidentally
 import its implementation from the InstinctLab checkout.  It starts the chosen
-backend before importing torch, constructs a two-environment task, steps the
-native joint-position action, and probes the SDK-owned gain and delay state.
+backend before importing torch, constructs a two-environment task, adds stock
+contact and terrain-height sensors, consumes them from a reward and observation,
+steps the native joint-position action, and probes SDK-owned state.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from importlib import metadata
 from pathlib import Path
 
@@ -58,15 +60,22 @@ def _parse() -> tuple[argparse.Namespace, object]:
 
 
 def _task(selected, engine_name: str):
-    from instinctlab.tasks.parkour.mdp.rewards import motors_power_square
+    from instinctlab.tasks.parkour.mdp.rewards import (
+        motors_power_square,
+        undesired_contacts_by_force,
+    )
+    from instinctlab.tasks.shadowing.mdp.observations import height_scan
     from instinctlab_engine.spec import (
         ActionTermSpec,
         AgentSpec,
+        ContactSensorRef,
         EntityRef,
         EventTermSpec,
         MdpSpec,
         ObsGroupSpec,
         ObsTermSpec,
+        RayCasterRef,
+        RayPatternRef,
         RewardTermSpec,
         SceneSpec,
         SimSpec,
@@ -79,10 +88,37 @@ def _task(selected, engine_name: str):
         joints=robot.joint_names,
         preserve_order=True,
     )
+    contacts = ContactSensorRef(
+        name="body_contacts",
+        elements=("base", "link"),
+        track_air_time=True,
+        history_length=2,
+        preserve_order=True,
+    )
+    height_scanner = RayCasterRef(
+        name="height_scanner",
+        mode="terrain_height",
+        attach="base",
+        offset=(0.0, 0.0, 1.0),
+        pattern=RayPatternRef(
+            kind="grid",
+            resolution=0.2,
+            size=(0.2, 0.2),
+        ),
+        hit="terrain",
+        ray_alignment="yaw",
+        miss="infinity",
+        max_distance=1.0e6,
+        engine_max_distances={"isaacsim": 1.0e6, "mjlab": 5.0},
+        update_period=0.01,
+    )
     return TaskSpec(
         task_id="Fixture-External-Actuator-Live",
         robot=robot,
-        scene=SceneSpec(),
+        scene=SceneSpec(
+            contact_sensors=(contacts,),
+            ray_casters=(height_scanner,),
+        ),
         sim=SimSpec(
             physics_dt=0.01,
             decimation=1,
@@ -91,7 +127,17 @@ def _task(selected, engine_name: str):
         mdp=MdpSpec(
             observations={
                 "policy": ObsGroupSpec(
-                    terms={"joint_position": ObsTermSpec(func=joint_position)}
+                    terms={
+                        "joint_position": ObsTermSpec(func=joint_position),
+                        "height_scan": ObsTermSpec(
+                            func=height_scan,
+                            params={
+                                "sensor": height_scanner,
+                                "offset": 0.0,
+                                "miss_value": "max_distance",
+                            },
+                        ),
+                    }
                 )
             },
             actions={
@@ -122,7 +168,12 @@ def _task(selected, engine_name: str):
                             "asset_cfg": joints,
                             "normalize_by_stiffness": True,
                         },
-                    )
+                    ),
+                    "contacts": RewardTermSpec(
+                        func=undesired_contacts_by_force,
+                        weight=-0.1,
+                        params={"sensor": contacts, "threshold": 1.0},
+                    ),
                 }
             },
         ),
@@ -185,7 +236,12 @@ def _assert_isaac_native_state(env, actuator, torch, device: str) -> None:
     zeros = torch.zeros((2, 1), device=device)
     actuator.reset(slice(None))
     first = actuator.compute(action([0.5, 0.7]), zeros, zeros)
-    torch.testing.assert_close(first.joint_efforts, zeros)
+    # Isaac Lab fills a newly reset delay buffer with its first sample.  A
+    # one-step lag therefore returns that sample until two samples exist.
+    torch.testing.assert_close(
+        first.joint_efforts,
+        torch.tensor([[1.5], [2.1]], device=device),
+    )
     actuator.reset(torch.tensor([1], device=device))
     partial = actuator.compute(action([0.0, 0.0]), zeros, zeros)
     torch.testing.assert_close(
@@ -286,7 +342,38 @@ def _run(args, selected) -> dict[str, object]:
     compiled.env_cfg.seed = 12345
     env = compiled.make_env()
     try:
-        env.reset()
+        observations, _extras = env.reset()
+        from instinctlab_engine.bridge.sensors import (
+            contact_force_history,
+            ray_hits_w,
+        )
+
+        expected_sensor_names = {"body_contacts", "height_scanner"}
+        if not expected_sensor_names <= set(env.scene.sensors):
+            raise AssertionError(
+                f"stock sensors were not added under their declared names: "
+                f"{tuple(env.scene.sensors)!r}"
+            )
+        contacts = env.scene.sensors["body_contacts"]
+        height_scanner = env.scene.sensors["height_scanner"]
+        contact_ref = task.scene.contact_sensors[0]
+        contact_history = contact_force_history(contacts, contact_ref)
+        if contact_history.shape[0] != 2 or contact_history.shape[2:] != (2, 3):
+            raise AssertionError(
+                f"portable contact history has shape {tuple(contact_history.shape)}"
+            )
+        height_hits = ray_hits_w(height_scanner)
+        if height_hits.shape[0] != 2 or height_hits.shape[-1] != 3:
+            raise AssertionError(
+                f"portable height scanner has shape {tuple(height_hits.shape)}"
+            )
+        policy_observation = observations["policy"]
+        if policy_observation.shape[0] != 2 or not torch.isfinite(
+            policy_observation
+        ).all():
+            raise AssertionError(
+                "the newly added height observation is not finite for every environment"
+            )
         asset = env.scene["robot"]
         actuator = _actuator(asset, engine_name)
         if engine_name == "isaacsim":
@@ -313,6 +400,17 @@ def _run(args, selected) -> dict[str, object]:
             "engine": engine_name,
             "actuator_class": f"{type(actuator).__module__}.{type(actuator).__name__}",
             "action_class": f"{type(action_term).__module__}.{type(action_term).__name__}",
+            "sensor_classes": {
+                "body_contacts": (
+                    f"{type(contacts).__module__}.{type(contacts).__name__}"
+                ),
+                "height_scanner": (
+                    f"{type(height_scanner).__module__}.{type(height_scanner).__name__}"
+                ),
+            },
+            "policy_observation_shape": list(policy_observation.shape),
+            "contact_history_shape": list(contact_history.shape),
+            "height_hits_shape": list(height_hits.shape),
             "gain_randomization": "native-startup-event",
             "stiffness_reward": power_reward,
             "full_reset": "passed",
@@ -328,10 +426,12 @@ def main() -> int:
     app = selected.bootstrap(args)
     try:
         result = _run(args, selected)
-        print(json.dumps(result, sort_keys=True), flush=True)
-    finally:
-        if app is not None:
-            app.close()
+    except BaseException:
+        traceback.print_exc()
+        return selected.finalize_process(1)
+    print(json.dumps(result, sort_keys=True), flush=True)
+    if app is not None:
+        app.close()
     return selected.finalize_process(0)
 
 
