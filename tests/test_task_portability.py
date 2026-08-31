@@ -17,10 +17,9 @@ OVERLAY_FIELDS = {
     "engine_overrides",
     "engine_extras",
 }
-# Flat, Rough, and locked-arm Flat intentionally own complete, independent
-# concrete declarations. Their equivalent native friction forms therefore count
-# once per concrete task.
-REVIEWED_OVERLAY_BUDGET = 42
+# Flat and Rough intentionally own complete, independent concrete declarations.
+# Their equivalent native friction forms therefore count once per concrete task.
+REVIEWED_OVERLAY_BUDGET = 41
 
 
 def _source_overlay_uses() -> list[tuple[Path, int, str]]:
