@@ -300,6 +300,7 @@ def validate_task(spec: TaskSpec) -> None:
     _validate_scene_bindings(spec)
     _validate_mdp_joint_axes(spec)
     _validate_mdp_references(spec)
+    spec.lifecycle_contract()
 
 
 __all__ = ["validate_task"]

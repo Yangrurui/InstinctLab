@@ -28,9 +28,10 @@ from typing import Any
 
 from instinctlab_engine.spec.robot import RobotSpec
 
+from .lifecycle import LifecycleSpec
 from .mdp import MdpSpec
-from .rigid_object import RigidObjectRef
 from .relations import CollisionExclusionRef
+from .rigid_object import RigidObjectRef
 from .sensor import (
     ContactSensorRef,
     MotionReferenceRef,
@@ -42,6 +43,7 @@ from .sensor import (
 
 __all__ = [
     "AgentSpec",
+    "LifecycleSpec",
     "SceneSpec",
     "SimSpec",
     "SubTerrainSpec",
@@ -395,6 +397,7 @@ class TaskSpec:
     agent: AgentSpec
     engines: tuple[str, ...]
     engine_extras: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    lifecycle: LifecycleSpec = field(default_factory=LifecycleSpec)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "engines", tuple(self.engines))
@@ -418,6 +421,12 @@ class TaskSpec:
     def extras_for(self, engine: str) -> dict[str, Any]:
         """This engine's escape-hatch settings, empty when the task uses none."""
         return dict(self.engine_extras.get(engine, {}))
+
+    def lifecycle_contract(self):
+        """Return concrete named clocks and component lifecycle semantics."""
+        from .lifecycle import resolve_lifecycle_contract
+
+        return resolve_lifecycle_contract(self)
 
     def validate_for_engine(self, engine: str) -> None:
         """Validate the declaration and require it to opt in to ``engine``."""
