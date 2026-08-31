@@ -4,7 +4,10 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import torch
-from instinctlab_engine_isaacsim.lifecycle import IsaacSimSnapshotProvider
+from instinctlab_engine_isaacsim.lifecycle import (
+    IsaacSimSnapshotProvider,
+    _move_tensors,
+)
 from instinctlab_engine_mjlab.lifecycle import (
     _DYNAMIC_DATA_FIELDS,
     MjlabSnapshotProvider,
@@ -45,6 +48,7 @@ class _Simulation:
 
 def _environment(scene, sim):
     return SimpleNamespace(
+        device="cpu",
         scene=scene,
         sim=sim,
         episode_length_buf=torch.tensor([3, 4]),
@@ -73,6 +77,19 @@ def test_isaac_provider_restores_scene_buffers_and_native_forward() -> None:
     assert env.common_step_counter == 7
     assert scene.write_count == 1
     assert env.sim.forward_count == 1
+
+
+def test_isaac_loaded_scene_tree_moves_to_environment_device() -> None:
+    state = {
+        "position": torch.ones(2),
+        "nested": [torch.zeros(1), (torch.full((1,), 2.0),)],
+    }
+
+    moved = _move_tensors(state, "meta")
+
+    assert moved["position"].device.type == "meta"
+    assert moved["nested"][0].device.type == "meta"
+    assert moved["nested"][1][0].device.type == "meta"
 
 
 def test_mjlab_provider_restores_integration_data_buffers_and_sensing() -> None:

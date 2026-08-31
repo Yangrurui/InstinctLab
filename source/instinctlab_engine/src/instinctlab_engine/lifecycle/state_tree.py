@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import is_dataclass
 from typing import Any
 
 from .snapshot import SnapshotError
@@ -41,6 +42,7 @@ _SKIP_ATTRIBUTES = frozenset(
     }
 )
 _SCALAR_STATE_WORDS = (
+    "active",
     "counter",
     "count",
     "index",
@@ -51,6 +53,7 @@ _SCALAR_STATE_WORDS = (
     "tick",
     "time",
     "timestamp",
+    "updated",
 )
 
 
@@ -137,8 +140,11 @@ def _capture(
             ],
         }
     attributes: dict[str, Any] = {}
+    dataclass_value = is_dataclass(value) and not isinstance(value, type)
     for name, item in vars(value).items() if hasattr(value, "__dict__") else ():
         if name in _SKIP_ATTRIBUTES:
+            continue
+        if dataclass_value and isinstance(item, (bool, int, float)):
             continue
         if _is_state_value(item, name):
             attributes[name] = _capture(

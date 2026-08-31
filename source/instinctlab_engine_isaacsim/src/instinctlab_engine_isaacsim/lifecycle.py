@@ -38,7 +38,7 @@ class IsaacSimSnapshotProvider:
     """Capture native PhysX scene, manager, sensor, actuator, and RNG state."""
 
     provider_id = "isaacsim/manager-based-env"
-    provider_version = 1
+    provider_version = 2
 
     def __init__(self, env: Any) -> None:
         self.env = env
@@ -68,7 +68,8 @@ class IsaacSimSnapshotProvider:
         validate_state_tree(roots, components)
         _validate_rng(state["rng"])
 
-        self.env.scene.reset_to(state["scene"], is_relative=False)
+        scene_state = _move_tensors(state["scene"], self.env.device)
+        self.env.scene.reset_to(scene_state, is_relative=False)
         self._restore_environment(environment)
         restore_state_tree(roots, components)
         self.env.scene.write_data_to_sim()
@@ -124,6 +125,7 @@ class IsaacSimSnapshotProvider:
             for articulation_name, articulation in self.env.scene.articulations.items()
             for actuator_name, actuator in articulation.actuators.items()
         }
+        roots["articulations"] = self.env.scene.articulations
         return roots
 
 
@@ -157,6 +159,19 @@ def _validate_rng(state: Any) -> None:
     cuda_states = list(state["torch_cuda"])
     if cuda_states and len(cuda_states) != torch.cuda.device_count():
         raise SnapshotError("Isaac CUDA RNG device count changed.")
+
+
+def _move_tensors(value: Any, device: Any) -> Any:
+    """Move a loaded native scene tree back to the environment device."""
+    if isinstance(value, torch.Tensor):
+        return value.to(device)
+    if isinstance(value, Mapping):
+        return {key: _move_tensors(item, device) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_move_tensors(item, device) for item in value)
+    if isinstance(value, list):
+        return [_move_tensors(item, device) for item in value]
+    return value
 
 
 __all__ = ["IsaacSimSnapshotProvider"]
