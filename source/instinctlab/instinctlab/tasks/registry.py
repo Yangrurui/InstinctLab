@@ -46,6 +46,10 @@ _REGISTRATIONS = {
         factory_path="instinctlab.tasks.locomotion.config.g1:flat_g1",
         asset_id="unitree_g1/popsicle_torsobase_v1",
     ),
+    "Instinct-Velocity-Flat-G1-15DoF": TaskRegistration(
+        factory_path="instinctlab.tasks.locomotion.config.g1_15dof:flat_g1_15dof",
+        asset_id="unitree_g1/popsicle_torsobase_locked_arms_v1",
+    ),
     "Instinct-Velocity-Rough-G1": TaskRegistration(
         factory_path="instinctlab.tasks.locomotion.config.g1:rough_g1",
         asset_id="unitree_g1/popsicle_torsobase_v1",

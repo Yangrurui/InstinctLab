@@ -1,0 +1,127 @@
+name: Release candidate operator gates
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instinctlab-release-candidate-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  operator-acceptance:
+    runs-on: [self-hosted, linux, x64, gpu, docker]
+    timeout-minutes: 240
+    environment: release-candidate
+    env:
+      INSTINCTLAB_DATA_ROOT: ${{ vars.INSTINCTLAB_DATA_ROOT }}
+      INSTINCTLAB_RUNTIME_IMAGE: ${{ vars.INSTINCTLAB_RUNTIME_IMAGE }}
+      INSTINCTLAB_RELEASE_DEVICE: ${{ vars.INSTINCTLAB_RELEASE_DEVICE }}
+      INSTINCTLAB_RELEASE_NUM_ENVS: ${{ vars.INSTINCTLAB_RELEASE_NUM_ENVS }}
+      INSTINCTLAB_ISAACSIM_LIFECYCLE_THRESHOLDS: ${{ vars.INSTINCTLAB_ISAACSIM_LIFECYCLE_THRESHOLDS }}
+      INSTINCTLAB_MJLAB_LIFECYCLE_THRESHOLDS: ${{ vars.INSTINCTLAB_MJLAB_LIFECYCLE_THRESHOLDS }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+          persist-credentials: false
+      - name: Validate release ref and runner configuration
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ] || [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release acceptance must run on a semantic vX.Y.Z tag." >&2
+            exit 1
+          fi
+          for variable in \
+            INSTINCTLAB_DATA_ROOT \
+            INSTINCTLAB_RUNTIME_IMAGE \
+            INSTINCTLAB_RELEASE_DEVICE \
+            INSTINCTLAB_RELEASE_NUM_ENVS \
+            INSTINCTLAB_ISAACSIM_LIFECYCLE_THRESHOLDS \
+            INSTINCTLAB_MJLAB_LIFECYCLE_THRESHOLDS; do
+            if [ -z "${!variable:-}" ]; then
+              echo "Release environment variable $variable is required." >&2
+              exit 1
+            fi
+          done
+          [[ "$INSTINCTLAB_RUNTIME_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]
+          test -d "$INSTINCTLAB_DATA_ROOT"
+          test -f "$INSTINCTLAB_ISAACSIM_LIFECYCLE_THRESHOLDS"
+          test -f "$INSTINCTLAB_MJLAB_LIFECYCLE_THRESHOLDS"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          if pgrep -af '[s]cripts/train.py'; then
+            echo "A training process is active on the release runner." >&2
+            exit 1
+          fi
+          nvidia-smi
+          docker version
+      - name: Validate metadata, handoff, and clean release artifacts
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/check_release.py --expected-version "$version"
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/check_release_handoff.py
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/build_release.py --expected-version "$version"
+      - name: Verify dependency sources and full application suite
+        run: |
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/install.py \
+            --provenance-output "$RUNNER_TEMP/install-provenance.json"
+          PYTHONPATH=source/instinctlab \
+            /root/miniconda3/envs/env_isaaclab/bin/python -m pytest -q tests
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/check_mjlab.py
+          PYTHONPATH=source/instinctlab \
+            /root/miniconda3/envs/env_isaaclab/bin/python -m pytest -q \
+            tests/test_parkour_g1_declaration.py -k contract
+      - name: Verify isolated wheels and both native extension paths
+        run: |
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/verify_wheel_matrix.py \
+            --live-extension --live-device "$INSTINCTLAB_RELEASE_DEVICE"
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/asset_conformance.py \
+            --engine isaacsim --asset unitree_g1/popsicle_torsobase_v1
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/asset_conformance.py \
+            --engine mjlab --asset unitree_g1/popsicle_torsobase_v1
+      - name: Verify datasets and lifecycle thresholds
+        run: |
+          PYTHONPATH=source/instinctlab_engine/src \
+            /root/miniconda3/envs/env_isaaclab/bin/python scripts/verify_datasets.py \
+            --receipt "$RUNNER_TEMP/dataset-verification.json"
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/benchmark_lifecycle.py \
+            --engine mjlab \
+            --device "$INSTINCTLAB_RELEASE_DEVICE" \
+            --num_envs "$INSTINCTLAB_RELEASE_NUM_ENVS" \
+            --thresholds "$INSTINCTLAB_MJLAB_LIFECYCLE_THRESHOLDS" \
+            --output "$RUNNER_TEMP/lifecycle-mjlab.json"
+          /root/miniconda3/envs/env_isaaclab/bin/python scripts/benchmark_lifecycle.py \
+            --engine isaacsim \
+            --device "$INSTINCTLAB_RELEASE_DEVICE" \
+            --num_envs "$INSTINCTLAB_RELEASE_NUM_ENVS" \
+            --thresholds "$INSTINCTLAB_ISAACSIM_LIFECYCLE_THRESHOLDS" \
+            --trace_observation_atol 1.5 \
+            --trace_reward_atol 0.02 \
+            --output "$RUNNER_TEMP/lifecycle-isaacsim.json" \
+            --headless
+      - name: Build and verify the operator image
+        run: |
+          image="instinctlab-release-candidate:${GITHUB_SHA}"
+          docker build \
+            --build-arg INSTINCTLAB_RUNTIME_IMAGE="$INSTINCTLAB_RUNTIME_IMAGE" \
+            --build-arg INSTINCTLAB_SOURCE_COMMIT="$GITHUB_SHA" \
+            --tag "$image" \
+            .
+          docker run --rm --entrypoint python "$image" -c \
+            'import instinctlab; import instinctlab_engine; print("operator imports ok")'
+      - name: Archive release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: |
+            dist/release/
+            ${{ runner.temp }}/install-provenance.json
+            ${{ runner.temp }}/dataset-verification.json
+            ${{ runner.temp }}/lifecycle-mjlab.json
+            ${{ runner.temp }}/lifecycle-isaacsim.json
+          if-no-files-found: warn

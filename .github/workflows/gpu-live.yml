@@ -3,8 +3,8 @@ name: Scheduled and release GPU live checks
 on:
   schedule:
     - cron: "17 3 * * 1"
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       device:
@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
       - name: Inspect shared runner state
         run: |
           pgrep -af scripts/train.py || true

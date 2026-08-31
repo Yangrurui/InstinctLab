@@ -40,6 +40,9 @@ def test_dataset_uri_resolves_under_an_isolated_data_root(
         "dataset:///missing-collection",
         "dataset://collection/../escape",
         "dataset://collection/%2e%2e/escape",
+        "dataset://..%2fescape/file",
+        "dataset://%2ftmp/escape",
+        "dataset://collection%5cescape/file",
         "dataset://user:password@collection/file",
         "dataset://collection/file?variant=1",
     ),
@@ -47,6 +50,21 @@ def test_dataset_uri_resolves_under_an_isolated_data_root(
 def test_dataset_uri_rejects_ambiguous_or_traversing_paths(uri: str) -> None:
     with pytest.raises(ValueError):
         resolve_data_path(uri)
+
+
+def test_dataset_uri_rejects_a_symlink_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "mounted-data"
+    collection = root / "collection"
+    outside = tmp_path / "outside"
+    collection.mkdir(parents=True)
+    outside.mkdir()
+    (collection / "linked").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("INSTINCTLAB_DATA_ROOT", str(root))
+
+    with pytest.raises(ValueError, match="outside"):
+        resolve_data_path("dataset://collection/linked/clip.npz")
 
 
 def test_manifest_verifier_runs_without_home_directory_links(tmp_path: Path) -> None:
@@ -76,7 +94,7 @@ def test_manifest_verifier_runs_without_home_directory_links(tmp_path: Path) -> 
     environment = {
         **os.environ,
         "INSTINCTLAB_DATA_ROOT": str(data_root),
-        "PYTHONPATH": str(REPO / "source/instinctlab_engine"),
+        "PYTHONPATH": str(REPO / "source/instinctlab_engine/src"),
     }
 
     subprocess.run(
@@ -100,6 +118,57 @@ def test_manifest_verifier_runs_without_home_directory_links(tmp_path: Path) -> 
     assert payload["datasets"][0]["declared"] == "dataset://fixture/v1"
     assert payload["datasets"][0]["resolved"] == str(dataset)
     assert payload["datasets"][0]["resources"][0]["sha256"] == checksum
+
+
+def test_manifest_verifier_rejects_a_resource_outside_the_dataset(
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "data"
+    dataset = data_root / "fixture"
+    dataset.mkdir(parents=True)
+    outside = data_root / "outside.bin"
+    outside.write_bytes(b"outside")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "instinctlab_dataset_manifest_v1",
+                "datasets": {
+                    "fixture": {
+                        "uri": "dataset://fixture",
+                        "required": True,
+                        "resources": {
+                            "../outside.bin": hashlib.sha256(
+                                outside.read_bytes()
+                            ).hexdigest()
+                        },
+                    }
+                },
+            }
+        )
+    )
+    environment = {
+        **os.environ,
+        "INSTINCTLAB_DATA_ROOT": str(data_root),
+        "PYTHONPATH": str(REPO / "source/instinctlab_engine/src"),
+    }
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts/verify_datasets.py"),
+            "--manifest",
+            str(manifest),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "escapes dataset root" in completed.stderr
 
 
 def test_active_task_resources_use_manifested_dataset_uris() -> None:

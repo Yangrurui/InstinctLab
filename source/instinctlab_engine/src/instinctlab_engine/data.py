@@ -29,7 +29,13 @@ def _dataset_relative_path(value: str) -> Path:
         )
     if parsed.query or parsed.fragment or parsed.username or parsed.password or parsed.port:
         raise ValueError(f"Dataset URI contains unsupported URL fields: {value!r}.")
-    components = (unquote(parsed.netloc), *PurePosixPath(unquote(parsed.path)).parts)
+    authority = unquote(parsed.netloc)
+    decoded_path = unquote(parsed.path)
+    if any(separator in authority for separator in ("/", "\\")) or "\\" in decoded_path:
+        raise ValueError(
+            f"Dataset URI contains an encoded or non-portable path separator: {value!r}."
+        )
+    components = (authority, *PurePosixPath(decoded_path).parts)
     relative_parts = tuple(part for part in components if part not in {"", "/"})
     if not relative_parts or any(part in {".", ".."} for part in relative_parts):
         raise ValueError(f"Dataset URI must not contain traversal components: {value!r}.")
@@ -51,7 +57,15 @@ def resolve_data_path(
     """
     declared = os.fspath(value)
     if is_dataset_uri(declared):
-        return (dataset_root() / _dataset_relative_path(declared)).resolve()
+        root = dataset_root()
+        resolved = (root / _dataset_relative_path(declared)).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Dataset URI resolves outside {DATA_ROOT_ENV}: {declared!r}."
+            ) from exc
+        return resolved
 
     path = Path(declared).expanduser()
     if relative_to is not None and not path.is_absolute():

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +34,15 @@ def test_all_release_distributions_and_plugin_apis_are_coordinated() -> None:
     )
 
 
+def test_release_metadata_rejects_an_unlocked_application_dependency() -> None:
+    release = _script("check_release.py")
+    metadata = release.collect_release_metadata()
+    metadata["container_runtime"]["distributions"].pop("psutil")
+
+    with pytest.raises(RuntimeError, match="required distribution 'psutil'"):
+        release.validate_release_metadata(metadata)
+
+
 def test_python_tooling_targets_the_supported_python_311() -> None:
     with (ROOT / "pyproject.toml").open("rb") as handle:
         tools = tomllib.load(handle)["tool"]
@@ -46,18 +57,51 @@ def test_release_automation_has_separate_fast_wheel_and_gpu_gates() -> None:
     wheels = (workflows / "wheel-matrix.yml").read_text()
     gpu = (workflows / "gpu-live.yml").read_text()
     release = (workflows / "release.yml").read_text()
+    candidate = (workflows / "release-candidate.yml").read_text()
 
     assert "scripts/check_ruff_ratchet.py" in fast
     assert "pyright" in fast
     assert "onnxruntime" in fast
     assert "scripts/verify_wheel_matrix.py" in wheels
     assert "--live-extension" not in wheels
-    assert "schedule:" in gpu and "release:" in gpu
+    assert "schedule:" in gpu and 'tags: ["v*"]' in gpu
     assert "--live-extension" in gpu
     assert "self-hosted" in gpu
     assert "scripts/build_release.py" in release
     assert "gh-action-pypi-publish" in release
     assert "environment: pypi" in release
+    assert "GITHUB_REF_TYPE" in release
+    assert "needs: [build, verify-gates]" in release
+    for gate in (
+        "PR fast SDK-free checks",
+        "Isolated package and wheel matrix",
+        "Scheduled and release GPU live checks",
+        "Release candidate operator gates",
+    ):
+        assert gate in release
+    assert "scripts/check_release_handoff.py" in candidate
+    assert "scripts/verify_datasets.py" in candidate
+    assert "scripts/benchmark_lifecycle.py" in candidate
+    assert "scripts/verify_wheel_matrix.py" in candidate
+    assert "docker build" in candidate
+    assert "operator imports ok" in candidate
+
+
+def test_release_handoff_gate_rejects_p0_p1_and_merge_markers(tmp_path: Path) -> None:
+    gate = _script("check_release_handoff.py")
+    handoff = tmp_path / "HANDOFF.md"
+    handoff.write_text("# State\n\n## Open work\n\nNo blockers.\n\n## Bring-up\n")
+    gate.validate_handoff(handoff)
+
+    handoff.write_text("# State\n\n## Open work\n\n1. **P1 — broken**\n\n## Bring-up\n")
+    with pytest.raises(RuntimeError, match="release blockers"):
+        gate.validate_handoff(handoff)
+
+    handoff.write_text(
+        "# State\n\n<<<<<<< HEAD\n\n## Open work\n\nNone.\n\n## Bring-up\n"
+    )
+    with pytest.raises(RuntimeError, match="merge marker"):
+        gate.validate_handoff(handoff)
 
 
 def test_release_policy_defines_versioning_deprecation_and_publication() -> None:
@@ -79,22 +123,73 @@ def test_release_builder_uses_clean_sources_and_isolated_pinned_tools() -> None:
     assert builder.BUILD_REQUIREMENTS == (
         "build==1.2.2.post1",
         "twine==6.2.0",
+        "setuptools==81.0.0",
+        "wheel==0.45.1",
+        "packaging==25.0",
+        "toml==0.10.2",
     )
     source = (ROOT / "scripts" / "build_release.py").read_text()
-    assert "shutil.copytree(" in source
+    assert '"ls-files"' in source
+    assert '"--porcelain=v1"' in source
     assert "venv.EnvBuilder(with_pip=True)" in source
-    assert '"__pycache__"' in source
-    assert '"shadowing_probe.py"' in source
+    assert '"--no-isolation"' in source
 
 
-def test_release_builder_excludes_gitignored_diagnostic_modules(tmp_path: Path) -> None:
+def _initialize_repository(repository: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.name", "Test"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+
+
+def test_release_builder_copies_only_tracked_project_files(tmp_path: Path) -> None:
     builder = _script("build_release.py")
-    source = tmp_path / "source"
-    source.mkdir()
+    repository = tmp_path / "repository"
+    source = repository / "source"
+    source.mkdir(parents=True)
+    (repository / ".gitignore").write_text("shadowing_probe.py\n")
     (source / "production.py").write_text("PRODUCTION = True\n")
+    _initialize_repository(repository)
+    subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-q", "-m", "source"], check=True
+    )
     (source / "shadowing_probe.py").write_text("LOCAL_ONLY = True\n")
+    (source / "untracked_local.py").write_text("LOCAL_ONLY = True\n")
 
     copied = builder._copy_project(source, tmp_path / "copied")
 
     assert (copied / "production.py").is_file()
     assert not (copied / "shadowing_probe.py").exists()
+    assert not (copied / "untracked_local.py").exists()
+
+
+def test_release_builder_refuses_dirty_or_untracked_checkout(tmp_path: Path) -> None:
+    builder = _script("build_release.py")
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    _initialize_repository(repository)
+    tracked = repository / "tracked.py"
+    tracked.write_text("VALUE = 1\n")
+    subprocess.run(["git", "-C", str(repository), "add", "tracked.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-q", "-m", "source"], check=True
+    )
+
+    assert (
+        builder._require_clean_checkout(repository)
+        == subprocess.run(
+            ["git", "-C", str(repository), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )
+
+    (repository / "untracked.py").write_text("LOCAL_ONLY = True\n")
+    with pytest.raises(RuntimeError, match="clean Git checkout"):
+        builder._require_clean_checkout(repository)
