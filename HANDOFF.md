@@ -234,10 +234,10 @@ delayed-PD identity.
 The latest committed platform evidence is:
 
 ```text
-1492 passed, 13 skipped, 30 deselected, 1 warning (full tests/ suite)
+1512 passed, 13 skipped, 31 deselected, 1 warning (full tests/ suite)
 Parkour contract subset: 1 passed, 24 deselected
 Pyright: 0 errors, 140 warnings under the Python 3.11 configuration
-Ruff ratchet: 688 findings, below the reviewed maximum of 694
+Ruff ratchet: 677 findings, below the reviewed maximum of 694
 selected-SDK MJLab CUDA sync-debug: partial-group native stiffness changed after
   class-term initialization and motor-power changed from 9 to 2.25 with
   synchronization treated as an error
