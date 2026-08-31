@@ -164,7 +164,9 @@ class LifecycleSpec:
 
     Built-in component contracts are derived from scene and MDP declarations.
     ``components`` is a complete, explicit replacement for a derived contract
-    when a component has stronger semantics than its family default.
+    when a component has stronger semantics than its family default. Keys below
+    ``controller/`` declare application controllers in addition to derived MDP
+    and sensor components.
     """
 
     clocks: tuple[ClockDomainSpec, ...] = ()
@@ -388,6 +390,7 @@ def resolve_lifecycle_contract(
     clocks = task.lifecycle.resolved_clocks(task.sim)
     components = _derived_components(task, clocks)
     unknown = sorted(set(task.lifecycle.components) - set(components))
+    unknown = [name for name in unknown if not name.startswith("controller/")]
     if unknown:
         raise ValueError(
             f"Lifecycle overrides name undeclared components: {unknown}. "
@@ -401,6 +404,27 @@ def resolve_lifecycle_contract(
         raise ValueError(
             f"Lifecycle components refer to unknown clocks: {unknown_clocks}."
         )
+    for name, component in components.items():
+        if not name.startswith("controller/"):
+            continue
+        if name == "controller/":
+            raise ValueError("Lifecycle controller keys must include a name.")
+        if component.state != "snapshot" or component.reset not in {
+            "full",
+            "partial",
+        }:
+            raise ValueError(
+                f"Lifecycle controller {name!r} must declare recoverable state "
+                "and full or partial reset semantics."
+            )
+        if component.phase not in {"pre_step", "pre_physics"}:
+            raise ValueError(
+                f"Lifecycle controller {name!r} must run in pre_step or pre_physics."
+            )
+        if clocks[component.clock].reset != "never":
+            raise ValueError(
+                f"Lifecycle controller {name!r} must use a non-resetting clock."
+            )
     return clocks, components
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, TypeAlias, runtime_checkable
 
@@ -43,6 +44,10 @@ class StatefulController(StatefulComponent, Protocol):
     @property
     def control_dt(self) -> float: ...
 
+    def compute(self, command: Any) -> Any:
+        """Consume one command and return the held native control output."""
+        ...
+
 
 def validate_stateful_component(name: str, component: object) -> None:
     """Fail early when a declared stateful component lacks a required hook."""
@@ -58,6 +63,40 @@ def validate_stateful_component(name: str, component: object) -> None:
         )
 
 
+def validate_stateful_controller(
+    name: str,
+    controller: object,
+    *,
+    expected_control_dt: float,
+) -> None:
+    """Validate controller state hooks, compute entry point, and clock cadence."""
+    validate_stateful_component(name, controller)
+    if not callable(getattr(controller, "compute", None)):
+        raise ComponentContractError(
+            f"Lifecycle controller {name!r} lacks compute(command)."
+        )
+    control_dt = getattr(controller, "control_dt", None)
+    if isinstance(control_dt, bool) or not isinstance(control_dt, (int, float)):
+        raise ComponentContractError(
+            f"Lifecycle controller {name!r} must expose a numeric control_dt."
+        )
+    control_dt = float(control_dt)
+    if not math.isfinite(control_dt) or control_dt <= 0.0:
+        raise ComponentContractError(
+            f"Lifecycle controller {name!r} control_dt must be finite and positive."
+        )
+    if not math.isclose(
+        control_dt,
+        expected_control_dt,
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        raise ComponentContractError(
+            f"Lifecycle controller {name!r} control_dt={control_dt} does not match "
+            f"its declared clock period {expected_control_dt}."
+        )
+
+
 __all__ = [
     "ComponentContractError",
     "ComponentState",
@@ -65,4 +104,5 @@ __all__ = [
     "StatefulComponent",
     "StatefulController",
     "validate_stateful_component",
+    "validate_stateful_controller",
 ]

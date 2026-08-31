@@ -69,7 +69,7 @@ def test_clock_cycles_and_unknown_component_overrides_fail_closed() -> None:
         _task(),
         lifecycle=LifecycleSpec(
             components={
-                "controller/misspelled": ComponentLifecycleSpec(
+                "reward/misspelled": ComponentLifecycleSpec(
                     "policy", "pre_step", "partial", "snapshot"
                 )
             }
@@ -107,3 +107,52 @@ def test_snapshot_state_requires_reset_semantics() -> None:
             reset="stateless",
             state="snapshot",
         )
+
+
+def test_explicit_stateful_controller_is_a_first_class_component() -> None:
+    source = _task()
+    task = replace(
+        source,
+        lifecycle=LifecycleSpec(
+            components={
+                "controller/whole_body": ComponentLifecycleSpec(
+                    "policy", "pre_step", "partial", "snapshot"
+                )
+            }
+        ),
+    )
+
+    _, components = task.lifecycle_contract()
+
+    assert components["controller/whole_body"] == ComponentLifecycleSpec(
+        "policy", "pre_step", "partial", "snapshot"
+    )
+
+
+def test_controller_rejects_stateless_or_post_step_contracts() -> None:
+    source = _task()
+    stateless = replace(
+        source,
+        lifecycle=LifecycleSpec(
+            components={
+                "controller/bad": ComponentLifecycleSpec(
+                    "policy", "pre_step", "stateless", "stateless"
+                )
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="recoverable state"):
+        stateless.lifecycle_contract()
+
+    late = replace(
+        source,
+        lifecycle=LifecycleSpec(
+            components={
+                "controller/bad": ComponentLifecycleSpec(
+                    "policy", "post_step", "partial", "snapshot"
+                )
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="pre_step or pre_physics"):
+        late.lifecycle_contract()

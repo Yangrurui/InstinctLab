@@ -4,6 +4,7 @@ from .component import (
     ComponentContractError,
     StatefulComponent,
     StatefulController,
+    validate_stateful_controller,
 )
 from .runtime import ClockReading, LifecycleRuntime, attach_lifecycle
 from .snapshot import EnvironmentSnapshot, SnapshotError, SnapshotProvider
@@ -30,4 +31,5 @@ __all__ = [
     "TraceError",
     "attach_lifecycle",
     "replay_trace",
+    "validate_stateful_controller",
 ]

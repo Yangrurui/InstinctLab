@@ -35,6 +35,13 @@ class _Stateful:
         self.restored = state
 
 
+class _Controller(_Stateful):
+    control_dt = 0.02
+
+    def compute(self, command):
+        return command
+
+
 class _SnapshotProvider:
     provider_id = "test/native"
     provider_version = 1
@@ -119,6 +126,35 @@ def test_stateful_component_contract_is_fail_closed_and_reset_owner_is_explicit(
     runtime.on_reset(torch.tensor([2]))
     assert len(component.reset_ids) == 1
     assert component.reset_ids[0].tolist() == [2]
+
+
+def test_stateful_controller_contract_checks_compute_state_and_clock() -> None:
+    source = _task()
+    task = replace(
+        source,
+        lifecycle=LifecycleSpec(
+            components={
+                "controller/whole_body": ComponentLifecycleSpec(
+                    "policy", "pre_step", "partial", "snapshot"
+                )
+            }
+        ),
+    )
+    runtime = LifecycleRuntime(_Env(), task, engine="test")
+    controller = _Controller()
+    runtime.register_component(
+        "controller/whole_body",
+        controller,
+        managed_reset=True,
+    )
+    assert controller.compute(torch.tensor([1.0])).tolist() == [1.0]
+
+    controller.control_dt = 0.01
+    with pytest.raises(ComponentContractError, match="declared clock period"):
+        LifecycleRuntime(_Env(), task, engine="test").register_component(
+            "controller/whole_body",
+            controller,
+        )
 
 
 def test_clock_state_restore_validates_vectorization_shape() -> None:

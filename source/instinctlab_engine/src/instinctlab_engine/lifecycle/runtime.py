@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
-from .component import validate_stateful_component
+from .component import validate_stateful_component, validate_stateful_controller
 from .snapshot import EnvironmentSnapshot, SnapshotError, SnapshotProvider
 
 if TYPE_CHECKING:
@@ -142,7 +142,16 @@ class LifecycleRuntime:
                 f"Lifecycle component {name!r} is already bound to "
                 f"{type(existing.value).__name__}."
             )
-        if contract.state == "snapshot":
+        if name.startswith("controller/"):
+            clock = self.clocks[contract.clock]
+            validate_stateful_controller(
+                name,
+                component,
+                expected_control_dt=(
+                    float(clock.period_physics_steps) * self.physics_dt
+                ),
+            )
+        elif contract.state == "snapshot":
             validate_stateful_component(name, component)
         elif managed_reset and not callable(getattr(component, "reset", None)):
             raise RuntimeError(
