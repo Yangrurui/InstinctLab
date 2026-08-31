@@ -426,7 +426,9 @@ def main() -> int:
     app = selected.bootstrap(args)
     try:
         result = _run(args, selected)
-    except BaseException:
+    # Preserve every nonzero probe exit through Isaac Kit shutdown, including
+    # process-control exceptions that do not inherit from Exception.
+    except BaseException:  # noqa: BLE001
         traceback.print_exc()
         return selected.finalize_process(1)
     print(json.dumps(result, sort_keys=True), flush=True)
