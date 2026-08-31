@@ -167,7 +167,15 @@ class MjlabVecEnvWrapper(VecEnv):
             rewards = torch.stack(list(rewards.values()), dim=-1)
         if rewards.ndim == 1:
             rewards = rewards.unsqueeze(1)
-        return packed_obs["policy"], rewards, dones, extras
+        policy_observation = packed_obs["policy"]
+        self.lifecycle.record_transition(
+            actions=actions,
+            observations=policy_observation,
+            rewards=rewards,
+            dones=dones,
+            timeouts=extras.get("time_outs"),
+        )
+        return policy_observation, rewards, dones, extras
 
     def close(self) -> None:
         self.env.close()

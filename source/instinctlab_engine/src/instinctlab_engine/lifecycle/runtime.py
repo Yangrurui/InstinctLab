@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     )
     from instinctlab_engine.spec.task import TaskSpec
 
+    from .trace import EpisodeTrace, EpisodeTraceRecorder
+
 
 @dataclass(frozen=True, slots=True)
 class ClockReading:
@@ -98,6 +100,7 @@ class LifecycleRuntime:
         )
         self._registered: dict[str, _RegisteredComponent] = {}
         self._snapshot_provider: SnapshotProvider | None = None
+        self._trace_recorder: EpisodeTraceRecorder | None = None
 
     @property
     def manifest(self) -> dict[str, Any]:
@@ -179,6 +182,8 @@ class LifecycleRuntime:
 
     def restore(self, snapshot: EnvironmentSnapshot) -> None:
         """Restore a compatible snapshot without invoking reset randomization."""
+        if self.trace_active:
+            raise SnapshotError("Cannot restore while an episode trace is active.")
         if self._step_open:
             raise SnapshotError("Cannot restore a snapshot while a policy step is open.")
         provider = self._require_snapshot_provider()
@@ -220,6 +225,80 @@ class LifecycleRuntime:
             )
         self._reset_during_step.zero_()
 
+    @property
+    def trace_active(self) -> bool:
+        return self._trace_recorder is not None
+
+    def start_trace(
+        self,
+        env_ids: Any = None,
+        *,
+        require_episode_start: bool = True,
+    ) -> None:
+        """Begin recording selected episodes from a recoverable snapshot."""
+        import torch
+
+        from .trace import EpisodeTraceRecorder, TraceError
+
+        if self._step_open:
+            raise TraceError("Cannot start a trace while a policy step is open.")
+        if self._trace_recorder is not None:
+            raise TraceError("An episode trace is already active.")
+        resolved = self._resolve_env_ids(env_ids)
+        if isinstance(resolved, slice):
+            resolved = torch.arange(self.num_envs, device=self.device)[resolved]
+        elif resolved.dtype == torch.bool:
+            resolved = resolved.nonzero(as_tuple=False).flatten()
+        else:
+            if bool((resolved < 0).any()) or bool((resolved >= self.num_envs).any()):
+                raise TraceError("Episode trace environment index is out of range.")
+        resolved = resolved.to(dtype=torch.long).flatten()
+        if resolved.numel() == 0:
+            raise TraceError("An episode trace must select at least one environment.")
+        if resolved.unique().numel() != resolved.numel():
+            raise TraceError("Episode trace environment indices must be unique.")
+        if require_episode_start and bool(
+            (self.episode_physics_tick[resolved] != 0).any()
+        ):
+            active = resolved[self.episode_physics_tick[resolved] != 0].tolist()
+            raise TraceError(
+                f"Episode trace must start at an episode boundary; active env_ids={active}."
+            )
+        initial_snapshot = self.snapshot(metadata={"purpose": "episode-trace"})
+        self._trace_recorder = EpisodeTraceRecorder(
+            self, resolved, initial_snapshot
+        )
+
+    def record_transition(
+        self,
+        *,
+        actions: Any,
+        observations: Any,
+        rewards: Any,
+        dones: Any,
+        timeouts: Any = None,
+    ) -> None:
+        """Record the normalized RL-boundary output when tracing is active."""
+        if self._trace_recorder is None:
+            return
+        self._trace_recorder.record(
+            actions=actions,
+            observations=observations,
+            rewards=rewards,
+            dones=dones,
+            timeouts=timeouts,
+        )
+
+    def stop_trace(self, *, require_complete: bool = True) -> EpisodeTrace:
+        """Finish the active trace, retaining it if completeness validation fails."""
+        from .trace import TraceError
+
+        if self._trace_recorder is None:
+            raise TraceError("No episode trace is active.")
+        trace = self._trace_recorder.finish(require_complete=require_complete)
+        self._trace_recorder = None
+        return trace
+
     def before_step(self) -> None:
         """Open one policy transition before native managers consume actions."""
         if self._step_open:
@@ -230,6 +309,8 @@ class LifecycleRuntime:
     def on_reset(self, env_ids: Any = None) -> None:
         """Record a native full/partial reset and reset managed components."""
         ids = self._resolve_env_ids(env_ids)
+        if self._trace_recorder is not None and not self._step_open:
+            self._trace_recorder.invalidate("an external reset occurred")
         self.episode_id[ids] += 1
         self.episode_physics_tick[ids] = 0
         self.reset_count[ids] += 1
@@ -268,6 +349,8 @@ class LifecycleRuntime:
 
     def cancel_step(self) -> None:
         """Close a failed native step without advancing time."""
+        if self._trace_recorder is not None:
+            self._trace_recorder.invalidate("a native step failed")
         self._step_open = False
         self._reset_during_step.zero_()
 

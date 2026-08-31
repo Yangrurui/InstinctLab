@@ -53,47 +53,12 @@ class EnvironmentSnapshot:
 
     def save(self, path: str | Path) -> Path:
         """Persist without pickle, replacing the destination atomically."""
-        destination = Path(path)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        arrays: dict[str, np.ndarray] = {}
-        document = _encode_tree(self.to_dict(), arrays)
-        arrays["__metadata__"] = np.asarray(
-            json.dumps(document, sort_keys=True, separators=(",", ":"))
-        )
-        with tempfile.NamedTemporaryFile(
-            dir=destination.parent,
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            temporary_path = Path(temporary.name)
-            np.savez_compressed(temporary, **arrays)
-        try:
-            os.replace(temporary_path, destination)
-        except Exception:
-            temporary_path.unlink(missing_ok=True)
-            raise
-        return destination
+        return save_archive(path, self.to_dict())
 
     @classmethod
     def load(cls, path: str | Path) -> EnvironmentSnapshot:
         """Load a schema-checked snapshot without executing serialized code."""
-        source = Path(path)
-        try:
-            with np.load(source, allow_pickle=False) as archive:
-                if "__metadata__" not in archive.files:
-                    raise SnapshotError("Snapshot archive has no metadata document.")
-                document = json.loads(str(archive["__metadata__"].item()))
-                arrays = {
-                    name: archive[name].copy()
-                    for name in archive.files
-                    if name != "__metadata__"
-                }
-        except SnapshotError:
-            raise
-        except Exception as exc:
-            raise SnapshotError(f"Cannot load snapshot {source}: {exc}") from exc
-        value = _decode_tree(document, arrays)
+        value = load_archive(path)
         if not isinstance(value, dict):
             raise SnapshotError("Snapshot root must be a mapping.")
         try:
@@ -114,6 +79,51 @@ class EnvironmentSnapshot:
             "component_states": dict(self.component_states),
             "metadata": dict(self.metadata),
         }
+
+
+def save_archive(path: str | Path, value: Any) -> Path:
+    """Save a tensor tree to one atomic NPZ archive without pickle."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    arrays: dict[str, np.ndarray] = {}
+    document = _encode_tree(value, arrays)
+    arrays["__metadata__"] = np.asarray(
+        json.dumps(document, sort_keys=True, separators=(",", ":"))
+    )
+    with tempfile.NamedTemporaryFile(
+        dir=destination.parent,
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+        np.savez_compressed(temporary, **arrays)
+    try:
+        os.replace(temporary_path, destination)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return destination
+
+
+def load_archive(path: str | Path) -> Any:
+    """Load a tensor tree saved by :func:`save_archive` without code execution."""
+    source = Path(path)
+    try:
+        with np.load(source, allow_pickle=False) as archive:
+            if "__metadata__" not in archive.files:
+                raise SnapshotError("Lifecycle archive has no metadata document.")
+            document = json.loads(str(archive["__metadata__"].item()))
+            arrays = {
+                name: archive[name].copy()
+                for name in archive.files
+                if name != "__metadata__"
+            }
+    except SnapshotError:
+        raise
+    except Exception as exc:
+        raise SnapshotError(f"Cannot load lifecycle archive {source}: {exc}") from exc
+    return _decode_tree(document, arrays)
 
 
 def _encode_tree(value: Any, arrays: dict[str, np.ndarray]) -> Any:
@@ -205,4 +215,6 @@ __all__ = [
     "EnvironmentSnapshot",
     "SnapshotError",
     "SnapshotProvider",
+    "load_archive",
+    "save_archive",
 ]

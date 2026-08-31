@@ -203,6 +203,13 @@ class InstinctRlVecEnvWrapper(VecEnv):
             # returned by regular reward manager
             # make sure rewards are always in shape of [batch, num_rewards]
             rew = rew.unsqueeze(1)
+        self.lifecycle.record_transition(
+            actions=actions,
+            observations=obs,
+            rewards=rew,
+            dones=dones,
+            timeouts=extras.get("time_outs"),
+        )
         return obs, rew, dones, extras
 
     def close(self):  # noqa: D102
