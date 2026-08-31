@@ -56,8 +56,23 @@ def _check_file(path: Path, expected: str) -> dict[str, Any]:
     }
 
 
+def _resolve_below(root: Path, relative: str, *, field: str) -> Path:
+    """Resolve one manifest path without allowing it to leave its dataset."""
+    if not relative or "\\" in relative or Path(relative).is_absolute():
+        raise ValueError(f"Dataset {field} must be a portable relative path: {relative!r}.")
+    root = root.resolve()
+    resolved = (root / relative).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"Dataset {field} escapes dataset root {root}: {relative!r}."
+        ) from exc
+    return resolved
+
+
 def _check_conversion_index(root: Path, relative: str) -> list[dict[str, Any]]:
-    index_path = (root / relative).resolve()
+    index_path = _resolve_below(root, relative, field="conversion_index")
     payload = json.loads(index_path.read_text())
     files = payload.get("files")
     if not isinstance(files, list) or not files:
@@ -68,7 +83,12 @@ def _check_conversion_index(root: Path, relative: str) -> list[dict[str, Any]]:
         checksum = item.get("target_sha256")
         if not isinstance(target, str) or not isinstance(checksum, str):
             raise TypeError(f"Malformed conversion entry in {index_path}: {item!r}")
-        checked.append(_check_file((root / target).resolve(), checksum))
+        checked.append(
+            _check_file(
+                _resolve_below(root, target, field="conversion target"),
+                checksum,
+            )
+        )
     return checked
 
 
@@ -89,7 +109,12 @@ def verify_dataset(name: str, declaration: dict[str, Any]) -> dict[str, Any]:
     for relative, checksum in resources.items():
         if not isinstance(relative, str) or not isinstance(checksum, str):
             raise TypeError(f"Dataset {name!r} has a malformed resource declaration.")
-        checked.append(_check_file((root / relative).resolve(), checksum))
+        checked.append(
+            _check_file(
+                _resolve_below(root, relative, field="resource"),
+                checksum,
+            )
+        )
 
     conversion_index = declaration.get("conversion_index")
     if conversion_index is not None:
