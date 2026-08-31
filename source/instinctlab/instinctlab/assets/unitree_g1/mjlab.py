@@ -101,23 +101,6 @@ G1_29DOF_DFS_JOINT_NAMES = (
     "right_wrist_pitch_joint",
     "right_wrist_yaw_joint",
 )
-G1_15DOF_DFS_JOINT_NAMES = (
-    "waist_pitch_joint",
-    "waist_roll_joint",
-    "waist_yaw_joint",
-    "left_hip_pitch_joint",
-    "left_hip_roll_joint",
-    "left_hip_yaw_joint",
-    "left_knee_joint",
-    "left_ankle_pitch_joint",
-    "left_ankle_roll_joint",
-    "right_hip_pitch_joint",
-    "right_hip_roll_joint",
-    "right_hip_yaw_joint",
-    "right_knee_joint",
-    "right_ankle_pitch_joint",
-    "right_ankle_roll_joint",
-)
 G1_29DOF_DFS_BODY_NAMES = (
     "torso_link",
     "waist_roll_link",
@@ -510,159 +493,6 @@ G1_29DOF_JOINT_PROPERTIES = (
     ),
 )
 
-G1_15DOF_JOINT_PROPERTIES = (
-    MjlabJointCfg(
-        name="waist_pitch_joint",
-        default_pos=0.0,
-        stiffness=28.50124619574858,
-        damping=1.814445686584846,
-        armature=0.00721945,
-        effort_limit=50.0,
-        velocity_limit=37.0,
-        action_scale=0.43857731392336724,
-    ),
-    MjlabJointCfg(
-        name="waist_roll_joint",
-        default_pos=0.0,
-        stiffness=28.50124619574858,
-        damping=1.814445686584846,
-        armature=0.00721945,
-        effort_limit=50.0,
-        velocity_limit=37.0,
-        action_scale=0.43857731392336724,
-    ),
-    MjlabJointCfg(
-        name="waist_yaw_joint",
-        default_pos=0.0,
-        stiffness=40.17923847137318,
-        damping=2.5578897650279457,
-        armature=0.01017752,
-        effort_limit=88.0,
-        velocity_limit=32.0,
-        action_scale=0.5475464652142303,
-    ),
-    MjlabJointCfg(
-        name="left_hip_pitch_joint",
-        default_pos=-0.312,
-        stiffness=40.17923847137318,
-        damping=2.5578897650279457,
-        armature=0.01017752,
-        effort_limit=88.0,
-        velocity_limit=32.0,
-        action_scale=0.5475464652142303,
-    ),
-    MjlabJointCfg(
-        name="left_hip_roll_joint",
-        default_pos=0.0,
-        stiffness=99.09842777666113,
-        damping=6.3088018534966395,
-        armature=0.025101925,
-        effort_limit=139.0,
-        velocity_limit=20.0,
-        action_scale=0.3506614663788243,
-    ),
-    MjlabJointCfg(
-        name="left_hip_yaw_joint",
-        default_pos=0.0,
-        stiffness=40.17923847137318,
-        damping=2.5578897650279457,
-        armature=0.01017752,
-        effort_limit=88.0,
-        velocity_limit=32.0,
-        action_scale=0.5475464652142303,
-    ),
-    MjlabJointCfg(
-        name="left_knee_joint",
-        default_pos=0.669,
-        stiffness=99.09842777666113,
-        damping=6.3088018534966395,
-        armature=0.025101925,
-        effort_limit=139.0,
-        velocity_limit=20.0,
-        action_scale=0.3506614663788243,
-    ),
-    MjlabJointCfg(
-        name="left_ankle_pitch_joint",
-        default_pos=-0.363,
-        stiffness=28.50124619574858,
-        damping=1.814445686584846,
-        armature=0.00721945,
-        effort_limit=50.0,
-        velocity_limit=37.0,
-        action_scale=0.43857731392336724,
-    ),
-    MjlabJointCfg(
-        name="left_ankle_roll_joint",
-        default_pos=0.0,
-        stiffness=28.50124619574858,
-        damping=1.814445686584846,
-        armature=0.00721945,
-        effort_limit=50.0,
-        velocity_limit=37.0,
-        action_scale=0.43857731392336724,
-    ),
-    MjlabJointCfg(
-        name="right_hip_pitch_joint",
-        default_pos=-0.312,
-        stiffness=40.17923847137318,
-        damping=2.5578897650279457,
-        armature=0.01017752,
-        effort_limit=88.0,
-        velocity_limit=32.0,
-        action_scale=0.5475464652142303,
-    ),
-    MjlabJointCfg(
-        name="right_hip_roll_joint",
-        default_pos=0.0,
-        stiffness=99.09842777666113,
-        damping=6.3088018534966395,
-        armature=0.025101925,
-        effort_limit=139.0,
-        velocity_limit=20.0,
-        action_scale=0.3506614663788243,
-    ),
-    MjlabJointCfg(
-        name="right_hip_yaw_joint",
-        default_pos=0.0,
-        stiffness=40.17923847137318,
-        damping=2.5578897650279457,
-        armature=0.01017752,
-        effort_limit=88.0,
-        velocity_limit=32.0,
-        action_scale=0.5475464652142303,
-    ),
-    MjlabJointCfg(
-        name="right_knee_joint",
-        default_pos=0.669,
-        stiffness=99.09842777666113,
-        damping=6.3088018534966395,
-        armature=0.025101925,
-        effort_limit=139.0,
-        velocity_limit=20.0,
-        action_scale=0.3506614663788243,
-    ),
-    MjlabJointCfg(
-        name="right_ankle_pitch_joint",
-        default_pos=-0.363,
-        stiffness=28.50124619574858,
-        damping=1.814445686584846,
-        armature=0.00721945,
-        effort_limit=50.0,
-        velocity_limit=37.0,
-        action_scale=0.43857731392336724,
-    ),
-    MjlabJointCfg(
-        name="right_ankle_roll_joint",
-        default_pos=0.0,
-        stiffness=28.50124619574858,
-        damping=1.814445686584846,
-        armature=0.00721945,
-        effort_limit=50.0,
-        velocity_limit=37.0,
-        action_scale=0.43857731392336724,
-    ),
-)
-
 _G1_MIRRORED_JOINT_NAMES = {
     "waist_pitch_joint": "waist_pitch_joint",
     "waist_roll_joint": "waist_roll_joint",
@@ -953,68 +783,10 @@ G1_29DOF_PARKOUR_CFG = MjlabRobotCfg(
 )
 
 
-G1_15DOF_LOCKED_ARMS_CFG = MjlabRobotCfg(
-    name="unitree_g1_15dof_locked_arms",
-    schema_version="dfs_v1",
-    asset_id="unitree_g1/popsicle_torsobase_locked_arms_v1",
-    root_body="torso_link",
-    joint_names=G1_15DOF_DFS_JOINT_NAMES,
-    body_names=G1_29DOF_DFS_BODY_NAMES,
-    frame_names=G1_29DOF_DFS_FRAME_NAMES,
-    collision_body_names=G1_29DOF_DFS_COLLISION_BODY_NAMES,
-    joint_properties=G1_15DOF_JOINT_PROPERTIES,
-    mjcf_path=str(
-        RESOURCE_ROOT / "xml" / "g1_15dof_torsobase_popsicle_locked_arms.xml"
-    ),
-    contact_body_aliases={
-        "LL_FOOT": "left_ankle_roll_link",
-        "LR_FOOT": "right_ankle_roll_link",
-    },
-    load_mode="strip_visual_meshes",
-    default_root_pos=(0.0, 0.0, 0.82),
-    default_root_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
-    soft_joint_pos_limit_factor=0.9,
-    actuator_delay=(0, 0),
-    actuator_model_ids=("mjlab.builtin_pd.v1",),
-    actuator_group_count=5,
-    actuator_groups=(
-        NativeActuatorGroup(
-            name="0",
-            model_id="mjlab.builtin_pd.v1",
-            selectors=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
-        ),
-        NativeActuatorGroup(
-            name="1",
-            model_id="mjlab.builtin_pd.v1",
-            selectors=("waist_yaw_joint",),
-        ),
-        NativeActuatorGroup(
-            name="2",
-            model_id="mjlab.builtin_pd.v1",
-            selectors=(".*_hip_roll_joint", ".*_knee_joint"),
-        ),
-        NativeActuatorGroup(
-            name="3",
-            model_id="mjlab.builtin_pd.v1",
-            selectors=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
-        ),
-        NativeActuatorGroup(
-            name="4",
-            model_id="mjlab.builtin_pd.v1",
-            selectors=("waist_roll_joint", "waist_pitch_joint"),
-        ),
-    ),
-    length_unit="m",
-    angle_unit="rad",
-    effort_unit="N*m",
-)
-
-
 NATIVE_CONFIGS = {
     "popsicle_torsobase_v1": G1_29DOF_CFG,
     "popsicle_torsobase_shadowing_v1": G1_29DOF_SHADOWING_CFG,
     "popsicle_torsobase_parkour_v1": G1_29DOF_PARKOUR_CFG,
-    "popsicle_torsobase_locked_arms_v1": G1_15DOF_LOCKED_ARMS_CFG,
 }
 
 
@@ -1160,7 +932,6 @@ ENTITIES = frozenset(
         "popsicle_torsobase_v1",
         "popsicle_torsobase_shadowing_v1",
         "popsicle_torsobase_parkour_v1",
-        "popsicle_torsobase_locked_arms_v1",
     }
 )
 
@@ -1224,49 +995,6 @@ def beyondmimic_actuator_cfgs(
             stiffness=STIFFNESS_4010,
             damping=DAMPING_4010,
             armature=ARMATURE_4010,
-        ),
-    )
-
-
-def g1_15dof_locked_arms_actuator_cfgs(
-    actuator_cfg_type,
-) -> tuple[object, ...]:
-    """Build MJLab's five explicit actuator groups for the locked-arm G1."""
-    return (
-        actuator_cfg_type(
-            target_names_expr=(".*_hip_pitch_joint", ".*_hip_yaw_joint"),
-            effort_limit=88.0,
-            stiffness=40.17923847137318,
-            damping=2.5578897650279457,
-            armature=0.01017752,
-        ),
-        actuator_cfg_type(
-            target_names_expr=("waist_yaw_joint",),
-            effort_limit=88.0,
-            stiffness=40.17923847137318,
-            damping=2.5578897650279457,
-            armature=0.01017752,
-        ),
-        actuator_cfg_type(
-            target_names_expr=(".*_hip_roll_joint", ".*_knee_joint"),
-            effort_limit=139.0,
-            stiffness=99.09842777666113,
-            damping=6.3088018534966395,
-            armature=0.025101925,
-        ),
-        actuator_cfg_type(
-            target_names_expr=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
-            effort_limit=50.0,
-            stiffness=28.50124619574858,
-            damping=1.814445686584846,
-            armature=0.00721945,
-        ),
-        actuator_cfg_type(
-            target_names_expr=("waist_roll_joint", "waist_pitch_joint"),
-            effort_limit=50.0,
-            stiffness=28.50124619574858,
-            damping=1.814445686584846,
-            armature=0.00721945,
         ),
     )
 
@@ -1366,7 +1094,6 @@ ACTUATOR_CONFIGS = {
     "popsicle_torsobase_v1": beyondmimic_actuator_cfgs,
     "popsicle_torsobase_shadowing_v1": beyondmimic_actuator_cfgs,
     "popsicle_torsobase_parkour_v1": beyondmimic_delayed_actuator_cfgs,
-    "popsicle_torsobase_locked_arms_v1": g1_15dof_locked_arms_actuator_cfgs,
 }
 
 
@@ -1452,6 +1179,5 @@ __all__ = [
     "beyondmimic_actuator_cfgs",
     "beyondmimic_delayed_actuator_cfgs",
     "entity",
-    "g1_15dof_locked_arms_actuator_cfgs",
     "native_config",
 ]
